@@ -89,11 +89,11 @@ func TestClassifyDispatchError_PolicyPinUnavailableIs503WithTypedReason(t *testi
 
 func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{telemetry: sink}
+	svc := &Service{hmmServing: hmmPorts(), telemetry: sink}
 	installationID := uuid.New()
 	ctx := context.WithValue(pinnedContext(true), InstallationIDContextKey{}, installationID.String())
 
-	svc.recordPolicyPinRouteFailure(ctx, "req-pin", time.Now(), "claude-sonnet-5", turntype.TurnType("interactive"), true, router.ErrPolicyPinUnavailable)
+	svc.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: "req-pin", RequestStart: time.Now(), RequestedModel: "claude-sonnet-5", Strategy: router.StrategyFromContext(ctx)}, turntype.TurnType("interactive"), true, router.ErrPolicyPinUnavailable)
 
 	select {
 	case <-sink.notify:
@@ -113,10 +113,10 @@ func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 
 func TestRecordPolicyPinRouteFailureIsSilentWithoutAPin(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{telemetry: sink}
+	svc := &Service{hmmServing: hmmPorts(), telemetry: sink}
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
 
-	svc.recordPolicyPinRouteFailure(ctx, "req-plain", time.Now(), "claude-sonnet-5", turntype.TurnType("interactive"), false, errors.New("routing failed"))
+	svc.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: "req-plain", RequestStart: time.Now(), RequestedModel: "claude-sonnet-5", Strategy: router.StrategyFromContext(ctx)}, turntype.TurnType("interactive"), false, errors.New("routing failed"))
 
 	select {
 	case <-sink.notify:
@@ -138,7 +138,7 @@ func (r *countingPinnedRouter) Route(context.Context, router.Request) (router.De
 func pinnedTurnLoopService(t *testing.T, rt router.Router, store sessionpin.Store) *Service {
 	t.Helper()
 	clients := map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderOpenAI: nil}
-	return NewService(rt, clients, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	return withHMMPorts(NewService(rt, clients, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 }
 
 func pinnedTurnLoopEnvelope(t *testing.T) (*translate.RequestEnvelope, translate.RoutingFeatures) {
@@ -160,7 +160,7 @@ func TestRunTurnLoop_HonouredPinBypassesStickyPinAndScoresFresh(t *testing.T) {
 	}}
 	svc := pinnedTurnLoopService(t, rt, store)
 
-	res, err := svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
+	res, err := svc.runTurnLoop(pinnedContext(true), env, feats, testTurnRequest(pinnedContext(true), "key", uuid.Nil), "", nil, router.Request{RequestedModel: feats.Model})
 	require.NoError(t, err)
 	assert.Equal(t, 1, rt.calls, "a pinned turn must be scored by the pinned policy, not served from the sticky pin")
 	assert.Equal(t, "gpt-5.5", res.Decision.Model)
@@ -169,7 +169,7 @@ func TestRunTurnLoop_HonouredPinBypassesStickyPinAndScoresFresh(t *testing.T) {
 	require.NotNil(t, res.Decision.Metadata)
 	assert.True(t, res.Decision.Metadata.PolicyPinHonoured)
 
-	unpinnedRes, err := svc.runTurnLoop(context.Background(), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
+	unpinnedRes, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key", uuid.Nil), "", nil, router.Request{RequestedModel: feats.Model})
 	require.NoError(t, err)
 	assert.Equal(t, stickyModel, unpinnedRes.Decision.Model, "without a pin the sticky session pin still serves")
 }
@@ -185,19 +185,19 @@ func TestRunTurnLoop_HonouredPinKeepsSessionIdentity(t *testing.T) {
 	svc := pinnedTurnLoopService(t, rt, store)
 	var zeroKey [sessionpin.SessionKeyLen]byte
 
-	first, err := svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
+	first, err := svc.runTurnLoop(pinnedContext(true), env, feats, testTurnRequest(pinnedContext(true), "key", uuid.Nil), "", nil, router.Request{RequestedModel: feats.Model})
 	require.NoError(t, err)
 	assert.NotEqual(t, zeroKey, first.SessionKey, "a pinned turn must keep the thread session key for telemetry and history writeback")
 	assert.True(t, first.SessionFirstTurn, "no stored pin state is the session's first turn")
 
 	store.byRole[role] = sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-5", Reason: "hmm_policy", PinnedUntil: time.Now().Add(time.Hour)}
-	later, err := svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
+	later, err := svc.runTurnLoop(pinnedContext(true), env, feats, testTurnRequest(pinnedContext(true), "key", uuid.Nil), "", nil, router.Request{RequestedModel: feats.Model})
 	require.NoError(t, err)
 	assert.Equal(t, first.SessionKey, later.SessionKey)
 	assert.False(t, later.SessionFirstTurn)
 	assert.Equal(t, "gpt-5.5", later.Decision.Model, "session state is carried, not consulted for the decision")
 
-	noStore, err := pinnedTurnLoopService(t, rt, nil).runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
+	noStore, err := pinnedTurnLoopService(t, rt, nil).runTurnLoop(pinnedContext(true), env, feats, testTurnRequest(pinnedContext(true), "key", uuid.Nil), "", nil, router.Request{RequestedModel: feats.Model})
 	require.NoError(t, err)
 	assert.Equal(t, zeroKey, noStore.SessionKey, "no-pin-store mode keeps the session key zero")
 	assert.False(t, noStore.SessionFirstTurn)
@@ -215,7 +215,7 @@ func TestRunTurnLoop_HonouredPinClassifierKeepsSessionKeyZero(t *testing.T) {
 	svc := pinnedTurnLoopService(t, rt, store)
 	var zeroKey [sessionpin.SessionKeyLen]byte
 
-	res, err := svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
+	res, err := svc.runTurnLoop(pinnedContext(true), env, feats, testTurnRequest(pinnedContext(true), "key", uuid.Nil), "", nil, router.Request{RequestedModel: feats.Model})
 	require.NoError(t, err)
 	assert.Equal(t, turntype.Classifier, res.TurnType)
 	assert.Equal(t, 1, rt.calls, "a pinned classifier is still scored by the pinned policy")
@@ -234,12 +234,12 @@ func TestRunTurnLoop_HonouredPinBypassesForceModel(t *testing.T) {
 	svc := pinnedTurnLoopService(t, rt, &rolePinStore{byRole: map[string]sessionpin.Pin{}})
 	req := router.Request{RequestedModel: feats.Model, ForceModel: "claude-sonnet-5"}
 
-	res, err := svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil, req)
+	res, err := svc.runTurnLoop(pinnedContext(true), env, feats, testTurnRequest(pinnedContext(true), "key", uuid.Nil), "", nil, req)
 	require.NoError(t, err)
 	assert.Equal(t, 1, rt.calls)
 	assert.Equal(t, "gpt-5.5", res.Decision.Model, "/force-model must not outrank an honoured policy pin")
 
-	forced, err := svc.runTurnLoop(context.Background(), env, feats, "key", uuid.Nil, "", nil, req)
+	forced, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key", uuid.Nil), "", nil, req)
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-5", forced.Decision.Model)
 	assert.Equal(t, 1, rt.calls)
@@ -258,8 +258,9 @@ func TestRunTurnLoop_HonouredPinScoresAutomaticProbesWithoutConversationState(t 
 				}}
 				store := newStubPinStore()
 				svc := pinnedTurnLoopService(t, rt, store)
-				res, err := svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil,
+				res, err := svc.runTurnLoop(pinnedContext(true), env, feats, testTurnRequest(pinnedContext(true), "key", uuid.Nil), "", nil,
 					router.Request{RequestedModel: model, ForceModel: forceModel})
+
 				require.NoError(t, err)
 				assert.Equal(t, 1, rt.calls)
 				assert.Equal(t, catalog.ModelIDGPT55.String(), res.Decision.Model)
@@ -269,8 +270,9 @@ func TestRunTurnLoop_HonouredPinScoresAutomaticProbesWithoutConversationState(t 
 				assert.False(t, res.UsageBypass)
 				assert.False(t, res.StickyHit)
 				rt.decision.Metadata = nil
-				_, err = svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil,
+				_, err = svc.runTurnLoop(pinnedContext(true), env, feats, testTurnRequest(pinnedContext(true), "key", uuid.Nil), "", nil,
 					router.Request{RequestedModel: model, ForceModel: forceModel})
+
 				require.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
 				store.mu.Lock()
 				defer store.mu.Unlock()
@@ -289,10 +291,10 @@ func TestRunTurnLoop_HonouredPinNeverServes200WithHonouredFalse(t *testing.T) {
 	rt := &countingPinnedRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-5"}}
 	svc := pinnedTurnLoopService(t, rt, &rolePinStore{byRole: map[string]sessionpin.Pin{}})
 
-	_, err := svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
+	_, err := svc.runTurnLoop(pinnedContext(true), env, feats, testTurnRequest(pinnedContext(true), "key", uuid.Nil), "", nil, router.Request{RequestedModel: feats.Model})
 	require.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
 
-	_, err = svc.runTurnLoop(pinnedContext(false), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
+	_, err = svc.runTurnLoop(pinnedContext(false), env, feats, testTurnRequest(pinnedContext(false), "key", uuid.Nil), "", nil, router.Request{RequestedModel: feats.Model})
 	assert.NoError(t, err, "an unauthorized pin must not fail the turn")
 }
 

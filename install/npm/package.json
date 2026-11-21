@@ -1,6 +1,6 @@
 {
   "name": "@weave-os/router",
-  "version": "0.2.38",
+  "version": "0.2.39",
   "description": "One-command installer that points Claude Code, Codex, opencode, or pi at the Weave Router. For pi it also ships the routing extension, loaded via pi.extensions.",
   "bin": {
     "weave-router": "bin.js",
@@ -17,6 +17,7 @@
   "files": [
     "bin.js",
     "windows.js",
+    "vscode.js",
     "install.sh",
     "uninstall.sh",
     "desktop-shim.js",
@@ -89,6 +90,7 @@
   "dependencies": {
     "@decimalturn/toml-patch": "3.3.0",
     "isomorphic-git": "1.43.1",
+    "jsonc-parser": "3.3.1",
     "smol-toml": "1.9.0"
   }
 }

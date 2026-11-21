@@ -130,7 +130,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			"warn", "Subscription account pool exhausted"), true
 	case errors.Is(err, ErrSubscriptionPoolThrottled):
 		return refusalClass(DispatchErrorSubscriptionPoolThrottled, refusal.SubscriptionPoolThrottled,
-			"All enrolled subscription accounts are rate-limited. Retry shortly.",
+			subscriptionPoolThrottledMessage,
 			"warn", "Subscription account pool throttled"), true
 	case errors.Is(err, ErrSubscriptionPoolUnavailable):
 		return refusalClass(DispatchErrorSubscriptionPoolUnavailable, refusal.SubscriptionPoolUnavailable,

@@ -2,32 +2,15 @@ package proxy
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
 )
-
-func TestEscalationActivationPreservesLegacyIdentityAndIsolatesManagedState(t *testing.T) {
-	installationID := uuid.New()
-	const material = "credential/strategy/active/1"
-	mac := hmac.New(sha256.New, installationID[:])
-	_, _ = mac.Write([]byte(material))
-	legacy := escalationActivationID(context.Background(), installationID, material)
-	require.Equal(t, mac.Sum(nil), legacy[:], "legacy continuation lookup must keep its existing identity")
-	old := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{StateNamespace: "release-a-generation-1"})
-	rebound := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{StateNamespace: "release-a-generation-2"})
-	oldActivation := escalationActivationID(old, installationID, material)
-	require.NotEqual(t, legacy, oldActivation)
-	require.NotEqual(t, oldActivation, escalationActivationID(rebound, installationID, material))
-	require.Equal(t, oldActivation, escalationActivationID(old, installationID, material))
-}
 
 func TestManagedCredentialRotationPreservesStateWithoutCrossInstallationLeakage(t *testing.T) {
 	env, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"task"}]}`))
@@ -77,7 +60,7 @@ func TestManagedRebindIsolatesLearnedStateAndPreservesForceIntent(t *testing.T) 
 func TestManagedAdmissionIgnoresPersistedBetaPreference(t *testing.T) {
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	ctx = requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{StateNamespace: "admitted"})
-	svc := (&Service{}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: context.DeadlineExceeded})
+	svc := (&Service{hmmServing: hmmPorts()}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: context.DeadlineExceeded})
 	selected, err := svc.applySessionStrategy(ctx, [16]byte{1}, [16]byte{1})
 	require.NoError(t, err, "managed requests must not even read retired beta preferences")
 	require.Equal(t, router.StrategyHMMEmbedding, router.StrategyFromContext(selected))

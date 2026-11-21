@@ -90,15 +90,15 @@ func (s *overloadStubPinStore) Consume(context.Context, [sessionpin.SessionKeyLe
 func (s *overloadStubPinStore) SweepExpired(context.Context) error { return nil }
 
 func newOverloadTestService(store *overloadStubPinStore) *Service {
-	return NewService(
+	return withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil))
+
 }
 
 // A single exhausted 529 must increment the counter but not disable
@@ -110,14 +110,12 @@ func TestMaybeDisableProviderAfterOverload_FirstStrikeOnlyIncrements(t *testing.
 	overloadErr := &providers.UpstreamErrorResponse{Status: providerOverloadedStatus}
 	svc.maybeDisableProviderAfterOverload(
 		context.Background(),
-		true, // stickyHit
+		true,
 		overloadErr,
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole, sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 	assert.Equal(t, 1, store.incrementCalls, "first exhausted 529 must increment exactly once")
 	assert.Equal(t, 0, store.resetCalls, "reset must not fire on a failed turn")
@@ -140,11 +138,9 @@ func TestMaybeDisableProviderAfterOverload_SecondStrikeDisablesAndEvicts(t *test
 		true,
 		overloadErr,
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
-		installationID,
-		sessionKey,
-		sessionpin.DefaultRole, sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: installationID, sessionKey: sessionKey},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 	require.Len(t, store.disabledProviders, 1)
 	assert.Equal(t, "anthropic", store.disabledProviders[0])
@@ -171,13 +167,11 @@ func TestMaybeDisableProviderAfterOverload_SuccessResets(t *testing.T) {
 	svc.maybeDisableProviderAfterOverload(
 		context.Background(),
 		true,
-		nil, // success
+		nil,
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole, sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 	assert.Equal(t, 1, store.resetCalls, "successful turn on a sticky pin must clear the overload strike counter")
 	assert.Equal(t, 0, store.incrementCalls)
@@ -197,11 +191,9 @@ func TestMaybeDisableProviderAfterOverload_NonOverloadStatusIgnored(t *testing.T
 			true,
 			&providers.UpstreamErrorResponse{Status: status},
 			"anthropic",
-			"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
-			uuid.New(),
-			nonZeroSessionKey(),
-			sessionpin.DefaultRole, sessionpin.DefaultRole,
-		)
+			"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+			sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 		assert.Zero(t, store.incrementCalls, "status %d is not a 529 and must not bump the overload counter", status)
 		assert.Empty(t, store.disabledProviders, "status %d must not disable a provider", status)
@@ -221,11 +213,9 @@ func TestMaybeDisableProviderAfterOverload_UserForcedSkipped(t *testing.T) {
 			true,
 			&providers.UpstreamErrorResponse{Status: providerOverloadedStatus},
 			"anthropic",
-			reason,
-			uuid.New(),
-			nonZeroSessionKey(),
-			sessionpin.DefaultRole, sessionpin.DefaultRole,
-		)
+			reason, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+			sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 		assert.Zero(t, store.incrementCalls, "user-forced pins (%q) must skip the counter increment", reason)
 		assert.Zero(t, store.resetCalls)
@@ -240,14 +230,12 @@ func TestMaybeDisableProviderAfterOverload_NoStickyHitSkipped(t *testing.T) {
 
 	svc.maybeDisableProviderAfterOverload(
 		context.Background(),
-		false, // !stickyHit
+		false,
 		&providers.UpstreamErrorResponse{Status: providerOverloadedStatus},
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole, sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 	assert.Zero(t, store.incrementCalls)
 	assert.Empty(t, store.disabledProviders)
@@ -264,11 +252,9 @@ func TestMaybeDisableProviderAfterOverload_ZeroSessionKeySkipped(t *testing.T) {
 		true,
 		&providers.UpstreamErrorResponse{Status: providerOverloadedStatus},
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
-		uuid.New(),
-		[sessionpin.SessionKeyLen]byte{}, // zero key
-		sessionpin.DefaultRole, sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{}},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 	assert.Zero(t, store.incrementCalls)
 	assert.Empty(t, store.disabledProviders)
@@ -285,11 +271,9 @@ func TestMaybeDisableProviderAfterOverload_NilInstallationSkipped(t *testing.T) 
 		true,
 		&providers.UpstreamErrorResponse{Status: providerOverloadedStatus},
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
-		uuid.Nil,
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole, sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.Nil, sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 	assert.Zero(t, store.incrementCalls)
 	assert.Empty(t, store.disabledProviders)
@@ -306,11 +290,9 @@ func TestMaybeDisableProviderAfterOverload_NonUpstreamErrorIgnored(t *testing.T)
 		true,
 		errors.New("upstream call: dial tcp: connection refused"),
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole, sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 	assert.Zero(t, store.incrementCalls)
 	assert.Empty(t, store.disabledProviders)

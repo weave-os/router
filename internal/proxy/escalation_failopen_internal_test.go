@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -24,7 +25,7 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 		role: {Provider: providers.ProviderGoogle, Model: "gemini-3-pro-preview", Strategy: router.StrategyHMMEmbedding, PinnedUntil: time.Now().Add(time.Hour)},
 	}}
 	clients := map[string]providers.Client{providers.ProviderAnthropic: &stripFailureProvider{}, providers.ProviderGoogle: &stripFailureProvider{}}
-	svc := NewService(nil, clients, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(nil, clients, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithEscalation(store, observer).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1}})
 	svc.scopedSearchRequirement = true
@@ -40,13 +41,14 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 		sessionKey := deriveSessionKeyForRequest(ctx, env, "test-key")
 		if n == 5 {
 			store.failCommit = true
-			svc.compaction.checkAndRecord(sessionKey, installation, role, 9, 0)
+			svc.compaction.CheckAndRecord(sessionKey, installation, role, 9, 0)
 			require.True(t, svc.searchUse.observe(string(sessionKey[:]), 0, DefaultSearchRequirementDecayTurns))
 		}
-		res, err := svc.runTurnLoop(ctx, env, feats, "test-key", installation, "", http.Header{}, router.Request{
+		res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "test-key", installation), "", http.Header{}, router.Request{
 			RequestedModel:          feats.Model,
 			TranslationRequirements: router.TranslationRequirements{SourceFormat: router.WireFormatAnthropic, Endpoint: router.EndpointAnthropicMessages, CitationsOrSearch: true},
 		})
+
 		require.NoError(t, err)
 		if n < 5 {
 			require.Equal(t, providers.ProviderGoogle, res.Decision.Provider)

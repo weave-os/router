@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -46,17 +47,17 @@ func (o *chatRescue) dispatchPrimary(ctx context.Context) {
 	*o.cyberRefusalSeen = *o.cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(o.proxyErr)
 }
 
-func (o *chatRescue) armCyberRetry(ctx context.Context) {
+func (o *chatRescue) armCyberRetry(ctx context.Context, strategy router.Strategy) {
 	routeRes := o.routeRes
 	_, o.explicitRequestedModel = catalog.ByID(o.req.RequestedModel)
 	cyberRetryEligible := o.routing.ResolveCyberRefusalRetry(ctx) &&
 		!routeRes.CallerModelPassthrough &&
 		o.decision.Provider == providers.ProviderOpenAI &&
 		!strings.HasPrefix(o.decision.Reason, translate.ReasonUserForceModel) &&
-		!o.routing.IsHardPinnedTurn(ctx, routeRes.TurnType) &&
+		!o.routing.IsHardPinnedTurn(ctx, strategy, routeRes.TurnType) &&
 		!billing.SubscriptionOnlyFromContext(ctx)
 	if cyberRetryEligible {
-		target, found := o.routing.CyberRefusalRetryTarget(ctx, o.decision, routeRes.SessionKey, stickyStateRole(routeRes),
+		target, found := o.routing.CyberRefusalRetryTarget(ctx, o.decision, strategy, routeRes.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes),
 			o.overflowEstimate, o.env.SignatureTokenSavings(), o.outputReserve)
 		o.cyberRetryViable = found && (o.routing.ShouldFailover(ctx) || o.routing.GatewaySiblingAllowed(ctx, target)) &&
 			(!subscriptionStateModelsEnabled(ctx) || !paidFallbackForbiddenForModel(ctx, target.Model))
@@ -231,7 +232,7 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 		retryCtx := resolveAndInjectCredentials(subscriptionStatePaidRescueContext(ctx, o.cyberRetryTarget.Model), o.cyberRetryTarget.Provider, o.cyberRetryTarget.Model, r.Header)
 		retryOpts.FastMode = fastModeForAttempt(retryCtx, o.cyberRetryTarget.Model, o.cyberRetryTarget.Provider)
 		retryBindings := o.routing.ResolveBindingsForDispatch(retryCtx, o.cyberRetryTarget)
-		retryMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, cyberRefusalRoutingMarkerFor(routeRes, o.cyberRetryTarget.Model), o.cyberRetryTarget.Model, markerReasonCyberRefusal)), lastFailureDetail(attemptTraceFromContext(ctx)))
+		retryMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(o.strategyPorts, ctx, routeRes, cyberRefusalRoutingMarkerFor(routeRes, o.cyberRetryTarget.Model), o.cyberRetryTarget.Model, markerReasonCyberRefusal)), lastFailureDetail(attemptTraceFromContext(ctx)))
 		retryAttempt, retryBuildErr := o.buildAttempt(o.cyberRetryTarget, retryOpts, retryMarker, retryCtx)
 		switch {
 		case retryBuildErr != nil:

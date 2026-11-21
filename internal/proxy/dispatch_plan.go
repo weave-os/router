@@ -20,7 +20,6 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
-	"weave-os/router/internal/translate"
 )
 
 func (s *Service) WithInferencePlans(plans *policy.PlanResolver) *Service {
@@ -73,7 +72,7 @@ func (s *Service) inferenceExecutor() (*dispatch.Executor, error) {
 
 func routedOrigin(decision router.Decision, hardPinned, stickyHit bool) policy.OverrideSource {
 	switch {
-	case decision.Reason == translate.ReasonUserForceModel:
+	case decision.UserForcedModel():
 		return policy.OverrideSourceRequest
 	case hardPinned:
 		return policy.OverrideSourceDeployment
@@ -299,17 +298,14 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		return lastIdx, nil
 	}
 	var abort dispatchAbort
-	if errors.As(runErr, &abort) {
-		if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
-			in.flushErr(in.w, abort.err)
-		}
-		return lastIdx, abort.err
-	}
-	switch result.Summary.FallbackReason {
-	case dispatch.FailureReasonProviderNotConfigured, dispatch.FailureReasonPrepare:
+	switch reason := result.Summary.FallbackReason; {
+	case errors.As(runErr, &abort):
+		runErr = attributeCodexUsageLimitAbort(attemptTraceFromContext(ctx), abort.err)
+	case reason == dispatch.FailureReasonProviderNotConfigured, reason == dispatch.FailureReasonPrepare:
 		return lastIdx, runErr
+	default:
+		runErr = attributeTerminalError(attemptTraceFromContext(ctx), runErr)
 	}
-	runErr = attributeTerminalError(attemptTraceFromContext(ctx), runErr)
 	if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
 		in.flushErr(in.w, runErr)
 	}

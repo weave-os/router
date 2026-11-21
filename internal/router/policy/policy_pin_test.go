@@ -130,7 +130,7 @@ func TestUnpinnedReselectedTurnKeepsSidecarRosterVersion(t *testing.T) {
 
 func TestPolicyPinPreviewCarriesArtifactAndRejectsMismatch(t *testing.T) {
 	adapter, decider := newPinnedAdapter(t, pinnedArtifactSHA)
-	decider.preview = policy.PreviewResult{SchemaVersion: policy.SchemaVersionV3, PolicyArtifactSHA256: strings.Repeat("d", 64)}
+	decider.preview = policy.PreviewResult{SchemaVersion: policy.SchemaVersionV4, PolicyArtifactSHA256: strings.Repeat("d", 64)}
 
 	_, err := adapter.PreviewRoute(honouredPinContext(), router.Request{})
 

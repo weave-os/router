@@ -13,14 +13,14 @@ import (
 )
 
 func TestBuildHMMPolicyClientPreservesUnauthenticatedLocalMode(t *testing.T) {
-	client, err := buildHMMPolicyClient("http://localhost:8093", "none", time.Second)
+	client, err := buildHMMPolicyClientWithGoogleIDTokenFactory("http://localhost:8093", "none", time.Second, policyclient.NewGoogleIDToken)
 
 	require.NoError(t, err)
 	assert.NotNil(t, client)
 }
 
 func TestBuildHMMPolicyClientRejectsUnknownAuthMode(t *testing.T) {
-	client, err := buildHMMPolicyClient("https://sidecar.internal", "api-key", time.Second)
+	client, err := buildHMMPolicyClientWithGoogleIDTokenFactory("https://sidecar.internal", "api-key", time.Second, policyclient.NewGoogleIDToken)
 
 	require.Error(t, err)
 	assert.Nil(t, client)
@@ -55,11 +55,12 @@ func TestBuildConfiguredPolicyClientPreservesProvidedLocalClient(t *testing.T) {
 
 func TestBuildConfiguredPolicyClientUsesGoogleIDTokenAudience(t *testing.T) {
 	var audience string
-	client, err := buildConfiguredPolicyClientWithGoogleIDTokenFactory(
+	client, err := buildPolicyClientWithGoogleIDTokenFactory(
 		"https://sidecar.internal",
 		policySidecarAuthGoogleIDToken,
 		time.Second,
 		nil,
+		"ROUTER_POLICY_SIDECAR_AUTH",
 		func(gotAudience string, _ time.Duration, opts ...policyclient.Option) (*policyclient.Client, error) {
 			audience = gotAudience
 			return policyclient.New(gotAudience, nil, time.Second, opts...), nil

@@ -59,11 +59,12 @@ func compareFuncs(base, head map[string]fileMetrics, allowed exceptionSet) []vio
 	}
 	baseFuncs, headFuncs := indexFuncs(base, occurrences), indexFuncs(head, occurrences)
 	moves := newMovePool(baseFuncs, headFuncs)
+	exactMoves := moves.claimExact(headFuncs, baseFuncs)
 	var violations []violation
 	for _, key := range sortedKeys(headFuncs) {
 		fn := headFuncs[key]
 		previous, existed := baseFuncs[key]
-		if !existed && moves.claim(fn) {
+		if !existed && (exactMoves[key] || moves.claim(fn)) {
 			continue
 		}
 		for _, m := range slices.Sorted(maps.Keys(funcLimits)) {
@@ -86,6 +87,36 @@ func newMovePool(baseFuncs, headFuncs map[string]funcMetrics) movePool {
 		}
 	}
 	return pool
+}
+
+type exactMove struct {
+	name     string
+	bodyHash uint32
+}
+
+func (p movePool) claimExact(headFuncs, baseFuncs map[string]funcMetrics) map[string]bool {
+	unclaimed := map[exactMove][]string{}
+	for _, key := range sortedKeys(p) {
+		move := exactMove{name: moveName(key), bodyHash: p[key].bodyHash}
+		unclaimed[move] = append(unclaimed[move], key)
+	}
+	claimed := map[string]bool{}
+	for _, key := range sortedKeys(headFuncs) {
+		if _, existed := baseFuncs[key]; existed {
+			continue
+		}
+		fn := headFuncs[key]
+		move := exactMove{name: moveName(key), bodyHash: fn.bodyHash}
+		for i, candidate := range unclaimed[move] {
+			if maps.Equal(p[candidate].values, fn.values) {
+				claimed[key] = true
+				delete(p, candidate)
+				unclaimed[move] = slices.Delete(unclaimed[move], i, i+1)
+				break
+			}
+		}
+	}
+	return claimed
 }
 
 func (p movePool) claim(fn funcMetrics) bool {
@@ -126,6 +157,14 @@ func betterMove(fn funcMetrics, candidate, current string, p movePool) bool {
 		currentSize += value
 	}
 	return candidateSize < currentSize
+}
+
+func moveName(key string) string {
+	name := shortName(key)
+	if pkg, rest, ok := strings.Cut(name, "."); ok && strings.HasSuffix(pkg, "_test") {
+		return rest
+	}
+	return name
 }
 
 func shortName(key string) string {

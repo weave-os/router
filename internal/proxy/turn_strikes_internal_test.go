@@ -55,12 +55,13 @@ func runTurnLoopWithBody(t *testing.T, svc *Service, body string) turnLoopResult
 	env, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)
 	features := env.RoutingFeatures()
-	res, err := svc.runTurnLoop(context.Background(), env, features, "api-key", uuid.New(), "", http.Header{}, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, features, testTurnRequest(context.Background(), "api-key", uuid.New()), "", http.Header{}, router.Request{
 		RequestedModel:       features.Model,
 		EstimatedInputTokens: features.Tokens,
 		HasTools:             features.HasTools,
 		ConversationMessages: conversationMessagesForRouting(env),
 	})
+
 	require.NoError(t, err)
 	return res
 }
@@ -83,7 +84,7 @@ func TestTurnLoopKeepsTurnStrikeOutUntilUserPrompt(t *testing.T) {
 
 	require.NotEmpty(t, scorer.requests)
 	for _, req := range scorer.requests {
-		assert.Contains(t, req.AutomaticExcludedModels, demotedPinModel)
+		assert.Contains(t, req.Candidates.AutomaticExcludedModels, demotedPinModel)
 	}
 	assert.Contains(t, res.SessionDemotedModels, demotedPinModel)
 	assert.Empty(t, store.cleared)
@@ -100,7 +101,7 @@ func TestTurnLoopUserPromptClearsTurnStrikes(t *testing.T) {
 	res := runDemotionTurnLoop(t, svc, context.Background())
 
 	for _, req := range scorer.requests {
-		assert.NotContains(t, req.AutomaticExcludedModels, demotedPinModel)
+		assert.NotContains(t, req.Candidates.AutomaticExcludedModels, demotedPinModel)
 	}
 	assert.NotContains(t, res.SessionDemotedModels, demotedPinModel)
 	assert.ElementsMatch(t, []string{sessionpin.DefaultRole, hmmHistoryRole(sessionpin.DefaultRole)}, store.cleared)
@@ -187,10 +188,10 @@ func TestSiblingRescueRecordsEveryFailedModel(t *testing.T) {
 			CandidateProviders: map[string]string{"gpt-5.6-luna": providers.ProviderOpenAI, "claude-sonnet-5-5": providers.ProviderAnthropic},
 		},
 	}
-	svc := NewService(staticRouter{decision: decision}, map[string]providers.Client{
+	svc := withHMMPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
 		providers.ProviderAnthropic: anthropicClient,
 		providers.ProviderOpenAI:    openAIClient,
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}})
 	svc.retrySleep = noopSleep
 	ctx := withTurnFailures(context.Background())

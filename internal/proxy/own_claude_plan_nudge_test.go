@@ -9,10 +9,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 )
 
 // A spent own Claude plan moves the turn onto the deployment key; the marker
@@ -24,11 +26,11 @@ func TestProxyMessages_SpentOwnClaudePlanNudgesToConnectASeat(t *testing.T) {
 		writeSSE(w, anthropicSSE(earlyStopLowModel, []string{textBlock("hi")}, "end_turn"))
 	}))
 	t.Cleanup(upstream.Close)
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: earlyStopLowModel, Reason: "test"}},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", upstream.URL)},
-		nil, newFakePinStore(), false, providers.ProviderAnthropic, earlyStopLowModel, newCaptureTelemetry(),
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).WithRetrySleep(noRetrySleep).WithUsageObserver(exhaustedObserver())
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, earlyStopLowModel, newCaptureTelemetry()), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).WithRetrySleep(noRetrySleep).WithUsageObserver(exhaustedObserver())
 	body := `{"model":"claude-opus-4-7","max_tokens":4096,"stream":true,"messages":[{"role":"user","content":"hello"}]}`
 
 	serve := func(body string) string {

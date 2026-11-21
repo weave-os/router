@@ -104,16 +104,18 @@ func signalStateLabel(signal CandidateSignal) string {
 	}
 }
 
-func TestCandidateExplorationPreservesOwnershipAndIsolatesScopes(t *testing.T) {
+func TestCandidateExplorationSpansThePoolAndIsolatesScopes(t *testing.T) {
 	now := time.Now()
 	runtime := NewRuntime(nil, nil, func() time.Time { return now })
 	accounts := []*auth.SubscriptionAccount{{ID: "personal", SubscriberID: "borrower"}, {ID: "shared", SubscriberID: "another"}}
 	signals := map[string]CandidateSignal{"personal": {Observed: true, ResetAt: now.Add(time.Hour)}}
+	selections := map[string]int{}
 	for range 20 {
 		selected, release := runtime.reserveCandidate(t.Context(), accounts, auth.SubscriptionOwner{SubscriberID: "borrower", InstallationID: "first"}, ProviderClaude, "shared", signals)
 		release()
-		require.Equal(t, "personal", selected.ID)
+		selections[selected.ID]++
 	}
+	require.Equal(t, map[string]int{"personal": 19, "shared": 1}, selections, "exploration probes an unknown pooled seat regardless of owner")
 	accounts[1].SubscriberID = "borrower"
 	selected, release := runtime.reserveCandidate(t.Context(), accounts, auth.SubscriptionOwner{SubscriberID: "borrower", InstallationID: "second"}, ProviderClaude, "shared", signals)
 	release()
@@ -189,4 +191,21 @@ func TestCandidateExplorationHasGlobalTimeLimitPerScope(t *testing.T) {
 	selected, release := runtime.reserveCandidate(t.Context(), accounts, auth.SubscriptionOwner{SubscriberID: "borrower"}, ProviderClaude, "active", signals)
 	defer release()
 	require.Equal(t, "idle-b", selected.ID, "the next probe discovers a different idle seat")
+}
+
+func TestCandidateSelectionRanksRequesterSeatWithThePool(t *testing.T) {
+	now := time.Now()
+	runtime := NewRuntime(nil, nil, func() time.Time { return now })
+	reset := now.Add(time.Hour)
+	accounts := []*auth.SubscriptionAccount{
+		{ID: "requester-seat", SubscriberID: "key-owner", Tier: auth.SubscriptionTierPersonal},
+		{ID: "pooled-seat", SubscriberID: "teammate", Tier: auth.SubscriptionTierShared},
+	}
+	signals := map[string]CandidateSignal{
+		"requester-seat": {Observed: true, ResetAt: reset, UsedFraction: 0.9},
+		"pooled-seat":    {Observed: true, ResetAt: reset, UsedFraction: 0.1},
+	}
+	selected, release := runtime.reserveCandidate(t.Context(), accounts, auth.SubscriptionOwner{SubscriberID: "key-owner", InstallationID: "installation"}, ProviderClaude, "", signals)
+	release()
+	require.Equal(t, "pooled-seat", selected.ID, "the key owner's seat must not be drained ahead of pooled headroom")
 }

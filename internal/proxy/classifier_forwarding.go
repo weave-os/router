@@ -10,7 +10,7 @@ import (
 
 func prepareAnthropicForTurn(env *translate.RequestEnvelope, in http.Header, opts translate.EmitOptions, turnType turntype.TurnType) (providers.PreparedRequest, error) {
 	if turnType == turntype.Classifier && env.SourceFormat() == translate.FormatAnthropic && opts.TargetModel == env.Model() {
-		return env.PrepareAnthropicVerbatim(in), nil
+		return env.PrepareAnthropicVerbatim(in, opts)
 	}
 	return env.PrepareAnthropic(in, opts)
 }

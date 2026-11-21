@@ -21,7 +21,7 @@ import (
 // Use observability.FromContext(ctx) for request-path sites. Only lower these.
 var globalLoggerBudget = map[string]int{
 	// Composition root: no request exists yet.
-	"cmd/router": 9,
+	"cmd/router": 8,
 
 	// Pure schema-emit / validation helpers with no ctx in scope. Threading a
 	// ctx through these is a wider refactor; they are diagnostics about a

@@ -85,8 +85,8 @@ func TestInstallationFlagOverridesRoundTrip(t *testing.T) {
 	assert.True(t, created.FlagOverrides.IsEmpty(), "new installation should carry no overrides")
 
 	want := flags.Overrides{
-		Bools:   map[flags.Key]bool{flags.KeyStruggleShadowEnabled: false, flags.KeySubscriptionPlanAwareRouting: true},
-		Ints:    map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 42},
+		Bools:   map[flags.Key]bool{flags.KeyTurnSignalCapture: false, flags.KeySubscriptionPlanAwareRouting: true},
+		Ints:    map[flags.Key]int{flags.KeyTaskArmExperimentTreatmentPct: 42},
 		Strings: map[flags.Key]string{flags.KeyCyberRefusalFallback: "claude-opus-5"},
 	}
 	require.NoError(t, repo.Installations.UpdateFlagOverrides(ctx, externalID, created.ID, want))

@@ -67,10 +67,10 @@ func gatewayCompactionFixture(anthropicErr error) (*Service, context.Context, *g
 			CandidateProviders: map[string]string{catalog.ModelGPT6Luna: providers.ProviderOpenAIGateway},
 		},
 	}
-	svc := NewService(fixedRouter{decision: scored}, map[string]providers.Client{
+	svc := withHMMPorts(NewService(fixedRouter{decision: scored}, map[string]providers.Client{
 		providers.ProviderAnthropicGateway: anthropicGateway,
 		providers.ProviderOpenAIGateway:    openAIGateway,
-	}, nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil).
+	}, nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
 		WithHardPinResolver(fastest).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	ctx := rescuedFailureCtx()

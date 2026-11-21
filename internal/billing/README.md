@@ -8,13 +8,12 @@ adapter in `internal/pubsub`, both wired by `cmd/router`.
 
 ## Funding owners
 
-Money lives in typed prepaid books keyed by `Owner`: an organization's balance,
-an individual Max/Boost subscriber's balance (keyed by credential subject, never
-by an organization they work in), and an isolated internal test book. A kind
+Money lives in typed prepaid books keyed by `Owner`: an organization's balance
+and an isolated internal test book. A kind
 with no registered book fails closed with `ErrOwnerKindUnsupported`, meaning
 "this owner cannot pay here", never a fall back to another owner's funds.
-`NewService` binds only the organization book; `WithSubscriberPrepaid` and
-`WithInternalTestPrepaid` opt the others in. `prepaid_test.go` and
+`NewService` binds only the organization book; `WithInternalTestPrepaid` opts
+the test book in. `prepaid_test.go` and
 `test_budget_test.go` pin the isolation.
 
 ## Preflight gates

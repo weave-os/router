@@ -41,9 +41,6 @@ variables are in [CONFIGURATION.md](../../docs/CONFIGURATION.md).
 
 ## Routing and eligibility
 
-- `routeFor`: the `rl` strategy fails closed with `ErrPolicyUnavailable` (HTTP
-  503) when the policy router is not wired; there is no silent fallback to the
-  cluster scorer.
 - `routeWithStrategy` re-checks `catalog.CheckEligibility` on the decision as a
   last product-boundary gate, catching a model that came from a pin, fallback
   table or deployed-set default rather than the filtered pool.
@@ -66,7 +63,7 @@ variables are in [CONFIGURATION.md](../../docs/CONFIGURATION.md).
 
 - User-forced pins (`translate.ReasonUserForceModel`, including the tier-clamp
   suffix) record `pinNeverExpires` and clear only on `/unforce-model`; every
-  other pin uses the sliding `pinSessionTTL`. The sentinel stays inside the
+  other pin uses the sliding `routingpolicy.PinSessionTTL`. The sentinel stays inside the
   Postgres timestamp range.
 - Hard-pinned turns (probe, compaction, title generation, classifiers) keep a
   zero session key; nothing persists a pin under the zero key.

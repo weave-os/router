@@ -8,6 +8,8 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+
+	"github.com/google/uuid"
 )
 
 type RescueCredentials interface {
@@ -33,6 +35,6 @@ type RescueRouting interface {
 	NoteRescueReadmission(ctx context.Context, failed, rescuer router.Decision)
 	EarlyStopRedoTarget(ctx context.Context, served router.Decision, est, sigSavings, outputReserve int) (router.Decision, bool)
 	ResolveCyberRefusalRetry(ctx context.Context) bool
-	IsHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bool
-	CyberRefusalRetryTarget(ctx context.Context, failed router.Decision, sessionKey [sessionpin.SessionKeyLen]byte, role string, est, sigSavings, outputReserve int) (router.Decision, bool)
+	IsHardPinnedTurn(ctx context.Context, strategy router.Strategy, tt turntype.TurnType) bool
+	CyberRefusalRetryTarget(ctx context.Context, failed router.Decision, strategy router.Strategy, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, role string, est, sigSavings, outputReserve int) (router.Decision, bool)
 }

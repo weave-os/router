@@ -15,7 +15,7 @@ func TestContextWindowConstraintDefersToOverflowAdmission(t *testing.T) {
 
 	assert.NotEmpty(t, constraintViolation(ConstraintContextWindow, request, BudgetSpec{}, binding))
 
-	request.OverflowAdmittedModels = map[string]struct{}{"claude-opus-4-8": {}}
+	request.Candidates.OverflowAdmittedModels = map[string]struct{}{"claude-opus-4-8": {}}
 	assert.Empty(t, constraintViolation(ConstraintContextWindow, request, BudgetSpec{}, binding),
 		"the plan's proof must agree with the resolver that kept the admitted model")
 }

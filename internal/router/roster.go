@@ -23,3 +23,7 @@ type DistributionPoint struct {
 	Models                     []ModelShare `json:"models"`
 	ProjectedCostPer1KInputUSD float64      `json:"projected_cost_per_1k_input_usd"`
 }
+
+type DistributionRoster interface {
+	RoutingDistribution(gridN int, excludedModels, excludedProviders map[string]struct{}) ([]DistributionPoint, error)
+}

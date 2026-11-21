@@ -192,9 +192,9 @@ func (c *OAuthClient) refreshCodex(ctx context.Context, refreshToken string) (Re
 		accountID = accountIDFromJWT(response.AccessToken)
 	}
 	token, err := c.validatedToken(ProviderCodex, response.AccessToken, response.RefreshToken, accountID, response.ExpiresIn)
-	token.UserID = userIDFromJWT(response.IDToken)
+	token.UserID = CodexUserIDFromJWT(response.IDToken)
 	if token.UserID == "" {
-		token.UserID = userIDFromJWT(response.AccessToken)
+		token.UserID = CodexUserIDFromJWT(response.AccessToken)
 	}
 	return token, err
 }
@@ -319,7 +319,7 @@ func (c *OAuthClient) VerifyCodexEnrollment(ctx context.Context, workspaceID str
 	return auth.VerifiedCodexEnrollment{ProviderUserID: token.UserID, RefreshToken: []byte(token.RefreshToken)}, nil
 }
 
-func userIDFromJWT(token string) string {
+func CodexUserIDFromJWT(token string) string {
 	claims := jwt.MapClaims{}
 	if _, _, err := new(jwt.Parser).ParseUnverified(token, claims); err != nil {
 		return ""

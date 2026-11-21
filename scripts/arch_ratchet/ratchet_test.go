@@ -100,6 +100,18 @@ func fn(key string, lines int) funcMetrics {
 	return funcMetrics{key: key, values: map[metric]int{metricLines: lines}}
 }
 
+func fnCognitive(key string, lines, cognitive int) funcMetrics {
+	metrics := fn(key, lines)
+	metrics.values[metricCognitive] = cognitive
+	return metrics
+}
+
+func fnBody(key string, lines int, bodyHash uint32) funcMetrics {
+	metrics := fn(key, lines)
+	metrics.bodyHash = bodyHash
+	return metrics
+}
+
 func TestCompareFuncs(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -147,6 +159,23 @@ func TestCompareFuncs(t *testing.T) {
 			want: []violation{{subject: "q.C", metric: metricLines, before: 0, after: 180, limit: 100}},
 		},
 		{
+			name: "an exact name and body match is claimed before greedy moves",
+			base: []funcMetrics{fnBody("p.validateSchema", 150, 1)},
+			head: []funcMetrics{fnBody("q.aaa", 150, 2), fnBody("q.validateSchema", 150, 1)},
+			want: []violation{{subject: "q.aaa", metric: metricLines, before: 0, after: 150, limit: 100}},
+		},
+		{
+			name: "an exact move between external test packages is claimed before greedy moves",
+			base: []funcMetrics{fnBody("p.p_test.TestX", 160, 1)},
+			head: []funcMetrics{fnBody("q.aaa", 160, 2), fnBody("q.q_test.TestX", 160, 1)},
+			want: []violation{{subject: "q.aaa", metric: metricLines, before: 0, after: 160, limit: 100}},
+		},
+		{
+			name: "greedy moves keep production and external test names apart",
+			base: []funcMetrics{fnCognitive("p.F", 200, 10), fnCognitive("p.p_test.F", 150, 40)},
+			head: []funcMetrics{fnCognitive("q.F", 140, 10), fnCognitive("q.q_test.F", 150, 39)},
+		},
+		{
 			name:    "reviewed exception",
 			base:    []funcMetrics{fn("p.F", 150)},
 			head:    []funcMetrics{fn("p.F", 160)},
@@ -173,6 +202,15 @@ func TestCompareFuncsKeepsBuildTagVariantsApart(t *testing.T) {
 	}
 	assert.Equal(t, []violation{{subject: "p.F@p/f_linux.go", metric: metricLines, before: 150, after: 160, limit: 100}},
 		compareFuncs(base, head, exceptionSet{}))
+}
+
+func TestMeasureFileHashesFunctionBodiesIndependentlyOfNames(t *testing.T) {
+	src := "package x\n\nfunc A() { y := 1; _ = y }\n\nfunc B() { y := 1; _ = y }\n\nfunc C() { y := 2; _ = y }\n"
+	metrics, _, err := measureFile("internal/x/hash.go", []byte(src))
+	require.NoError(t, err)
+	require.Len(t, metrics.funcs, 3)
+	assert.Equal(t, metrics.funcs[0].bodyHash, metrics.funcs[1].bodyHash)
+	assert.NotEqual(t, metrics.funcs[0].bodyHash, metrics.funcs[2].bodyHash)
 }
 
 func TestMeasureFileMeasuresPackageLevelFuncLiterals(t *testing.T) {

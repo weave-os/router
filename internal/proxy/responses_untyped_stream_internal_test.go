@@ -50,8 +50,9 @@ func TestCodexCompactionPreservesUntypedResponsesStream(t *testing.T) {
 		{name: "forced model", forceModel: "gpt-5.6-sol"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := NewService(untypedResponsesRouter{}, map[string]providers.Client{providers.ProviderOpenAI: untypedResponsesStreamProvider{}},
-				nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-luna", nil)
+			svc := withHMMPorts(NewService(untypedResponsesRouter{}, map[string]providers.Client{providers.ProviderOpenAI: untypedResponsesStreamProvider{}},
+				nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-luna", nil))
+
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[` +
 				`{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix the bug."}]},` +
 				`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Working."}]},` +

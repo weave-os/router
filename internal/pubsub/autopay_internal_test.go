@@ -54,19 +54,6 @@ func TestNotifyRechargeNeeded_PublishesRawOrgIDBytes(t *testing.T) {
 	assert.Equal(t, []byte("org-123"), msg.Data)
 }
 
-func TestNotifyRechargeNeeded_PublishesSubscriberJSON(t *testing.T) {
-	fp := newFakeAutopayPublisher()
-	n := &AutopayNotifier{publisher: fp}
-	subscriberID := "9f4c5f28-5f9e-4d5e-8b3a-0d1a3c5e7f90"
-
-	n.NotifyRechargeNeeded(billing.SubscriberOwner(subscriberID))
-
-	msg := fp.waitForMessage(t)
-	assert.JSONEq(t,
-		`{"owner_kind":"subscriber","subscriber_id":"`+subscriberID+`"}`,
-		string(msg.Data))
-}
-
 func TestNotifyRechargeNeeded_PublishErrorDoesNotPanic(t *testing.T) {
 	fp := newFakeAutopayPublisher()
 	fp.err = assert.AnError
