@@ -40,9 +40,10 @@ type KeySet struct {
 	now        auth.Clock
 	ttl        time.Duration
 
-	mu    sync.Mutex
-	sets  map[string]cachedSet
-	group singleflight.Group
+	mu       sync.Mutex
+	sets     map[string]cachedSet
+	failedAt map[string]time.Time
+	group    singleflight.Group
 }
 
 func New(httpClient *http.Client, now auth.Clock) *KeySet {
@@ -52,7 +53,7 @@ func New(httpClient *http.Client, now auth.Clock) *KeySet {
 	if now == nil {
 		now = time.Now
 	}
-	return &KeySet{httpClient: observability.WrapHTTPClient(httpClient), now: now, ttl: DefaultTTL, sets: map[string]cachedSet{}}
+	return &KeySet{httpClient: observability.WrapHTTPClient(httpClient), now: now, ttl: DefaultTTL, sets: map[string]cachedSet{}, failedAt: map[string]time.Time{}}
 }
 
 func (k *KeySet) VerificationKey(ctx context.Context, issuerURL, kid string) (crypto.PublicKey, error) {
@@ -65,14 +66,11 @@ func (k *KeySet) VerificationKey(ctx context.Context, issuerURL, kid string) (cr
 			return nil, auth.ErrInvalidToken
 		}
 	}
+	if k.recentlyFailed(issuerURL) {
+		return nil, ErrFetch
+	}
 	refreshed, err := k.refresh(ctx, issuerURL)
 	if err != nil {
-		if ok {
-			if key, found := set.keys[kid]; found {
-				observability.FromContext(ctx).Warn("Serving stale OIDC issuer keys after refresh failure", "issuer", issuerURL, "err", err)
-				return key, nil
-			}
-		}
 		return nil, err
 	}
 	if key, found := refreshed.keys[kid]; found {
@@ -88,18 +86,27 @@ func (k *KeySet) cached(issuerURL string) (cachedSet, bool) {
 	return set, ok
 }
 
+func (k *KeySet) recentlyFailed(issuerURL string) bool {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	failed, ok := k.failedAt[issuerURL]
+	return ok && k.now().Sub(failed) < minRefreshInterval
+}
+
 func (k *KeySet) refresh(ctx context.Context, issuerURL string) (cachedSet, error) {
 	v, err, _ := k.group.Do(issuerURL, func() (any, error) {
 		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fetchTimeout)
 		defer cancel()
 		keys, err := k.fetch(fetchCtx, issuerURL)
+		k.mu.Lock()
+		defer k.mu.Unlock()
 		if err != nil {
+			k.failedAt[issuerURL] = k.now()
 			return cachedSet{}, err
 		}
+		delete(k.failedAt, issuerURL)
 		set := cachedSet{keys: keys, fetchedAt: k.now()}
-		k.mu.Lock()
 		k.sets[issuerURL] = set
-		k.mu.Unlock()
 		return set, nil
 	})
 	if err != nil {

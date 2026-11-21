@@ -20,10 +20,12 @@ import (
 )
 
 type issuerServer struct {
-	server     *httptest.Server
-	keys       atomic.Pointer[jose.JSONWebKeySet]
-	jwksHits   atomic.Int32
-	issuerName string
+	server        *httptest.Server
+	keys          atomic.Pointer[jose.JSONWebKeySet]
+	jwksHits      atomic.Int32
+	discoveryHits atomic.Int32
+	failing       atomic.Bool
+	issuerName    string
 }
 
 func newIssuerServer(t *testing.T) *issuerServer {
@@ -31,6 +33,11 @@ func newIssuerServer(t *testing.T) *issuerServer {
 	s := &issuerServer{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		s.discoveryHits.Add(1)
+		if s.failing.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		issuer := s.issuerName
 		if issuer == "" {
 			issuer = s.server.URL
@@ -98,4 +105,37 @@ func TestKeySetRejectsAMismatchedDiscoveryIssuer(t *testing.T) {
 	_, err := keys.VerificationKey(context.Background(), issuer.server.URL, "k1")
 	require.ErrorIs(t, err, oidcjwks.ErrFetch)
 	assert.Zero(t, issuer.jwksHits.Load())
+}
+
+func TestKeySetFailsClosedWhenExpiredKeysCannotBeRefreshed(t *testing.T) {
+	issuer := newIssuerServer(t)
+	issuer.publish(t, "k1")
+	now := time.Date(2026, 5, 5, 0, 0, 0, 0, time.UTC)
+	keys := oidcjwks.New(issuer.server.Client(), func() time.Time { return now })
+	_, err := keys.VerificationKey(context.Background(), issuer.server.URL, "k1")
+	require.NoError(t, err)
+
+	issuer.failing.Store(true)
+	now = now.Add(oidcjwks.DefaultTTL + time.Second)
+	_, err = keys.VerificationKey(context.Background(), issuer.server.URL, "k1")
+	require.ErrorIs(t, err, oidcjwks.ErrFetch, "keys past their TTL must not be trusted while the issuer is unreachable")
+}
+
+func TestKeySetBacksOffAfterAFailedRefresh(t *testing.T) {
+	issuer := newIssuerServer(t)
+	issuer.publish(t, "k1")
+	issuer.failing.Store(true)
+	now := time.Date(2026, 5, 5, 0, 0, 0, 0, time.UTC)
+	keys := oidcjwks.New(issuer.server.Client(), func() time.Time { return now })
+
+	for range 3 {
+		_, err := keys.VerificationKey(context.Background(), issuer.server.URL, "k1")
+		require.ErrorIs(t, err, oidcjwks.ErrFetch)
+	}
+	assert.Equal(t, int32(1), issuer.discoveryHits.Load(), "failed fetches are rate limited like unknown kids")
+
+	issuer.failing.Store(false)
+	now = now.Add(2 * time.Minute)
+	_, err := keys.VerificationKey(context.Background(), issuer.server.URL, "k1")
+	require.NoError(t, err)
 }
