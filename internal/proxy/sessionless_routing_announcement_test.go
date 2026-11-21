@@ -84,7 +84,7 @@ func TestSessionlessRoutingAnnouncementMessages(t *testing.T) {
 				pins.pin = sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: earlyStopLowModel, LastServedModel: test.priorServed, PinnedUntil: time.Now().Add(time.Hour)}
 			}
 			svc, upstreamBodies := sessionlessMessagesService(t, pins)
-			ctx := requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), proxy.ClientIdentity{ClientApp: sessionlessClientApp})
+			ctx := requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), requestcontext.ClientIdentity{ClientApp: sessionlessClientApp})
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyMessages(ctx, sessionlessMessagesBody(t, test.announcement), rec,
 				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
@@ -120,7 +120,7 @@ func TestSessionlessRoutingAnnouncementResponses(t *testing.T) {
 				map[string]providers.Client{providers.ProviderOpenRouter: provider},
 				nil, newFakePinStore(), false, providers.ProviderOpenRouter, model, nil), hmm.ServingPorts())
 
-			ctx := requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), proxy.ClientIdentity{ClientApp: sessionlessClientApp})
+			ctx := requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), requestcontext.ClientIdentity{ClientApp: sessionlessClientApp})
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, announcementReplayBody(t, test.history...), rec,
 				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))

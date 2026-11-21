@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"weave-os/router/internal/dispatch"
 )
 
 func turnUsageBillable(ctx context.Context, proxyErr error, in, out, cacheCreation, cacheRead int) bool {
@@ -16,6 +17,6 @@ func clientAbandonedTurn(ctx context.Context, err error) bool {
 	if !errors.Is(ctx.Err(), context.Canceled) || isUpstreamWatchdogError(context.Cause(ctx)) {
 		return false
 	}
-	err = dispatchErrorBehindFrames(err)
+	err = dispatch.UnwrapSyntheticStatusErrors(err)
 	return !isUpstreamWatchdogError(err) && upstreamStatus(err) == 0
 }

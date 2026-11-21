@@ -20,9 +20,11 @@ import (
 	subscriptionsapi "weave-os/router/internal/api/subscriptions"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/taskdomain"
@@ -60,8 +62,8 @@ const (
 	DeploymentModeManaged    DeploymentMode = "managed"
 )
 
-func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service) {
-	RegisterWithFeatures(engine, authSvc, proxySvc, hmmModels, mode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, Features{})
+func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service) {
+	RegisterWithFeatures(engine, authSvc, proxySvc, hmmModels, mode, nil, readinessChecker, hmmRosterSources, analyticsSvc, Features{})
 }
 
 const deploymentDefaultStrategy = router.StrategyHMMEmbedding
@@ -92,6 +94,8 @@ type Features struct {
 	RosterCatalogID          func(string) string
 	TaskDomainPreview        taskdomain.Previewer
 	SeatUsage                admin.SeatUsageReader
+	SubscriptionCoverage     credentials.SubscriptionCoverage
+	CustomerFunding          credentials.CustomerFunding
 	DefaultStrategy          router.Strategy
 	InternalServiceToken     string
 	Admin                    admin.Config
@@ -107,17 +111,17 @@ func (f Features) defaultStrategy() router.Strategy {
 func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, features Features) {
 	engine.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Expose-Headers", strings.Join([]string{
-			proxy.HeaderRouterDecision,
-			proxy.HeaderRouterProvider,
-			proxy.HeaderRouterModel,
-			proxy.HeaderRouterContextWindow,
-			proxy.HeaderRouterFallbackFrom,
-			proxy.HeaderRouterFallbackAttempt,
-			proxy.HeaderRouterCostUSD,
-			proxy.HeaderRouterCostInputUSD,
-			proxy.HeaderRouterCostOutputUSD,
-			proxy.HeaderRouterCacheReadTokens,
-			proxy.HeaderRouterCacheCreationTokens,
+			requestcontext.HeaderRouterDecision,
+			requestcontext.HeaderRouterProvider,
+			requestcontext.HeaderRouterModel,
+			requestcontext.HeaderRouterContextWindow,
+			requestcontext.HeaderRouterFallbackFrom,
+			requestcontext.HeaderRouterFallbackAttempt,
+			requestcontext.HeaderRouterCostUSD,
+			requestcontext.HeaderRouterCostInputUSD,
+			requestcontext.HeaderRouterCostOutputUSD,
+			requestcontext.HeaderRouterCacheReadTokens,
+			requestcontext.HeaderRouterCacheCreationTokens,
 		}, ", "))
 		c.Next()
 	})
@@ -133,7 +137,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	var subscriberAllowanceMiddleware []gin.HandlerFunc
 	var subscriberProductScopeMiddleware []gin.HandlerFunc
 	if features.SubscriberAllowance != nil {
-		subscriberAllowanceMiddleware = []gin.HandlerFunc{middleware.WithSubscriberAllowance(features.SubscriberAllowance)}
+		subscriberAllowanceMiddleware = []gin.HandlerFunc{middleware.WithSubscriberAllowance(features.SubscriberAllowance, features.SubscriptionCoverage)}
 		subscriberProductScopeMiddleware = []gin.HandlerFunc{middleware.WithSubscriberProductScope(features.SubscriberAllowance)}
 	}
 	var servingAdmissionMiddleware []gin.HandlerFunc
@@ -282,10 +286,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	if billingSvc != nil {
 		messagesMiddleware = append(messagesMiddleware,
 			middleware.WithBillingSpan(),
-			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
-			middleware.WithAPIKeySpendCap(billingSvc),
-			middleware.WithDelegatedSpendCap(billingSvc),
-			middleware.WithOrgMonthlySpendCap(billingSvc),
+			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros, features.CustomerFunding),
+			middleware.WithAPIKeySpendCap(billingSvc, features.CustomerFunding),
+			middleware.WithDelegatedSpendCap(billingSvc, features.CustomerFunding),
+			middleware.WithOrgMonthlySpendCap(billingSvc, features.CustomerFunding),
 			middleware.WithBillingSpanEnd(),
 		)
 	}
@@ -312,10 +316,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	if billingSvc != nil {
 		chatCompletionMiddleware = append(chatCompletionMiddleware,
 			middleware.WithBillingSpan(),
-			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
-			middleware.WithAPIKeySpendCap(billingSvc),
-			middleware.WithDelegatedSpendCap(billingSvc),
-			middleware.WithOrgMonthlySpendCap(billingSvc),
+			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros, features.CustomerFunding),
+			middleware.WithAPIKeySpendCap(billingSvc, features.CustomerFunding),
+			middleware.WithDelegatedSpendCap(billingSvc, features.CustomerFunding),
+			middleware.WithOrgMonthlySpendCap(billingSvc, features.CustomerFunding),
 			middleware.WithBillingSpanEnd(),
 		)
 	}
@@ -353,10 +357,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	if billingSvc != nil {
 		routeMiddleware = append(routeMiddleware,
 			middleware.WithBillingSpan(),
-			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
-			middleware.WithAPIKeySpendCap(billingSvc),
-			middleware.WithDelegatedSpendCap(billingSvc),
-			middleware.WithOrgMonthlySpendCap(billingSvc),
+			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros, features.CustomerFunding),
+			middleware.WithAPIKeySpendCap(billingSvc, features.CustomerFunding),
+			middleware.WithDelegatedSpendCap(billingSvc, features.CustomerFunding),
+			middleware.WithOrgMonthlySpendCap(billingSvc, features.CustomerFunding),
 			middleware.WithBillingSpanEnd(),
 		)
 	}

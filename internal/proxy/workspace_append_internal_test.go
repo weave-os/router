@@ -26,29 +26,29 @@ func TestWorkspaceSystemAppendApplies_GateAndTurnType(t *testing.T) {
 	env := parseGateBody(t, autonomyGateBody)
 
 	t.Run("flag off never fires", func(t *testing.T) {
-		assert.False(t, svc.workspaceSystemAppendApplies(workspaceGateCtx(false, ClientAppClaudeCode), []byte(autonomyGateBody), env, turntype.MainLoop))
+		assert.False(t, svc.workspaceSystemAppendApplies(workspaceGateCtx(false, requestcontext.ClientAppClaudeCode), []byte(autonomyGateBody), env, turntype.MainLoop))
 	})
 	t.Run("autonomy flag alone does not turn the workspace append on", func(t *testing.T) {
-		ctx := autonomyGateCtx(true, ClientAppClaudeCode)
+		ctx := autonomyGateCtx(true, requestcontext.ClientAppClaudeCode)
 		assert.False(t, svc.workspaceSystemAppendApplies(ctx, []byte(autonomyGateBody), env, turntype.MainLoop))
 		assert.True(t, svc.autonomySystemAppendApplies(ctx, []byte(autonomyGateBody), env, turntype.MainLoop))
 	})
 	t.Run("deployment default on fires without an org override", func(t *testing.T) {
 		on := newAutonomyGateService().WithCCWorkspaceSystemAppend(true)
-		assert.True(t, on.workspaceSystemAppendApplies(workspaceGateCtx(false, ClientAppClaudeCode), []byte(autonomyGateBody), env, turntype.MainLoop))
+		assert.True(t, on.workspaceSystemAppendApplies(workspaceGateCtx(false, requestcontext.ClientAppClaudeCode), []byte(autonomyGateBody), env, turntype.MainLoop))
 	})
 	t.Run("org override turns a default-on deployment off", func(t *testing.T) {
 		on := newAutonomyGateService().WithCCWorkspaceSystemAppend(true)
-		off := flags.WithOverrides(workspaceGateCtx(false, ClientAppClaudeCode), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyCCWorkspaceSystemAppend: false}})
+		off := flags.WithOverrides(workspaceGateCtx(false, requestcontext.ClientAppClaudeCode), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyCCWorkspaceSystemAppend: false}})
 		assert.False(t, on.workspaceSystemAppendApplies(off, []byte(autonomyGateBody), env, turntype.MainLoop))
 	})
 	t.Run("only claude code identity qualifies", func(t *testing.T) {
-		assert.True(t, svc.workspaceSystemAppendApplies(workspaceGateCtx(true, ClientAppClaudeCode), []byte(autonomyGateBody), env, turntype.MainLoop))
-		assert.False(t, svc.workspaceSystemAppendApplies(workspaceGateCtx(true, ClientAppCodex), []byte(autonomyGateBody), env, turntype.MainLoop))
+		assert.True(t, svc.workspaceSystemAppendApplies(workspaceGateCtx(true, requestcontext.ClientAppClaudeCode), []byte(autonomyGateBody), env, turntype.MainLoop))
+		assert.False(t, svc.workspaceSystemAppendApplies(workspaceGateCtx(true, requestcontext.ClientAppCodex), []byte(autonomyGateBody), env, turntype.MainLoop))
 		assert.False(t, svc.workspaceSystemAppendApplies(workspaceGateCtx(true, ""), []byte(autonomyGateBody), env, turntype.MainLoop))
 	})
 	t.Run("turn types", func(t *testing.T) {
-		ctx := workspaceGateCtx(true, ClientAppClaudeCode)
+		ctx := workspaceGateCtx(true, requestcontext.ClientAppClaudeCode)
 		want := map[turntype.TurnType]bool{
 			turntype.MainLoop:         true,
 			turntype.ToolResult:       true,
@@ -66,7 +66,7 @@ func TestWorkspaceSystemAppendApplies_GateAndTurnType(t *testing.T) {
 
 func TestWorkspaceSystemAppendApplies_IdempotentAndSkipsSearchSubTurn(t *testing.T) {
 	svc := newAutonomyGateService()
-	ctx := workspaceGateCtx(true, ClientAppClaudeCode)
+	ctx := workspaceGateCtx(true, requestcontext.ClientAppClaudeCode)
 
 	t.Run("request already carrying the instruction is left alone", func(t *testing.T) {
 		body := `{"model":"claude-opus-5","system":[{"type":"text","text":"You are Claude Code."},{"type":"text","text":"` + translate.WorkspaceSystemText + `"}],"messages":[{"role":"user","content":"go"}],"max_tokens":8}`

@@ -18,7 +18,7 @@ import (
 func TestRequestFactsFromReadsTheBoundaryKeys(t *testing.T) {
 	installation := uuid.New()
 	keys := []*auth.ExternalAPIKey{{ID: "key-1", Provider: providers.ProviderAnthropic}}
-	client := requestcontext.ClientIdentity{SessionID: "session-1", ClientApp: ClientAppCodex}
+	client := requestcontext.ClientIdentity{SessionID: "session-1", ClientApp: requestcontext.ClientAppCodex}
 	headers := http.Header{"Authorization": []string{"Bearer inbound"}}
 	ctx := observability.WithRequestID(context.Background(), "req-1")
 	ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "api-key-1")

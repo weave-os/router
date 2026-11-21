@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
@@ -853,7 +854,7 @@ func TestIsCommittedStreamFailure_ClientDisconnect(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, isCommittedStreamFailure(tc.ctx, tc.err))
+			assert.Equal(t, tc.want, dispatch.IsCommittedStreamFailure(tc.ctx, tc.err))
 		})
 	}
 }
@@ -899,11 +900,11 @@ func TestIsCommittedStreamFailure_SSEErrorFrameKeepsCause(t *testing.T) {
 				var status *providers.UpstreamStatusError
 				require.ErrorAs(t, framed, &status)
 				assert.Same(t, tc.err, status.Cause)
-				assert.Equal(t, tc.want, isCommittedStreamFailure(tc.ctx, framed))
+				assert.Equal(t, tc.want, dispatch.IsCommittedStreamFailure(tc.ctx, framed))
 				// ProxyMessages' deferred flush frames the committed attempt's
 				// already-framed error a second time.
 				reframed := render(httptest.NewRecorder(), framed)
-				assert.Equal(t, tc.want, isCommittedStreamFailure(tc.ctx, reframed))
+				assert.Equal(t, tc.want, dispatch.IsCommittedStreamFailure(tc.ctx, reframed))
 			})
 		}
 	}

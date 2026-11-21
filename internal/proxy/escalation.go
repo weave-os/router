@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/llmescalation"
@@ -52,7 +53,7 @@ func (s *Service) escalationFacts(ctx context.Context, env *translate.RequestEnv
 		APIKeyID:            apiKeyID,
 		CredentialIdentity:  sessionCredentialIdentity(ctx, apiKeyID),
 		ExcludedProviders:   installationExcludedProvidersFromContext(ctx),
-		CodexClient:         ClientIdentityFrom(ctx).ClientApp == ClientAppCodex,
+		CodexClient:         ClientIdentityFrom(ctx).ClientApp == requestcontext.ClientAppCodex,
 		RetainReason:        s.effectiveCaptureMode(ctx) == CaptureFull,
 	}
 }
