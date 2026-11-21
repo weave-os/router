@@ -662,7 +662,7 @@ func TestService_HardPin_ExploreRoutesToHaikuWhenFlagOn(t *testing.T) {
 		nil), hmm.ServingPorts())
 
 	// The legacy hardPinExplore default only applies to non-HMM strategies.
-	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyRL)
+	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.Strategy("rl"))
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
@@ -834,7 +834,7 @@ func TestService_HardPin_NoSubAgentOverrideUsesSharedHardPin(t *testing.T) {
 		nil), hmm.ServingPorts())
 
 	// The legacy hardPinExplore default only applies to non-HMM strategies.
-	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyRL)
+	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.Strategy("rl"))
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
@@ -1313,7 +1313,7 @@ func TestService_HardPin_OpenAI_SubAgentHeaderHintRoutesToHardPin(t *testing.T) 
 	svc := newOpenAIHardPinSvc(fr, store, true)
 
 	// The legacy hardPinExplore default only applies to non-HMM strategies.
-	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyRL)
+	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.Strategy("rl"))
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	httpReq.Header.Set("x-weave-subagent-type", "Explore")

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -148,7 +149,7 @@ type turnLoopResult struct {
 	TokenizerCalibration        sessionpin.TokenizerCalibration
 	ContextEstimate             int
 	StripThinkingBlocks         bool
-	Handover                    handoverOutcome
+	Handover                    dispatch.HandoverOutcome
 	SuggestionMode              bool
 	PrefixTrimmed               bool
 	EscalateEffort              bool
@@ -256,14 +257,6 @@ func isPolicyDeadlineErr(err error) bool {
 		return false
 	}
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
-}
-
-type handoverOutcome struct {
-	Invoked               bool
-	LatencyMS             int64
-	SummaryTokens         int
-	FallbackToFullHistory bool
-	SummaryUsage          handover.Usage
 }
 
 func (s *Service) hasSubAgentOverride() bool {
