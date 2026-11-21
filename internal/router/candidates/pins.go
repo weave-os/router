@@ -1,6 +1,7 @@
 package candidates
 
 import (
+	"maps"
 	"strings"
 
 	"weave-os/router/internal/router"
@@ -148,15 +149,11 @@ func BaseModelOf(servedIdentity string) string {
 
 func ExcludeMaxedModel(req router.Request, model string) router.Request {
 	excluded := make(map[string]struct{}, len(req.Candidates.ExcludedModels)+1)
-	for k := range req.Candidates.ExcludedModels {
-		excluded[k] = struct{}{}
-	}
+	maps.Copy(excluded, req.Candidates.ExcludedModels)
 	excluded[model] = struct{}{}
 	req.Candidates.ExcludedModels = excluded
 	safety := make(map[string]struct{}, len(req.Candidates.SafetyExcludedModels)+1)
-	for k := range req.Candidates.SafetyExcludedModels {
-		safety[k] = struct{}{}
-	}
+	maps.Copy(safety, req.Candidates.SafetyExcludedModels)
 	safety[model] = struct{}{}
 	req.Candidates.SafetyExcludedModels = safety
 	return req
@@ -164,12 +161,8 @@ func ExcludeMaxedModel(req router.Request, model string) router.Request {
 
 func ReadmitPinnedModel(req router.Request, model string) router.Request {
 	if len(req.Candidates.ExcludedModels) > 0 {
-		pruned := make(map[string]struct{}, len(req.Candidates.ExcludedModels)-1)
-		for k := range req.Candidates.ExcludedModels {
-			if k != model {
-				pruned[k] = struct{}{}
-			}
-		}
+		pruned := maps.Clone(req.Candidates.ExcludedModels)
+		delete(pruned, model)
 		req.Candidates.ExcludedModels = pruned
 	}
 	delete(req.Candidates.SafetyExcludedModels, model)

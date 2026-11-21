@@ -93,8 +93,7 @@ func screenPinContextWindow(ctx context.Context, s *Service, env *translate.Requ
 				)
 				tp.drop()
 			} else {
-				policyExcluded := s.excludedModelsForRequest(ctx)
-				_, policyExcludes := policyExcluded[tp.pin.Model]
+				_, policyExcludes := s.excludedModelsForRequest(ctx)[tp.pin.Model]
 				if !policyExcludes && !compatibilityExcludesModel(*req, tp.pin.Model) {
 					*req = candidates.ReadmitPinnedModel(*req, tp.pin.Model)
 				}
