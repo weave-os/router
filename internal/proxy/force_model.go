@@ -434,7 +434,7 @@ func (f forceModelCommands) apply(
 	threadSessionKey, forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 ) (string, commandAcknowledgment, error) {
 	ack := newCommandAcknowledgment(translate.CommandForceModel)
-	out, err := conversation.ForceModelCommand{
+	applied, err := conversation.ForceModelCommand{
 		Resolver: forceModelResolver(f),
 		Pins:     routingpolicy.NewForceModelPins(f.s.pinStore, f.s.clock.Now),
 		Controls: forceModelControls{s: f.s, strategy: strategy},
@@ -449,15 +449,15 @@ func (f forceModelCommands) apply(
 	if err != nil {
 		return "", commandAcknowledgment{}, err
 	}
-	if out.Rejection != "" {
+	if applied.Rejection != "" {
 		ack.outcome.Disposition = translate.CommandRejected
-		ack.force = forceAcknowledgment{rejection: forceRejection(out.Rejection), inputModel: out.InputModel, suggestion: out.Suggestion, reason: out.Reason}
+		ack.force = forceAcknowledgment{rejection: forceRejection(applied.Rejection), inputModel: applied.InputModel, suggestion: applied.Suggestion, reason: applied.Reason}
 		return "", ack, nil
 	}
-	ack.outcome.Pin = out.Pin
-	ack.force.clearCommand = out.ClearCommand
-	ack.force.parentOnly = out.ParentOnly
-	return out.ShownModel, ack, nil
+	ack.outcome.Pin = applied.Pin
+	ack.force.clearCommand = applied.ClearCommand
+	ack.force.parentOnly = applied.ParentOnly
+	return applied.ShownModel, ack, nil
 }
 
 type forceModelResolver struct {
