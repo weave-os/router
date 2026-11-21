@@ -10,18 +10,6 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-type HandoverOutcome struct {
-	Invoked               bool
-	LatencyMS             int64
-	SummaryTokens         int
-	FallbackToFullHistory bool
-	SummaryUsage          handover.Usage
-}
-
-type SummarizerAccess interface {
-	SummaryContext(ctx context.Context, provider string) (summaryCtx context.Context, allowed bool)
-}
-
 type CompactionHandover struct {
 	Summarizer handover.Summarizer
 	Access     SummarizerAccess
@@ -61,8 +49,4 @@ func (h CompactionHandover) Run(ctx context.Context, env *translate.RequestEnvel
 		log.Info("Compaction handover: context rewritten with summary", "summary_len", len(summary), "decision_model", decisionModel)
 	}
 	return out
-}
-
-func EstimateSummaryTokens(s string) int {
-	return len(s) / 4
 }
