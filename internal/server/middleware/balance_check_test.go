@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -632,4 +633,49 @@ func TestWithBalanceCheck_CreditsDisabledIgnoresBalance(t *testing.T) {
 			assert.True(t, denied)
 		})
 	}
+}
+
+// runBalanceWithKeys runs WithBalanceCheck at a zero balance for a key-only
+// caller and reports the subscription-only reason the proxy would see.
+func runBalanceWithKeys(t *testing.T, feeRate float64, keys []*auth.ExternalAPIKey) (*httptest.ResponseRecorder, billing.SubscriptionOnlyReason, bool) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	var reason billing.SubscriptionOnlyReason
+	reached := false
+	engine.GET("/v1/messages", func(c *gin.Context) {
+		withInstallation(c, "org_keys")
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), proxy.ExternalAPIKeysContextKey{}, keys))
+		middleware.WithBalanceCheck(billing.NewService(&stubBillingRepo{balance: 0}).WithByokFeeRate(feeRate), 0)(c)
+		if c.IsAborted() {
+			return
+		}
+		reached = true
+		reason, _ = billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
+		c.Status(http.StatusOK)
+	})
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil))
+	return w, reason, reached
+}
+
+func TestWithBalanceCheck_AdmitsKeyOnlyCallerAsUnfunded(t *testing.T) {
+	w, reason, reached := runBalanceWithKeys(t, 0, []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")}})
+	assert.True(t, reached, "a usable provider key can serve the turn, so admission must not 402 it")
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, billing.SubscriptionOnlyCreditsDepleted, reason, "the proxy must see the turn as unfunded so only the customer's key serves it")
+}
+
+func TestWithBalanceCheck_UnusableKeyStill402s(t *testing.T) {
+	w, _, reached := runBalanceWithKeys(t, 0, []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, CredentialError: errors.New("decrypt failed")}})
+	assert.False(t, reached)
+	assert.Equal(t, http.StatusPaymentRequired, w.Code)
+}
+
+func TestWithBalanceCheck_KeyOnlyCallerOwingAByokFee402s(t *testing.T) {
+	// A depleted organization cannot pay a BYOK fee, so a key-only caller has
+	// nothing that can fund the turn and is refused at admission.
+	w, _, reached := runBalanceWithKeys(t, 0.05, []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")}})
+	assert.False(t, reached)
+	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }

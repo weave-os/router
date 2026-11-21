@@ -167,7 +167,7 @@ func holdAuthoritativePin(
 		}
 		return false
 	}
-	decision := pinDecision(pin)
+	decision := pin.Decision()
 	res.Decision, res.UserForced = decision, false
 	res.StickyHit = true
 	switch verdict.Hold {
