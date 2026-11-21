@@ -258,7 +258,11 @@ every customer-funded option before the 402: the caller's own plan, and the
 customer's usable connected provider key in its funding-priority order
 (`key_first` before the plan, `plan_first` once the plan is observed exhausted).
 Weave's deployment keys never fund it, and a failed key attempt is not rescued
-on them.
+on them. Admission (`RequestHasCustomerFunding`) applies the same rule: a caller
+with a usable connected key but no plan is flagged unfunded instead of refused,
+and only a caller with neither gets the 402 at the gate. When `BYOK_FEE_RATE` is
+above zero the organization cannot pay the fee, so the key no longer counts and a
+key-only caller gets the 402 at the gate.
 
 Quota-verification failures are not inference-capacity failures. Preflight
 timeouts, quota-endpoint errors, and unverifiable responses retain a shared typed

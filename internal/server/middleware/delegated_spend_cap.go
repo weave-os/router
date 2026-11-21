@@ -42,7 +42,7 @@ func WithDelegatedSpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 		kind, refused := tripSubscriptionLane(c, svc, subscriptionlane.DelegatedSpendCapGate,
-			proxy.RequestPresentsCoveringSubscription(ctx, c.Request.Header, c.FullPath()))
+			proxy.RequestHasCustomerFunding(ctx, c.Request.Header, c.FullPath(), svc.ByokFeeOwed(ctx)))
 		if !refused {
 			log.Info("Delegated spend cap reached but subscription covers the route: serving subscription-only", "scope", scope)
 			c.Next()
