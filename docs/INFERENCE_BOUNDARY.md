@@ -42,11 +42,9 @@ These are the complete production `providers.Client.Proxy`/`Passthrough` call si
 | File / symbol | Operation |
 | --- | --- |
 | `internal/proxy/usage_bypass.go` — `Service.bypassToAnthropic` | subscription-token main inference |
-| `internal/proxy/gemini.go` — `Service.ProxyGeminiGenerateContent` | Gemini main inference |
 | `internal/proxy/service.go` — `Service.PassthroughToNamedProvider` | metadata/passthrough |
-| `internal/proxy/service.go` — `Service.anthropicNativeAttempt` | Anthropic main inference |
-| `internal/proxy/service.go` — two calls in `Service.ProxyMessages` | OpenAI-compatible and Gemini translations |
-| `internal/proxy/service.go` — three calls in `Service.ProxyOpenAIChatCompletion` | OpenAI, Anthropic, and Gemini dispatch branches |
+
+Executor attempts do not hold a provider client: `dispatchPlanned` hands each attempt closure a `dispatch.Upstream` wrapping the client the executor selected and guarded for the planned target, and the closure sends through it.
 
 `proxy.Service`, `NewService`, and the two provider-filter helpers in `internal/proxy/translation_plan.go` are the only non-composition-root owners of `map[string]providers.Client`. Phase 5 moves that ownership to `internal/dispatch`.
 
