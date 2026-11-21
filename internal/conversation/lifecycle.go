@@ -3,10 +3,10 @@ package conversation
 import "weave-os/router/internal/router/handover"
 
 type Lifecycle struct {
-	noProgress          *NoProgressTracker
-	compaction          *CompactionTracker
-	textRepetitionBreak bool
-	compactionHandover  handover.Summarizer
+	noProgress                   *NoProgressTracker
+	compaction                   *CompactionTracker
+	textRepetitionBreak          bool
+	compactionHandoverSummarizer handover.Summarizer
 }
 
 func NewLifecycle() *Lifecycle {
@@ -39,9 +39,9 @@ func (l *Lifecycle) CompactionHandoverSummarizer() handover.Summarizer {
 	if l == nil {
 		return nil
 	}
-	return l.compactionHandover
+	return l.compactionHandoverSummarizer
 }
 
 func (l *Lifecycle) SetCompactionHandoverSummarizer(summarizer handover.Summarizer) {
-	l.compactionHandover = summarizer
+	l.compactionHandoverSummarizer = summarizer
 }
