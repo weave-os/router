@@ -40,7 +40,7 @@ func footerStoreTestResponse(t *testing.T, withStore bool) string {
 		svc = svc.WithRouterFeedbackStore(&fakeFeedbackStore{})
 	}
 	ctx := requestcontext.WithClientIdentity(context.Background(), proxy.ClientIdentity{
-		ClientApp: proxy.ClientAppClaudeCode,
+		ClientApp: requestcontext.ClientAppClaudeCode,
 		UserAgent: "claude-cli/2.1.302 (external, cli)",
 	})
 	rec := httptest.NewRecorder()
