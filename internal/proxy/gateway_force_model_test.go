@@ -75,7 +75,7 @@ func TestService_GatewayForcedPinOutsideAllowlistServes(t *testing.T) {
 		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	assert.Equal(t, 0, fr.routeCalls, "the force must not fall through to automatic routing")
-	assert.Equal(t, "claude-opus-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-5", rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.NotContains(t, rec.Body.String(), "could not be served")
 }
 

@@ -26,9 +26,9 @@ func TestBaselineFor(t *testing.T) {
 
 	t.Run("weave-auto compares against the client's own default", func(t *testing.T) {
 		s := &Service{hmmServing: hmmPorts(), defaultBaselineModel: "claude-sonnet-4-5"}
-		claudeCode := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode})
-		codex := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
-		cursor := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCursor})
+		claudeCode := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
+		codex := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
+		cursor := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCursor})
 		assert.Equal(t, "claude-opus-5-5", s.baselineFor(claudeCode, "weave-auto"))
 		assert.Equal(t, "gpt-6.1-sol", s.baselineFor(codex, "weave-auto"))
 		assert.Equal(t, "claude-sonnet-4-5", s.baselineFor(cursor, "weave-auto"))

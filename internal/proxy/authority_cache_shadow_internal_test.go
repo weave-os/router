@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
 
@@ -178,7 +179,7 @@ func TestAuthorityCacheShadowKillSwitch(t *testing.T) {
 	assert.False(t, result.AuthorityShadow.Computed)
 	assert.Equal(t, shadowFreshModel, result.Decision.Model)
 
-	var params InsertTelemetryParams
+	var params turnrecord.InsertTelemetryParams
 	applyAuthorityShadowTelemetry(&params, result)
 	assert.Empty(t, params.AuthorityShadowOutcome)
 	assert.Nil(t, params.AuthorityShadowExpectedSavingsUSD)
@@ -284,7 +285,7 @@ func TestApplyAuthorityShadowTelemetryPreservesSignedEV(t *testing.T) {
 		},
 	}}
 
-	var params InsertTelemetryParams
+	var params turnrecord.InsertTelemetryParams
 	applyAuthorityShadowTelemetry(&params, res)
 
 	assert.Equal(t, "stay", params.AuthorityShadowOutcome)
@@ -406,7 +407,7 @@ func TestCandidateScoreFor(t *testing.T) {
 func TestAuthorityCacheShadowPersistsGateDivergenceVerdict(t *testing.T) {
 	result := runAuthorityShadowTurn(t, true, hmmFreshDecision(nil))
 
-	var params InsertTelemetryParams
+	var params turnrecord.InsertTelemetryParams
 	applyAuthorityShadowTelemetry(&params, result)
 
 	require.NotNil(t, params.AuthorityShadowWouldDiverge)
@@ -430,7 +431,7 @@ func TestAuthorityCacheShadowEarlyExitLeavesEVColumnsNull(t *testing.T) {
 	require.True(t, result.AuthorityShadow.Computed)
 	require.False(t, result.AuthorityShadow.EVRan(), "no_pin returns before the EV block")
 
-	var params InsertTelemetryParams
+	var params turnrecord.InsertTelemetryParams
 	applyAuthorityShadowTelemetry(&params, result)
 
 	// The verdict itself is real evidence and must persist.

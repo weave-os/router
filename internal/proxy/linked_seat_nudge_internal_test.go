@@ -224,7 +224,7 @@ func TestSpentOwnCodexPlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.T
 				ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateActive, Enabled: true}})
 				rec := httptest.NewRecorder()
 				if ingress == "responses" {
-					ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+					ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 					require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), path, body)))
 				} else {
 					require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), path, body)))

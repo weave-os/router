@@ -48,7 +48,7 @@ func runAllowedModelsMiddlewareWithDefault(t *testing.T, installation *auth.Inst
 	})
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	if header != "" {
-		req.Header.Set(proxy.AllowedModelsHeader, header)
+		req.Header.Set(requestcontext.AllowedModelsHeader, header)
 	}
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)

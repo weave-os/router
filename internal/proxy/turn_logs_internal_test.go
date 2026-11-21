@@ -226,7 +226,7 @@ func newServiceWithEmitter(t *testing.T, mode ContentCaptureMode, redactor Redac
 		FlushInterval: time.Second,
 	})
 	require.NoError(t, err)
-	return &Service{hmmServing: hmmPorts(), emitter: em, captureMode: mode, captureMaxBytes: 1 << 20, redactor: redactor}, em
+	return &Service{hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{emitter: em}, captureMode: mode, captureMaxBytes: 1 << 20, redactor: redactor}, em
 }
 
 func TestRecordCallLog_OffEmitsNothing(t *testing.T) {

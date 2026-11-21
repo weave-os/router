@@ -75,7 +75,7 @@ func TestGatewayOverflowOnOrdinaryTurnRescuesAcrossGateways(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, []string{gatewayCompactionOpusModel}, anthropicGateway.models, "same-gateway peers share the window that rejected it")
 			assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models)
-			assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(HeaderRouterModel))
+			assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(requestcontext.HeaderRouterModel))
 			assert.Contains(t, rec.Body.String(), "summary")
 			assert.NotContains(t, rec.Body.String(), "prompt is too long")
 		})

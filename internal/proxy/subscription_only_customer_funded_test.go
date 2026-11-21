@@ -142,6 +142,30 @@ func TestSubscriptionOnly_SpendCapNoticeNamesTheKeyNotThePlan(t *testing.T) {
 	assert.NotContains(t, string(body), "your own Anthropic subscription", "the notice must not claim the plan served a BYOK turn")
 }
 
+func TestSubscriptionOnly_LivePlan429RetriesOnCustomerKey(t *testing.T) {
+	const rateLimited = `{"type":"error","error":{"type":"rate_limit_error","message":"limit"}}`
+	trace := serveCustomerFunded(t, credentialCase{
+		name: "plan_429_byok", supplies: []string{goldenSubscription, goldenBYOKAnthropic},
+		decisions: []router.Decision{goldenAnthropicDecision},
+		upstreams: anthropicUp(goldenUpstreamError(429, rateLimited), goldenUpstreamError(429, rateLimited), goldenUpstreamError(429, rateLimited), anthropicOK(false, "ok")),
+		ctx:       chainCtx(goldenSubscriptionOnlyCtx, goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityPlanFirst))),
+	})
+	require.NotEmpty(t, trace.Attempts)
+	assert.Equal(t, "subscription_context", trace.Attempts[0].Resolved.Label, "a plan_first key leaves the plan first")
+	requireServedOnBYOK(t, trace)
+}
+
+func TestSubscriptionOnly_LivePlan429RetriesOnCustomerKey_ChatIngress(t *testing.T) {
+	const rateLimited = `{"type":"error","error":{"type":"rate_limit_error","message":"limit"}}`
+	trace := serveCustomerFunded(t, credentialCase{
+		name: "chat_plan_429_byok", supplies: []string{goldenSubscription, goldenBYOKAnthropic}, ingress: ingressOpenAI,
+		decisions: []router.Decision{goldenAnthropicDecision},
+		upstreams: anthropicUp(goldenUpstreamError(429, rateLimited), goldenUpstreamError(429, rateLimited), goldenUpstreamError(429, rateLimited), anthropicOK(false, "ok")),
+		ctx:       chainCtx(goldenSubscriptionOnlyCtx, goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityPlanFirst))),
+	})
+	requireServedOnBYOK(t, trace)
+}
+
 var unfundedEvents = []subscriptionlane.Event{subscriptionlane.CreditsDepletedCovered, subscriptionlane.KeySpendCapCovered}
 
 // unfundedCtx marks the turn unfunded the way the admission gates do, on a
@@ -186,6 +210,26 @@ func TestSubscriptionOnly_OwedByokFeeRefusesBeforeDispatch(t *testing.T) {
 				assert.Empty(t, trace.Billing, "nothing is debited")
 			})
 		}
+	}
+}
+
+func TestSubscriptionOnly_OwedByokFeeSkipsLivePlan429Retry(t *testing.T) {
+	const rateLimited = `{"type":"error","error":{"type":"rate_limit_error","message":"limit"}}`
+	for _, event := range unfundedEvents {
+		t.Run(event.String(), func(t *testing.T) {
+			trace := serveCustomerFunded(t, credentialCase{
+				name: "plan_429_fee_owed", supplies: []string{goldenSubscription, goldenBYOKAnthropic}, refused: true,
+				decisions: []router.Decision{goldenAnthropicDecision},
+				upstreams: anthropicUp(goldenUpstreamError(429, rateLimited), goldenUpstreamError(429, rateLimited), goldenUpstreamError(429, rateLimited), anthropicOK(false, "ok")),
+				ctx:       chainCtx(unfundedCtx(0.05, event), goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityPlanFirst))),
+			})
+			require.NotNil(t, trace.DispatchError, "an organization that cannot pay the BYOK fee is not rescued on its key")
+			assert.Equal(t, http.StatusTooManyRequests, trace.DispatchError.Status, "the plan's own refusal reaches the client")
+			for _, attempt := range trace.Attempts {
+				assert.NotEqual(t, "byok_anthropic", attempt.Resolved.Label, "the customer's key is never called")
+			}
+			assert.Empty(t, trace.Billing, "nothing is debited")
+		})
 	}
 }
 

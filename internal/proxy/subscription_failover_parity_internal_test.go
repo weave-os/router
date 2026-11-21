@@ -860,7 +860,7 @@ func TestSubscriptionFailoverParity_Telemetry(t *testing.T) {
 				})
 				require.NoError(t, err)
 				t.Cleanup(func() { _ = emitter.Shutdown(context.Background()) })
-				svc.emitter = emitter
+				svc.turnTelemetry.emitter = emitter
 
 				buf := otel.NewBuffer(emitter)
 				ctx := telemetry.WithRecorder(in.subCtx(), buf)

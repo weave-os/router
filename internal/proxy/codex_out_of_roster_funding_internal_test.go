@@ -138,7 +138,7 @@ func TestCodexOutOfRosterModel_SubscriptionFirstFunding(t *testing.T) {
 				client := &scriptedFundingClient{subscriptionErr: tc.subscriptionEr}
 				repo := &auxBillingRepo{}
 				svc := outOfRosterFundingService(client, selection.reason, repo)
-				ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+				ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 				ctx = outOfRosterBillingCtx(ctx)
 				ctx = withWeaveCreditsDeniedWhen(ctx, tc.creditsDenied)
 				if tc.enrollmentUnavailable {
@@ -163,8 +163,8 @@ func TestCodexOutOfRosterModel_SubscriptionFirstFunding(t *testing.T) {
 				if tc.wantErr {
 					return
 				}
-				assert.Equal(t, outOfRosterCodexModel, rec.Header().Get(HeaderRouterModel))
-				assert.Equal(t, providers.ProviderOpenAI, rec.Header().Get(HeaderRouterProvider))
+				assert.Equal(t, outOfRosterCodexModel, rec.Header().Get(requestcontext.HeaderRouterModel))
+				assert.Equal(t, providers.ProviderOpenAI, rec.Header().Get(requestcontext.HeaderRouterProvider))
 				require.Eventually(t, func() bool { return len(repo.snapshot()) == 1 }, 2*time.Second, 10*time.Millisecond)
 				debit := repo.snapshot()[0]
 				assert.Equal(t, outOfRosterCodexModel, debit.RouterModel)
@@ -211,7 +211,7 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 			body := `{"model":"codex-auto-review","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic"}]}]}`
 			ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
 			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
-			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 			if tc.poolUnavailable {
 				ctx = context.WithValue(ctx, requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 			}

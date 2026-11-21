@@ -69,7 +69,7 @@ func TestProxyMessages_ForcedModelDispatchesPastByteEstimate(t *testing.T) {
 	content := strconv.QuoteToASCII(strings.Repeat("中", 150_000))
 	body := []byte(`{"model":"` + forced + `","max_tokens":1024,"messages":[{"role":"user","content":` + content + `}]}`)
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
-	httpReq.Header.Set(proxy.ForceModelHeader, forced)
+	httpReq.Header.Set(requestcontext.ForceModelHeader, forced)
 	require.NoError(t, svc.ProxyMessages(authedCtx(overflowInstallationID), body, httptest.NewRecorder(), httpReq))
 
 	require.Len(t, upstream.proxyBodies, 1)

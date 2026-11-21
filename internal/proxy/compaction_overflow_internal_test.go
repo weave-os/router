@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 // cortexPromptTooLong is the 71-byte 400 Cortex's AI gateway
@@ -38,7 +39,7 @@ func TestGatewayCompactionContextOverflowRescuesToFittingModel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, anthropicGateway.models, gatewayCompactionOpusModel)
 	assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models)
-	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Contains(t, rec.Body.String(), "summary")
 	assert.NotContains(t, rec.Body.String(), "Compact the conversation")
 }
@@ -55,7 +56,7 @@ func TestGatewayCompactionContextOverflowReachesCrossGatewayRescuer(t *testing.T
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models)
-	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // A conversation the estimate already puts past every Claude summarizer's
@@ -83,7 +84,7 @@ func TestGatewayCompactionPastEverySummarizerWindowReachesCrossGatewayRescuer(t 
 	require.NoError(t, err)
 	assert.Equal(t, []string{gatewayCompactionOpusModel}, anthropicGateway.models, "only the utility pin is tried on the Claude gateway")
 	assert.Equal(t, []string{sol}, openAIGateway.models)
-	assert.Equal(t, sol, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, sol, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // Nothing fits: the turn fails as the provider's fault, never as an
@@ -104,7 +105,7 @@ func TestGatewayCompactionContextOverflowWithNothingFittingIsProviderFailure(t *
 	assert.GreaterOrEqual(t, class.Status, http.StatusInternalServerError)
 	assert.NotContains(t, class.Message, "Compact the conversation")
 	assert.NotContains(t, rec.Body.String(), "Compact the conversation")
-	assert.Equal(t, FailureOwnerProvider, dispatchErrorKindOwner(class.Kind))
+	assert.Equal(t, turnrecord.FailureOwnerProvider, dispatchErrorKindOwner(class.Kind))
 }
 
 // A non-compaction turn keeps the native prompt-too-long so the client compacts.

@@ -82,7 +82,7 @@ func anthropicClientAppRefused(ctx context.Context, err error) bool {
 
 func knownThirdPartyClientApp(clientApp string) bool {
 	switch clientApp {
-	case ClientAppCodex, ClientAppCursor, ClientAppGeminiCLI, ClientAppOpencode:
+	case requestcontext.ClientAppCodex, requestcontext.ClientAppCursor, requestcontext.ClientAppGeminiCLI, requestcontext.ClientAppOpencode:
 		return true
 	}
 	return false

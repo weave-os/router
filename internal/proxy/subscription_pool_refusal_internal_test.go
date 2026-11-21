@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -108,7 +109,7 @@ func TestSubscriptionPoolUnavailableAndThrottledRefusalsIgnoreTheLaneMark(t *tes
 func TestOnlyACallerPlanThrottleIsCustomerOwned(t *testing.T) {
 	for name, pin := range poolRefusalPins() {
 		owner := classifyFailureOwner(failureOwnerInput{Err: pin.err(context.Background())})
-		assert.Equal(t, errors.Is(pin.sentinel, errCallerPlanThrottled), owner == FailureOwnerClient, name)
+		assert.Equal(t, errors.Is(pin.sentinel, errCallerPlanThrottled), owner == turnrecord.FailureOwnerClient, name)
 	}
 }
 

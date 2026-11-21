@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
@@ -21,6 +22,7 @@ import (
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -243,13 +245,13 @@ func (s *Service) bypassToAnthropic(
 	if err := productEligibilityRefusal(ctx, entitlement.ModelBoundaryFromContext(ctx), decision.Model); err != nil {
 		return err
 	}
-	w.Header().Set(HeaderRouterDecision, decision.Reason)
-	w.Header().Set(HeaderRouterProvider, decision.Provider)
-	w.Header().Set(HeaderRouterModel, decision.Model)
-	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	w.Header().Set(requestcontext.HeaderRouterDecision, decision.Reason)
+	w.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
+	w.Header().Set(requestcontext.HeaderRouterModel, decision.Model)
+	w.Header().Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 	setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), max(contextWindowOutputReserve, feats.MaxTokens))
 
-	p, provErr := s.provider(providers.ProviderAnthropic)
+	p, provErr := s.clients.Upstream(providers.ProviderAnthropic)
 	if provErr != nil {
 		return provErr
 	}
@@ -295,7 +297,7 @@ func (s *Service) bypassToAnthropic(
 
 	var extractor *telemetry.UsageExtractor
 	if s.usageRequired() || streamCost != nil {
-		extractor, respW = s.newUsageExtractor(respW, decision.Provider)
+		extractor, respW = s.turnTelemetry.newUsageExtractor(respW, decision.Provider)
 		extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) })
 	}
 
@@ -395,7 +397,7 @@ func (s *Service) bypassToAnthropic(
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, outcomeErr)
 		sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyIDFromContext(ctx))
-		telemetryParams := InsertTelemetryParams{
+		telemetryParams := turnrecord.InsertTelemetryParams{
 			InstallationID:         installationID.String(),
 			APIKeyID:               apiKeyIDFromContext(ctx),
 			RequestID:              requestID,

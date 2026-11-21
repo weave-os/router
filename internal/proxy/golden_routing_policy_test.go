@@ -277,7 +277,7 @@ func routingPolicyRefused(body string, headers map[string]string, decorators ...
 }
 
 func routingPolicyForce(model string) map[string]string {
-	return map[string]string{proxy.ForceModelHeader: model}
+	return map[string]string{requestcontext.ForceModelHeader: model}
 }
 
 func withAvailable(svc *proxy.Service) *proxy.Service {

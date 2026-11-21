@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -199,11 +200,11 @@ func (l *linkedCodexSeat) Disable(context.Context, auth.SubscriptionOwner, subsc
 }
 
 type codexImageTelemetry struct {
-	proxy.TelemetryRepository
-	rows chan proxy.InsertTelemetryParams
+	turnrecord.TelemetryRepository
+	rows chan turnrecord.InsertTelemetryParams
 }
 
-func (t *codexImageTelemetry) InsertRequestTelemetry(_ context.Context, p proxy.InsertTelemetryParams) error {
+func (t *codexImageTelemetry) InsertRequestTelemetry(_ context.Context, p turnrecord.InsertTelemetryParams) error {
 	t.rows <- p
 	return nil
 }
@@ -227,7 +228,7 @@ func TestCodexImageRequest_ServesOnLinkedCodexSubscription(t *testing.T) {
 			client := openai.NewClient("deployment-key", upstream.URL)
 			client.SetCodexBaseURL(upstream.URL + "/codex")
 			seat := &linkedCodexSeat{}
-			telemetry := &codexImageTelemetry{rows: make(chan proxy.InsertTelemetryParams, 1)}
+			telemetry := &codexImageTelemetry{rows: make(chan turnrecord.InsertTelemetryParams, 1)}
 			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts()).WithManagedSubscriptions(seat)
 			ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "00000000-0000-0000-0000-000000000001")
 			ctx = proxy.WithManagedSubscriptionCandidates(proxy.WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{{ID: "seat-1", Provider: auth.SubscriptionProvider(subscriptions.ProviderCodex), Enabled: true}})
@@ -272,7 +273,7 @@ func TestCodexImageRequest_FallsBackToSavedKeyWhenLinkedCodexQuotaIsSpent(t *tes
 	})
 	client := openai.NewClient("deployment-key", upstream.URL)
 	client.SetCodexBaseURL(upstream.URL + "/codex")
-	telemetry := &codexImageTelemetry{rows: make(chan proxy.InsertTelemetryParams, 1)}
+	telemetry := &codexImageTelemetry{rows: make(chan turnrecord.InsertTelemetryParams, 1)}
 	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts()).WithManagedSubscriptions(&linkedCodexSeat{})
 	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "00000000-0000-0000-0000-000000000001")
 	ctx = context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-synthetic-byok")}})

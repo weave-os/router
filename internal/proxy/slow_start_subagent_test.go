@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 )
@@ -79,7 +80,7 @@ func TestSlowStartNotice_ReplayedCodexToolLoop(t *testing.T) {
 			tracker, now := slowStartAfterBaseline(t)
 			trace := slowStartTraceOf(inbound, now.Add(-41*time.Second), now.Add(-41*time.Second))
 			ctx := slowStartCtx("synthetic-session", "synthetic-key", "codex/0.166.0")
-			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, UserAgent: "codex/0.166.0"})
+			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex, UserAgent: "codex/0.166.0"})
 			_, shown := slowStartNotice(ctx, trace, tracker, now)
 			assert.Equal(t, test.wantNotice, shown)
 		})

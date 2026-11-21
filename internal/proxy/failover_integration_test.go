@@ -151,8 +151,8 @@ func TestProxyMessages_FireworksFailureFallbackToOpenRouter(t *testing.T) {
 	assert.Contains(t, respBody, "event: message_stop", "Anthropic stream should end with message_stop")
 
 	// Fallback headers surface the primary that failed.
-	assert.Equal(t, "fireworks", rec.Header().Get(proxy.HeaderRouterFallbackFrom))
-	assert.Equal(t, "1", rec.Header().Get(proxy.HeaderRouterFallbackAttempt))
+	assert.Equal(t, "fireworks", rec.Header().Get(requestcontext.HeaderRouterFallbackFrom))
+	assert.Equal(t, "1", rec.Header().Get(requestcontext.HeaderRouterFallbackAttempt))
 
 	// Per-attempt prep verification: OpenRouter received a body that
 	// includes the OpenRouter-only gates from emit_openai.go. Without the
@@ -271,7 +271,7 @@ func TestProxyMessages_SingleBindingPreservesEagerPrelude(t *testing.T) {
 	assert.Contains(t, respBody, "message_start")
 	assert.Contains(t, respBody, "message_stop")
 	// No fallback header for single-binding requests.
-	assert.Empty(t, rec.Header().Get(proxy.HeaderRouterFallbackFrom))
+	assert.Empty(t, rec.Header().Get(requestcontext.HeaderRouterFallbackFrom))
 }
 
 func TestProxyMessages_RoutingMarkerWaitsForProviderOutput(t *testing.T) {

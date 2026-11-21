@@ -14,6 +14,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 )
@@ -48,7 +49,7 @@ func TestService_HistoricalDirective_KeepsSessionPin(t *testing.T) {
 				providers.ProviderOpenAI:    openAI,
 			}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
-			identity := proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: tc.sessionID}
+			identity := requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: tc.sessionID}
 			ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.ClientIdentityContextKey{}, identity)
 			send := func(body string) *httptest.ResponseRecorder {
 				t.Helper()
@@ -79,7 +80,7 @@ func TestService_HistoricalDirective_KeepsSessionPin(t *testing.T) {
 			history = append(history, assistantItem("Weave Router: force-model applied: gpt-5 (openai)."), userItem("now write the parser"))
 			rec := send(`{"model":"gpt-4o","input":[` + strings.Join(history, ",") + `]}`)
 			assert.Equal(t, 0, fr.routeCalls, "the pin must still be found on the next turn")
-			assert.Equal(t, "gpt-5", rec.Header().Get(proxy.HeaderRouterModel))
+			assert.Equal(t, "gpt-5", rec.Header().Get(requestcontext.HeaderRouterModel))
 			require.Len(t, openAI.proxyBodies, 1)
 			assert.Equal(t, "gpt-5", gjson.GetBytes(openAI.proxyBodies[0], "model").Str)
 			upstreamSawDirective := false

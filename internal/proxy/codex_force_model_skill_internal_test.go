@@ -24,7 +24,7 @@ func TestCodexForceModelSkillToolResultIsAnsweredByRouter(t *testing.T) {
 	svc := withHMMPorts(NewService(&codexTitleRouter{}, map[string]providers.Client{providers.ProviderOpenAI: upstream},
 		nil, store, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil))
 
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.New().String())
 	ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "synthetic-api-key")
 	body := []byte(`{"model":"gpt-6.1-sol","stream":true,"input":[` +

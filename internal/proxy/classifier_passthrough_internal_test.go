@@ -201,7 +201,7 @@ func TestBypass_ClassifierPassthrough_TelemetryReason(t *testing.T) {
 	upstream := &bypassFakeProvider{respBody: "{}"}
 	svc := newBypassService(upstream)
 	sink := newBypassCaptureTelemetry()
-	svc.telemetry = sink
+	svc.turnTelemetry.repo = sink
 
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-haiku-4-5","max_tokens":5,"messages":[{"role":"user","content":"hello"}]}`))
 	require.NoError(t, err)
@@ -219,7 +219,7 @@ func TestBypass_ClassifierPassthrough_TelemetryReason(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("passthrough classifier never persisted a telemetry row")
 	}
-	assert.Equal(t, reasonClassifierPassthrough, rec.Header().Get(HeaderRouterDecision))
+	assert.Equal(t, reasonClassifierPassthrough, rec.Header().Get(requestcontext.HeaderRouterDecision))
 	sink.mu.Lock()
 	defer sink.mu.Unlock()
 	require.Len(t, sink.rows, 1)

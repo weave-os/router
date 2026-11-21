@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
@@ -37,8 +38,8 @@ func TestRoutingAnnouncementSharedCompletionHistory(t *testing.T) {
 			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: decision}, map[string]providers.Client{providers.ProviderOpenAI: provider},
 				nil, pins, false, providers.ProviderOpenAI, "gpt-6-luna", nil), hmm.ServingPorts())
 
-			ctx := context.WithValue(authedCtx("00000000-0000-0000-0000-000000000001"), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{
-				ClientApp: proxy.ClientAppCodex, SessionID: "synthetic-shared-conversation",
+			ctx := context.WithValue(authedCtx("00000000-0000-0000-0000-000000000001"), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{
+				ClientApp: requestcontext.ClientAppCodex, SessionID: "synthetic-shared-conversation",
 			})
 			badge := codexBadgeSentinelForTest + "✦ **Weave Router** → " + test.announced + " · best pick for this turn\n\n"
 			rec := httptest.NewRecorder()

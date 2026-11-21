@@ -16,9 +16,6 @@ import (
 	"weave-os/router/internal/router"
 )
 
-const ClassifierThreadHeader = "X-Weave-Classifier-Thread"
-
-const ClassifierThreadUnavailableToken = "weave-classifier-unavailable"
 const classifierThreadIssuer = "weave-classifier-thread-v1"
 const classifierThreadLifetime = 30 * 24 * time.Hour
 

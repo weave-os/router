@@ -95,7 +95,7 @@ func TestPolicyStrategyRegistryRoutesFutureStrategyWithoutServiceChanges(t *test
 
 	ctx := context.WithValue(context.Background(), requestcontext.ExternalIDContextKey{}, "org-1")
 	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, RolloutID: "rollout-1"})
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex, RolloutID: "rollout-1"})
 	ctx = context.WithValue(ctx, requestcontext.PolicyTrainingAllowedContextKey{}, true)
 	ctx = context.WithValue(ctx, requestcontext.PolicyDebugEnabledContextKey{}, true)
 	ctx = context.WithValue(ctx, requestcontext.PolicyRoutingIntentContextKey{}, "high")
@@ -110,7 +110,7 @@ func TestPolicyStrategyRegistryRoutesFutureStrategyWithoutServiceChanges(t *test
 	assert.Zero(t, defaultRouter.calls)
 	assert.Equal(t, "org-1", futureRouter.request.OrganizationID)
 	assert.Equal(t, "11111111-1111-1111-1111-111111111111", futureRouter.request.InstallationID)
-	assert.Equal(t, ClientAppCodex, futureRouter.request.ClientApp)
+	assert.Equal(t, requestcontext.ClientAppCodex, futureRouter.request.ClientApp)
 	assert.Equal(t, "rollout-1", futureRouter.request.RolloutID)
 	assert.Equal(t, "full", futureRouter.request.CaptureMode)
 	assert.True(t, futureRouter.request.TrainingAllowed)

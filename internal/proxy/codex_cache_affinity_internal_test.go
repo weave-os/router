@@ -28,15 +28,15 @@ func TestCodexSubscriptionIngressKeepsCacheAffinityAcrossTurns(t *testing.T) {
 		turns []string
 		run   func(*Service, context.Context, []byte, http.ResponseWriter, *http.Request) error
 	}{
-		{"messages", ClientAppClaudeCode, []string{
+		{"messages", requestcontext.ClientAppClaudeCode, []string{
 			`{"model":"auto","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"synthetic first turn"}]}`,
 			`{"model":"auto","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"synthetic first turn"},{"role":"assistant","content":"synthetic answer"},{"role":"user","content":"synthetic second turn"}]}`,
 		}, (*Service).ProxyMessages},
-		{"chat", ClientAppCodex, []string{
+		{"chat", requestcontext.ClientAppCodex, []string{
 			`{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic first turn"}]}`,
 			`{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic first turn"},{"role":"assistant","content":"synthetic answer"},{"role":"user","content":"synthetic second turn"}]}`,
 		}, (*Service).ProxyOpenAIChatCompletion},
-		{"responses", ClientAppCodex, []string{
+		{"responses", requestcontext.ClientAppCodex, []string{
 			`{"model":"auto","stream":true,"prompt_cache_key":"` + session + `","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic first turn"}]}]}`,
 			`{"model":"auto","stream":true,"prompt_cache_key":"` + session + `","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic first turn"}]},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"synthetic answer"}]},{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic second turn"}]}]}`,
 		}, (*Service).ProxyOpenAIResponses},

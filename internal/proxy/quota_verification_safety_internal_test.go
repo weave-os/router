@@ -88,7 +88,7 @@ func TestQuotaVerificationFailureNeverBuysPaidCapacity(t *testing.T) {
 							AccountID: "synthetic-seat", AccessToken: "synthetic-token", ProviderAccount: "synthetic-chatgpt-account",
 						}}})
 					}
-					ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+					ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 					ctx = WithManagedSubscriptionUsage(outOfRosterBillingCtx(ctx))
 					if funding.reason != "" {
 						ctx = billing.WithSubscriptionOnly(ctx, funding.reason)
@@ -187,7 +187,7 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 				svc := outOfRosterFundingService(client, translate.ReasonUserForceModel, repo).WithManagedSubscriptions(leaser)
 				ctx := WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderCodex), accounts)
 				ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
-				ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+				ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 				ctx = outOfRosterBillingCtx(ctx)
 				if reason != "" {
 					ctx = billing.WithSubscriptionOnly(ctx, reason)

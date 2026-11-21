@@ -805,7 +805,7 @@ func TestDispatchWithFallbackRotatesManagedTransientErrorOnSameBinding(t *testin
 // An Anthropic seat out of extra usage answers 400, not 429. Rotating keeps the
 // turn on another seat instead of returning the refusal to the client.
 func TestManagedClaudeSeatOutOfExtraUsageRotates(t *testing.T) {
-	for _, clientApp := range []string{"", ClientAppClaudeCode, "custom-agent"} {
+	for _, clientApp := range []string{"", requestcontext.ClientAppClaudeCode, "custom-agent"} {
 		t.Run("client_app="+clientApp, func(t *testing.T) {
 			leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{}}
 			service := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)

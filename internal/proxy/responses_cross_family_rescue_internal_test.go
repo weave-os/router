@@ -85,7 +85,7 @@ func newCodexRescueService(upstreamURL string) (*Service, context.Context) {
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{})
 	ctx = context.WithValue(ctx, requestcontext.OpenAISubscriptionContextKey{}, codexTestToken)
 	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, codexTestAccountID)
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	return svc, ctx
 }
 

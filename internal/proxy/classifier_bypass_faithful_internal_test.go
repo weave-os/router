@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -47,9 +48,9 @@ func runClassifierBypassWithContext(t *testing.T, parent context.Context, body, 
 	t.Helper()
 	upstream := &bypassFakeProvider{respBody: respBody}
 	svc := newBypassService(upstream)
-	svc.anthropicServerSideFallback = true
+	svc.rescueConfig.AnthropicServerSideFallback = true
 	sink := newBypassCaptureTelemetry()
-	svc.telemetry = sink
+	svc.turnTelemetry.repo = sink
 
 	env, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)
@@ -78,7 +79,7 @@ func TestBypass_ClassifierTurn_RecordsStopReason(t *testing.T) {
 		"refusal": {
 			resp:      `{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5-5","content":[],"stop_reason":"refusal","usage":{"input_tokens":10,"output_tokens":0}}`,
 			wantStop:  "refusal",
-			wantClass: string(TurnErrorRefusal),
+			wantClass: string(turnrecord.TurnErrorRefusal),
 		},
 		"end_turn": {
 			resp:     `{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5-5","content":[{"type":"text","text":"<severity>5</severity>"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":7}}`,

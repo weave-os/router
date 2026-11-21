@@ -48,7 +48,7 @@ func (s *Service) anthropicRoutingRequest(
 	}
 
 	clientIdentity := ClientIdentityFrom(ctx)
-	headerIdentity := ClientIdentityFromHeaders(headers)
+	headerIdentity := requestcontext.ClientIdentityFromHeaders(headers)
 	if clientIdentity.ClientApp == "" {
 		clientIdentity.ClientApp = headerIdentity.ClientApp
 	}

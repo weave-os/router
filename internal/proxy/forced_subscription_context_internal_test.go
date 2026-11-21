@@ -129,7 +129,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 			ctx := context.WithValue(withClaudeCreditFallback(context.Background()), requestcontext.APIKeyIDContextKey{}, "synthetic-key")
 			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())
-			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode, SessionID: "synthetic-session"})
+			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode, SessionID: "synthetic-session"})
 			ctx = context.WithValue(ctx, requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 			ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{gatewayCompactionOpusModel})
 			ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{gatewayCompactionOpusModel})
@@ -149,7 +149,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				recorder := httptest.NewRecorder()
 				request := httptest.NewRequestWithContext(ctx, http.MethodPost, routePathMessages, strings.NewReader(string(body)))
 				if scenario.forceWithEffort {
-					request.Header.Set(ForceModelHeader, gatewayCompactionOpusModel+":high")
+					request.Header.Set(requestcontext.ForceModelHeader, gatewayCompactionOpusModel+":high")
 				}
 				err = svc.ProxyMessages(WithManagedSubscriptionUsage(ctx), body, recorder, request)
 				return recorder, err

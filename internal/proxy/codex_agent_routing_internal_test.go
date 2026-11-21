@@ -63,7 +63,7 @@ func codexRoutingEnvelope(t *testing.T, agentPath string, toolResult bool) (cont
 	require.NoError(t, err)
 	env, err := translate.ParseOpenAI(converted.Body)
 	require.NoError(t, err)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, SessionID: "synthetic-codex-conversation"})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "synthetic-codex-conversation"})
 	ctx = context.WithValue(ctx, nativeResponsesBodyContextKey{}, body)
 	return router.WithStrategy(ctx, router.StrategyHMM), env
 }
@@ -237,7 +237,7 @@ func TestCodexAgentMessageBoundary(t *testing.T) {
 			requestCtx := context.WithValue(ctx, nativeResponsesBodyContextKey{}, []byte(test.native))
 			key := deriveSessionKeyForRequest(requestCtx, env, "synthetic-api-key")
 			assert.Equal(t, test.child, key != parentKey)
-			nonCodex := context.WithValue(requestCtx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppOpencode, SessionID: "synthetic-codex-conversation"})
+			nonCodex := context.WithValue(requestCtx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppOpencode, SessionID: "synthetic-codex-conversation"})
 			assert.Equal(t, parentKey, deriveSessionKeyForRequest(nonCodex, env, "synthetic-api-key"))
 		})
 	}

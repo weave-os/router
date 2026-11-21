@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -44,8 +45,8 @@ func TestWithSubscriberAllowance_MaxIgnoresLinkedSubscriptionAndUsesAllowance(t 
 					c.Set("router_api_key", subscriberAPIKey())
 					withInstallation(c, "org_subscription_conflict")
 				})
-				engine.Use(middleware.WithSubscriberAllowance(allowanceSvc))
-				engine.Use(middleware.WithBalanceCheck(billing.NewService(organizationBilling), billing.MinBalanceMicros))
+				engine.Use(middleware.WithSubscriberAllowance(allowanceSvc, proxy.RequestPresentsCoveringSubscription))
+				engine.Use(middleware.WithBalanceCheck(billing.NewService(organizationBilling), billing.MinBalanceMicros, proxy.RequestHasCustomerFunding))
 				engine.POST(route.path, func(c *gin.Context) {
 					dispatched = true
 					subscriptionOnly = billing.SubscriptionOnlyFromContext(c.Request.Context())

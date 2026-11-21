@@ -109,7 +109,7 @@ func TestVerificationSafeSubscriptionIngressConformance(t *testing.T) {
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 				ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org_subscription_verification")
 				ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "10000000-0000-4000-8000-000000000003")
-				ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+				ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 				rec := httptest.NewRecorder()
 				err = fixture.run(svc, ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, fixture.path, strings.NewReader(body)))
 				require.NoError(t, err)

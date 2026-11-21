@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -183,7 +184,7 @@ func TestCallerModelPassthroughServesWeaveAutoOnTheClientDefault(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}
-	for clientApp, want := range map[string]string{ClientAppClaudeCode: "claude-opus-5-5", ClientAppCodex: "gpt-6.1-sol"} {
+	for clientApp, want := range map[string]string{requestcontext.ClientAppClaudeCode: "claude-opus-5-5", requestcontext.ClientAppCodex: "gpt-6.1-sol"} {
 		ctx := context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough),
 			ClientIdentityContextKey{}, ClientIdentity{ClientApp: clientApp})
 
@@ -396,7 +397,7 @@ func TestBlindExperimentRouterOnUsesScorer(t *testing.T) {
 }
 
 func TestApplyBlindExperimentTelemetry(t *testing.T) {
-	telemetry := InsertTelemetryParams{TrainingAllowed: true}
+	telemetry := turnrecord.InsertTelemetryParams{TrainingAllowed: true}
 	applyBlindExperimentTelemetry(blindExperimentContext(auth.BlindExperimentArmPassthrough), &telemetry, nil)
 
 	assert.Equal(t, auth.BlindExperimentArmPassthrough, telemetry.BlindExperimentArm)
@@ -420,7 +421,7 @@ func TestCohortTelemetrySeparatesScheduledIntendedAndApplied(t *testing.T) {
 		CohortGroupID: 3, CohortPhaseIndex: 2, CohortRevision: 4,
 		AssignmentSource: auth.BlindExperimentAssignmentManual, CanonicalSubjectKey: "account-1"}
 	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
-	params := InsertTelemetryParams{}
+	params := turnrecord.InsertTelemetryParams{}
 	applyBlindExperimentTelemetry(ctx, &params, &turnLoopResult{
 		Decision: router.Decision{Model: "claude-sonnet-4-6"}, CallerModelPassthrough: true})
 	assert.Equal(t, auth.BlindExperimentArmRouterOn, params.CohortScheduledArm)
@@ -430,7 +431,7 @@ func TestCohortTelemetrySeparatesScheduledIntendedAndApplied(t *testing.T) {
 
 	state.Arm = auth.BlindExperimentArmRouterOn
 	ctx = context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
-	params = InsertTelemetryParams{}
+	params = turnrecord.InsertTelemetryParams{}
 	applyBlindExperimentTelemetry(ctx, &params, &turnLoopResult{Decision: router.Decision{Model: "claude-sonnet-4-6"}, HardPinned: true})
 	require.NotNil(t, params.CohortTreatmentApplied)
 	assert.False(t, *params.CohortTreatmentApplied)
@@ -440,7 +441,7 @@ func TestCohortTelemetrySeparatesScheduledIntendedAndApplied(t *testing.T) {
 func TestCohortTelemetryRecordsUnassignedIdentityWithoutRoutingTreatment(t *testing.T) {
 	state := auth.BlindExperimentState{Enabled: true, CohortExperimentID: uuid.NewString()}
 	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
-	params := InsertTelemetryParams{}
+	params := turnrecord.InsertTelemetryParams{}
 	applyBlindExperimentTelemetry(ctx, &params, nil)
 	assert.Equal(t, state.CohortExperimentID, params.CohortExperimentID)
 	assert.Nil(t, params.CohortTreatmentApplied)
@@ -463,7 +464,7 @@ func TestCohortTelemetryExplainsBypassedTreatment(t *testing.T) {
 		{name: "not dispatched", routed: nil, reason: auth.CohortBypassNotDispatched},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			params := InsertTelemetryParams{}
+			params := turnrecord.InsertTelemetryParams{}
 			applyBlindExperimentTelemetry(ctx, &params, testCase.routed)
 			require.NotNil(t, params.CohortTreatmentApplied)
 			assert.False(t, *params.CohortTreatmentApplied)
@@ -477,7 +478,7 @@ func TestApplyBlindExperimentTelemetryRecordsSessionDraw(t *testing.T) {
 		Active: true, Arm: auth.BlindExperimentArmRouterOn, AssignmentSource: auth.BlindExperimentAssignmentAutomatic,
 		CanonicalSubjectKey: "account-1", Mode: auth.BlindExperimentModeSession, SessionSubjectKey: "session:abc",
 	})
-	telemetry := InsertTelemetryParams{}
+	telemetry := turnrecord.InsertTelemetryParams{}
 	applyBlindExperimentTelemetry(ctx, &telemetry, nil)
 	assert.Equal(t, auth.BlindExperimentModeSession, telemetry.BlindExperimentMode)
 	assert.Equal(t, "session:abc", telemetry.BlindExperimentSessionKey)
@@ -488,7 +489,7 @@ func TestApplyBlindExperimentTelemetryLabelsSessionModeWithoutSessionAsUser(t *t
 		Active: true, Arm: auth.BlindExperimentArmRouterOn, AssignmentSource: auth.BlindExperimentAssignmentAutomatic,
 		CanonicalSubjectKey: "account-1", Mode: auth.BlindExperimentModeSession,
 	})
-	telemetry := InsertTelemetryParams{}
+	telemetry := turnrecord.InsertTelemetryParams{}
 	applyBlindExperimentTelemetry(ctx, &telemetry, nil)
 	assert.Equal(t, auth.BlindExperimentModeUser, telemetry.BlindExperimentMode)
 	assert.Empty(t, telemetry.BlindExperimentSessionKey)
@@ -502,8 +503,8 @@ func TestBlindPassthroughUnknownModelServesClientBaseline(t *testing.T) {
 		provider  string
 		want      string
 	}{
-		{name: "claude code retired id", client: ClientAppClaudeCode, requested: "claude-retired-9", provider: providers.ProviderAnthropic, want: "claude-opus-5-5"},
-		{name: "codex retired id", client: ClientAppCodex, requested: "gpt-retired-1", provider: providers.ProviderOpenAI, want: "gpt-6.1-sol"},
+		{name: "claude code retired id", client: requestcontext.ClientAppClaudeCode, requested: "claude-retired-9", provider: providers.ProviderAnthropic, want: "claude-opus-5-5"},
+		{name: "codex retired id", client: requestcontext.ClientAppCodex, requested: "gpt-retired-1", provider: providers.ProviderOpenAI, want: "gpt-6.1-sol"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			service := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
@@ -532,7 +533,7 @@ func TestBlindPassthroughUnknownModelBaselineHonoursExclusions(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			service := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
-			ctx := context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode})
+			ctx := context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
 			req := tc.req
 			req.RequestedModel = "claude-retired-9"
 			req.EnabledProviders = map[string]struct{}{providers.ProviderAnthropic: {}}
@@ -585,7 +586,7 @@ func TestBlindExperimentTelemetryNamesWhatDecidedTheModel(t *testing.T) {
 			if tc.cohort {
 				state.CohortExperimentID, state.CohortGroupID, state.ScheduledArm = uuid.NewString(), 1, tc.arm
 			}
-			client := ClientAppClaudeCode
+			client := requestcontext.ClientAppClaudeCode
 			if tc.client != "" {
 				client = tc.client
 			}
@@ -597,7 +598,7 @@ func TestBlindExperimentTelemetryNamesWhatDecidedTheModel(t *testing.T) {
 			if tc.policy {
 				ctx = auth.WithRoutingPolicy(ctx, auth.RoutingPolicy{Mode: auth.RoutingPolicyPassthrough})
 			}
-			params := InsertTelemetryParams{RequestedModel: tc.requested, DecisionModel: tc.served}
+			params := turnrecord.InsertTelemetryParams{RequestedModel: tc.requested, DecisionModel: tc.served}
 			if tc.routed != nil && tc.served == "" {
 				params.DecisionModel = tc.routed.Decision.Model
 			}

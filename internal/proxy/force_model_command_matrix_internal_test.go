@@ -53,7 +53,7 @@ func TestForceModelCommand_TypedForms(t *testing.T) {
 			require.True(t, found, "command parsed")
 
 			rec := httptest.NewRecorder()
-			require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+			require.NoError(t, (forceModelCommands{svc}).handle(context.Background(), rec, env, cmd, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
 				DeriveSessionKey(env, "key-1"), 10))
 
 			require.Len(t, store.upserts, 1, "pin written")
@@ -78,7 +78,7 @@ func TestForceModelCommand_TypedUnknownKeepsRouting(t *testing.T) {
 			require.True(t, found, "command parsed")
 
 			rec := httptest.NewRecorder()
-			require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+			require.NoError(t, (forceModelCommands{svc}).handle(context.Background(), rec, env, cmd, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
 				DeriveSessionKey(env, "key-1"), 10))
 
 			assert.Empty(t, store.upserts, "no pin")
@@ -97,7 +97,7 @@ func TestForceModelCommand_TypoSuggestsWithoutPinning(t *testing.T) {
 	require.True(t, found, "command parsed")
 
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+	require.NoError(t, (forceModelCommands{svc}).handle(context.Background(), rec, env, cmd, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
 		DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Empty(t, store.upserts, "a suggestion never pins")

@@ -242,7 +242,7 @@ func TestForceParentDoesNotRejectChildHandoff(t *testing.T) {
 	apiKeyID, _ := parsed.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	installationID := claims.Route.InstallationID
 	controlKey := deriveForceModelSessionKeyForRequest(parsed, env, apiKeyID, claims.Route.SessionKey)
-	_, _, err = svc.applyForceModelCommand(parsed, router.StrategyFromContext(parsed), translate.ForceModelResult{Model: "opus", ParentOnly: true}, installationID, claims.Route.SessionKey, controlKey)
+	_, _, err = (forceModelCommands{svc}).apply(parsed, router.StrategyFromContext(parsed), translate.ForceModelResult{Model: "opus", ParentOnly: true}, installationID, claims.Route.SessionKey, controlKey)
 	require.NoError(t, err)
 	_, err = svc.resumeHandoff(parsed, router.StrategyFromContext(parsed), env, req, true)
 	require.NoError(t, err, "parent-only force must preserve a child's prepared continuation")
