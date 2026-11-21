@@ -11,7 +11,7 @@ import (
 var ErrModelListingUnsupported = errors.New("provider does not support model listing")
 
 func (s *Service) ListUpstreamModels(ctx context.Context, provider string, creds *Credentials) ([]string, error) {
-	client, err := s.clients.Client(provider)
+	client, err := s.engine.Clients().Client(provider)
 	if err != nil {
 		return nil, err
 	}

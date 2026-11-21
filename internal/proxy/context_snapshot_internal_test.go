@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestContextEstimateHeadersProtocols(t *testing.T) {

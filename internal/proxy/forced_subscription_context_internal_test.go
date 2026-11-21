@@ -16,6 +16,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/router"
@@ -54,7 +55,7 @@ func TestForcedSubscriptionContextEstimatePreservesHardExclusions(t *testing.T) 
 			if scenario.unsignedHistory {
 				request.Candidates.UnsignedHistoryExcludedModels = modelSet([]string{gatewayCompactionOpusModel})
 			}
-			_, narrowed := (&Service{hmmServing: hmmPorts()}).subscriptionStateRequest(context.Background(), request, []string{gatewayCompactionOpusModel})
+			_, narrowed := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).subscriptionStateRequest(context.Background(), request, []string{gatewayCompactionOpusModel})
 			_, allowed := narrowed.Candidates.AllowedModels[gatewayCompactionOpusModel]
 			assert.Equal(t, scenario.wantServed, allowed)
 			assert.Contains(t, request.Candidates.ExcludedModels, gatewayCompactionOpusModel, "state routing must not mutate the original request")

@@ -73,12 +73,7 @@ type Service struct {
 	claudePlans                  *subscriptions.PlanResolver
 	sessionHolds                 subscriptionSessionHolds
 	strategies                   map[router.Strategy]registeredStrategy
-	clients                      *dispatch.Clients
-	executor                     *dispatch.Executor
-	defaultExecutorOnce          sync.Once
-	plans                        *policy.PlanResolver
-	defaultPlansOnce             sync.Once
-	inferenceDeployment          policy.DeploymentPolicyConfig
+	engine                       *dispatch.Engine
 	translationCompatibilityMode TranslationCompatibilityMode
 	scopedSearchRequirement      bool
 	searchRequirementDecayTurns  int
@@ -108,8 +103,6 @@ type Service struct {
 	captureMode                  ContentCaptureMode
 	captureMaxBytes              int
 	redactor                     Redactor
-	gatewayCaps                  dispatch.GatewayCapabilities
-	unservedGatewayModels        sync.Map
 	routing                      *routingpolicy.Policy
 	globalAutomaticExclusions    *globalAutomaticExclusionCache
 	credentials                  credentials.Brokerage
@@ -152,7 +145,6 @@ type Service struct {
 	availableModels              map[string]struct{}
 	defaultBaselineModel         string
 	billing                      *billing.Service
-	retrySleep                   func(context.Context, time.Duration) error
 	clock                        auth.Clock
 	feedbackRepo                 FeedbackRepository
 	feedbackSigner               *feedback.Signer
@@ -999,7 +991,7 @@ func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 
 func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
 	s := &Service{
-		clients:                        dispatch.NewClients(providerMap),
+		engine:                         dispatch.NewEngine(dispatch.NewClients(providerMap)),
 		translationCompatibilityMode:   TranslationCompatibilityShadow,
 		emitter:                        emitter,
 		ingress:                        ingress.New(0),
@@ -1203,7 +1195,7 @@ func (s *Service) WithAllowedModelsHeader(enabled bool) *Service {
 }
 
 func (s *Service) WithRetrySleep(sleep func(context.Context, time.Duration) error) *Service {
-	s.retrySleep = sleep
+	s.engine.SetRetrySleep(sleep)
 	return s
 }
 
@@ -1409,15 +1401,12 @@ func (s *Service) baselineFor(ctx context.Context, requested string) string {
 }
 
 func (s *Service) WithInferenceExecutor(executor *dispatch.Executor) *Service {
-	s.executor = executor
-	if executor != nil && executor.Clients() != nil {
-		s.clients = executor.Clients()
-	}
+	s.engine.SetExecutor(executor)
 	return s
 }
 
 func (s *Service) InferenceExecutor() *dispatch.Executor {
-	return s.executor
+	return s.engine.Executor()
 }
 
 func (s *Service) WithByokOnly(byokOnly bool) *Service {
@@ -1525,11 +1514,7 @@ func gatewayModelKey(endpoint, provider, model string) string {
 }
 
 func (s *Service) gatewayLacksModel(key string) bool {
-	if key == "" {
-		return false
-	}
-	_, ok := s.unservedGatewayModels.Load(key)
-	return ok
+	return s.engine.GatewayLacksModel(key)
 }
 
 func (s *Service) rememberGatewayLacksModel(ctx context.Context, provider, model string) {
@@ -1537,7 +1522,7 @@ func (s *Service) rememberGatewayLacksModel(ctx context.Context, provider, model
 	if key == "" {
 		return
 	}
-	s.unservedGatewayModels.Store(key, struct{}{})
+	s.engine.RememberGatewayLacksModel(key)
 }
 
 func (s *Service) newTelemetryRecorder() telemetry.Recorder {
@@ -1721,11 +1706,11 @@ var ErrRequestNotJSONObject = translate.ErrNotJSONObject
 var stripRoutingMarkerFromMessages = translate.StripRoutingMarkerFromMessages
 
 func (s *Service) provider(name string) (providers.Client, error) {
-	return s.clients.Client(name)
+	return s.engine.Clients().Client(name)
 }
 
 func (s *Service) Clients() *dispatch.Clients {
-	return s.clients
+	return s.engine.Clients()
 }
 
 func (s *Service) WithPolicyStrategy(spec policy.StrategySpec) *Service {
@@ -1925,7 +1910,7 @@ func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http
 		return true
 	}
 	if s.credentials.KeyedProviders == nil && !s.credentials.BYOKOnly {
-		if s.clients.Has(providers.ProviderAnthropic) {
+		if s.engine.Clients().Has(providers.ProviderAnthropic) {
 			return true
 		}
 	}
@@ -2853,12 +2838,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					HasTools:       feats.HasTools,
 					ChatOnlyParams: env.RequiresChatCompletionsParams(targetOpts.Capabilities),
 					Broad:          s.ResolveOpenAIResponsesBroad(actx),
-				}) && !s.gatewayCaps.LacksResponses(gatewayKey)
-				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
+				}) && !s.engine.GatewayCaps().LacksResponses(gatewayKey)
+				stripPCK := s.engine.GatewayCaps().RejectsPromptCacheKey(gatewayKey)
 				finalize, rawErr := dispatchOpenAICompat(actx, d, p, useResponses, stripPCK)
 				if rawErr != nil && useResponses && !committed(preludeBuf) &&
 					providers.IsUpstreamResponsesUnsupported(rawErr) {
-					s.gatewayCaps.RememberLacksResponses(gatewayKey)
+					s.engine.GatewayCaps().RememberLacksResponses(gatewayKey)
 					log.Warn("Gateway rejected the Responses API; retrying on chat/completions",
 						"model", d.Model,
 						"decision_provider", d.Provider,
@@ -2871,7 +2856,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				if rawErr != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
 					providers.IsUpstreamPromptCacheKeyRejection(rawErr) {
-					s.gatewayCaps.RememberRejectsPromptCacheKey(gatewayKey)
+					s.engine.GatewayCaps().RememberRejectsPromptCacheKey(gatewayKey)
 					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
 						"model", d.Model,
 						"decision_provider", d.Provider,
@@ -3749,8 +3734,8 @@ func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Deci
 		return router.Decision{}, false
 	}
 
-	providerSet := make(map[string]struct{}, s.clients.Len())
-	for _, provider := range s.clients.Names() {
+	providerSet := make(map[string]struct{}, s.engine.Clients().Len())
+	for _, provider := range s.engine.Clients().Names() {
 		if req.EnabledProviders != nil {
 			if _, enabled := req.EnabledProviders[provider]; !enabled {
 				continue
@@ -3799,7 +3784,7 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 		if _, disabled := s.globalAutomaticExcludedModels(ctx)[served.Model]; disabled {
 			return anchor
 		}
-		if !s.clients.Has(served.Provider) {
+		if !s.engine.Clients().Has(served.Provider) {
 			return anchor
 		}
 		if enabledProviders != nil {
@@ -3878,7 +3863,7 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 		subscriptionLanes[providers.ProviderOpenAI] = struct{}{}
 	}
 	return s.credentials.EnabledProviders(credentials.EligibilityRequest{
-		Registered:                    s.clients.NameSet(),
+		Registered:                    s.engine.Clients().NameSet(),
 		SurfaceProvider:               surfaceProvider,
 		Headers:                       headers,
 		ExternalKeys:                  externalKeysFromContext(ctx),
@@ -3895,7 +3880,7 @@ func (s *Service) hasOpenAIInfrastructureCredential(ctx context.Context, headers
 	}
 	if !s.credentials.BYOKOnly {
 		if s.credentials.KeyedProviders == nil {
-			if s.clients.Has(providers.ProviderOpenAI) {
+			if s.engine.Clients().Has(providers.ProviderOpenAI) {
 				return true
 			}
 		} else if _, keyed := s.credentials.KeyedProviders[providers.ProviderOpenAI]; keyed {
@@ -4632,8 +4617,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			HasTools:       feats.HasTools,
 			ChatOnlyParams: env.RequiresChatCompletionsParams(opts.Capabilities),
 			Broad:          s.ResolveOpenAIResponsesBroad(ctx),
-		}) && !s.gatewayCaps.LacksResponses(responsesEndpointKey)
-		if !env.RequiresChatCompletionsParams(opts.Capabilities) && !s.gatewayCaps.LacksResponses(responsesEndpointKey) && s.supportsSubscriptionTransport(decision.Provider) &&
+		}) && !s.engine.GatewayCaps().LacksResponses(responsesEndpointKey)
+		if !env.RequiresChatCompletionsParams(opts.Capabilities) && !s.engine.GatewayCaps().LacksResponses(responsesEndpointKey) && s.supportsSubscriptionTransport(decision.Provider) &&
 			(servedOnCodexSubscription(resolvedCtx) || managedSubscriptionCanServe(ctx, decision.Provider, decision.Model)) {
 			openAIResponsesEndpoint = true
 		}
@@ -4990,11 +4975,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
 				surface := responseSwitch.surface(d.Provider, servedOnCodexSubscription(actx))
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
-				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
+				stripPCK := s.engine.GatewayCaps().RejectsPromptCacheKey(gatewayKey)
 				err := dispatchOpenAI(actx, d, p, surface, stripPCK)
 				if err != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
 					providers.IsUpstreamPromptCacheKeyRejection(err) {
-					s.gatewayCaps.RememberRejectsPromptCacheKey(gatewayKey)
+					s.engine.GatewayCaps().RememberRejectsPromptCacheKey(gatewayKey)
 					stripPCK = true
 					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
 						"model", d.Model,
@@ -5013,7 +4998,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				if responseSwitch.fallbackToChat(surface) != nil {
 					return err
 				}
-				s.gatewayCaps.RememberLacksResponses(responsesEndpointKey)
+				s.engine.GatewayCaps().RememberLacksResponses(responsesEndpointKey)
 				log.Warn("OpenAI endpoint rejected the Responses API; retrying on chat/completions",
 					"model", d.Model,
 					"decision_provider", d.Provider,

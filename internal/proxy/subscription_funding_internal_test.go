@@ -10,7 +10,6 @@ import (
 	"time"
 	"weave-os/router/internal/billing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
@@ -21,6 +20,8 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSubscriptionFundingPaidDispatchRequiresQuotaProof(t *testing.T) {

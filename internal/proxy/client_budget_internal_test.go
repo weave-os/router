@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
@@ -97,7 +98,7 @@ func TestClientBudgetRecomputedAcrossSameSessionAndAgents(t *testing.T) {
 	} {
 		budget := resolveClientBudget(clientIdentity, nil, tt.model, tt.variant)
 		parent = requestcontext.WithClientBudget(parent, budget)
-		svc := &Service{hmmServing: hmmPorts()}
+		svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
 		req := svc.withPolicyRequestContext(parent, router.Request{})
 		assert.Equal(t, tt.window, req.ClientBudget.DefaultWindow)
 	}

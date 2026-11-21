@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -33,7 +34,7 @@ func (r *captureHMMOutcomeReporter) Route(context.Context, router.Request) (rout
 
 func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing.T) {
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
+	s := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
 
 	routeRes := turnLoopResult{
 		StickyHit: true,
@@ -101,7 +102,7 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 
 func TestReportPolicyOutcome_OmitsResponseBodyWhenTrainingIsNotAllowed(t *testing.T) {
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
+	s := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
 	routeRes := turnLoopResult{Fresh: router.Decision{
 		Model:    "moonshotai/kimi-k2.7",
 		Metadata: &router.RoutingMetadata{RouteID: "route-1", Strategy: string(router.StrategyHMM)},
@@ -122,7 +123,7 @@ func TestReportPolicyOutcome_OmitsResponseBodyWhenTrainingIsNotAllowed(t *testin
 func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *testing.T) {
 	strategy := router.Strategy("authoritative-outcome-test")
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
+	s := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   reporter,
 	})
@@ -178,7 +179,7 @@ func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *test
 func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 	strategy := router.Strategy("effort-outcome-test")
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
+	s := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   reporter,
 	})

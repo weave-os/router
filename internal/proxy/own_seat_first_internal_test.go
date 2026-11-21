@@ -62,7 +62,7 @@ func TestOwnSeatFirstOrdersCallerLoginAgainstManagedPool(t *testing.T) {
 				WithManagedSubscriptions(leaser).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 				WithUsageObserver(observer)
-			service.retrySleep = noopSleep
+			service.engine.SetRetrySleep(noopSleep)
 			ctx := managedSubscriptionTestContext()
 			if !scenario.personalPlan {
 				ctx = enterpriseOnlyContext(ctx)

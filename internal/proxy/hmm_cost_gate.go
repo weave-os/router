@@ -15,7 +15,7 @@ import (
 func hmmCostGateFor(s *Service) continuity.CostGateConfig {
 	return continuity.CostGateConfig{
 		AvailableModels:            s.availableModels,
-		RegisteredProviders:        func() map[string]struct{} { return s.clients.NameSet() },
+		RegisteredProviders:        func() map[string]struct{} { return s.engine.Clients().NameSet() },
 		UpgradeConfidenceThreshold: s.hmmConfig.UpgradeConfidenceThreshold,
 	}
 }

@@ -193,7 +193,7 @@ func TestSiblingRescueRecordsEveryFailedModel(t *testing.T) {
 		providers.ProviderOpenAI:    openAIClient,
 	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}})
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	ctx := withTurnFailures(context.Background())
 
 	body := `{"model":"claude-opus-5","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"read main.go"}]}`

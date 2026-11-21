@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
@@ -189,7 +190,7 @@ func (r *agreementTelemetry) CompareAndSwapAgreementShadow(_ context.Context, _ 
 
 func TestAgreementShadowRecordsOnlyAfterBaselineTelemetryAndHandlesFailures(t *testing.T) {
 	store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}, notify: make(chan struct{}, 1)}
-	svc := &Service{hmmServing: hmmPorts(), telemetry: store}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), telemetry: store}
 	p, res := agreementFixture()
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
 	svc.fireTelemetry(t.Context(), p)
@@ -222,7 +223,7 @@ func TestAgreementShadowRecordsOnlyAfterBaselineTelemetryAndHandlesFailures(t *t
 
 func TestAgreementShadowStoreErrorDoesNotLoseBaselineTelemetry(t *testing.T) {
 	store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}, fail: true}
-	svc := &Service{hmmServing: hmmPorts(), telemetry: store}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), telemetry: store}
 	p, res := agreementFixture()
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
 	svc.fireTelemetry(t.Context(), p)

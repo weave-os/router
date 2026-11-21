@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
@@ -169,7 +170,7 @@ func auxTestService(t *testing.T) (*Service, *auxBillingRepo, *auxTelemetryRepo)
 	t.Helper()
 	billingRepo := &auxBillingRepo{}
 	telemetryRepo := &auxTelemetryRepo{}
-	return &Service{hmmServing: hmmPorts(),
+	return &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
 		billing:   billing.NewService(billingRepo).WithByokFeeRate(0.05),
 		telemetry: telemetryRepo,
 	}, billingRepo, telemetryRepo

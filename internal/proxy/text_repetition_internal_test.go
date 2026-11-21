@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 
 	"weave-os/router/internal/providers"
@@ -27,7 +28,7 @@ func TestHandleTextRepetitionBreak_ZeroSessionKeyWritesNoPin(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &overwritingPinStore{}
-			svc := &Service{hmmServing: hmmPorts(), pinStore: store}
+			svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store}
 			env, err := translate.ParseAnthropic([]byte(`{"model":"synthetic-model","messages":[{"role":"user","content":"continue"}]}`))
 			require.NoError(t, err)
 

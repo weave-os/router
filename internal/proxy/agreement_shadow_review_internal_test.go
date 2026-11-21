@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -27,7 +28,7 @@ func TestAgreementShadowCompletedQualityLabelsKeepEvidence(t *testing.T) {
 	for _, quality := range []TurnErrorClass{TurnErrorMaxTokens, TurnErrorRefusal, TurnErrorInvalidToolArgs} {
 		t.Run(string(quality), func(t *testing.T) {
 			store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}}
-			svc := &Service{hmmServing: hmmPorts(), telemetry: store}
+			svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), telemetry: store}
 			p, res := agreementFixture()
 			ctx := agreementContext(policyregistry.TargetInternal, true)
 			applyAgreementShadowTelemetry(hmm.ServingPorts(), ctx, &p, res)
@@ -50,7 +51,7 @@ func TestAgreementShadowStillGapsCommittedStreamFailures(t *testing.T) {
 	for _, transport := range []TurnErrorClass{TurnErrorStreamCut, TurnErrorStreamStalled, TurnErrorTimeout, TurnErrorClientCanceled, TurnErrorOther} {
 		t.Run(string(transport), func(t *testing.T) {
 			store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}}
-			svc := &Service{hmmServing: hmmPorts(), telemetry: store}
+			svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), telemetry: store}
 			p, res := agreementFixture()
 			p.ErrorClass = transport
 			applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)

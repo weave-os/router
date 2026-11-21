@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/sjson"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 )
 
@@ -59,7 +60,7 @@ func TestClassifierSearchChildIsolationAndReplay(t *testing.T) {
 	require.Equal(t, "Synthetic answer", inputs[2].User.PrecedingResponses[0].Content)
 
 	// Parent advancement cannot change a retry's child identity.
-	replica := &Service{hmmServing: hmmPorts(), clock: svc.clock}
+	replica := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), clock: svc.clock}
 	require.NoError(t, replica.WithClassifierSessions(svc.classifierSessions.config, store, svc.classifierSessions.classifier))
 	var workers sync.WaitGroup
 	for range 8 {

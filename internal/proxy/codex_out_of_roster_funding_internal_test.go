@@ -79,7 +79,7 @@ func outOfRosterFundingService(client providers.Client, reason string, repo bill
 		nil, nil, false, providers.ProviderOpenAI, outOfRosterCodexModel, nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithBillingService(billing.NewService(repo))
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	return svc
 }
 

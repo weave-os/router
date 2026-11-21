@@ -59,7 +59,7 @@ func (r *cancellationCheckingBillingRepo) DebitInference(ctx context.Context, p 
 
 func TestFireBilling_DebitsAfterClientCancellation(t *testing.T) {
 	repo := &cancellationCheckingBillingRepo{auxBillingRepo: &auxBillingRepo{}}
-	s := &Service{hmmServing: hmmPorts(), billing: billing.NewService(repo)}
+	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(repo)}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -92,7 +92,7 @@ func (f *cancellationCheckingPinStore) Upsert(ctx context.Context, p sessionpin.
 
 func TestMaybeRepinOnRefusal_WritesAfterRequestCancellation(t *testing.T) {
 	store := &cancellationCheckingPinStore{repinFakeStore: &repinFakeStore{}}
-	s := &Service{hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 	ctx, cancel := context.WithCancel(repinCtx())
 	cancel()
 
@@ -131,7 +131,7 @@ func (s *cancellationCheckingRecoveryStore) ClearDemotionCooldown(ctx context.Co
 
 func TestClearRecoveredCooldown_LandsAfterRequestCancellation(t *testing.T) {
 	store := &cancellationCheckingRecoveryStore{}
-	s := &Service{hmmServing: hmmPorts(), pinStore: store}
+	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	observedUntil := time.Now().Add(-time.Second)
@@ -218,7 +218,7 @@ func TestUsageBypassEngaged_UnsetThresholdDefaultsToNinetyFivePercent(t *testing
 	}{{0.90, true}, {0.96, false}} {
 		obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 		obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: c.used, WindowMinutes: 300}})
-		svc := &Service{hmmServing: hmmPorts(), clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
+		svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), usageObserver: obs}
 		ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
 		ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 		_, ok := svc.usageBypassEngaged(ctx, http.Header{}, router.Request{

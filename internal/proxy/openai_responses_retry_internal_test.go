@@ -80,7 +80,7 @@ func TestProxyOpenAIChatCompletion_SameBindingRetryStaysOnResponses(t *testing.T
 		map[string]providers.Client{providers.ProviderOpenAI: client},
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 
 	body := `{"model":"auto","stream":false,"max_tokens":256,"messages":[{"role":"user","content":"read main.go"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}],"reasoning_effort":"medium"}`
 	rec := httptest.NewRecorder()
@@ -130,7 +130,7 @@ func TestProxyMessages_SiblingFailoverOntoOpenAIUsesResponses(t *testing.T) {
 			providers.ProviderAnthropic: {},
 			providers.ProviderOpenAI:    {},
 		})
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 
 	body := `{"model":"claude-opus-5","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"read main.go"}],"tools":[{"name":"read_file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}],"thinking":{"type":"adaptive"}}`
 	rec := httptest.NewRecorder()
@@ -191,7 +191,7 @@ func TestProxyOpenAIResponses_RetriesNativeEmptyCompletion(t *testing.T) {
 		map[string]providers.Client{providers.ProviderOpenAI: client},
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	body := "{\"model\":\"gpt-5.6-luna\",\"input\":\"hi\"}"
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIResponses(context.Background(), []byte(body), rec,
@@ -207,7 +207,7 @@ func TestProxyOpenAIResponses_RetriesNativeStreamingEmptyCompletion(t *testing.T
 		map[string]providers.Client{providers.ProviderOpenAI: client},
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	body := "{\"model\":\"gpt-5.6-luna\",\"stream\":true,\"input\":\"hi\"}"
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIResponses(context.Background(), []byte(body), rec,
@@ -223,7 +223,7 @@ func TestProxyOpenAIChatCompletion_RetriesNonStreamingEmptyCompletion(t *testing
 		map[string]providers.Client{providers.ProviderOpenAI: client},
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	body := "{\"model\":\"auto\",\"stream\":false,\"max_tokens\":256,\"messages\":[{\"role\":\"user\",\"content\":\"read main.go\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"parameters\":{\"type\":\"object\"}}}],\"reasoning_effort\":\"medium\"}"
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec,
@@ -267,7 +267,7 @@ func TestProxyOpenAIResponses_RetriesTranslatedStreamingEmptyCompletion(t *testi
 		map[string]providers.Client{providers.ProviderXAI: client},
 		nil, nil, false, providers.ProviderXAI, servedModel, nil))
 
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	body := "{\"model\":\"gpt-6-astra\",\"stream\":true,\"input\":\"Continue the task.\"}"
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))

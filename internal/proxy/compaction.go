@@ -44,7 +44,7 @@ func (s *Service) routeCompaction(
 	}
 	session := compactionSession{
 		pins:           s.pinStore,
-		providers:      s.clients.NameSet(),
+		providers:      s.engine.Clients().NameSet(),
 		available:      s.availableModels,
 		cortexGateways: cortexGatewayProvidersForRequest(ctx),
 		now:            s.clock.Now(),

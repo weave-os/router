@@ -43,7 +43,7 @@ func TestInboundClaudeOAuthStillRotatesManagedPool(t *testing.T) {
 			service := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), nil)).
 				WithManagedSubscriptions(leaser).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-			service.retrySleep = noopSleep
+			service.engine.SetRetrySleep(noopSleep)
 			ctx := enterpriseOnlyContext(managedSubscriptionTestContext())
 			ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 			ctx = context.WithValue(ctx, InstallationSubscriptionStateModelsEnabledContextKey{}, stateModels)

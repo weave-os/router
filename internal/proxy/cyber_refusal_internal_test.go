@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
@@ -173,7 +174,7 @@ func repinCtx() context.Context {
 
 func TestMaybeRepinOnRefusal_RepinsToFallbackModel(t *testing.T) {
 	store := &repinFakeStore{} // no existing pin -> no PairedModel
-	s := &Service{hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 	obs := &refusalObserver{refused: true}
 	served := router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"}
 
@@ -199,7 +200,7 @@ func TestMaybeRepinOnRefusal_PrefersPairedModel(t *testing.T) {
 		hasPin: true,
 		getPin: sessionpin.Pin{PairedModel: "claude-haiku-4-5", PairedProvider: "anthropic"},
 	}
-	s := &Service{hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 	obs := &refusalObserver{refused: true}
 	served := router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"}
 
@@ -223,7 +224,7 @@ func TestRepinOffRefusingModel_SkipsPairedModelOnTheRefusingVendor(t *testing.T)
 		hasPin: true,
 		getPin: sessionpin.Pin{PairedModel: "gpt-5.4", PairedProvider: providers.ProviderOpenAI},
 	}
-	s := &Service{hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 	served := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol"}
 
 	s.repinOffRefusingModel(repinCtx(), router.StrategyFromContext(repinCtx()), [sessionpin.SessionKeyLen]byte{8, 9}, "main_loop", served,
@@ -246,7 +247,7 @@ func TestMaybeRepinOnRefusal_NoOpCases(t *testing.T) {
 
 	t.Run("nil observer", func(t *testing.T) {
 		store := &repinFakeStore{}
-		s := &Service{hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
+		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 		s.maybeRepinOnRefusal(repinCtx(), router.StrategyFromContext(repinCtx()), nil, key, "main_loop", served)
 		if len(store.upserts) != 0 {
 			t.Fatalf("nil observer should not re-pin, got %d upserts", len(store.upserts))
@@ -255,7 +256,7 @@ func TestMaybeRepinOnRefusal_NoOpCases(t *testing.T) {
 
 	t.Run("no refusal observed", func(t *testing.T) {
 		store := &repinFakeStore{}
-		s := &Service{hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
+		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 		s.maybeRepinOnRefusal(repinCtx(), router.StrategyFromContext(repinCtx()), &refusalObserver{refused: false}, key, "main_loop", served)
 		if len(store.upserts) != 0 {
 			t.Fatalf("no refusal should not re-pin, got %d upserts", len(store.upserts))
@@ -264,7 +265,7 @@ func TestMaybeRepinOnRefusal_NoOpCases(t *testing.T) {
 
 	t.Run("re-pin disabled", func(t *testing.T) {
 		store := &repinFakeStore{}
-		s := &Service{hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: false, cyberRefusalFallbackModel: "claude-sonnet-5"}
+		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: false, cyberRefusalFallbackModel: "claude-sonnet-5"}
 		s.maybeRepinOnRefusal(repinCtx(), router.StrategyFromContext(repinCtx()), &refusalObserver{refused: true}, key, "main_loop", served)
 		if len(store.upserts) != 0 {
 			t.Fatalf("re-pin disabled should not upsert, got %d", len(store.upserts))
@@ -273,7 +274,7 @@ func TestMaybeRepinOnRefusal_NoOpCases(t *testing.T) {
 
 	t.Run("served model already the fallback", func(t *testing.T) {
 		store := &repinFakeStore{}
-		s := &Service{hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
+		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 		alreadyFallback := router.Decision{Provider: "anthropic", Model: "claude-sonnet-5"}
 		s.maybeRepinOnRefusal(repinCtx(), router.StrategyFromContext(repinCtx()), &refusalObserver{refused: true}, key, "main_loop", alreadyFallback)
 		if len(store.upserts) != 0 {

@@ -83,7 +83,7 @@ func runRescueBypassOn(t *testing.T, p *modelScriptedProvider, retry bool, strea
 }
 
 func rescueService(p *modelScriptedProvider, retry bool, fallbackModel string) (*Service, *bypassCaptureTelemetry) {
-	svc := &Service{hmmServing: hmmPorts(), clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p})}
+	svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}))}
 	svc.anthropicServerSideFallback = true
 	svc.cyberRefusalRetry = retry
 	svc.cyberRefusalFallbackModel = fallbackModel

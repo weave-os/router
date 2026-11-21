@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -89,7 +90,7 @@ func TestClassifyDispatchError_PolicyPinUnavailableIs503WithTypedReason(t *testi
 
 func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{hmmServing: hmmPorts(), telemetry: sink}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), telemetry: sink}
 	installationID := uuid.New()
 	ctx := context.WithValue(pinnedContext(true), InstallationIDContextKey{}, installationID.String())
 
@@ -113,7 +114,7 @@ func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 
 func TestRecordPolicyPinRouteFailureIsSilentWithoutAPin(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{hmmServing: hmmPorts(), telemetry: sink}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), telemetry: sink}
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
 
 	svc.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: "req-plain", RequestStart: time.Now(), RequestedModel: "claude-sonnet-5", Strategy: router.StrategyFromContext(ctx)}, turntype.TurnType("interactive"), false, errors.New("routing failed"))

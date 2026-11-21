@@ -355,7 +355,7 @@ func (s *Service) classifierModelDecision(ctx context.Context, req router.Reques
 		return router.Decision{}, false
 	}
 	dec, err := s.callerModelPassthroughDecision(ctx, req)
-	if err != nil || !s.clients.Has(dec.Provider) {
+	if err != nil || !s.engine.Clients().Has(dec.Provider) {
 		return router.Decision{}, false
 	}
 	dec.Reason = reasonClassifierRequestedModel

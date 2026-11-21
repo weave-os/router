@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
@@ -29,7 +30,7 @@ func maxScopedContext() context.Context {
 }
 
 func TestMaxRequestCarriesTheBoundaryAndHardExclusions(t *testing.T) {
-	svc := &Service{hmmServing: hmmPorts()}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
 
 	req := svc.withPolicyRequestContext(maxScopedContext(), router.Request{})
 
@@ -44,7 +45,7 @@ func TestMaxRequestCarriesTheBoundaryAndHardExclusions(t *testing.T) {
 }
 
 func TestUnsubscribedRequestKeepsUnrestrictedRouting(t *testing.T) {
-	svc := &Service{hmmServing: hmmPorts()}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
 
 	req := svc.withPolicyRequestContext(context.Background(), router.Request{})
 
@@ -149,7 +150,7 @@ func TestUsageBypassDisengagesForAnIneligibleModel(t *testing.T) {
 	threshold := 0.80
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
-	svc := &Service{hmmServing: hmmPorts(), usageObserver: obs}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), usageObserver: obs}
 	ctx := context.WithValue(maxScopedContext(), AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 
@@ -164,7 +165,7 @@ func TestUsageBypassDisengagesForAnIneligibleModel(t *testing.T) {
 // Agent-shadow evaluation forces a preplanned canonical model and skips the
 // scorer entirely, so it is gated on the boundary directly.
 func TestAgentShadowEvaluationRefusesAnIneligibleModel(t *testing.T) {
-	svc := &Service{hmmServing: hmmPorts()}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
 	env := bypassAnthropicEnvelope(t)
 
 	_, err := svc.runAgentShadowEvaluationRoute(
@@ -190,7 +191,7 @@ func TestIneligibleModelIsAClassifiedClientError(t *testing.T) {
 // The operator escape hatch replaces the exclusion set wholesale; the
 // product boundary still survives it.
 func TestExcludedModelsOverrideCannotWidenTheBoundary(t *testing.T) {
-	svc := (&Service{hmmServing: hmmPorts()}).WithExcludedModelsOverride([]string{"gpt-5.5"})
+	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithExcludedModelsOverride([]string{"gpt-5.5"})
 
 	excluded := svc.excludedModelsForRequest(maxScopedContext())
 

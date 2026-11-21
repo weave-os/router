@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
@@ -44,7 +45,7 @@ func (r *registryRouter) Route(_ context.Context, request router.Request) (route
 }
 
 func serviceWithDefaultRouter(r router.Router) *Service {
-	return (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: r})
+	return (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: r})
 }
 
 func TestRouteWithoutStrategyContextUsesHMMEmbeddingDefault(t *testing.T) {
@@ -134,7 +135,7 @@ func TestPolicyStrategyRegistryFailsClosedForUnknownStrategy(t *testing.T) {
 func TestPolicyCapabilitiesReadsRefreshedRouterCapabilities(t *testing.T) {
 	strategy := router.Strategy("future-policy")
 	policyRouter := &dynamicCapabilityRouter{}
-	svc := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
+	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
 		Strategy:     strategy,
 		Router:       policyRouter,
 		Capabilities: policy.Capabilities{},
@@ -153,7 +154,7 @@ func TestPolicyCapabilitiesReadsRefreshedRouterCapabilities(t *testing.T) {
 func TestPolicyStrategyAvailableReadsDynamicReadiness(t *testing.T) {
 	strategy := router.Strategy("future-policy")
 	policyRouter := &availabilityRouter{}
-	svc := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
+	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   policyRouter,
 	})

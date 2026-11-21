@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -316,7 +317,7 @@ func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 }
 
 func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
-	svc := &Service{hmmServing: hmmPorts(),
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
 		usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
 		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
 		clock:         func() time.Time { return time.Unix(1_000_000, 0) },

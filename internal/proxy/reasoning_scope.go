@@ -45,7 +45,7 @@ func (s *Service) deploymentPrincipal(provider string) string {
 	if s == nil {
 		return ""
 	}
-	client, err := s.clients.Client(provider)
+	client, err := s.engine.Clients().Client(provider)
 	if err != nil {
 		return ""
 	}

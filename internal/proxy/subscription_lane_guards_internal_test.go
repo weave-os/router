@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -20,7 +21,7 @@ import (
 )
 
 func TestSessionHoldRequiresAnUnavailablePoolMark(t *testing.T) {
-	svc := &Service{hmmServing: hmmPorts(), clock: time.Now}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), clock: time.Now}
 	ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
 
 	svc.holdSessionOffSubscriptionPool(ctx, providers.ProviderOpenAI, stateCodexModel)
@@ -71,7 +72,7 @@ func TestEnterpriseCapRescueNeedsAUsableAnthropicKey(t *testing.T) {
 
 func TestUnleasableSeatsDoNotHoldPaidFallbackEvenWhileEnabled(t *testing.T) {
 	now := time.Now()
-	svc := &Service{hmmServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), clock: func() time.Time { return now }}
 	reconnect := activeCodexAccount("seat-reconnect")
 	reconnect.State = auth.SubscriptionAccountStateReconnectRequired
 	disabled := activeCodexAccount("seat-disabled")
