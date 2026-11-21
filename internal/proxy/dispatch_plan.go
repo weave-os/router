@@ -65,10 +65,6 @@ func (s *Service) inferenceExecutor() (*dispatch.Executor, error) {
 	return s.executor, nil
 }
 
-func routedOrigin(decision router.Decision, hardPinned, stickyHit bool) policy.OverrideSource {
-	return dispatch.RoutedOrigin(decision, hardPinned, stickyHit)
-}
-
 func (s *Service) WithInferenceDeployment(config policy.DeploymentPolicyConfig) *Service {
 	s.inferenceDeployment = config
 	return s
