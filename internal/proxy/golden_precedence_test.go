@@ -48,7 +48,7 @@ func routingPolicyPrecedenceScenarios() []goldenScenario {
 		routingPolicyScenario("recap_turn_scored_without_session_pin", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyHigh), routingPolicyAnthropic(routingPolicyLow))},
 			first, goldenRequest{body: routingPolicyFollowUp(precedenceRecapText)}),
 	}
-	for _, strategy := range []router.Strategy{router.StrategyRL, router.StrategyDecisionModel} {
+	for _, strategy := range []router.Strategy{router.Strategy("rl"), router.StrategyDecisionModel} {
 		scenarios = append(scenarios,
 			precedenceStrategyScenario(strategy, "first_turn_writes_session_pin", nil, []string{routingPolicyLow}, first.body),
 			precedenceStrategyScenario(strategy, "planner_same_model_refreshes_pin", nil, []string{routingPolicyLow}, first.body, followUp.body, followUp.body),

@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 
@@ -17,6 +18,7 @@ import (
 )
 
 func main() {
+	logconfig.Configure()
 	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
 	if dsn == "" {
 		fmt.Println("ROUTER_TEST_DATABASE_URL not set; skipping live-DB rotate-key race ext check (see file header for usage)")
