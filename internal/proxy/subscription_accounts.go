@@ -60,14 +60,14 @@ func managedSubscriptionUsageOf(ctx context.Context) *ManagedSubscriptionUsage {
 	return usage
 }
 
-func (a *subscriptionAccounts) Serve(ctx, attemptCtx context.Context, at dispatch.AccountAttempt) error {
-	l := &accountLoop{subscriptionAccounts: a, in: at.Inputs, plan: at.Plan, attempt: at.Attempt, client: at.Client}
-	l.decision = at.Inputs.InitialDecision
-	l.decision.Provider = at.Attempt.Target.Provider
-	l.guarded = dispatch.GuardTarget(at.Client, at.Attempt.Target)
+func (a *subscriptionAccounts) Serve(ctx, attemptCtx context.Context, attempt dispatch.AccountAttempt) error {
+	l := &accountLoop{subscriptionAccounts: a, in: attempt.Inputs, plan: attempt.Plan, attempt: attempt.Attempt, client: attempt.Client}
+	l.decision = attempt.Inputs.InitialDecision
+	l.decision.Provider = attempt.Attempt.Target.Provider
+	l.guarded = dispatch.GuardTarget(attempt.Client, attempt.Attempt.Target)
 	l.trace = attemptTraceFromContext(ctx)
 	if l.trace != nil {
-		l.trace.BeginAttempt(at.Attempt.Target, gatewayDeploymentBaseURL(at.Attempt.Target.Provider, at.Client), a.s.clock.Now())
+		l.trace.BeginAttempt(attempt.Attempt.Target, gatewayDeploymentBaseURL(attempt.Attempt.Target.Provider, attempt.Client), a.s.clock.Now())
 		l.guarded = dispatch.ObservePrepared(l.guarded, observeAttemptSent(l.trace))
 	}
 	if usage := managedSubscriptionUsageOf(ctx); usage != nil && usage.IntendedModel == "" {
