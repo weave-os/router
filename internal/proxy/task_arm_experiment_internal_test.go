@@ -66,7 +66,7 @@ func TestAssignTaskArm(t *testing.T) {
 		{"a forced model keeps the turn outside the experiment", taskArmContext(), taskArmLabelledHistory, installation, "claude-opus-5-5", "", false},
 		{"a forced cluster keeps the turn outside the experiment", taskArmContext(), taskArmLabelledHistory, installation, "", "high", false},
 		{"a strategy without clusters keeps the turn outside the experiment",
-			flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyRL), mustTaskArmOverrides(taskArmContext())),
+			flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyRetiredRL), mustTaskArmOverrides(taskArmContext())),
 			taskArmLabelledHistory, installation, "", "", false},
 		{"a turn without a previous label is outside the experiment", taskArmContext(),
 			`{"model":"claude-opus-5-5","messages":[{"role":"user","content":"write the exporter"}]}`, installation, "", "", false},

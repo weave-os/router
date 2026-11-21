@@ -71,7 +71,7 @@ func runStrategyOverrideWithAvailability(
 
 func TestRouterStrategyOverride_AppliesRL(t *testing.T) {
 	got := runStrategyOverride(t, overrideEnabledInstallation(), "rl")
-	assert.Equal(t, router.StrategyRL, got, "rl header must select the RL strategy")
+	assert.Equal(t, router.StrategyRetiredRL, got, "rl header must select the RL strategy")
 }
 
 func TestRouterStrategyOverride_AppliesHMM(t *testing.T) {
@@ -86,7 +86,7 @@ func TestRouterStrategyOverride_AppliesHMMEmbedding(t *testing.T) {
 
 func TestRouterStrategyOverride_CaseInsensitiveAndTrimmed(t *testing.T) {
 	got := runStrategyOverride(t, overrideEnabledInstallation(), "  RL  ")
-	assert.Equal(t, router.StrategyRL, got, "value must be lowercased and trimmed before matching")
+	assert.Equal(t, router.StrategyRetiredRL, got, "value must be lowercased and trimmed before matching")
 }
 
 func TestRouterStrategyOverride_NoHeaderUsesDeploymentDefault(t *testing.T) {
@@ -292,7 +292,7 @@ func probeStrategyOverrideWith(t *testing.T, installation *auth.Installation, ma
 }
 
 func TestRouterStrategyOverride_ManagedServingUnavailablePersistedStrategyFailsClosed(t *testing.T) {
-	installation := &auth.Installation{ID: "inst-managed", RoutingStrategy: router.StrategyRL}
+	installation := &auth.Installation{ID: "inst-managed", RoutingStrategy: router.StrategyRetiredRL}
 	probe := probeStrategyOverride(t, installation, true, router.StrategyHMMEmbedding, router.StrategyHMMEmbedding)
 
 	assert.Equal(t, http.StatusServiceUnavailable, probe.status)
@@ -326,7 +326,7 @@ func TestRouterStrategyOverride_NonManagedUnavailableStrategyFailsClosed(t *test
 		persisted       router.Strategy
 		defaultStrategy router.Strategy
 	}{
-		{name: "persisted", persisted: router.StrategyRL, defaultStrategy: router.StrategyHMMEmbedding},
+		{name: "persisted", persisted: router.StrategyRetiredRL, defaultStrategy: router.StrategyHMMEmbedding},
 		{name: "default", persisted: "", defaultStrategy: router.StrategyHMM},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

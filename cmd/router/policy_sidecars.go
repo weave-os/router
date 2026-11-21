@@ -28,7 +28,7 @@ var configuredPolicyStrategyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}
 
 var reservedPolicyStrategies = map[router.Strategy]struct{}{
 	router.StrategyLLMClassifier: {},
-	router.StrategyRL:            {},
+	router.StrategyRetiredRL:     {},
 	router.StrategyHMM:           {},
 	router.StrategyHMMEmbedding:  {},
 	router.StrategyHMMBeta:       {},
