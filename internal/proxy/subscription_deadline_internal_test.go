@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -23,8 +24,8 @@ const slowFirstOutput = 12 * time.Second
 
 // slowAttempt writes output after delay unless its context ends first, so a
 // pre-fix rotation timer that cancels in-flight inference makes it fail.
-func slowAttempt(buf *preludeBuffer, delay time.Duration, output string, seen *[]*Credentials) func(context.Context, router.Decision, providers.Client) error {
-	return func(ctx context.Context, _ router.Decision, _ providers.Client) error {
+func slowAttempt(buf *preludeBuffer, delay time.Duration, output string, seen *[]*Credentials) func(context.Context, router.Decision, dispatch.Upstream) error {
+	return func(ctx context.Context, _ router.Decision, _ dispatch.Upstream) error {
 		*seen = append(*seen, CredentialsFromContext(ctx))
 		buf.Seal()
 		select {
@@ -46,9 +47,9 @@ func TestLinkedClaudeSubscriptionSurvivesSlowFirstOutput(t *testing.T) {
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
-		in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
+		in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
 		var seen []*Credentials
-		in.attempt = slowAttempt(buf, slowFirstOutput, "slow answer", &seen)
+		in.Attempt = slowAttempt(buf, slowFirstOutput, "slow answer", &seen)
 
 		_, err := svc.dispatchWithFallback(ctx, in)
 
@@ -79,9 +80,9 @@ func TestManagedSubscriptionSurvivesSlowFirstOutput(t *testing.T) {
 				rec := httptest.NewRecorder()
 				buf := newPreludeBuffer(rec)
 				in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: tc.upstream}}, nil)
-				in.initialDecision = router.Decision{Provider: tc.upstream, Model: tc.model}
+				in.InitialDecision = router.Decision{Provider: tc.upstream, Model: tc.model}
 				var seen []*Credentials
-				in.attempt = slowAttempt(buf, slowFirstOutput, "slow seat answer", &seen)
+				in.Attempt = slowAttempt(buf, slowFirstOutput, "slow seat answer", &seen)
 
 				_, err := svc.dispatchWithFallback(ctx, in)
 
@@ -104,9 +105,9 @@ func TestSecondAccountAdmittedBeforeBudgetMayFinishAfterIt(t *testing.T) {
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
-		in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
+		in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
 		var seen []string
-		in.attempt = func(ctx context.Context, _ router.Decision, _ providers.Client) error {
+		in.Attempt = func(ctx context.Context, _ router.Decision, _ dispatch.Upstream) error {
 			seen = append(seen, CredentialsFromContext(ctx).SubscriptionAccountID)
 			buf.Seal()
 			if len(seen) == 1 {
@@ -138,9 +139,9 @@ func TestSlowFailedAttemptsRemainBoundedByDistinctSeats(t *testing.T) {
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
-		in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
+		in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
 		calls := 0
-		in.attempt = func(ctx context.Context, _ router.Decision, _ providers.Client) error {
+		in.Attempt = func(ctx context.Context, _ router.Decision, _ dispatch.Upstream) error {
 			calls++
 			buf.Seal()
 			time.Sleep(11 * time.Second)
@@ -166,9 +167,9 @@ func TestCallerCancellationDuringSubscriptionAttemptIsTerminal(t *testing.T) {
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
-		in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
+		in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
 		calls := 0
-		in.attempt = func(ctx context.Context, _ router.Decision, _ providers.Client) error {
+		in.Attempt = func(ctx context.Context, _ router.Decision, _ dispatch.Upstream) error {
 			calls++
 			buf.Seal()
 			time.AfterFunc(3*time.Second, cancel)
@@ -198,13 +199,13 @@ func TestStateModelsTerminalRejectionAfterBudgetIsNotRescued(t *testing.T) {
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		var served []string
-		_, err := svc.dispatchWithFallback(ctx, failoverInputs{
-			w: rec, buf: buf, subscriptionStateRequest: &req,
-			subscriptionStateWinnerProvider: new(string),
-			initialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
-			purpose:                         inference.PurposeAnthropicMessages,
-			buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-				return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+		_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+			Writer: rec, Prelude: buf, SubscriptionStateRequest: &req,
+			SubscriptionStateWinnerProvider: new(string),
+			InitialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+			Purpose:                         inference.PurposeAnthropicMessages,
+			BuildAlternative: func(router.Decision) (dispatch.UpstreamAttempt, error) {
+				return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 					served = append(served, decision.Model)
 					// Simulate slow inference without spending credential-admission time.
 					time.Sleep(12 * time.Second)
