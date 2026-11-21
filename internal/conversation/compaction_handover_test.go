@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/translate"
@@ -49,7 +50,7 @@ func handoverEnvelope(t *testing.T) *translate.RequestEnvelope {
 	return env
 }
 
-func runHandover(t *testing.T, summarizer handover.Summarizer, access conversation.SummarizerAccess) conversation.HandoverOutcome {
+func runHandover(t *testing.T, summarizer handover.Summarizer, access conversation.SummarizerAccess) dispatch.HandoverOutcome {
 	t.Helper()
 	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	now := func() time.Time {

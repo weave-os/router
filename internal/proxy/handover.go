@@ -325,7 +325,7 @@ func extractAnthropicAssistantText(body []byte) string {
 
 var _ handover.Summarizer = (*ProviderSummarizer)(nil)
 
-func (s *Service) runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) handoverOutcome {
+func (s *Service) runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) dispatch.HandoverOutcome {
 	summarizer := s.summarizer
 	if compaction := s.lifecycle.CompactionHandoverSummarizer(); compaction != nil {
 		summarizer = compaction

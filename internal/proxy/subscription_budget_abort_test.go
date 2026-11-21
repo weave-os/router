@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -27,9 +28,9 @@ func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
-	in.initialDecision = router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel}
+	in.InitialDecision = router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel}
 	var oauthCalls, apiCalls int
-	in.attempt = func(attemptCtx context.Context, _ router.Decision, _ providers.Client) error {
+	in.Attempt = func(attemptCtx context.Context, _ router.Decision, _ dispatch.Upstream) error {
 		require.NoError(t, attemptCtx.Err(), "paid recovery runs on the caller's live context")
 		if creds := CredentialsFromContext(attemptCtx); creds != nil && creds.OAuth {
 			oauthCalls++
@@ -58,13 +59,13 @@ func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
-	in.initialDecision = router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel}
-	in.flushErr = func(w http.ResponseWriter, err error) {
+	in.InitialDecision = router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel}
+	in.FlushErr = func(w http.ResponseWriter, err error) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte("terminal error"))
 	}
 	calls := 0
-	in.attempt = func(context.Context, router.Decision, providers.Client) error {
+	in.Attempt = func(context.Context, router.Decision, dispatch.Upstream) error {
 		calls++
 		return nil
 	}
