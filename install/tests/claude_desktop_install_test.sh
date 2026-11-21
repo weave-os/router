@@ -163,6 +163,14 @@ jq -n '{env: {ANTHROPIC_BASE_URL: "http://127.0.0.1:9", ANTHROPIC_CUSTOM_HEADERS
 run env HOME="$explicit_parked_home" bash "$installer" --claude-desktop --non-interactive --base-url http://127.0.0.1:9/ --email dev@example.com >/dev/null 2>&1 || fail "matching --base-url next to a parked install failed"
 [ "$(jq -r '.router_key' "$explicit_parked_home/.weave-router/desktop-shim/config.json")" = "rk_parked_explicit" ] || fail "matching --base-url did not reuse the parked key"
 
+# A matching settings.json without a key falls through to the parked install's key.
+explicit_keyless_home="$work/explicit-keyless-home"
+mkdir -p "$explicit_keyless_home/.claude"
+jq -n '{env: {ANTHROPIC_BASE_URL: "http://127.0.0.1:9"}}' >"$explicit_keyless_home/.claude/settings.json"
+jq -n '{env: {ANTHROPIC_BASE_URL: "http://127.0.0.1:9", ANTHROPIC_CUSTOM_HEADERS: "X-Weave-Router-Key: rk_parked_keyless"}}' >"$explicit_keyless_home/.claude/.weave-parked.json"
+run env HOME="$explicit_keyless_home" bash "$installer" --claude-desktop --non-interactive --base-url http://127.0.0.1:9 --email dev@example.com >/dev/null 2>&1 || fail "matching keyless settings.json stopped the parked key lookup"
+[ "$(jq -r '.router_key' "$explicit_keyless_home/.weave-router/desktop-shim/config.json")" = "rk_parked_keyless" ] || fail "matching keyless settings.json hid the parked key"
+
 # A --base-url naming a different router never receives the Claude Code key;
 # the failure names both endpoints but never prints the key.
 other_home="$work/other-home"

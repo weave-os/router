@@ -4771,9 +4771,10 @@ if [ "$target" = "claude-desktop" ] && { [ "$base_url_explicit" = "true" ] || [ 
     router_shaped_url "$cli_base" || continue
     cli_base="$(strip_trailing_slashes "$cli_base")"
     if [ "$cli_base" = "$(strip_trailing_slashes "$base_url")" ]; then
-      desktop_cli_key="$(read_claude_key "$cli_settings_file")"
       desktop_cli_other_base=""
-      break
+      desktop_cli_key="$(read_claude_key "$cli_settings_file")"
+      [ -z "$desktop_cli_key" ] || break
+      continue
     fi
     [ -n "$desktop_cli_other_base" ] || desktop_cli_other_base="$cli_base"
   done
