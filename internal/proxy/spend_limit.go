@@ -38,7 +38,7 @@ func (s *Service) checkUserMonthlySpendLimit(ctx context.Context, headers http.H
 		return ctx, fmt.Errorf("%w: %v", billing.ErrSpendLimitCheckUnavailable, err)
 	}
 	if result.LimitReached() {
-		laneCtx, lane := billing.StepSubscriptionLane(ctx, subscriptionlane.UserSpendLimitGate.Tripped(
+		laneCtx, lane := s.billing.TripSubscriptionLane(ctx, subscriptionlane.UserSpendLimitGate.Tripped(
 			RequestPresentsCoveringSubscription(ctx, headers, routePath)))
 		if _, refused := lane.Refusal(); !refused {
 			observability.FromContext(ctx).Info("Engineer monthly cap reached but subscription covers the route: serving subscription-only",

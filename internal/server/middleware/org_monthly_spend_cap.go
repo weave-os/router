@@ -50,7 +50,7 @@ func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
 		}
 
 		if result.LimitReached() {
-			kind, refused := tripSubscriptionLane(c, subscriptionlane.OrgMonthlySpendCapGate, subscriptionExempt)
+			kind, refused := tripSubscriptionLane(c, svc, subscriptionlane.OrgMonthlySpendCapGate, subscriptionExempt)
 			if !refused {
 				log.Info("Org monthly cap reached but subscription covers the route: serving subscription-only",
 					"organization_id", orgID,
