@@ -44,11 +44,11 @@ func TestConfigureRejectsPartialCertificateMaterial(t *testing.T) {
 
 func TestConfigureInstallsClientCertificateAndDropsPlaintextFallback(t *testing.T) {
 	certPEM, keyPEM := selfSignedPEM(t)
-	tlsConfig := Config{ServerCACert: certPEM, ClientCert: certPEM, ClientKey: keyPEM}
+	pgtlsInput := Config{ServerCACert: certPEM, ClientCert: certPEM, ClientKey: keyPEM}
 
 	// sslmode=prefer is the shape that gives pgx a plaintext fallback to prune.
 	poolConfig := parseConfig(t, "postgres://user:pw@10.55.0.3:5432/db?sslmode=prefer")
-	configured, err := Configure(poolConfig, tlsConfig)
+	configured, err := Configure(poolConfig, pgtlsInput)
 	if err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestConfigureVerifiesTheExpectedServerIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("X509KeyPair: %v", err)
 	}
-	tlsConfig := Config{ServerCACert: certPEM, ClientCert: certPEM, ClientKey: keyPEM}
+	pgtlsInput := Config{ServerCACert: certPEM, ClientCert: certPEM, ClientKey: keyPEM}
 
 	for _, testCase := range []struct {
 		name         string
@@ -88,7 +88,7 @@ func TestConfigureVerifiesTheExpectedServerIdentity(t *testing.T) {
 		{name: "another endpoint under the same CA is rejected", serverName: "workweave-staging-01:us-central1:other-instance"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			withServerName := tlsConfig
+			withServerName := pgtlsInput
 			withServerName.ServerName = testCase.serverName
 			poolConfig := parseConfig(t, "postgres://user:pw@10.55.0.3:5432/db")
 			if _, err := Configure(poolConfig, withServerName); err != nil {
@@ -105,9 +105,9 @@ func TestConfigureVerifiesTheExpectedServerIdentity(t *testing.T) {
 
 func TestConfigureRejectsServerCertificateFromAnotherCA(t *testing.T) {
 	certPEM, keyPEM := selfSignedPEM(t)
-	tlsConfig := Config{ServerCACert: certPEM, ClientCert: certPEM, ClientKey: keyPEM}
+	pgtlsInput := Config{ServerCACert: certPEM, ClientCert: certPEM, ClientKey: keyPEM}
 	poolConfig := parseConfig(t, "postgres://user:pw@10.55.0.3:5432/db")
-	if _, err := Configure(poolConfig, tlsConfig); err != nil {
+	if _, err := Configure(poolConfig, pgtlsInput); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
 

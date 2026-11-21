@@ -93,7 +93,7 @@ func main() {
 		panic(err)
 	}
 	poolconfig.ConfigureTimeouts(cfg)
-	clientTLS, err := pgtls.Configure(cfg, config.PostgresTLS())
+	clientTLS, err := pgtls.Configure(cfg, postgresTLSConfigFromEnv())
 	if err != nil {
 		logger.Error("Failed to configure postgres client TLS", "err", err)
 		panic(err)

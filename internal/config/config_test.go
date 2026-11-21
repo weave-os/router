@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"weave-os/router/internal/config"
-	"weave-os/router/internal/postgres/pgtls"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,26 +52,4 @@ func TestTranslationCompatibilityMode(t *testing.T) {
 	t.Setenv("ROUTER_TRANSLATION_COMPATIBILITY_MODE", "invalid")
 	_, err = config.TranslationCompatibilityMode()
 	require.Error(t, err)
-}
-
-func TestPostgresTLSReadsCertificateMaterialVerbatim(t *testing.T) {
-	t.Setenv("POSTGRES_SERVER_CA_CERT", " ca ")
-	t.Setenv("POSTGRES_CLIENT_CERT", "cert")
-	t.Setenv("POSTGRES_CLIENT_KEY", "key")
-	t.Setenv("POSTGRES_SERVER_NAME", "project:region:instance")
-
-	got := config.PostgresTLS()
-	want := pgtls.Config{ServerCACert: " ca ", ClientCert: "cert", ClientKey: "key", ServerName: "project:region:instance"}
-	if got != want {
-		t.Fatalf("PostgresTLS() = %+v, want %+v", got, want)
-	}
-}
-
-func TestPostgresTLSDefaultsToNoClientCertificate(t *testing.T) {
-	for _, name := range []string{"POSTGRES_SERVER_CA_CERT", "POSTGRES_CLIENT_CERT", "POSTGRES_CLIENT_KEY", "POSTGRES_SERVER_NAME"} {
-		t.Setenv(name, "")
-	}
-	if got := config.PostgresTLS(); got != (pgtls.Config{}) {
-		t.Fatalf("PostgresTLS() = %+v, want zero config", got)
-	}
 }

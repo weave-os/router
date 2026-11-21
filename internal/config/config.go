@@ -5,8 +5,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-
-	"weave-os/router/internal/postgres/pgtls"
 )
 
 func TranslationCompatibilityMode() (string, error) {
@@ -100,14 +98,5 @@ func CodexExtraCreditsAllowed() (bool, error) {
 		return false, nil
 	default:
 		return false, fmt.Errorf("invalid ROUTER_CODEX_ALLOW_EXTRA_CREDITS %q (expected true or false)", raw)
-	}
-}
-
-func PostgresTLS() pgtls.Config {
-	return pgtls.Config{
-		ServerCACert: os.Getenv(pgtls.ServerCACertEnvVar),
-		ClientCert:   os.Getenv(pgtls.ClientCertEnvVar),
-		ClientKey:    os.Getenv(pgtls.ClientKeyEnvVar),
-		ServerName:   os.Getenv(pgtls.ServerNameEnvVar),
 	}
 }
