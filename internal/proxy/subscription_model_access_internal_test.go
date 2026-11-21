@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/providers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -137,10 +138,24 @@ func TestSubscriptionModelAccessLearnsServedModelsPerSubscription(t *testing.T) 
 			require.NoError(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req))
 
 			now := time.Now()
-			assert.Equal(t, []string{in.model}, svc.credentials.SubscriptionModels.ServedForCaller(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), now))
+			assert.Equal(t, []string{in.model}, svc.credentials.SubscriptionModels.ServedForCaller(CredentialsFromContext(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx()))), now))
 			other := context.WithValue(billing.WithWeaveCreditsDenied(in.subCtx()), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other")
-			assert.Empty(t, svc.credentials.SubscriptionModels.ServedForCaller(in.resolved(other), now), "served models are per subscription")
-			assert.Empty(t, svc.credentials.SubscriptionModels.ServedForCaller(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), now.Add(credentials.SubscriptionModelServedTTL+time.Minute)), "served models expire")
+			assert.Empty(t, svc.credentials.SubscriptionModels.ServedForCaller(CredentialsFromContext(in.resolved(other)), now), "served models are per subscription")
+			assert.Empty(t, svc.credentials.SubscriptionModels.ServedForCaller(CredentialsFromContext(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx()))), now.Add(credentials.SubscriptionModelServedTTL+time.Minute)), "served models expire")
 		})
 	}
+}
+
+func TestSubscriptionModelAccessFollowsTheWinningCredentialOfAFinishedManagedTurn(t *testing.T) {
+	now := time.Now()
+	svc := &Service{clock: func() time.Time { return now }}
+	requested := &Credentials{APIKey: []byte("sk-ant-oat01-requested"), OAuth: true}
+	winning := &Credentials{APIKey: []byte("sk-ant-oat01-winning"), OAuth: true}
+	ctx := context.WithValue(context.Background(), CredentialsContextKey{}, requested)
+	ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{Finished: true, WinningCredentials: winning})
+
+	recordSubscriptionModelOutcome(svc, ctx, providers.ProviderAnthropic, "claude-sonnet-4-5", nil)
+
+	assert.Equal(t, []string{"claude-sonnet-4-5"}, svc.credentials.SubscriptionModels.ServedForCaller(winning, now))
+	assert.Empty(t, svc.credentials.SubscriptionModels.ServedForCaller(requested, now), "the served model belongs to the credential that served the turn")
 }

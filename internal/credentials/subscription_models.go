@@ -1,7 +1,6 @@
 package credentials
 
 import (
-	"context"
 	"hash/maphash"
 	"slices"
 	"sync"
@@ -61,8 +60,7 @@ func (a *SubscriptionModelAccess) Denied(token []byte, model string, now time.Ti
 	return a.DeniedForProvider(token, "", model, now)
 }
 
-func (a *SubscriptionModelAccess) DeniedForCaller(ctx context.Context, model string, now time.Time) bool {
-	creds := requestcontext.CredentialsFromContext(ctx)
+func (a *SubscriptionModelAccess) DeniedForCaller(creds *requestcontext.Credentials, model string, now time.Time) bool {
 	return creds != nil && creds.OAuth && a.Denied(creds.APIKey, model, now)
 }
 
@@ -81,8 +79,7 @@ func (a *SubscriptionModelAccess) markServed(token []byte, model string, now tim
 	a.served.Add(key, next)
 }
 
-func (a *SubscriptionModelAccess) ServedForCaller(ctx context.Context, now time.Time) []string {
-	creds := requestcontext.CredentialsFromContext(ctx)
+func (a *SubscriptionModelAccess) ServedForCaller(creds *requestcontext.Credentials, now time.Time) []string {
 	if creds == nil || !creds.OAuth || len(creds.APIKey) == 0 {
 		return nil
 	}
@@ -114,8 +111,8 @@ func (a *SubscriptionModelAccess) DenyManaged(owner, account, provider, model st
 	a.cache().Add(a.managedKey(owner, account, provider, model), until)
 }
 
-func (a *SubscriptionModelAccess) MarkServedForCaller(ctx context.Context, provider, model string, now time.Time) {
-	if creds := requestcontext.CredentialsFromContext(ctx); provider == providers.ProviderAnthropic && creds != nil && creds.OAuth && len(creds.APIKey) > 0 {
+func (a *SubscriptionModelAccess) MarkServedForCaller(creds *requestcontext.Credentials, provider, model string, now time.Time) {
+	if provider == providers.ProviderAnthropic && creds != nil && creds.OAuth && len(creds.APIKey) > 0 {
 		a.markServed(creds.APIKey, model, now)
 	}
 }

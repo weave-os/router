@@ -36,7 +36,7 @@ func anthropicSubscriptionModelUnavailable(model string) error {
 
 func recordSubscriptionModelOutcome(s *Service, ctx context.Context, provider, model string, err error) {
 	if err == nil {
-		s.credentials.SubscriptionModels.MarkServedForCaller(ctx, provider, model, s.clock.Now())
+		s.credentials.SubscriptionModels.MarkServedForCaller(CredentialsFromContext(ctx), provider, model, s.clock.Now())
 		return
 	}
 	s.recordSubscriptionModelRejection(ctx, provider, model, err)
