@@ -10,14 +10,12 @@ type OwnerKind string
 
 const (
 	OwnerKindOrganization OwnerKind = "organization"
-	OwnerKindSubscriber   OwnerKind = "subscriber"
 	OwnerKindInternalTest OwnerKind = "internal_test"
 )
 
 type Owner struct {
 	Kind           OwnerKind
 	OrganizationID string
-	SubscriberID   string
 	TestSubjectID  string
 }
 
@@ -25,25 +23,16 @@ func OrganizationOwner(organizationID string) Owner {
 	return Owner{Kind: OwnerKindOrganization, OrganizationID: organizationID}
 }
 
-func SubscriberOwner(subscriberID string) Owner {
-	return Owner{Kind: OwnerKindSubscriber, SubscriberID: subscriberID}
-}
-
 func (o Owner) Validate() error {
 	switch o.Kind {
 	case OwnerKindInternalTest:
-		if o.TestSubjectID == "" || o.SubscriberID != "" || o.OrganizationID != "" {
+		if o.TestSubjectID == "" || o.OrganizationID != "" {
 			return fmt.Errorf("%w: internal test owner needs only a test subject", ErrInvalidOwner)
 		}
 		return nil
 	case OwnerKindOrganization:
-		if o.OrganizationID == "" || o.SubscriberID != "" || o.TestSubjectID != "" {
+		if o.OrganizationID == "" || o.TestSubjectID != "" {
 			return fmt.Errorf("%w: organization owner needs only an organization id", ErrInvalidOwner)
-		}
-		return nil
-	case OwnerKindSubscriber:
-		if o.SubscriberID == "" || o.OrganizationID != "" || o.TestSubjectID != "" {
-			return fmt.Errorf("%w: subscriber owner needs only a subscriber id", ErrInvalidOwner)
 		}
 		return nil
 	default:

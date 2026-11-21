@@ -178,14 +178,16 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 		LastOutputLimitAt: endedAt,
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(freshRouter, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(freshRouter, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+
 	features := child.RoutingFeatures()
 
 	ctx = router.WithStrategy(ctx, router.StrategyHMMBeta)
-	result, err := svc.runTurnLoop(ctx, child, features, apiKeyID, installationID, "", nil, router.Request{
+	result, err := svc.runTurnLoop(ctx, child, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
 		RequestedModel: features.Model,
 	})
+
 	require.NoError(t, err)
 
 	assert.Equal(t, forcedModel, result.Decision.Model)
@@ -246,17 +248,19 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 		},
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(freshRouter, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(freshRouter, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+
 	svc.WithTransientRateLimit(true, 45)
 	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
 
-	result, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{
+	result, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
 		RequestedModel: features.Model,
 		EnabledProviders: map[string]struct{}{
 			providers.ProviderOpenAI: {},
 		},
 	})
+
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-5.5", result.Decision.Model)
 	assert.True(t, result.StickyHit)
@@ -298,12 +302,13 @@ func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 	freshRouter := &tierProbeRouter{
 		available: map[string]struct{}{"claude-haiku-4-5": {}},
 	}
-	svc := NewService(freshRouter, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(freshRouter, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
-	result, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{
+	result, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
 		RequestedModel: features.Model,
 	})
+
 	require.NoError(t, err)
 	assert.Equal(t, "claude-haiku-4-5", result.Decision.Model)
 	assert.NotEqual(t, translate.ReasonUserForceModel, result.Decision.Reason)
@@ -334,13 +339,15 @@ func TestRunTurnLoop_SessionForceOverridesAuxiliaryHardPin(t *testing.T) {
 		PinnedUntil:    pinNeverExpires,
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(freshRouter, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(freshRouter, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+
 	features := env.RoutingFeatures()
 
-	result, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{
+	result, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
 		RequestedModel: features.Model,
 	})
+
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-5", result.Decision.Model)
 	assert.Equal(t, translate.ReasonUserForceModel, result.Decision.Reason)
@@ -353,7 +360,7 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	const (
 		apiKeyID     = "api-key"
 		fableModelID = "claude-fable-5-2"
-		astraModelID = "gpt-6-astra"
+		astraModelID = "gpt-6.2-astra"
 	)
 	installationID := uuid.New()
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session"})
@@ -365,10 +372,10 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	threadKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadKey)
 	store := newForceModelMapStore()
-	svc := NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
-	forcedModel, _, err := svc.applyForceModelCommand(ctx, translate.ForceModelResult{Model: "fable"}, installationID, threadKey, forceKey)
+	forcedModel, _, err := svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: "fable"}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
 	assert.Equal(t, fableModelID, forcedModel)
 	pin, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
@@ -384,7 +391,7 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 		assert.False(t, threadForceFound, "new force state must have only one authoritative row")
 	}
 
-	nextModel, _, err := svc.applyForceModelCommand(ctx, translate.ForceModelResult{Model: "astra"}, installationID, threadKey, forceKey)
+	nextModel, _, err := svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: "astra"}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
 	assert.Equal(t, astraModelID, nextModel)
 	switched, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
@@ -393,7 +400,7 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	assert.Equal(t, fableModelID, switched.LastServedModel)
 	assert.Equal(t, providers.ProviderOpenAI, switched.Provider)
 
-	_, _, err = svc.applyForceModelCommand(ctx, translate.ForceModelResult{Clear: true}, installationID, threadKey, forceKey)
+	_, _, err = svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Clear: true}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
 	cleared, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
 	require.NoError(t, err)
@@ -407,8 +414,9 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 
 func TestRecordTurnUsage_ForcedDecisionWritesThreadHistoryOnly(t *testing.T) {
 	store := newForceModelMapStore()
-	svc := NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+
 	threadKey := [sessionpin.SessionKeyLen]byte{1}
 	controlKey := [sessionpin.SessionKeyLen]byte{2}
 	role := roleForTier(catalog.TierFor("claude-opus-5"))

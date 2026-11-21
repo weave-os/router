@@ -25,6 +25,7 @@ func TestDirectRoutingModelSelection(t *testing.T) {
 	}{
 		{name: "implicit current classifier", method: http.MethodPost, path: "/v1/messages", body: `{}`, model: router.ModelAutomatic, selectsRouter: true},
 		{name: "explicit current classifier", method: http.MethodPost, path: "/v1/responses", body: `{"model":"` + string(router.ModelAutomatic) + `"}`, model: router.ModelAutomatic, selectsRouter: true},
+		{name: "display name selects current classifier", method: http.MethodPost, path: "/v1/chat/completions", body: `{"model":"` + router.ModelAutomaticDisplayName + `"}`, model: router.ModelAutomatic, selectsRouter: true},
 		{name: "new HMM", method: http.MethodPost, path: "/v1/chat/completions", body: `{"model":"` + string(router.ModelHMM) + `"}`, model: router.ModelHMM, selectsRouter: true},
 		{name: "concrete model does not select a classifier", method: http.MethodPost, path: "/v1/responses", body: `{"model":"` + catalog.ModelGPT6Luna + `"}`},
 		{name: "Qwen", method: http.MethodPost, path: "/v1/messages", body: `{"model":"` + string(router.ModelQwen) + `"}`, model: router.ModelQwen, selectsRouter: true},

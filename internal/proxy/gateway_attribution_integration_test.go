@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 )
 
 func TestProxyMessages_GatewayExhaustionAttributesCortexBody(t *testing.T) {
@@ -24,11 +25,11 @@ func TestProxyMessages_GatewayExhaustionAttributesCortexBody(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropicGateway, Model: "claude-haiku-4-5"}},
 		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropic.NewClient("test-key", upstream.URL)},
-		nil, nil, false, providers.ProviderAnthropicGateway, "claude-haiku-4-5", newCaptureTelemetry(),
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropicGateway: {}}).
+		nil, nil, false, providers.ProviderAnthropicGateway, "claude-haiku-4-5", newCaptureTelemetry()), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropicGateway: {}}).
 		WithRetrySleep(noRetrySleep)
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-test")

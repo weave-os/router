@@ -158,6 +158,34 @@ func cloudRunServiceHost(host string) string {
 	return strings.TrimPrefix(host, tag+cloudRunTagSeparator)
 }
 
+type bearerTransport struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (t bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.Header.Set("Authorization", "Bearer "+t.token)
+	return t.base.RoundTrip(req)
+}
+
+func NewBearer(baseURL, token string, client *http.Client, timeout time.Duration, opts ...Option) *Client {
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	authenticated := http.Client{Timeout: timeout}
+	if client != nil {
+		authenticated = *client
+	}
+	base := authenticated.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	authenticated.Transport = bearerTransport{base: base, token: token}
+	authenticated.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return New(baseURL, &authenticated, timeout, opts...)
+}
+
 func newGoogleIDTokenHTTPClient(idTokenCredentials *auth.Credentials, timeout time.Duration) (*http.Client, error) {
 	client := &http.Client{
 		Timeout: timeout,

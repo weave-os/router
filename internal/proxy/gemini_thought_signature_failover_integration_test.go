@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers/google"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,17 +61,17 @@ func TestProxyMessages_GeminiCorruptedThoughtSignatureFailsOverToBaselineAnthrop
 
 	store := newFakePinStore()
 	tel := newCaptureTelemetry()
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-3-pro-preview"}},
 		map[string]providers.Client{
 			providers.ProviderGoogle:    google.NewNativeClient("test-google-key", googleUpstream.URL),
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 		},
-		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel,
-	).WithDeploymentKeyedProviders(map[string]struct{}{
-		providers.ProviderGoogle:    {},
-		providers.ProviderAnthropic: {},
-	})
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{
+			providers.ProviderGoogle:    {},
+			providers.ProviderAnthropic: {},
+		})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))

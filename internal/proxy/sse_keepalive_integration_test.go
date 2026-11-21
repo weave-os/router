@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,11 +43,11 @@ func TestProxyMessages_KeepaliveDuringUpstreamSilence(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: "fireworks", Model: "deepseek/deepseek-v4-pro"}},
 		map[string]providers.Client{"fireworks": openaicompat.NewClient("test-fw-key", upstream.URL)},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{"fireworks": {}}).
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{"fireworks": {}}).
 		WithIngress(ingress.New(40 * time.Millisecond))
 
 	rec := httptest.NewRecorder()
@@ -89,11 +90,11 @@ func TestProxyMessages_KeepaliveDisabledLeavesStreamUnpadded(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: "fireworks", Model: "deepseek/deepseek-v4-pro"}},
 		map[string]providers.Client{"fireworks": openaicompat.NewClient("test-fw-key", upstream.URL)},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{"fireworks": {}}).
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{"fireworks": {}}).
 		WithIngress(ingress.New(0))
 
 	rec := httptest.NewRecorder()

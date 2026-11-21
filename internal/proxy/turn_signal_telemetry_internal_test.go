@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/translate"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,29 +38,29 @@ func TestTurnSignalCaptureAllowed_FailsClosedOnDefaults(t *testing.T) {
 	assert.False(t, turnSignalCaptureAllowed(false, ParseCaptureMode("")))
 }
 
-func sampleSignals() spiralSignals {
-	return spiralSignals{
-		errStats: translate.ToolResultErrorStats{
+func sampleSignals() conversation.SpiralSignals {
+	return conversation.SpiralSignals{
+		ErrStats: translate.ToolResultErrorStats{
 			Total:             23,
 			Errored:           11,
 			TrailingErrStreak: 4,
 		},
-		maxSameFileEdits:   7,
-		sameFilePathHash:   "a1b2c3d4e5f60718",
-		repeatFrac:         0.42,
-		monologueLen:       3,
-		toolCallCount:      31,
-		messageCount:       64,
-		pingPongLen:        8,
-		stepsSinceProgress: 19,
-		editAttempted:      true,
+		MaxSameFileEdits:   7,
+		SameFilePathHash:   "a1b2c3d4e5f60718",
+		RepeatFrac:         0.42,
+		MonologueLen:       3,
+		ToolCallCount:      31,
+		MessageCount:       64,
+		PingPongLen:        8,
+		StepsSinceProgress: 19,
+		EditAttempted:      true,
 	}
 }
 
 func TestApplyTurnSignalTelemetry_CopiesFullSnapshot(t *testing.T) {
 	var telemetry InsertTelemetryParams
-	reasons := []spiralReason{spiralReasonErrStreak, spiralReasonPingPong}
-	applyTurnSignalTelemetry(&telemetry, sampleSignals(), reasons, true, true, true, CaptureFull)
+	reasons := []conversation.SpiralReason{conversation.SpiralReasonErrStreak, conversation.SpiralReasonPingPong}
+	applyTurnSignalTelemetry(&telemetry, sampleSignals(), reasons, true, true, CaptureFull)
 
 	assertInt32Ptr := func(field string, got *int32, want int32) {
 		t.Helper()
@@ -81,12 +81,12 @@ func TestApplyTurnSignalTelemetry_CopiesFullSnapshot(t *testing.T) {
 	assert.InDelta(t, 0.42, *telemetry.SpiralRepeatFrac, 1e-9)
 	require.NotNil(t, telemetry.SpiralEditAttempted)
 	assert.True(t, *telemetry.SpiralEditAttempted)
-	assert.Equal(t, []string{string(spiralReasonErrStreak), string(spiralReasonPingPong)}, telemetry.SpiralReasons)
+	assert.Equal(t, []string{string(conversation.SpiralReasonErrStreak), string(conversation.SpiralReasonPingPong)}, telemetry.SpiralReasons)
 }
 
 func TestApplyTurnSignalTelemetry_QuietTurnRecordsZeros(t *testing.T) {
 	var telemetry InsertTelemetryParams
-	applyTurnSignalTelemetry(&telemetry, spiralSignals{}, nil, true, true, true, CaptureFull)
+	applyTurnSignalTelemetry(&telemetry, conversation.SpiralSignals{}, nil, true, true, CaptureFull)
 
 	require.NotNil(t, telemetry.SpiralErrStreak)
 	assert.Zero(t, *telemetry.SpiralErrStreak)
@@ -102,20 +102,18 @@ func TestApplyTurnSignalTelemetry_SkipsIneligibleTurns(t *testing.T) {
 	tests := []struct {
 		name            string
 		computed        bool
-		enabled         bool
 		trainingAllowed bool
 		capture         ContentCaptureMode
 	}{
-		{"AI training opted out", true, true, false, CaptureFull},
-		{"zero retention", true, true, true, CaptureOff},
-		{"capture disabled", true, false, true, CaptureFull},
-		{"snapshot not computed", false, true, true, CaptureFull},
+		{"AI training opted out", true, false, CaptureFull},
+		{"zero retention", true, true, CaptureOff},
+		{"snapshot not computed", false, true, CaptureFull},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var telemetry InsertTelemetryParams
-			applyTurnSignalTelemetry(&telemetry, sampleSignals(), []spiralReason{spiralReasonErrStreak},
-				tc.computed, tc.enabled, tc.trainingAllowed, tc.capture)
+			applyTurnSignalTelemetry(&telemetry, sampleSignals(), []conversation.SpiralReason{conversation.SpiralReasonErrStreak},
+				tc.computed, tc.trainingAllowed, tc.capture)
 
 			assert.Nil(t, telemetry.SpiralErrStreak)
 			assert.Nil(t, telemetry.SpiralToolCallCount)
@@ -129,49 +127,10 @@ func TestApplyTurnSignalTelemetry_SkipsIneligibleTurns(t *testing.T) {
 
 func TestApplyTurnSignalTelemetry_NilParamsIsNoOp(t *testing.T) {
 	assert.NotPanics(t, func() {
-		applyTurnSignalTelemetry(nil, sampleSignals(), nil, true, true, true, CaptureFull)
+		applyTurnSignalTelemetry(nil, sampleSignals(), nil, true, true, CaptureFull)
 	})
 }
 
-type recordingSpiralStore struct {
-	events []SpiralShadowEvent
-}
-
-func (s *recordingSpiralStore) InsertSpiralShadowEvent(_ context.Context, event SpiralShadowEvent) error {
-	s.events = append(s.events, event)
-	return nil
-}
-
-func (s *recordingSpiralStore) CountSpiralShadowEvents(_ context.Context, _ []byte, _, _ string) (int64, error) {
-	return 0, nil
-}
-
-func TestHandleSpiralShadow_RespectsPrivacySettings(t *testing.T) {
-	tests := []struct {
-		name            string
-		trainingAllowed bool
-		capture         ContentCaptureMode
-		wantEvents      int
-	}{
-		{"allowed", true, CaptureFull, 1},
-		{"AI training opted out", false, CaptureFull, 0},
-		{"zero retention", true, CaptureOff, 0},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			store := &recordingSpiralStore{}
-			service := &Service{spiralTracker: newSpiralTracker(), spiralShadowStore: store}
-			var sessionKey [16]byte
-			service.handleSpiralShadow(context.Background(), sampleSignals(),
-				[]spiralReason{spiralReasonErrStreak}, uuid.New(), sessionKey,
-				"default", "test-model", "tool_result", tc.trainingAllowed, tc.capture)
-			assert.Len(t, store.events, tc.wantEvents)
-		})
-	}
-}
-
-// memorySessionTurnClock keeps the latest finish per session, like the
-// Postgres upsert, and returns the finish it replaced.
 type memorySessionTurnClock struct {
 	finishes map[string]SessionTurnClockReading
 }
@@ -187,7 +146,7 @@ func (c *memorySessionTurnClock) AdvanceSessionTurnClock(_ context.Context, adva
 
 func TestApplyUserPromptGap_TimesTypedPromptAgainstPreviousResponse(t *testing.T) {
 	clock := &memorySessionTurnClock{finishes: map[string]SessionTurnClockReading{}}
-	service := (&Service{}).WithSessionTurnClock(clock)
+	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	start := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	turn := func(offset time.Duration, latencyMs int64, turnType string, model string, typed bool) InsertTelemetryParams {
 		return InsertTelemetryParams{
@@ -226,7 +185,7 @@ func TestApplyUserPromptGap_TimesTypedPromptAgainstPreviousResponse(t *testing.T
 
 func TestApplyUserPromptGap_OverlappingPreviousResponseLeavesGapNull(t *testing.T) {
 	clock := &memorySessionTurnClock{finishes: map[string]SessionTurnClockReading{}}
-	service := (&Service{}).WithSessionTurnClock(clock)
+	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	start := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	typed := true
 	long := InsertTelemetryParams{
@@ -246,7 +205,7 @@ func TestApplyUserPromptGap_OverlappingPreviousResponseLeavesGapNull(t *testing.
 
 func TestApplyUserPromptGap_FailedTurnDoesNotMoveTheClock(t *testing.T) {
 	clock := &memorySessionTurnClock{finishes: map[string]SessionTurnClockReading{}}
-	service := (&Service{}).WithSessionTurnClock(clock)
+	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	start := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	typed := true
 	reply := InsertTelemetryParams{
@@ -286,7 +245,7 @@ func (c *deadlineRecordingClock) AdvanceSessionTurnClock(ctx context.Context, _ 
 
 func TestApplyUserPromptGap_ClockLeavesTheInsertItsBudget(t *testing.T) {
 	clock := &deadlineRecordingClock{}
-	service := (&Service{}).WithSessionTurnClock(clock)
+	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	parent, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	parentDeadline, _ := parent.Deadline()

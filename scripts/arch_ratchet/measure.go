@@ -42,8 +42,9 @@ const limitFileLines = 500
 const catalogDir = "internal/router/catalog"
 
 type funcMetrics struct {
-	key    string
-	values map[metric]int
+	key      string
+	values   map[metric]int
+	bodyHash uint32
 }
 
 type fileMetrics struct {
@@ -102,7 +103,8 @@ func measureFile(filePath string, src []byte) (metrics fileMetrics, generated bo
 
 func measureFunc(fset *token.FileSet, codeLines map[int]bool, key string, fn *ast.FuncDecl) funcMetrics {
 	return funcMetrics{
-		key: key,
+		key:      key,
+		bodyHash: sourceHash(fn.Body),
 		values: map[metric]int{
 			metricCognitive: gocognit.Complexity(fn),
 			metricLines:     linesWithin(fset, fn, codeLines),
@@ -127,11 +129,15 @@ func measureFuncLits(fset *token.FileSet, codeLines map[int]bool, prefix string,
 }
 
 func funcLitKey(prefix string, lit *ast.FuncLit) string {
+	return fmt.Sprintf("%s.func%x", prefix, sourceHash(lit))
+}
+
+func sourceHash(node ast.Node) uint32 {
 	var src bytes.Buffer
-	_ = printer.Fprint(&src, token.NewFileSet(), lit)
+	_ = printer.Fprint(&src, token.NewFileSet(), node)
 	sum := fnv.New32a()
 	_, _ = sum.Write(src.Bytes())
-	return fmt.Sprintf("%s.func%x", prefix, sum.Sum32())
+	return sum.Sum32()
 }
 
 func measurePackageFuncLits(fset *token.FileSet, codeLines map[int]bool, dir string, decl *ast.GenDecl) []funcMetrics {

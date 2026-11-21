@@ -13,14 +13,21 @@ type Adapter interface {
 	TraceBody(body []byte) []byte
 	Parse(ctx context.Context, body []byte) (*translate.RequestEnvelope, []byte, error)
 	CheckTarget(provider string) error
+}
+
+type StreamErrorWriter interface {
 	WriteStreamError(w http.ResponseWriter)
 }
 
 type Formats struct {
-	Gemini    Adapter
+	Gemini interface {
+		Adapter
+		StreamErrorWriter
+	}
+	Anthropic Anthropic
 	Keepalive time.Duration
 }
 
 func New(keepalive time.Duration) Formats {
-	return Formats{Gemini: Gemini{}, Keepalive: keepalive}
+	return Formats{Gemini: Gemini{}, Anthropic: Anthropic{}, Keepalive: keepalive}
 }

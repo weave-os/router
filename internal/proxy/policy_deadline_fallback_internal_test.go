@@ -110,7 +110,7 @@ func buildPolicyDeadlineFallbackService(
 	defaultModel string,
 ) *Service {
 	t.Helper()
-	return NewService(
+	return withHMMPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil},
 		nil,
@@ -118,8 +118,8 @@ func buildPolicyDeadlineFallbackService(
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithPolicyDeadlineFallback(fallbackEnabled).
+		nil)).
+		WithPolicyDeadlineFallback(fallbackEnabled).
 		WithPolicyDeadlineDefaultModel(defaultModel).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
@@ -155,9 +155,11 @@ func runPolicyDeadlineFallbackTurnLoop(
 		EstimatedInputTokens: features.Tokens,
 		HasTools:             features.HasTools,
 		ConversationMessages: conversationMessagesForRouting(env),
-		ExcludedModels:       excluded,
+		Candidates: router.Candidates{
+			ExcludedModels: excluded,
+		},
 	}
-	return svc.runTurnLoop(ctx, env, features, "api-key", uuid.New(), "", http.Header{}, req)
+	return svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, req)
 }
 
 // TestTurnLoop_DeadlineFallbackToPin covers T5: with a pin present and the

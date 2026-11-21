@@ -24,6 +24,16 @@ if (packageName === "@workweave/router") {
   );
 }
 
+if (args.includes("--vscode")) {
+  try {
+    require("./vscode.js").setupVSCode(args);
+  } catch (error) {
+    console.error("Weave Router:", error.message);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
 const uninstallIdx = args.indexOf("--uninstall");
 const isUninstall = uninstallIdx !== -1;
 if (isUninstall) args.splice(uninstallIdx, 1);

@@ -48,7 +48,7 @@ func TestHTTPRouterEndToEndWithSidecar(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := New(
+	r := NewForStrategy(router.StrategyHMM,
 		policyclient.New(server.URL, server.Client(), 0),
 		map[string]struct{}{providers.ProviderFireworks: {}},
 	)

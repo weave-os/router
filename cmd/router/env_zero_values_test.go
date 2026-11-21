@@ -42,17 +42,3 @@ func TestSSEKeepaliveIntervalZeroDisables(t *testing.T) {
 	t.Setenv("ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS", "-3")
 	assert.Equal(t, 15*time.Second, sseKeepaliveInterval())
 }
-
-func TestRLSidecarHeadersNeedBothKeyAndSecret(t *testing.T) {
-	t.Setenv("ROUTER_RL_SIDECAR_MODAL_KEY", "k")
-	t.Setenv("ROUTER_RL_SIDECAR_MODAL_SECRET", "")
-	assert.Nil(t, rlSidecarHeadersFromEnv())
-	t.Setenv("ROUTER_RL_SIDECAR_MODAL_SECRET", "s")
-	assert.Equal(t, map[string]string{
-		"X-Weave-Band-Key":    "k",
-		"X-Weave-Band-Secret": "s",
-		"Authorization":       "Bearer k:s",
-		"Modal-Key":           "k",
-		"Modal-Secret":        "s",
-	}, rlSidecarHeadersFromEnv())
-}

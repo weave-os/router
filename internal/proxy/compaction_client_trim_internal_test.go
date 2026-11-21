@@ -38,10 +38,10 @@ func forcedOpusGatewayCompactionFixture(anthropicFail error) (*Service, context.
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
-	svc := NewService(nil, map[string]providers.Client{
+	svc := withHMMPorts(NewService(nil, map[string]providers.Client{
 		providers.ProviderAnthropicGateway: anthropicGateway,
 		providers.ProviderOpenAIGateway:    openAIGateway,
-	}, nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil).
+	}, nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	ctx := rescuedFailureCtx()
 	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel})

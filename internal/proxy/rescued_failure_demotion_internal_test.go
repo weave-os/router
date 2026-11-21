@@ -85,17 +85,17 @@ func rescuableDecision(reason string, withSibling bool) router.Decision {
 }
 
 func newRescuedFailureTurnService(store sessionpin.Store, decision router.Decision, primary, sibling providers.Client, flagOn bool) *Service {
-	return NewService(
+	return withHMMPorts(NewService(
 		staticRouter{decision: decision},
 		map[string]providers.Client{
 			providers.ProviderAnthropic: primary,
 			providers.ProviderOpenAI:    sibling,
 		},
-		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{
-		providers.ProviderAnthropic: {},
-		providers.ProviderOpenAI:    {},
-	}).WithRetrySleep(func(context.Context, time.Duration) error { return nil }).WithRescuedFailureArmDemotion(flagOn)
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+		WithDeploymentKeyedProviders(map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderOpenAI:    {},
+		}).WithRetrySleep(func(context.Context, time.Duration) error { return nil }).WithRescuedFailureArmDemotion(flagOn)
 }
 
 func rescuedFailureCtx() context.Context {
@@ -222,17 +222,17 @@ func TestProxyMessages_BaselineRetryKeepsStallDemotionOnPrimary(t *testing.T) {
 	store := &demotionStubPinStore{}
 	primary := &failingClient{err: providers.ErrUpstreamIdleTimeout}
 	baseline := &failingClient{err: providers.ErrUpstreamIdleTimeout}
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: primaryModel, Reason: "test"}},
 		map[string]providers.Client{
 			providers.ProviderAnthropic: baseline,
 			providers.ProviderOpenAI:    primary,
 		},
-		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{
-		providers.ProviderAnthropic: {},
-		providers.ProviderOpenAI:    {},
-	}).WithRescuedFailureArmDemotion(true)
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+		WithDeploymentKeyedProviders(map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderOpenAI:    {},
+		}).WithRescuedFailureArmDemotion(true)
 
 	body := anthropicMessagesBody()
 	rec := httptest.NewRecorder()

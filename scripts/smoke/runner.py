@@ -46,6 +46,24 @@ CLIENT_ENVIRONMENTS = (
     *MODEL_OVERRIDE_ENVIRONMENTS,
 )
 SMOKE_DEPLOYMENT_MODE: Literal["selfhosted"] = "selfhosted"
+# The stub serving registry's worker identity; it matches the server
+# environment in docker-compose.yml, which the smoke override replaces.
+STUB_SERVING_ENVIRONMENT = {
+    "ROUTER_SERVING_TARGET": "prod/stable",
+    "ROUTER_SERVING_PROJECT": "local",
+    "ROUTER_SERVING_REGION": "local",
+    "ROUTER_SERVING_REVISION": "hmm-stub-router",
+    "ROUTER_SERVING_IMAGE_DIGEST": "sha256:" + "c" * 64,
+    "ROUTER_SERVING_REGISTRY_URI": "/policy/registry",
+    "ROUTER_ALLOW_LOCAL_SERVING_REGISTRY": "true",
+    "ROUTER_SERVING_CONFIGURATION_URI": "gs://hmm-stub-fixture/registry/artifacts/5e512326f32fd6b47871cc8927e61e0244ec09a9a6b4258ad9dfc12fe8165af5.json",
+    "ROUTER_SERVING_CONFIGURATION_SHA256": "5e512326f32fd6b47871cc8927e61e0244ec09a9a6b4258ad9dfc12fe8165af5",
+    "ROUTER_SERVING_CONFIGURATION_GENERATION": "1",
+    "ROUTER_SERVING_SELECTION_SET_URI": "gs://hmm-stub-fixture/registry/artifacts/50909073bddd4c1412b5d1cf00a7f57708ab0591d1d65bb8f94e19320862d227.json",
+    "ROUTER_SERVING_SELECTION_SET_SHA256": "50909073bddd4c1412b5d1cf00a7f57708ab0591d1d65bb8f94e19320862d227",
+    "ROUTER_SERVING_SELECTION_SET_GENERATION": "1",
+    "ROUTER_HMM_SIDECAR_AUTH": "none",
+}
 SMOKE_ROUTER_STRATEGY: Literal["hmm_embedding"] = "hmm_embedding"
 
 
@@ -243,9 +261,7 @@ class SmokeRun:
             "PORT": str(ROUTER_PORT),
             "ROUTER_DEPLOYMENT_MODE": SMOKE_DEPLOYMENT_MODE,
             "ROUTER_DEFAULT_STRATEGY": SMOKE_ROUTER_STRATEGY,
-            "ROUTER_POLICY_RELEASE_DIR": "/policy/release",
-            "ROUTER_HMM_SIDECAR_URL": f"http://{ComposeService.HMM_STUB}:8093",
-            "ROUTER_HMM_SIDECAR_AUTH": "none",
+            **STUB_SERVING_ENVIRONMENT,
             "PUBSUB_EMULATOR_HOST": "pubsub-emulator:8085",
             "PUBSUB_PROJECT_ID": "router-local",
             "PUBSUB_TOPIC_ROUTER_INVALIDATION": "router-installation-invalidate",
@@ -318,7 +334,7 @@ class SmokeRun:
             f"    labels: {json.dumps({OWNER_LABEL: self.owner})}",
             "  mitm_certs:",
             f"    labels: {json.dumps({OWNER_LABEL: self.owner})}",
-            "  hmm_stub_release:",
+            "  hmm_stub_registry:",
             f"    labels: {json.dumps({OWNER_LABEL: self.owner})}",
             "networks:",
             "  default:",

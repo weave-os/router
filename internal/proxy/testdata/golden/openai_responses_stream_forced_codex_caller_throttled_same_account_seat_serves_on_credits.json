@@ -1,0 +1,407 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_responses",
+      "stream": true,
+      "routing_decisions": [],
+      "dispatch_attempts": [
+        {
+          "provider": "openai",
+          "wire_model": "gpt-5.6-sol",
+          "endpoint": "responses",
+          "credential_source": "codex_subscription",
+          "outbound_body": {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "fix the failing build",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user",
+                "type": "message"
+              },
+              {
+                "arguments": "{\"cmd\":\"make build\"}",
+                "call_id": "call_1",
+                "name": "exec",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_1",
+                "output": "build failed",
+                "type": "function_call_output"
+              }
+            ],
+            "model": "gpt-5.6-sol",
+            "stream": true,
+            "tools": [
+              {
+                "name": "exec",
+                "parameters": {
+                  "properties": {
+                    "cmd": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          "outcome": "upstream_status_429"
+        },
+        {
+          "provider": "openai",
+          "wire_model": "gpt-5.6-sol",
+          "endpoint": "responses",
+          "outbound_body": {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "fix the failing build",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user",
+                "type": "message"
+              },
+              {
+                "arguments": "{\"cmd\":\"make build\"}",
+                "call_id": "call_1",
+                "name": "exec",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_1",
+                "output": "build failed",
+                "type": "function_call_output"
+              }
+            ],
+            "model": "gpt-5.6-sol",
+            "stream": true,
+            "tools": [
+              {
+                "name": "exec",
+                "parameters": {
+                  "properties": {
+                    "cmd": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "ErrorClass": "rate_limited",
+            "FailureOwner": "provider"
+          },
+          "FailureReason": "upstream_status",
+          "Outcome": "failed",
+          "Provenance": {
+            "PolicyID": "main-openai-responses",
+            "PolicyRevision": "3",
+            "Purpose": "openai_responses",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gpt-5.6-sol",
+            "Provider": "openai",
+            "UpstreamID": "gpt-5.6-sol"
+          },
+          "UpstreamStatusCode": 429
+        },
+        {
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-responses",
+            "PolicyRevision": "3",
+            "Purpose": "openai_responses",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gpt-5.6-sol",
+            "Provider": "openai",
+            "UpstreamID": "gpt-5.6-sol"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "124",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1050000",
+          "X-Router-Decision": "user_forced",
+          "X-Router-Model": "gpt-5.6-sol",
+          "X-Router-Provider": "openai"
+        },
+        "events": [
+          {
+            "event": "response.created",
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "model": "gpt-5.6-sol",
+                "object": "response",
+                "status": "in_progress"
+              },
+              "sequence_number": 0,
+              "type": "response.created"
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 1,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 2,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · pinned by force-model · funded by Codex subscription\n\n",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 3,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 4,
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · pinned by force-model · funded by Codex subscription\n\n",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · pinned by force-model · funded by Codex subscription\n\n",
+                "type": "output_text"
+              },
+              "sequence_number": 5,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · pinned by force-model · funded by Codex subscription\n\n",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 6,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "data": {
+              "delta": "served on weave credits",
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "status": "completed",
+                "usage": {
+                  "input_tokens": 12,
+                  "output_tokens": 7
+                }
+              },
+              "type": "response.completed"
+            }
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "force_model",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "gpt-5.6-sol",
+            "Provider": "openai",
+            "Reason": "user_forced",
+            "Role": "force_model",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "upsert",
+          "role": "default_force_hist",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "gpt-5.6-sol",
+            "Provider": "openai",
+            "Reason": "force_model_history",
+            "Role": "default_force_hist",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_force_hist",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "gpt-5.6-sol",
+            "ServedProvider": "openai",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -188,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 188,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gpt-5.6-sol"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000048,
+          "ActualOutputCostUSD": 0.00014,
+          "CaptureMode": "off",
+          "ClientApp": "codex",
+          "ContextSnapshot": {
+            "context_window": 1050000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 124,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "auto",
+            "served_model": "gpt-5.6-sol",
+            "version": 1
+          },
+          "DecisionModel": "gpt-5.6-sol",
+          "DecisionProvider": "openai",
+          "DecisionReason": "user_forced",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 8,
+          "FailoverAttempted": true,
+          "FailoverUsed": true,
+          "FinalModelFamily": "gpt-sol",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gpt-sol",
+          "OutputTokens": 7,
+          "PinTier": "user_forced",
+          "RequestedModel": "auto",
+          "Role": "default",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SessionID": "\u003cuuid\u003e",
+          "SpanType": "router.upstream",
+          "StickyHit": true,
+          "StopReason": "stop",
+          "ToolResultBytes": 14,
+          "TurnType": "tool_result",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200
+        }
+      ]
+    }
+  ],
+  "scenario": "openai_responses_stream_forced_codex_caller_throttled_same_account_seat_serves_on_credits"
+}

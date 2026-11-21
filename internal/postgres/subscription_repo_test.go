@@ -682,3 +682,47 @@ func TestConcurrentSubscriptionHealthTransitionsCommitOneDisconnect(t *testing.T
 	require.NoError(t, fixture.pool.QueryRow(ctx, "SELECT count(*) FROM router.subscription_credential_events WHERE account_id=$1 AND event_kind=$2", account.ID, string(auth.SubscriptionCredentialEventReconnectRequired)).Scan(&eventCount))
 	require.Equal(t, 1, eventCount)
 }
+
+func TestSubscriberEnrollmentOwnerAdmitsMembersWithoutARoutingKey(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	resolver, ok := repo.(auth.SubscriptionEnrollmentOwnerResolver)
+	require.True(t, ok)
+	ctx := context.Background()
+	keyless := uuid.New()
+	_, err := fixture.pool.Exec(ctx, "INSERT INTO router.credential_subjects (id, projection_complete) VALUES ($1, TRUE)", keyless)
+	require.NoError(t, err)
+	_, err = fixture.pool.Exec(ctx,
+		"INSERT INTO router.credential_subject_installations (subject_id, installation_id, access_enabled) VALUES ($1, $2, TRUE)",
+		keyless, fixture.installationID)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, cleanupErr := fixture.pool.Exec(context.Background(), "DELETE FROM router.model_router_subscription_accounts WHERE subscriber_id = $1", keyless)
+		require.NoError(t, cleanupErr)
+		_, cleanupErr = fixture.pool.Exec(context.Background(), "DELETE FROM router.credential_subject_installations WHERE subject_id = $1", keyless)
+		require.NoError(t, cleanupErr)
+		_, cleanupErr = fixture.pool.Exec(context.Background(), "DELETE FROM router.credential_subjects WHERE id = $1", keyless)
+		require.NoError(t, cleanupErr)
+	})
+
+	keyed, err := resolver.SubscriberEnrollmentOwner(ctx, fixture.subscriberA.String())
+	require.NoError(t, err)
+	assert.Equal(t, fixture.installationID.String(), keyed.InstallationID)
+	assert.Contains(t, []string{fixture.keyA1.String(), fixture.keyA2.String()}, keyed.APIKeyID, "a held key stays the enrollment attribution")
+
+	owner, err := resolver.SubscriberEnrollmentOwner(ctx, keyless.String())
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionOwner{SubscriberID: keyless.String(), InstallationID: fixture.installationID.String()}, owner)
+	account, kind, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude-keyless", RefreshToken: []byte("ciphertext"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionUpsertInserted, kind)
+	assert.Equal(t, keyless.String(), account.SubscriberID)
+	assert.Empty(t, account.EnrolledByAPIKeyID)
+
+	_, err = fixture.pool.Exec(ctx, "UPDATE router.credential_subject_installations SET access_enabled = FALSE WHERE subject_id = $1", keyless)
+	require.NoError(t, err)
+	_, err = resolver.SubscriberEnrollmentOwner(ctx, keyless.String())
+	require.ErrorIs(t, err, auth.ErrSubscriptionEnrollmentMembershipNotFound)
+}
