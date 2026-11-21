@@ -2941,7 +2941,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	rescue := &messagesRescue{
 		rescueChain: &rescueChain{
-			svc: s, strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.usageObserver,
+			rescuePorts: rescuePortsFor(s), strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.usageObserver,
 			r:                r,
 			log:              log,
 			env:              env,
@@ -5137,7 +5137,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	rescue := &chatRescue{
 		rescueChain: &rescueChain{
-			svc: s, strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock,
+			rescuePorts: rescuePortsFor(s), strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock,
 			r:                r,
 			log:              log,
 			env:              env,

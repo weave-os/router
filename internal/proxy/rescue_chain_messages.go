@@ -50,20 +50,19 @@ type messagesRescue struct {
 }
 
 func (m *messagesRescue) armBaseline(ctx context.Context) {
-	s := m.svc
 	env := m.env
 	routeRes := m.routeRes
 	feats := m.feats
-	m.baselineModel = s.baselineFor(ctx, feats.Model)
+	m.baselineModel = m.routing.BaselineFor(ctx, feats.Model)
 	baselineCatalog, baselineKnown := catalog.ByID(m.baselineModel)
 	_, m.explicitRequestedModel = catalog.ByID(m.req.RequestedModel)
-	_, anthropicExcluded := s.excludedProvidersForRequest(ctx)[providers.ProviderAnthropic]
+	_, anthropicExcluded := m.routing.ExcludedProvidersForRequest(ctx)[providers.ProviderAnthropic]
 	baselineAllowed := modelPermittedByAllowlist(ctx, m.baselineModel) &&
 		modelInRequestSubset(ctx, m.baselineModel)
 	m.baselineViable = !m.agentShadowMode &&
 		!routeRes.CallerModelPassthrough &&
 		!m.decision.UserForcedModel() &&
-		s.shouldFailover(ctx) &&
+		m.routing.ShouldFailover(ctx) &&
 		!paidFallbackForbiddenForModel(ctx, m.baselineModel) &&
 		!anthropicExcluded &&
 		!weaveCreditsCannotFund(ctx, providers.ProviderAnthropic) &&
@@ -77,12 +76,11 @@ func (m *messagesRescue) armBaseline(ctx context.Context) {
 }
 
 func (m *messagesRescue) armSubscriptionRetry(ctx context.Context) {
-	s := m.svc
 	m.subscriptionRetryEligible = m.decision.Provider == providers.ProviderAnthropic &&
 		!m.agentShadowMode &&
 		servedOnSubscription(ctx) &&
 		!paidFallbackForbiddenForModel(ctx, m.decision.Model) &&
-		s.anthropicFallbackKeyAvailable(ctx)
+		m.credentials.AnthropicFallbackKeyAvailable(ctx)
 }
 
 func (m *messagesRescue) armRescues(ctx context.Context) context.Context {
@@ -96,8 +94,8 @@ func (m *messagesRescue) armEarlyStop(ctx context.Context) {
 	m.earlyStopMode = s.earlyStopRedoMode(ctx, routeRes, m.decision, env.Stream(), m.agentShadowMode)
 	if m.earlyStopMode != flags.EarlyStopRedoOff {
 		basis := rescueBasisForTurn(m.decision, routeRes)
-		target, found := s.earlyStopRedoTarget(ctx, basis, m.overflowEstimate, env.SignatureTokenSavings(), m.outputReserve)
-		if found && s.siblingRescueAllowed(ctx, s.gatewaySiblingAllowed(ctx, target)) && !paidFallbackForbiddenForModel(ctx, target.Model) {
+		target, found := m.routing.EarlyStopRedoTarget(ctx, basis, m.overflowEstimate, env.SignatureTokenSavings(), m.outputReserve)
+		if found && m.routing.SiblingRescueAllowed(ctx, m.routing.GatewaySiblingAllowed(ctx, target)) && !paidFallbackForbiddenForModel(ctx, target.Model) {
 			m.earlyStopTarget = target
 			m.earlyStopCandidates = basis.Metadata.CandidateModels
 			m.earlyStop.Observe(m.earlyStopMode == flags.EarlyStopRedoOn)
@@ -173,11 +171,11 @@ func (m *messagesRescue) redoIfStoppedEarly(ctx context.Context) {
 				target:  m.earlyStopTarget,
 				build: func(ctx context.Context, target router.Decision) (dispatchAttempt, []catalog.ProviderBinding, string, effortResolution, context.Context, error) {
 					redoOpts, redoEffort := switchedAttemptOptions(ctx, opts, target, routeRes.EscalateEffort, s.resolveEffort)
-					redoCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, target.Provider), target.Model), target.Provider, target.Model, r.Header)
+					redoCtx := m.credentials.ResolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, target.Provider), target.Model), target.Provider, target.Model, r.Header)
 					redoOpts.FastMode = fastModeForAttempt(redoCtx, target.Model, target.Provider)
 					redoMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(m.strategyPorts, ctx, routeRes, siblingRoutingMarkerFor(routeRes, markerReasonEarlyStop, target.Model), target.Model, markerReasonEarlyStop))
 					redoAttempt, buildErr := m.buildAttempt(target, redoOpts, redoMarker, redoCtx)
-					return redoAttempt, s.resolveBindingsForDispatch(redoCtx, target), redoMarker, redoEffort, redoCtx, buildErr
+					return redoAttempt, m.routing.ResolveBindingsForDispatch(redoCtx, target), redoMarker, redoEffort, redoCtx, buildErr
 				},
 				dispatch: func(redoCtx context.Context, target router.Decision, redoBindings []catalog.ProviderBinding, redoAttempt dispatchAttempt) (int, error) {
 					return s.dispatchWithFallback(redoCtx, failoverInputs{

@@ -19,6 +19,8 @@ import (
 
 type fakeRescueServices struct {
 	rescueServices
+	dispatch.RescueCredentials
+	dispatch.RescueRouting
 	outcomes   map[string]error
 	dispatched []string
 	readmitted []string
@@ -28,15 +30,15 @@ func (f *fakeRescueServices) resolveEffort(context.Context, router.Decision, rou
 	return effortResolution{}
 }
 
-func (f *fakeRescueServices) resolveCredentials(ctx context.Context, _, _ string, _ http.Header) context.Context {
+func (f *fakeRescueServices) ResolveCredentials(ctx context.Context, _, _ string, _ http.Header) context.Context {
 	return ctx
 }
 
-func (f *fakeRescueServices) resolveBindingsForDispatch(_ context.Context, d router.Decision) []catalog.ProviderBinding {
+func (f *fakeRescueServices) ResolveBindingsForDispatch(_ context.Context, d router.Decision) []catalog.ProviderBinding {
 	return []catalog.ProviderBinding{{Provider: d.Provider}}
 }
 
-func (f *fakeRescueServices) noteRescueReadmission(_ context.Context, _, rescuer router.Decision) {
+func (f *fakeRescueServices) NoteRescueReadmission(_ context.Context, _, rescuer router.Decision) {
 	f.readmitted = append(f.readmitted, rescuer.Model)
 }
 
@@ -45,13 +47,13 @@ func (f *fakeRescueServices) dispatchWithFallback(_ context.Context, in failover
 	return 0, f.outcomes[in.initialDecision.Model]
 }
 
-func newSiblingRescueChain(ctx context.Context, svc rescueServices, primaryErr error, siblings ...router.Decision) *rescueChain {
+func newSiblingRescueChain(ctx context.Context, svc *fakeRescueServices, primaryErr error, siblings ...router.Decision) *rescueChain {
 	primary := router.Decision{Model: "primary-model", Provider: providers.ProviderOpenAI}
 	c := &rescueChain{
-		svc:        svc,
-		r:          httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil),
-		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
-		preludeBuf: newPreludeBuffer(httptest.NewRecorder()),
+		rescuePorts: rescuePorts{svc: svc, credentials: svc, routing: svc},
+		r:           httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil),
+		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		preludeBuf:  newPreludeBuffer(httptest.NewRecorder()),
 		buildAttempt: func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error) {
 			return func(context.Context, router.Decision, dispatch.Upstream) error { return nil }, nil
 		},
