@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"weave-os/router/internal/subscriptionlane"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -139,4 +140,68 @@ func TestSubscriptionOnly_SpendCapNoticeNamesTheKeyNotThePlan(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(body), "spend cap", "the cap notice still shows")
 	assert.NotContains(t, string(body), "your own Anthropic subscription", "the notice must not claim the plan served a BYOK turn")
+}
+
+var unfundedEvents = []subscriptionlane.Event{subscriptionlane.CreditsDepletedCovered, subscriptionlane.KeySpendCapCovered}
+
+// unfundedCtx marks the turn unfunded the way the admission gates do, on a
+// billing service charging feeRate on BYOK turns.
+func unfundedCtx(feeRate float64, event subscriptionlane.Event) func(context.Context) context.Context {
+	gate := billing.NewService(nil).WithByokFeeRate(feeRate)
+	return func(ctx context.Context) context.Context {
+		ctx, _ = gate.TripSubscriptionLane(ctx, event)
+		return ctx
+	}
+}
+
+func TestSubscriptionOnly_ZeroByokFeeServesOnTheKey(t *testing.T) {
+	for _, event := range unfundedEvents {
+		t.Run(event.String(), func(t *testing.T) {
+			trace := serveCustomerFunded(t, credentialCase{
+				name: "zero_fee", supplies: []string{goldenSubscription, goldenBYOKAnthropic},
+				decisions: []router.Decision{goldenAnthropicDecision}, upstreams: anthropicUp(anthropicOK(false, "ok")),
+				ctx: chainCtx(unfundedCtx(0, event), goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityKeyFirst))),
+			})
+			requireServedOnBYOK(t, trace)
+			row, err := json.Marshal(trace.Billing[0])
+			require.NoError(t, err)
+			assert.NotContains(t, string(row), `"FeeUsdMicros"`, "a zero fee rate writes no byok_fee row")
+		})
+	}
+}
+
+func TestSubscriptionOnly_OwedByokFeeRefusesBeforeDispatch(t *testing.T) {
+	for _, event := range unfundedEvents {
+		for _, priority := range []auth.FundingPriority{auth.FundingPriorityKeyFirst, auth.FundingPriorityPlanFirst} {
+			t.Run(event.String()+"/"+string(priority), func(t *testing.T) {
+				trace := serveCustomerFunded(t, credentialCase{
+					name: "fee_owed", supplies: []string{goldenSubscription, goldenBYOKAnthropic}, refused: true,
+					decisions: []router.Decision{goldenAnthropicDecision}, upstreams: anthropicUp(anthropicOK(false, "ok")),
+					ctx:       chainCtx(unfundedCtx(0.05, event), goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, priority))),
+					configure: exhaustSubscription,
+				})
+				require.NotNil(t, trace.DispatchError, "an organization that cannot pay the BYOK fee is refused")
+				assert.Equal(t, http.StatusPaymentRequired, trace.DispatchError.Status)
+				assert.Empty(t, trace.Attempts, "the customer's key is never called")
+				assert.Empty(t, trace.Billing, "nothing is debited")
+			})
+		}
+	}
+}
+
+func TestSubscriptionOnly_OwedByokFeeKeyFirstStillServesOnTheLivePlan(t *testing.T) {
+	for _, event := range unfundedEvents {
+		t.Run(event.String(), func(t *testing.T) {
+			trace := serveCustomerFunded(t, credentialCase{
+				name: "fee_owed_key_first_plan", supplies: []string{goldenSubscription, goldenBYOKAnthropic},
+				decisions: []router.Decision{goldenAnthropicDecision}, upstreams: anthropicUp(anthropicOK(true, "ok")),
+				ctx: chainCtx(unfundedCtx(0.05, event), goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityKeyFirst))),
+			})
+			require.Nil(t, trace.DispatchError, "a key that cannot be paid for must not hide the caller's free plan")
+			require.NotEmpty(t, trace.Attempts)
+			for _, attempt := range trace.Attempts {
+				assert.NotEqual(t, "byok_anthropic", attempt.Resolved.Label, "the customer's key is never called")
+			}
+		})
+	}
 }

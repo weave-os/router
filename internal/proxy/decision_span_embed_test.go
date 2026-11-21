@@ -242,11 +242,11 @@ func TestDecisionSpan_SidecarTimings_OnlySelectMsSet(t *testing.T) {
 // TestPinDecision_NeverRehydratesMetadata guards against stale sidecar-timing
 // replay: pins must rehydrate with Metadata nil.
 func TestPinDecision_NeverRehydratesMetadata(t *testing.T) {
-	dec := pinDecision(sessionpin.Pin{
+	dec := sessionpin.Pin{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
 		Reason:   "compaction",
-	})
+	}.Decision()
 	assert.Nil(t, dec.Metadata, "pins must never carry routing metadata — rehydrating it would replay stale sidecar timings")
 }
 

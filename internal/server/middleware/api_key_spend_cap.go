@@ -28,7 +28,7 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 
-		subscriptionExempt := proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
+		subscriptionExempt := proxy.RequestHasCustomerFunding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ByokFeeOwed(c.Request.Context()))
 
 		result, err := svc.CheckAPIKeySpendCap(c.Request.Context(), apiKey.ID)
 		if err != nil {
@@ -43,7 +43,7 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 		}
 
 		if result.SpentMicros >= *result.CapMicros {
-			kind, refused := tripSubscriptionLane(c, subscriptionlane.KeySpendCapGate, subscriptionExempt)
+			kind, refused := tripSubscriptionLane(c, svc, subscriptionlane.KeySpendCapGate, subscriptionExempt)
 			if !refused {
 				log.Info("API key spend cap reached but subscription covers the route: serving subscription-only",
 					"api_key_id", apiKey.ID,
