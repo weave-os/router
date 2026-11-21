@@ -79,7 +79,7 @@ func (s *Service) openRouterOverflowBindings(ctx context.Context, target router.
 	}
 	if s.credentials.KeyedProviders != nil {
 		_, keyed := s.credentials.KeyedProviders[providers.ProviderOpenRouter]
-		if !keyed && BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[providers.ProviderOpenRouter] == nil {
+		if !keyed && credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[providers.ProviderOpenRouter] == nil {
 			return nil
 		}
 	}

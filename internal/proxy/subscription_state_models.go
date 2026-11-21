@@ -229,7 +229,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispat
 			break
 		}
 	}
-	if err := includedLaneVerdict(s.sessionHolds.withUnservedHoldsReleased(ctx, request.EnabledProviders)); err != nil {
+	if err := includedLaneVerdict(withUnservedHoldsReleased(ctx, &s.credentials.SessionHolds, request.EnabledProviders)); err != nil {
 		return -1, flushIncludedLaneVerdict(in, err)
 	}
 	if ctx.Err() != nil {

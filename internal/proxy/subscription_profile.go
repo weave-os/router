@@ -13,15 +13,15 @@ import (
 type claudeSubscriptionPlanKey struct{}
 
 func (s *Service) WithClaudeSubscriptionPlanReader(reader providers.SubscriptionPlanReader) *Service {
-	s.claudePlans = nil
+	s.credentials.ClaudePlans = nil
 	if reader != nil {
-		s.claudePlans = subscriptions.NewPlanResolver(reader, func() time.Time { return s.clock.Now() })
+		s.credentials.ClaudePlans = subscriptions.NewPlanResolver(reader, func() time.Time { return s.clock.Now() })
 	}
 	return s
 }
 
 func (s *Service) withClaudeSubscriptionProfile(ctx context.Context, headers http.Header) context.Context {
-	if s.claudePlans == nil || subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || anthropicBYOKFirst(ctx) {
+	if s.credentials.ClaudePlans == nil || subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || anthropicBYOKFirst(ctx) {
 		return ctx
 	}
 	var token []byte
@@ -38,7 +38,7 @@ func (s *Service) withClaudeSubscriptionProfile(ctx context.Context, headers htt
 	if len(token) == 0 {
 		return ctx
 	}
-	plan := s.claudePlans.Resolve(ctx, token)
+	plan := s.credentials.ClaudePlans.Resolve(ctx, token)
 	if s.usageObserver != nil {
 		plan = credentials.ClaudePlanFromUsage(plan, s.usageObserver, token)
 	}
