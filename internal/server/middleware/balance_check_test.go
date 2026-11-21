@@ -480,6 +480,45 @@ func TestWithBalanceCheck_SubscriptionOnlyAtDepletedBalance(t *testing.T) {
 	assert.True(t, subOnly, "at the prepaid threshold the request must be flagged subscription-only")
 }
 
+func TestWithBalanceCheck_DepletedBalanceOwesNoByokFeeAtZeroRate(t *testing.T) {
+	// A depleted organization cannot pay a BYOK fee: with a fee rate above zero
+	// the customer's key may not serve the turn, while at the default zero rate
+	// a $0 or negative balance leaves it free to serve.
+	for name, tc := range map[string]struct {
+		balance int64
+		feeRate float64
+		owed    bool
+	}{
+		"zero_balance_zero_fee":     {balance: 0},
+		"negative_balance_zero_fee": {balance: -500},
+		"zero_balance_fee_charged":  {balance: 0, feeRate: 0.05, owed: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			svc := billing.NewService(&stubBillingRepo{balance: tc.balance}).WithByokFeeRate(tc.feeRate)
+			engine := gin.New()
+			var reason billing.SubscriptionOnlyReason
+			owed := false
+			engine.GET("/v1/messages", func(c *gin.Context) {
+				withInstallation(c, "org_sub")
+				c.Request.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
+				middleware.WithBalanceCheck(svc, 0)(c)
+				if c.IsAborted() {
+					return
+				}
+				reason, _ = billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
+				owed = billing.ByokFeeUnpayable(c.Request.Context())
+				c.Status(http.StatusOK)
+			})
+			w := httptest.NewRecorder()
+			engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil))
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, billing.SubscriptionOnlyCreditsDepleted, reason)
+			assert.Equal(t, tc.owed, owed)
+		})
+	}
+}
+
 func TestWithBalanceCheck_SubscriptionOnlyWhenBalanceRowMissing(t *testing.T) {
 	// A missing balance row is equivalent to depleted prepaid credits for a
 	// subscription-covered request: allow the caller's own subscription, but do

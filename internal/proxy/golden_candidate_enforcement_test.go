@@ -93,7 +93,7 @@ func candidateEnforcementImageTurn(images int) string {
 func goldenCandidateEnforcementScenarios() []goldenScenario {
 	first, next := goldenRequest{body: routingPolicyFirstTurn}, goldenRequest{body: routingPolicyFollowUp("continue")}
 	maxedOutThenOK := map[string][]goldenStep{providers.ProviderAnthropic: {routingPolicyMaxedOut(), anthropicOK(false, "ok")}}
-	hmm, rl := router.StrategyHMMEmbedding, router.StrategyRL
+	hmm, rl := router.StrategyHMMEmbedding, router.Strategy("rl")
 	rlFirst, rlNext := routingPolicyRequest(first.body, routingPolicyStrategy(rl)), routingPolicyRequest(next.body, routingPolicyStrategy(rl))
 	demoted, demotedOnly := &routingPolicySession{}, &routingPolicySession{}
 	demote := func(s *routingPolicySession) goldenRequest {

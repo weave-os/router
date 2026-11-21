@@ -40,5 +40,9 @@ func ownSeatFirstToken(ctx context.Context, current *Credentials, observer *usag
 }
 
 func ownOverageServesFirst(ctx context.Context, snapshot usage.Snapshot) bool {
-	return snapshot.OverageInUse && flags.BoolOr(ctx, flags.KeyOwnSeatFirst, false) && flags.BoolOr(ctx, flags.KeyOwnOverageBeforePool, false)
+	return snapshot.OverageInUse && ownOverageBeforePool(ctx)
+}
+
+func ownOverageBeforePool(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyOwnSeatFirst, false) && flags.BoolOr(ctx, flags.KeyOwnOverageBeforePool, false)
 }
