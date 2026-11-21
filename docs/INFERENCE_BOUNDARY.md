@@ -30,7 +30,7 @@ Router PRs [#884](https://github.com/weave-os/router/pull/884) and [#792](https:
 | Policy decision/preview/outcome/feedback | `policy_sidecar_*` | control plane | `internal/policyclient` HTTP client | remains non-inference |
 | Initial-task domain classification | `task_domain_classification` | control plane | `internal/policyclient.TaskDomainClassifier` with bounded `proxy.TaskDomainResolver` orchestration | remains non-inference |
 | Cluster/cache embeddings | `cluster_embedding`, `semantic_cache_embedding` | local support | none in workers: the semantic cache is deleted and the legacy cluster scorer is being removed | purposes stay registered until removed |
-| Native/Cortex web search | `native_web_search` | web-search tool | explicit `websearch.Executor` | remains separate from generic inference |
+| Native/Cortex/Keenable web search | `native_web_search` | web-search tool | explicit `websearch.Executor` | remains separate from generic inference |
 | Codex subscription search bridge | `openai_responses` | main inference | isolated Claude Code helper projected into the existing Responses entry point | uses existing policy, subscription admission and dispatch |
 
 The generated static registry in [`POLICY_INFERENCE.md`](POLICY_INFERENCE.md) is the authoritative review projection for policy IDs, rationale, constraints, budgets, fallback, owner, and migration status.
@@ -52,6 +52,7 @@ Real upstream HTTP is implemented only in these adapter areas:
 - `internal/providers/google/native_client.go`
 - `internal/providers/openaicompat/client.go` and `list_models.go`
 - `internal/providers/cortexagents/client.go` for the explicit web-search tool executor
+- `internal/providers/keenable/client.go` for the opt-in fallback web-search tool executor
 
 The composition root `cmd/router/main.go` is the only non-adapter package allowed to import concrete provider packages. The architecture fixtures prove that aliases and blank imports do not bypass this rule.
 

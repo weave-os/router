@@ -139,7 +139,7 @@ type Service struct {
 	turnSignalCaptureEnabled     bool
 	feedbackStore                RouterFeedbackStore
 	summarizer                   handover.Summarizer
-	webSearch                    websearch.Executor
+	webSearch                    webSearchExecutors
 	compactionHandoverSummarizer handover.Summarizer
 	availableModels              map[string]struct{}
 	defaultBaselineModel         string
@@ -1320,8 +1320,8 @@ func (s *Service) WithCompactionHandoverSummarizer(sz handover.Summarizer) *Serv
 	return s
 }
 
-func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
-	s.webSearch = ex
+func (s *Service) WithWebSearchExecutors(gateway, fallback websearch.Executor) *Service {
+	s.webSearch = webSearchExecutors{gateway: gateway, fallback: fallback}
 	return s
 }
 
@@ -2303,14 +2303,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	enabledProviders := eligibility.EnabledProviders
 
-	if !preparingHandoff(ctx) && s.serveNativeWebSearch(ctx, body, feats.Model, env.Stream(), feats.Tokens, enabledProviders, r.Header, w) {
-		return nil
-	}
-
-	if !preparingHandoff(ctx) {
-		if handled, searchErr := s.serveCodexWebSearch(ctx, body, feats.Model, env.Stream(), enabledProviders, r, w); handled {
-			return searchErr
-		}
+	searchTurn := messagesWebSearchTurn{body: body, model: feats.Model, stream: env.Stream(), inputTokens: feats.Tokens, enabled: enabledProviders}
+	if handled, searchErr := searchTurn.serve(ctx, s, r, w); handled {
+		return searchErr
 	}
 
 	outputReserve := contextWindowOutputReserve
