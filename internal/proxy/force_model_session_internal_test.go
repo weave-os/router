@@ -375,7 +375,7 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
-	forcedModel, _, err := svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: "fable"}, installationID, threadKey, forceKey)
+	forcedModel, _, err := (forceModelCommands{svc}).apply(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: "fable"}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
 	assert.Equal(t, fableModelID, forcedModel)
 	pin, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
@@ -391,7 +391,7 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 		assert.False(t, threadForceFound, "new force state must have only one authoritative row")
 	}
 
-	nextModel, _, err := svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: "astra"}, installationID, threadKey, forceKey)
+	nextModel, _, err := (forceModelCommands{svc}).apply(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: "astra"}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
 	assert.Equal(t, astraModelID, nextModel)
 	switched, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
@@ -400,7 +400,7 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	assert.Equal(t, fableModelID, switched.LastServedModel)
 	assert.Equal(t, providers.ProviderOpenAI, switched.Provider)
 
-	_, _, err = svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Clear: true}, installationID, threadKey, forceKey)
+	_, _, err = (forceModelCommands{svc}).apply(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Clear: true}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
 	cleared, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
 	require.NoError(t, err)

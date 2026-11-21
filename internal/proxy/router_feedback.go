@@ -33,7 +33,7 @@ type routerFeedbackPorts struct {
 }
 
 func (p routerFeedbackPorts) TurnBySequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, sequence int) (conversation.FeedbackTurn, bool, error) {
-	turn, err := p.s.telemetry.GetTelemetryBySessionSequence(ctx, installationID, sessionKey, role, sequence)
+	turn, err := p.s.turnTelemetry.repo.GetTelemetryBySessionSequence(ctx, installationID, sessionKey, role, sequence)
 	if err != nil {
 		return conversation.FeedbackTurn{}, errors.Is(err, sql.ErrNoRows), err
 	}
@@ -84,7 +84,7 @@ func newRouterFeedback(s *Service) conversation.RouterFeedback {
 		Now:           s.clock.Now,
 		ReportTimeout: policyFeedbackReportTimeout,
 	}
-	if s.telemetry != nil {
+	if s.turnTelemetry.repo != nil {
 		recorder.Turns = ports
 	}
 	if s.pinStore != nil {

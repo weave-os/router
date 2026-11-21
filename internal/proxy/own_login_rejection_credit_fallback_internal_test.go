@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 func TestOwnSubscriptionLoginRejectionServesOnCreditsWithReconnectNotice(t *testing.T) {
@@ -72,5 +73,5 @@ func TestIncludedFailureOrNamesCodexReconnectWhenNothingElseCanServe(t *testing.
 	require.True(t, ok)
 	assert.Equal(t, http.StatusUnauthorized, class.Status)
 	assert.Contains(t, class.Message, "reconnect=codex")
-	assert.Equal(t, FailureOwnerClient, turnFailureOwnerFor(context.Background(), err, classifyTurnError(err, "", 0)), "only the caller can fix a rejected own login")
+	assert.Equal(t, turnrecord.FailureOwnerClient, turnFailureOwnerFor(context.Background(), err, classifyTurnError(err, "", 0)), "only the caller can fix a rejected own login")
 }

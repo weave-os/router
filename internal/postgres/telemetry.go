@@ -3,18 +3,16 @@ package postgres
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/postgres/dbbudget"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/sqlc"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -40,42 +38,9 @@ func NewTelemetryRepo(tx sqlc.DBTX) *TelemetryRepo {
 	return &TelemetryRepo{tx: tx}
 }
 
-var _ proxy.TelemetryRepository = (*TelemetryRepo)(nil)
-var _ proxy.PolicyShadowStore = (*TelemetryRepo)(nil)
+var _ turnrecord.TelemetryRepository = (*TelemetryRepo)(nil)
 
-func (r *TelemetryRepo) InsertPolicyShadowDecision(ctx context.Context, p proxy.PolicyShadowDecision) error {
-	id, err := uuid.Parse(p.InstallationID)
-	if err != nil {
-		return err
-	}
-	q := dbbudget.Queries(r.tx)
-	return q.InsertPolicyShadowDecision(ctx, sqlc.InsertPolicyShadowDecisionParams{
-		InstallationID:              id,
-		OrganizationID:              stringPtrOrNil(p.OrganizationID),
-		RolloutID:                   stringPtrOrNil(p.RolloutID),
-		ClientApp:                   stringPtrOrNil(p.ClientApp),
-		TrainingAllowed:             p.TrainingAllowed,
-		ServingStrategy:             p.ServingStrategy,
-		ServingModel:                p.ServingModel,
-		ServingProvider:             p.ServingProvider,
-		ServingRouteID:              stringPtrOrNil(p.ServingRouteID),
-		ServingPolicyRouteKey:       stringPtrOrNil(p.ServingPolicyRouteKey),
-		ServingPolicyArtifactID:     stringPtrOrNil(p.ServingPolicyArtifactID),
-		ServingPolicyArtifactSha256: stringPtrOrNil(p.ServingPolicyArtifactSHA256),
-		ShadowStrategy:              p.ShadowStrategy,
-		ShadowModel:                 stringPtrOrNil(p.ShadowModel),
-		ShadowProvider:              stringPtrOrNil(p.ShadowProvider),
-		ShadowRouteID:               stringPtrOrNil(p.ShadowRouteID),
-		ShadowPolicyRouteKey:        stringPtrOrNil(p.ShadowPolicyRouteKey),
-		ShadowPolicyArtifactID:      stringPtrOrNil(p.ShadowPolicyArtifactID),
-		ShadowPolicyArtifactSha256:  stringPtrOrNil(p.ShadowPolicyArtifactSHA256),
-		ShadowLatencyMs:             p.ShadowLatencyMs,
-		ShadowError:                 stringPtrOrNil(p.ShadowError),
-		ModelsAgree:                 p.ModelsAgree,
-	})
-}
-
-func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.InsertTelemetryParams) error {
+func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p turnrecord.InsertTelemetryParams) error {
 	id, err := uuid.Parse(p.InstallationID)
 	if err != nil {
 		return err
@@ -282,10 +247,10 @@ func inferenceUsageKnown(summary *inference.OperationSummary) *bool {
 	return &known
 }
 
-func (r *TelemetryRepo) GetTelemetrySummary(ctx context.Context, installationID string, from, to time.Time) (proxy.TelemetrySummary, error) {
+func (r *TelemetryRepo) GetTelemetrySummary(ctx context.Context, installationID string, from, to time.Time) (turnrecord.TelemetrySummary, error) {
 	id, err := uuid.Parse(installationID)
 	if err != nil {
-		return proxy.TelemetrySummary{}, err
+		return turnrecord.TelemetrySummary{}, err
 	}
 	q := dbbudget.Queries(r.tx)
 	row, err := q.GetTelemetrySummary(ctx, sqlc.GetTelemetrySummaryParams{
@@ -294,9 +259,9 @@ func (r *TelemetryRepo) GetTelemetrySummary(ctx context.Context, installationID 
 		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
 	})
 	if err != nil {
-		return proxy.TelemetrySummary{}, err
+		return turnrecord.TelemetrySummary{}, err
 	}
-	return proxy.TelemetrySummary{
+	return turnrecord.TelemetrySummary{
 		RequestCount:          row.RequestCount,
 		TotalTokens:           row.TotalTokens,
 		TotalRequestedCostUSD: microsToUSD(row.TotalRequestedCostUsd),
@@ -305,7 +270,7 @@ func (r *TelemetryRepo) GetTelemetrySummary(ctx context.Context, installationID 
 	}, nil
 }
 
-func (r *TelemetryRepo) GetTelemetryTimeseries(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryBucket, error) {
+func (r *TelemetryRepo) GetTelemetryTimeseries(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryBucket, error) {
 	window, err := newTelemetryWindow(installationID, from, to)
 	if err != nil {
 		return nil, err
@@ -318,16 +283,16 @@ func (r *TelemetryRepo) GetTelemetryTimeseries(ctx context.Context, installation
 	)(ctx, window)
 }
 
-func (r *TelemetryRepo) GetTelemetrySummaryAll(ctx context.Context, from, to time.Time) (proxy.TelemetrySummary, error) {
+func (r *TelemetryRepo) GetTelemetrySummaryAll(ctx context.Context, from, to time.Time) (turnrecord.TelemetrySummary, error) {
 	q := dbbudget.Queries(r.tx)
 	row, err := q.GetTelemetrySummaryAll(ctx, sqlc.GetTelemetrySummaryAllParams{
 		FromTime: pgtype.Timestamptz{Time: from, Valid: true},
 		ToTime:   pgtype.Timestamptz{Time: to, Valid: true},
 	})
 	if err != nil {
-		return proxy.TelemetrySummary{}, err
+		return turnrecord.TelemetrySummary{}, err
 	}
-	return proxy.TelemetrySummary{
+	return turnrecord.TelemetrySummary{
 		RequestCount:          row.RequestCount,
 		TotalTokens:           row.TotalTokens,
 		TotalRequestedCostUSD: microsToUSD(row.TotalRequestedCostUsd),
@@ -347,7 +312,7 @@ func dashboardInstallationFilter(installationID string) (pgtype.UUID, error) {
 	return pgtype.UUID{Bytes: id, Valid: true}, nil
 }
 
-func (r *TelemetryRepo) GetTelemetryDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryDashboardFact, error) {
+func (r *TelemetryRepo) GetTelemetryDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryDashboardFact, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {
 		return nil, err
@@ -361,8 +326,8 @@ func (r *TelemetryRepo) GetTelemetryDashboardFacts(ctx context.Context, installa
 	if err != nil {
 		return nil, err
 	}
-	return mapRows(rows, func(row sqlc.GetTelemetryDashboardFactsRow) proxy.TelemetryDashboardFact {
-		return proxy.TelemetryDashboardFact{
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardFactsRow) turnrecord.TelemetryDashboardFact {
+		return turnrecord.TelemetryDashboardFact{
 			Bucket:              row.Bucket.Time,
 			DecisionModel:       row.DecisionModel,
 			SubscriptionServed:  row.SubscriptionServed,
@@ -378,7 +343,7 @@ func (r *TelemetryRepo) GetTelemetryDashboardFacts(ctx context.Context, installa
 	}), nil
 }
 
-func (r *TelemetryRepo) GetTelemetryDashboardActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryActiveUsers, error) {
+func (r *TelemetryRepo) GetTelemetryDashboardActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryActiveUsers, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {
 		return nil, err
@@ -392,12 +357,12 @@ func (r *TelemetryRepo) GetTelemetryDashboardActiveUsers(ctx context.Context, in
 	if err != nil {
 		return nil, err
 	}
-	return mapRows(rows, func(row sqlc.GetTelemetryDashboardActiveUsersRow) proxy.TelemetryActiveUsers {
-		return proxy.TelemetryActiveUsers{Bucket: row.Bucket.Time, Linked: row.Linked, UserCount: row.UserCount}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardActiveUsersRow) turnrecord.TelemetryActiveUsers {
+		return turnrecord.TelemetryActiveUsers{Bucket: row.Bucket.Time, Linked: row.Linked, UserCount: row.UserCount}
 	}), nil
 }
 
-func (r *TelemetryRepo) GetTelemetryDashboardPeople(ctx context.Context, installationID string) ([]proxy.TelemetryPerson, error) {
+func (r *TelemetryRepo) GetTelemetryDashboardPeople(ctx context.Context, installationID string) ([]turnrecord.TelemetryPerson, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {
 		return nil, err
@@ -406,8 +371,8 @@ func (r *TelemetryRepo) GetTelemetryDashboardPeople(ctx context.Context, install
 	if err != nil {
 		return nil, err
 	}
-	return mapRows(rows, func(row sqlc.GetTelemetryDashboardPeopleRow) proxy.TelemetryPerson {
-		person := proxy.TelemetryPerson{ID: row.PersonID, Linked: row.Linked, DisplayName: row.DisplayName, Email: row.Email}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardPeopleRow) turnrecord.TelemetryPerson {
+		person := turnrecord.TelemetryPerson{ID: row.PersonID, Linked: row.Linked, DisplayName: row.DisplayName, Email: row.Email}
 		if row.LastRequestAt.Valid {
 			last := row.LastRequestAt.Time
 			person.LastRequestAt = &last
@@ -416,7 +381,7 @@ func (r *TelemetryRepo) GetTelemetryDashboardPeople(ctx context.Context, install
 	}), nil
 }
 
-func (r *TelemetryRepo) GetTelemetrySubscriptionPoolSeats(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
+func (r *TelemetryRepo) GetTelemetrySubscriptionPoolSeats(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]turnrecord.TelemetrySubscriptionSeat, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {
 		return nil, err
@@ -429,9 +394,9 @@ func (r *TelemetryRepo) GetTelemetrySubscriptionPoolSeats(ctx context.Context, i
 	if err != nil {
 		return nil, err
 	}
-	seats := make([]proxy.TelemetrySubscriptionSeat, 0, len(rows))
+	seats := make([]turnrecord.TelemetrySubscriptionSeat, 0, len(rows))
 	for _, row := range rows {
-		seat := proxy.TelemetrySubscriptionSeat{
+		seat := turnrecord.TelemetrySubscriptionSeat{
 			ID:               row.ID.String(),
 			Provider:         row.Provider,
 			DisplayName:      row.DisplayName,
@@ -475,7 +440,7 @@ func limitHeaders(raw []byte) (map[string]string, error) {
 	return headers, nil
 }
 
-func (r *TelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryBucket, error) {
+func (r *TelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]turnrecord.TelemetryBucket, error) {
 	q := dbbudget.Queries(r.tx)
 	return pickGranularity(granularity,
 		windowAllQuery(q.GetTelemetryTimeseriesWeeklyAll, telemetryBucketFromWeeklyAllRow),
@@ -484,7 +449,7 @@ func (r *TelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to 
 	)(ctx, newTelemetryWindowAll(from, to))
 }
 
-func (r *TelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryModelBucket, error) {
+func (r *TelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryModelBucket, error) {
 	window, err := newTelemetryWindow(installationID, from, to)
 	if err != nil {
 		return nil, err
@@ -497,7 +462,7 @@ func (r *TelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installa
 	)(ctx, window)
 }
 
-func (r *TelemetryRepo) GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryModelBucket, error) {
+func (r *TelemetryRepo) GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]turnrecord.TelemetryModelBucket, error) {
 	q := dbbudget.Queries(r.tx)
 	return pickGranularity(granularity,
 		windowAllQuery(q.GetTelemetryModelBreakdownWeeklyAll, modelBucketFromWeeklyAllRow),
@@ -592,55 +557,55 @@ func mapRows[T, U any](rows []T, convert func(T) U) []U {
 	return out
 }
 
-func telemetryBucketFromWeeklyRow(row sqlc.GetTelemetryTimeseriesWeeklyRow) proxy.TelemetryBucket {
-	return proxy.TelemetryBucket{
+func telemetryBucketFromWeeklyRow(row sqlc.GetTelemetryTimeseriesWeeklyRow) turnrecord.TelemetryBucket {
+	return turnrecord.TelemetryBucket{
 		Bucket:           row.Bucket.Time,
 		RequestedCostUSD: microsToUSD(row.RequestedCostUsd),
 		ActualCostUSD:    microsToUSD(row.ActualCostUsd),
 	}
 }
 
-func telemetryBucketFromDailyRow(row sqlc.GetTelemetryTimeseriesDailyRow) proxy.TelemetryBucket {
-	return proxy.TelemetryBucket{
+func telemetryBucketFromDailyRow(row sqlc.GetTelemetryTimeseriesDailyRow) turnrecord.TelemetryBucket {
+	return turnrecord.TelemetryBucket{
 		Bucket:           row.Bucket.Time,
 		RequestedCostUSD: microsToUSD(row.RequestedCostUsd),
 		ActualCostUSD:    microsToUSD(row.ActualCostUsd),
 	}
 }
 
-func telemetryBucketFromHourlyRow(row sqlc.GetTelemetryTimeseriesHourlyRow) proxy.TelemetryBucket {
-	return proxy.TelemetryBucket{
+func telemetryBucketFromHourlyRow(row sqlc.GetTelemetryTimeseriesHourlyRow) turnrecord.TelemetryBucket {
+	return turnrecord.TelemetryBucket{
 		Bucket:           row.Bucket.Time,
 		RequestedCostUSD: microsToUSD(row.RequestedCostUsd),
 		ActualCostUSD:    microsToUSD(row.ActualCostUsd),
 	}
 }
 
-func telemetryBucketFromWeeklyAllRow(row sqlc.GetTelemetryTimeseriesWeeklyAllRow) proxy.TelemetryBucket {
-	return proxy.TelemetryBucket{
+func telemetryBucketFromWeeklyAllRow(row sqlc.GetTelemetryTimeseriesWeeklyAllRow) turnrecord.TelemetryBucket {
+	return turnrecord.TelemetryBucket{
 		Bucket:           row.Bucket.Time,
 		RequestedCostUSD: microsToUSD(row.RequestedCostUsd),
 		ActualCostUSD:    microsToUSD(row.ActualCostUsd),
 	}
 }
 
-func telemetryBucketFromDailyAllRow(row sqlc.GetTelemetryTimeseriesDailyAllRow) proxy.TelemetryBucket {
-	return proxy.TelemetryBucket{
+func telemetryBucketFromDailyAllRow(row sqlc.GetTelemetryTimeseriesDailyAllRow) turnrecord.TelemetryBucket {
+	return turnrecord.TelemetryBucket{
 		Bucket:           row.Bucket.Time,
 		RequestedCostUSD: microsToUSD(row.RequestedCostUsd),
 		ActualCostUSD:    microsToUSD(row.ActualCostUsd),
 	}
 }
 
-func telemetryBucketFromHourlyAllRow(row sqlc.GetTelemetryTimeseriesHourlyAllRow) proxy.TelemetryBucket {
-	return proxy.TelemetryBucket{
+func telemetryBucketFromHourlyAllRow(row sqlc.GetTelemetryTimeseriesHourlyAllRow) turnrecord.TelemetryBucket {
+	return turnrecord.TelemetryBucket{
 		Bucket:           row.Bucket.Time,
 		RequestedCostUSD: microsToUSD(row.RequestedCostUsd),
 		ActualCostUSD:    microsToUSD(row.ActualCostUsd),
 	}
 }
 
-func (r *TelemetryRepo) GetTelemetryRows(ctx context.Context, installationID string, from, to time.Time, limit int32) ([]proxy.TelemetryRow, error) {
+func (r *TelemetryRepo) GetTelemetryRows(ctx context.Context, installationID string, from, to time.Time, limit int32) ([]turnrecord.TelemetryRow, error) {
 	id, err := uuid.Parse(installationID)
 	if err != nil {
 		return nil, err
@@ -659,7 +624,7 @@ func (r *TelemetryRepo) GetTelemetryRows(ctx context.Context, installationID str
 	return out, nil
 }
 
-func (r *TelemetryRepo) GetTelemetryRowsAll(ctx context.Context, from, to time.Time, limit int32) ([]proxy.TelemetryRow, error) {
+func (r *TelemetryRepo) GetTelemetryRowsAll(ctx context.Context, from, to time.Time, limit int32) ([]turnrecord.TelemetryRow, error) {
 	q := dbbudget.Queries(r.tx)
 	rows, err := q.GetTelemetryRowsAll(ctx, sqlc.GetTelemetryRowsAllParams{
 		FromTime: pgtype.Timestamptz{Time: from, Valid: true},
@@ -671,40 +636,6 @@ func (r *TelemetryRepo) GetTelemetryRowsAll(ctx context.Context, from, to time.T
 	}
 	out := mapRows(rows, telemetryRowFromRowsAllRow)
 	return out, nil
-}
-
-func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sessionID string) (proxy.SessionCost, error) {
-	id, err := uuid.Parse(installationID)
-	if err != nil {
-		return proxy.SessionCost{}, err
-	}
-	q := dbbudget.Queries(r.tx)
-	row, err := q.GetSessionCost(ctx, sqlc.GetSessionCostParams{
-		InstallationID: id,
-		SessionID:      sessionID,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
-	}
-	if err != nil {
-		return proxy.SessionCost{}, err
-	}
-	if row.SessionID == nil {
-		return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
-	}
-	return proxy.SessionCost{
-		SessionID:              *row.SessionID,
-		RequestCount:           row.RequestCount,
-		ActualCostUSDMicros:    row.ActualInputCostUsd + row.ActualOutputCostUsd,
-		RequestedCostUSDMicros: row.RequestedInputCostUsd + row.RequestedOutputCostUsd,
-		InputTokens:            row.InputTokens,
-		OutputTokens:           row.OutputTokens,
-		CacheCreationTokens:    row.CacheCreationTokens,
-		CacheReadTokens:        row.CacheReadTokens,
-		LastRecordedAt:         row.LastRecordedAt.Time,
-		ContextSnapshot:        proxy.ParseContextSnapshot(row.ContextSnapshot),
-		BlindExperiment:        row.BlindExperiment,
-	}, nil
 }
 
 func telemetryRowFromRow(
@@ -727,7 +658,7 @@ func telemetryRowFromRow(
 	clientApp *string,
 	turnType string,
 	userEmail *string,
-) proxy.TelemetryRow {
+) turnrecord.TelemetryRow {
 	deref := func(s *string) string {
 		if s == nil {
 			return ""
@@ -747,7 +678,7 @@ func telemetryRowFromRow(
 		}
 		return *i
 	}
-	return proxy.TelemetryRow{
+	return turnrecord.TelemetryRow{
 		Timestamp:           ts,
 		RequestID:           requestID,
 		RequestedModel:      deref(requestedModel),
@@ -770,7 +701,7 @@ func telemetryRowFromRow(
 	}
 }
 
-func telemetryRowFromRowsRow(row sqlc.GetTelemetryRowsRow) proxy.TelemetryRow {
+func telemetryRowFromRowsRow(row sqlc.GetTelemetryRowsRow) turnrecord.TelemetryRow {
 	return telemetryRowFromRow(
 		row.Timestamp.Time,
 		row.RequestID,
@@ -794,7 +725,7 @@ func telemetryRowFromRowsRow(row sqlc.GetTelemetryRowsRow) proxy.TelemetryRow {
 	)
 }
 
-func telemetryRowFromRowsAllRow(row sqlc.GetTelemetryRowsAllRow) proxy.TelemetryRow {
+func telemetryRowFromRowsAllRow(row sqlc.GetTelemetryRowsAllRow) turnrecord.TelemetryRow {
 	return telemetryRowFromRow(
 		row.Timestamp.Time,
 		row.RequestID,
@@ -818,8 +749,8 @@ func telemetryRowFromRowsAllRow(row sqlc.GetTelemetryRowsAllRow) proxy.Telemetry
 	)
 }
 
-func modelBucketFromWeeklyRow(row sqlc.GetTelemetryModelBreakdownWeeklyRow) proxy.TelemetryModelBucket {
-	return proxy.TelemetryModelBucket{
+func modelBucketFromWeeklyRow(row sqlc.GetTelemetryModelBreakdownWeeklyRow) turnrecord.TelemetryModelBucket {
+	return turnrecord.TelemetryModelBucket{
 		Bucket:        row.Bucket.Time,
 		DecisionModel: row.DecisionModel,
 		RequestCount:  row.RequestCount,
@@ -828,8 +759,8 @@ func modelBucketFromWeeklyRow(row sqlc.GetTelemetryModelBreakdownWeeklyRow) prox
 	}
 }
 
-func modelBucketFromDailyRow(row sqlc.GetTelemetryModelBreakdownDailyRow) proxy.TelemetryModelBucket {
-	return proxy.TelemetryModelBucket{
+func modelBucketFromDailyRow(row sqlc.GetTelemetryModelBreakdownDailyRow) turnrecord.TelemetryModelBucket {
+	return turnrecord.TelemetryModelBucket{
 		Bucket:        row.Bucket.Time,
 		DecisionModel: row.DecisionModel,
 		RequestCount:  row.RequestCount,
@@ -838,8 +769,8 @@ func modelBucketFromDailyRow(row sqlc.GetTelemetryModelBreakdownDailyRow) proxy.
 	}
 }
 
-func modelBucketFromHourlyRow(row sqlc.GetTelemetryModelBreakdownHourlyRow) proxy.TelemetryModelBucket {
-	return proxy.TelemetryModelBucket{
+func modelBucketFromHourlyRow(row sqlc.GetTelemetryModelBreakdownHourlyRow) turnrecord.TelemetryModelBucket {
+	return turnrecord.TelemetryModelBucket{
 		Bucket:        row.Bucket.Time,
 		DecisionModel: row.DecisionModel,
 		RequestCount:  row.RequestCount,
@@ -848,8 +779,8 @@ func modelBucketFromHourlyRow(row sqlc.GetTelemetryModelBreakdownHourlyRow) prox
 	}
 }
 
-func modelBucketFromWeeklyAllRow(row sqlc.GetTelemetryModelBreakdownWeeklyAllRow) proxy.TelemetryModelBucket {
-	return proxy.TelemetryModelBucket{
+func modelBucketFromWeeklyAllRow(row sqlc.GetTelemetryModelBreakdownWeeklyAllRow) turnrecord.TelemetryModelBucket {
+	return turnrecord.TelemetryModelBucket{
 		Bucket:        row.Bucket.Time,
 		DecisionModel: row.DecisionModel,
 		RequestCount:  row.RequestCount,
@@ -858,8 +789,8 @@ func modelBucketFromWeeklyAllRow(row sqlc.GetTelemetryModelBreakdownWeeklyAllRow
 	}
 }
 
-func modelBucketFromDailyAllRow(row sqlc.GetTelemetryModelBreakdownDailyAllRow) proxy.TelemetryModelBucket {
-	return proxy.TelemetryModelBucket{
+func modelBucketFromDailyAllRow(row sqlc.GetTelemetryModelBreakdownDailyAllRow) turnrecord.TelemetryModelBucket {
+	return turnrecord.TelemetryModelBucket{
 		Bucket:        row.Bucket.Time,
 		DecisionModel: row.DecisionModel,
 		RequestCount:  row.RequestCount,
@@ -868,8 +799,8 @@ func modelBucketFromDailyAllRow(row sqlc.GetTelemetryModelBreakdownDailyAllRow) 
 	}
 }
 
-func modelBucketFromHourlyAllRow(row sqlc.GetTelemetryModelBreakdownHourlyAllRow) proxy.TelemetryModelBucket {
-	return proxy.TelemetryModelBucket{
+func modelBucketFromHourlyAllRow(row sqlc.GetTelemetryModelBreakdownHourlyAllRow) turnrecord.TelemetryModelBucket {
+	return turnrecord.TelemetryModelBucket{
 		Bucket:        row.Bucket.Time,
 		DecisionModel: row.DecisionModel,
 		RequestCount:  row.RequestCount,
@@ -878,7 +809,7 @@ func modelBucketFromHourlyAllRow(row sqlc.GetTelemetryModelBreakdownHourlyAllRow
 	}
 }
 
-func (r *TelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (proxy.TelemetryTurnResult, error) {
+func (r *TelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (turnrecord.TelemetryTurnResult, error) {
 	q := dbbudget.Queries(r.tx)
 	if seq > 0 {
 		row, err := q.GetTelemetryBySessionAsc(ctx, sqlc.GetTelemetryBySessionAscParams{
@@ -888,9 +819,9 @@ func (r *TelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, insta
 			TurnOffset:     int32(seq - 1),
 		})
 		if err != nil {
-			return proxy.TelemetryTurnResult{}, err
+			return turnrecord.TelemetryTurnResult{}, err
 		}
-		return proxy.TelemetryTurnResult{
+		return turnrecord.TelemetryTurnResult{
 			RequestID:        row.RequestID,
 			DecisionModel:    derefString(row.DecisionModel),
 			DecisionProvider: derefString(row.DecisionProvider),
@@ -906,9 +837,9 @@ func (r *TelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, insta
 		TurnOffset:     int32(-seq - 1),
 	})
 	if err != nil {
-		return proxy.TelemetryTurnResult{}, err
+		return turnrecord.TelemetryTurnResult{}, err
 	}
-	return proxy.TelemetryTurnResult{
+	return turnrecord.TelemetryTurnResult{
 		RequestID:        row.RequestID,
 		DecisionModel:    derefString(row.DecisionModel),
 		DecisionProvider: derefString(row.DecisionProvider),
@@ -918,7 +849,7 @@ func (r *TelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, insta
 	}, nil
 }
 
-func (r *TelemetryRepo) GetTelemetryDashboardDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]proxy.TelemetryDrillDownRow, error) {
+func (r *TelemetryRepo) GetTelemetryDashboardDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]turnrecord.TelemetryDrillDownRow, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {
 		return nil, err
@@ -931,9 +862,9 @@ func (r *TelemetryRepo) GetTelemetryDashboardDrillDown(ctx context.Context, inst
 	if err != nil {
 		return nil, err
 	}
-	return mapRows(rows, func(row sqlc.GetTelemetryDashboardDrillDownRow) proxy.TelemetryDrillDownRow {
-		return proxy.TelemetryDrillDownRow{
-			TelemetryDashboardFact: proxy.TelemetryDashboardFact{
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardDrillDownRow) turnrecord.TelemetryDrillDownRow {
+		return turnrecord.TelemetryDrillDownRow{
+			TelemetryDashboardFact: turnrecord.TelemetryDashboardFact{
 				Bucket:              row.StartedAt.Time,
 				DecisionModel:       row.DecisionModel,
 				SubscriptionServed:  row.SubscriptionServed,
@@ -960,7 +891,7 @@ func (r *TelemetryRepo) GetTelemetryDashboardDrillDown(ctx context.Context, inst
 	}), nil
 }
 
-func (r *TelemetryRepo) GetTelemetryDashboardIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryIndividualFact, error) {
+func (r *TelemetryRepo) GetTelemetryDashboardIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryIndividualFact, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {
 		return nil, err
@@ -974,9 +905,9 @@ func (r *TelemetryRepo) GetTelemetryDashboardIndividualFacts(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	return mapRows(rows, func(row sqlc.GetTelemetryDashboardIndividualFactsRow) proxy.TelemetryIndividualFact {
-		return proxy.TelemetryIndividualFact{
-			TelemetryDashboardFact: proxy.TelemetryDashboardFact{
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardIndividualFactsRow) turnrecord.TelemetryIndividualFact {
+		return turnrecord.TelemetryIndividualFact{
+			TelemetryDashboardFact: turnrecord.TelemetryDashboardFact{
 				Bucket:              row.Bucket.Time,
 				DecisionModel:       row.DecisionModel,
 				SubscriptionServed:  row.SubscriptionServed,

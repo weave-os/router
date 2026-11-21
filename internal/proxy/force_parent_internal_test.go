@@ -36,7 +36,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	svc := withHMMPorts(NewService(scorer, nil, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 	apply := func(command translate.ForceModelResult) string {
 		t.Helper()
-		_, ack, err := svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), command, installationID, parentKey, controlKey)
+		_, ack, err := (forceModelCommands{svc}).apply(ctx, router.StrategyFromContext(ctx), command, installationID, parentKey, controlKey)
 		require.NoError(t, err)
 		return ack.render(parent.SourceFormat())
 	}
@@ -105,7 +105,7 @@ func TestForceParentDoesNotOverrideChildCompaction(t *testing.T) {
 	}
 	baseline := route()
 	controlKey := deriveForceModelSessionKeyForRequest(ctx, parent, apiKeyID, parentKey)
-	_, _, err = svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: catalog.ModelIDClaudeOpus48.String(), ParentOnly: true}, installationID, parentKey, controlKey)
+	_, _, err = (forceModelCommands{svc}).apply(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: catalog.ModelIDClaudeOpus48.String(), ParentOnly: true}, installationID, parentKey, controlKey)
 	require.NoError(t, err)
 	child := route()
 	assert.Equal(t, baseline.Decision.Model, child.Decision.Model, "a parent force must not change the child's compaction model")

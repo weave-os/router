@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/gin-gonic/gin"
 )
@@ -51,7 +52,7 @@ func MetricsSummaryHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		}
 
 		var (
-			summary proxy.TelemetrySummary
+			summary turnrecord.TelemetrySummary
 			err     error
 		)
 		if allInstallations {
@@ -88,7 +89,7 @@ func MetricsTimeseriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		}
 
 		var (
-			buckets []proxy.TelemetryBucket
+			buckets []turnrecord.TelemetryBucket
 			err     error
 		)
 		if allInstallations {
@@ -139,7 +140,7 @@ func MetricsModelBreakdownHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		}
 
 		var (
-			buckets []proxy.TelemetryModelBucket
+			buckets []turnrecord.TelemetryModelBucket
 			err     error
 		)
 		if allInstallations {
@@ -214,7 +215,7 @@ func MetricsDetailsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		}
 
 		var (
-			rows []proxy.TelemetryRow
+			rows []turnrecord.TelemetryRow
 			err  error
 		)
 		if allInstallations {

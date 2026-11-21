@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
 
@@ -48,7 +49,7 @@ func TestApplyPolicyPinTelemetry(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			params := InsertTelemetryParams{}
+			params := turnrecord.InsertTelemetryParams{}
 			applyPolicyPinTelemetry(tc.ctx, &params, tc.metadata)
 			assert.Equal(t, tc.wantRequested, params.PolicyPinRequested)
 			assert.Equal(t, tc.wantHonoured, params.PolicyPinHonoured)
@@ -89,7 +90,7 @@ func TestClassifyDispatchError_PolicyPinUnavailableIs503WithTypedReason(t *testi
 
 func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{hmmServing: hmmPorts(), telemetry: sink}
+	svc := &Service{hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: sink}}
 	installationID := uuid.New()
 	ctx := context.WithValue(pinnedContext(true), InstallationIDContextKey{}, installationID.String())
 
@@ -113,7 +114,7 @@ func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 
 func TestRecordPolicyPinRouteFailureIsSilentWithoutAPin(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{hmmServing: hmmPorts(), telemetry: sink}
+	svc := &Service{hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: sink}}
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
 
 	svc.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: "req-plain", RequestStart: time.Now(), RequestedModel: "claude-sonnet-5", Strategy: router.StrategyFromContext(ctx)}, turntype.TurnType("interactive"), false, errors.New("routing failed"))

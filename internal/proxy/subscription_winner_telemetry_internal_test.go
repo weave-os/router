@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,7 +20,7 @@ func TestSubscriptionWinnerTelemetryPreservesOwnerAndAlternative(t *testing.T) {
 	winner.SubscriptionOwnerID = "00000000-0000-0000-0000-000000000102"
 	winner.SubscriptionTier = auth.SubscriptionTierShared
 	winner.IntendedModel = "claude-sonnet-4-6"
-	telemetryRow := InsertTelemetryParams{RequestedModel: "auto", DecisionModel: "gpt-5.4"}
+	telemetryRow := turnrecord.InsertTelemetryParams{RequestedModel: "auto", DecisionModel: "gpt-5.4"}
 	applySubscriberTelemetry(ctx, &telemetryRow)
 	assert.Equal(t, "claude-sonnet", telemetryRow.IntendedModelFamily)
 	assert.Equal(t, "gpt", telemetryRow.FinalModelFamily)
@@ -62,7 +63,7 @@ func TestFailedAPIFallbackReplacesInboundSubscriptionAttribution(t *testing.T) {
 	require.Equal(t, []byte("api-sentinel"), winner.APIKey)
 	require.False(t, winner.OAuth)
 	assert.False(t, (&Service{hmmServing: hmmPorts()}).costNeutralSubscriptionServed(ctx))
-	telemetry := InsertTelemetryParams{RequestedModel: "claude-sonnet-5", DecisionModel: "claude-sonnet-5"}
+	telemetry := turnrecord.InsertTelemetryParams{RequestedModel: "claude-sonnet-5", DecisionModel: "claude-sonnet-5"}
 	applySubscriberTelemetry(ctx, &telemetry)
 	assert.Empty(t, telemetry.SubscriptionAccountID)
 	assert.Empty(t, telemetry.SubscriptionOwnerID)
@@ -78,7 +79,7 @@ func TestSubscriptionWinnerTelemetryDoesNotAttributeUnservedOrPaidCapacity(t *te
 		winner.SubscriptionAccountID = "00000000-0000-0000-0000-000000000101"
 		winner.SubscriptionOwnerID = "00000000-0000-0000-0000-000000000102"
 		winner.SubscriptionTier = auth.SubscriptionTierShared
-		telemetry := InsertTelemetryParams{RequestedModel: "unknown", DecisionModel: "unknown"}
+		telemetry := turnrecord.InsertTelemetryParams{RequestedModel: "unknown", DecisionModel: "unknown"}
 		applySubscriberTelemetry(ctx, &telemetry)
 		assert.Empty(t, telemetry.SubscriptionAccountID)
 		assert.Empty(t, telemetry.SubscriptionOwnerID)
