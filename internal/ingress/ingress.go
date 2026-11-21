@@ -24,10 +24,11 @@ type Formats struct {
 		Adapter
 		StreamErrorWriter
 	}
-	Anthropic Anthropic
-	Keepalive time.Duration
+	Anthropic  Anthropic
+	OpenAIChat OpenAIChat
+	Keepalive  time.Duration
 }
 
 func New(keepalive time.Duration) Formats {
-	return Formats{Gemini: Gemini{}, Anthropic: Anthropic{}, Keepalive: keepalive}
+	return Formats{Gemini: Gemini{}, Anthropic: Anthropic{}, OpenAIChat: OpenAIChat{}, Keepalive: keepalive}
 }

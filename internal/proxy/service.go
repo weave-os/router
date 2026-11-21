@@ -4108,13 +4108,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if echoed, _ := ctx.Value(responsesFooterEchoedContextKey{}).(bool); echoed {
 		footerEchoed = true
 	}
-	strippedBody, stripErr = translate.StripFeedbackFooterFromMessages(body)
-	if stripErr != nil {
-		log.Error("Failed to strip feedback footer from OpenAI messages", "err", stripErr)
-	} else {
-		body = strippedBody
-	}
-	env, parseErr := translate.ParseOpenAI(body)
+	env, body, parseErr := s.ingress.OpenAIChat.Parse(ctx, body)
 	if parseErr != nil {
 		log.Error("Failed to parse OpenAI request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
