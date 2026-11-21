@@ -152,7 +152,7 @@ type Service struct {
 	billing                      *billing.Service
 	retrySleep                   func(context.Context, time.Duration) error
 	clock                        auth.Clock
-	feedbackRepo                 FeedbackRepository
+	feedbackRepo                 feedback.FeedbackRepository
 	feedbackSigner               *feedback.Signer
 	piHandoffSecret              []byte
 	feedbackBaseURL              string
