@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"strings"
 
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
@@ -45,7 +43,7 @@ func LoggerWithTraceContext(ctx context.Context, log *slog.Logger) *slog.Logger 
 	}
 
 	traceID := spanCtx.TraceID().String()
-	if projectID := strings.TrimSpace(os.Getenv("GCP_PROJECT_ID")); projectID != "" {
+	if projectID := currentConfig().GCPProjectID; projectID != "" {
 		traceID = fmt.Sprintf("projects/%s/traces/%s", projectID, traceID)
 	}
 	log = log.With(gcpTraceField, traceID)
