@@ -115,13 +115,10 @@ type Service struct {
 	credentials                  credentials.Brokerage
 	continuityConfig             continuity.Config
 	hmmServing
-	policyDeadlineFallback      bool
-	policyDeadlineDefaultModel  string
-	cyberRefusalRepin           bool
-	cyberRefusalRetry           bool
-	anthropicServerSideFallback bool
+	policyDeadlineFallback     bool
+	policyDeadlineDefaultModel string
 
-	siblingFailover                bool
+	rescueConfig                   dispatch.RescueConfig
 	codexExtraCredits              bool
 	openAIResponsesBroad           bool
 	nativeAnthropicResponseSignals bool
@@ -134,12 +131,10 @@ type Service struct {
 	providerOverloaded             bool
 	overloadBreaker                *breaker.Registry
 	ingress                        ingress.Formats
-	cyberRefusalFallbackModel      string
 	effortEscalation               bool
 	ccOrchToolsCrossVendor         bool
 	ccTaskToolsCrossVendor         bool
 	ccAutonomySystemAppend         bool
-	earlyStopRedo                  flags.EarlyStopRedoMode
 	ccWorkspaceSystemAppend        bool
 	bandSwap                       *bandswap.Classifier
 
@@ -999,33 +994,35 @@ func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 
 func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
 	s := &Service{
-		clients:                        dispatch.NewClients(providerMap),
-		translationCompatibilityMode:   TranslationCompatibilityShadow,
-		emitter:                        emitter,
-		ingress:                        ingress.New(0),
-		pinStore:                       pinStore,
-		noProgress:                     conversation.NewNoProgressTracker(),
-		searchUse:                      newSearchUseTracker(),
-		searchRequirementDecayTurns:    DefaultSearchRequirementDecayTurns,
-		compaction:                     conversation.NewCompactionTracker(),
-		prefixTrimFreeSwitch:           true,
-		turnSignalCaptureEnabled:       true,
-		textRepetitionBreakEnabled:     true,
-		ccOrchToolsCrossVendor:         true,
-		hardPinExplore:                 hardPinExplore,
-		hardPinProvider:                hardPinProvider,
-		hardPinModel:                   hardPinModel,
-		telemetry:                      telemetry,
-		continuityConfig:               continuity.DefaultConfig(),
-		hmmServing:                     hmmServing{hmmConfig: continuity.DefaultAuthoritativeConfig()},
-		cyberRefusalRepin:              true,
-		cyberRefusalRetry:              true,
-		anthropicServerSideFallback:    true,
-		siblingFailover:                true,
+		clients:                      dispatch.NewClients(providerMap),
+		translationCompatibilityMode: TranslationCompatibilityShadow,
+		emitter:                      emitter,
+		ingress:                      ingress.New(0),
+		pinStore:                     pinStore,
+		noProgress:                   conversation.NewNoProgressTracker(),
+		searchUse:                    newSearchUseTracker(),
+		searchRequirementDecayTurns:  DefaultSearchRequirementDecayTurns,
+		compaction:                   conversation.NewCompactionTracker(),
+		prefixTrimFreeSwitch:         true,
+		turnSignalCaptureEnabled:     true,
+		textRepetitionBreakEnabled:   true,
+		ccOrchToolsCrossVendor:       true,
+		hardPinExplore:               hardPinExplore,
+		hardPinProvider:              hardPinProvider,
+		hardPinModel:                 hardPinModel,
+		telemetry:                    telemetry,
+		continuityConfig:             continuity.DefaultConfig(),
+		hmmServing:                   hmmServing{hmmConfig: continuity.DefaultAuthoritativeConfig()},
+		rescueConfig: dispatch.RescueConfig{
+			SiblingFailover:             true,
+			CyberRefusalRepin:           true,
+			CyberRefusalRetry:           true,
+			CyberRefusalFallbackModel:   "claude-sonnet-5",
+			AnthropicServerSideFallback: true,
+		},
 		openAIResponsesBroad:           true,
 		nativeAnthropicResponseSignals: true,
 		nativeOpenAIResponseSignals:    true,
-		cyberRefusalFallbackModel:      "claude-sonnet-5",
 	}
 	s.routing = routingpolicy.New(nil)
 	s.escalationHelper()
@@ -1057,22 +1054,22 @@ func (s *Service) WithContinuityConfig(cfg continuity.Config) *Service {
 }
 
 func (s *Service) WithCyberRefusalRepin(enabled bool) *Service {
-	s.cyberRefusalRepin = enabled
+	s.rescueConfig.CyberRefusalRepin = enabled
 	return s
 }
 
 func (s *Service) WithCyberRefusalRetry(enabled bool) *Service {
-	s.cyberRefusalRetry = enabled
+	s.rescueConfig.CyberRefusalRetry = enabled
 	return s
 }
 
 func (s *Service) WithAnthropicServerSideFallback(enabled bool) *Service {
-	s.anthropicServerSideFallback = enabled
+	s.rescueConfig.AnthropicServerSideFallback = enabled
 	return s
 }
 
 func (s *Service) WithSiblingFailover(enabled bool) *Service {
-	s.siblingFailover = enabled
+	s.rescueConfig.SiblingFailover = enabled
 	return s
 }
 
@@ -1209,7 +1206,7 @@ func (s *Service) WithRetrySleep(sleep func(context.Context, time.Duration) erro
 
 func (s *Service) WithCyberRefusalFallbackModel(model string) *Service {
 	if strings.TrimSpace(model) != "" {
-		s.cyberRefusalFallbackModel = strings.TrimSpace(model)
+		s.rescueConfig.CyberRefusalFallbackModel = strings.TrimSpace(model)
 	}
 	return s
 }
@@ -1260,7 +1257,7 @@ func (s *Service) WithCCAutonomySystemAppend(enabled bool) *Service {
 }
 
 func (s *Service) WithEarlyStopRedo(mode flags.EarlyStopRedoMode) *Service {
-	s.earlyStopRedo = mode
+	s.rescueConfig.EarlyStopRedo = mode
 	return s
 }
 
