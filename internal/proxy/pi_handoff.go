@@ -170,7 +170,7 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.
 	}
 	if previousModel != "" && previousProvider != "" && previousModel != route.Decision.Model {
 		claims.Purpose = handoffSummary
-		claims.Route.Decision = pinDecision(sessionpin.Pin{Model: previousModel, Provider: previousProvider, Effort: previousEffort, Reason: "pi_handoff_summary"})
+		claims.Route.Decision = sessionpin.Pin{Model: previousModel, Provider: previousProvider, Effort: previousEffort, Reason: "pi_handoff_summary"}.Decision()
 		claims.Route.Fresh = router.Decision{}
 		claims.Route.HardPinned = true
 		claims.Route.AuthoritativePerTurn = false

@@ -943,13 +943,13 @@ func (s *Service) runTurnLoop(
 		providerEligible := req.EnabledProviders == nil || providerEnabled
 		imageCapable := candidates.PinServesImages(pin, req)
 		if !excluded && providerEligible && imageCapable {
-			decision := pinDecision(pin)
+			decision := pin.Decision()
 			decision.Reason = pin.Reason
 			res.PinTier = pin.Reason
 			res.Decision = decision
 			res.UserForced = decision.UserForcedModel()
 			res.StickyHit = true
-			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
+			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pin.Decision())
 			return res, nil
 		}
 		dropReason := "excluded"
@@ -1129,7 +1129,7 @@ func (s *Service) runTurnLoop(
 		commandContinuationFound = false
 	}
 	if commandContinuationFound && candidates.AutomaticPinEligible(commandContinuation, req) {
-		decision := pinDecision(commandContinuation)
+		decision := commandContinuation.Decision()
 		res.Decision = decision
 		res.StickyHit = true
 		res.PinTier = "post_command_continuation"
@@ -1180,21 +1180,21 @@ func (s *Service) runTurnLoop(
 			s.strategyPorts.Ownership.Owns(strategy) &&
 			!hasTextUserBoundary(req.ConversationMessages) {
 			if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
-				decision := pinDecision(pin)
+				decision := pin.Decision()
 				decision.Reason = unscorableHMMStickyReason
 				res.Decision = decision
 				res.StickyHit = true
 				res.PinTier = unscorableHMMStickyReason
 				log.Info("HMM turn has no user text; preserving eligible session pin",
 					"pin_model", pin.Model, "pin_provider", pin.Provider)
-				sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
+				sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pin.Decision())
 				return res, nil
 			}
 		}
 		turn := continuity.Turn{IsToolResult: res.TurnType == turntype.ToolResult, Escalated: req.Escalation != nil, AuthoritativePerTurn: res.AuthoritativePerTurn}
 		continuityCfg := continuity.Config{PlannerEnabled: s.ResolvePlannerEnabled(ctx), ScoreToolResultTurns: s.ResolveScoreToolResultTurns(ctx), HoldToolResult: holdToolResult, Planner: s.continuityConfig.Planner}
 		if continuity.ToolResultSticky(req.Session, turn, continuityCfg) {
-			decision := pinDecision(pin)
+			decision := pin.Decision()
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = "postgres_tool_result_sc"
@@ -1203,7 +1203,7 @@ func (s *Service) runTurnLoop(
 		}
 
 		if continuity.CanReusePin(req.Session, turn, continuityCfg) {
-			decision := pinDecision(pin)
+			decision := pin.Decision()
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = "postgres"
@@ -1237,7 +1237,7 @@ func (s *Service) runTurnLoop(
 			if err != nil {
 				if s.policyDeadlineFallback && isPolicyDeadlineErr(err) {
 					if pinFound && pin.Model != "" {
-						decision := pinDecision(pin)
+						decision := pin.Decision()
 						decision.Reason = policyDeadlineFallbackReason
 						res.Decision = decision
 						res.StickyHit = true
@@ -1298,7 +1298,7 @@ func (s *Service) runTurnLoop(
 			s.logAuthorityCacheShadow(ctx, res)
 			if res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.DemotedModel() {
 				if pinFound && candidates.AutomaticPinEligible(pin, req) {
-					decision := pinDecision(pin)
+					decision := pin.Decision()
 					res.Decision = decision
 					res.StickyHit = true
 					res.PinTier = string(pinTierAuthoritativeExcludedPin)
@@ -1423,7 +1423,7 @@ func (s *Service) runTurnLoop(
 									"pin_provider", pin.Provider,
 								)
 							} else {
-								priorDecision := pinDecision(pin)
+								priorDecision := pin.Decision()
 								res.Decision = priorDecision
 								res.StickyHit = true
 								res.PinTier = "postgres_reanchor"
@@ -1462,7 +1462,7 @@ func (s *Service) runTurnLoop(
 		res.PlannerDecision = decision
 
 		if decision.Outcome == planner.OutcomeStay && pinFound {
-			anchor := pinDecision(pin)
+			anchor := pin.Decision()
 			served := s.bandSwapServed(ctx, res.TurnType, pin, fresh, req.HasImages, req.ImageCount, req.EnabledProviders, req.Candidates.ExcludedModels)
 			res.Decision = served
 			res.StickyHit = true
@@ -1600,7 +1600,7 @@ func (s *Service) authorityCacheShadowFor(
 	stayPin, stayPinOK := hmmStayPin(s, req, activePin, hmmHistory)
 	if stayPinOK && stayPin.Model == stayModel {
 		stayProvider = stayPin.Provider
-		stayIdentity = pinDecision(stayPin).ServedIdentity()
+		stayIdentity = stayPin.Decision().ServedIdentity()
 	}
 	freshRosterArmID := ""
 	if fresh.Metadata != nil {
