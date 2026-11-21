@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -41,7 +42,7 @@ func TestClassifyDispatchError_ImageLimitExceeded(t *testing.T) {
 	err := fmt.Errorf("route: %w", policy.ErrImageLimitExceeded)
 	classification, ok := proxy.ClassifyDispatchError(err)
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorImageLimitExceeded, classification.Kind)
+	assert.Equal(t, ingress.DispatchErrorImageLimitExceeded, classification.Kind)
 	assert.Equal(t, http.StatusBadRequest, classification.Status)
 	assert.True(t, classification.Kind.IsClientError())
 	assert.Equal(t, "Request image count exceeds every eligible model's limit", classification.LogMessage)
@@ -51,13 +52,13 @@ func TestClassifyDispatchError_SubscriptionPoolFailures(t *testing.T) {
 	tests := []struct {
 		name       string
 		err        error
-		kind       proxy.DispatchErrorKind
+		kind       ingress.DispatchErrorKind
 		statusCode int
 		logLevel   string
 	}{
-		{name: "exhausted", err: proxy.ErrSubscriptionPoolExhausted, kind: proxy.DispatchErrorSubscriptionPoolExhausted, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
-		{name: "unavailable", err: proxy.ErrSubscriptionPoolUnavailable, kind: proxy.DispatchErrorSubscriptionPoolUnavailable, statusCode: http.StatusServiceUnavailable, logLevel: "error"},
-		{name: "throttled", err: proxy.ErrSubscriptionPoolThrottled, kind: proxy.DispatchErrorSubscriptionPoolThrottled, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
+		{name: "exhausted", err: proxy.ErrSubscriptionPoolExhausted, kind: ingress.DispatchErrorSubscriptionPoolExhausted, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
+		{name: "unavailable", err: proxy.ErrSubscriptionPoolUnavailable, kind: ingress.DispatchErrorSubscriptionPoolUnavailable, statusCode: http.StatusServiceUnavailable, logLevel: "error"},
+		{name: "throttled", err: proxy.ErrSubscriptionPoolThrottled, kind: ingress.DispatchErrorSubscriptionPoolThrottled, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -78,7 +79,7 @@ func TestClassifyDispatchError_ProviderNotConfigured(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok, "ErrProviderNotConfigured must be classified")
-	assert.Equal(t, proxy.DispatchErrorProviderNotConfigured, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorProviderNotConfigured, cls.Kind)
 	assert.Equal(t, http.StatusBadGateway, cls.Status)
 	assert.Equal(t, "Provider not configured.", cls.Message)
 	assert.False(t, cls.RetryAfter)
@@ -88,12 +89,12 @@ func TestClassifyDispatchError_ProviderNotConfigured(t *testing.T) {
 func TestClassifyDispatchError_ExecutorSentinels(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(fmt.Errorf("%w: %s", dispatch.ErrProviderNotConfigured, "some-provider"))
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorProviderNotConfigured, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorProviderNotConfigured, cls.Kind)
 	assert.Equal(t, http.StatusBadGateway, cls.Status)
 
 	cls, ok = proxy.ClassifyDispatchError(fmt.Errorf("attempt: %w", dispatch.ErrTargetMismatch))
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorPlanTargetMismatch, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorPlanTargetMismatch, cls.Kind)
 	assert.Equal(t, http.StatusBadGateway, cls.Status)
 	assert.Equal(t, "error", cls.LogLevel)
 	assert.False(t, cls.Kind.IsClientError())
@@ -103,14 +104,14 @@ func TestClassifyDispatchError_PlanResolution(t *testing.T) {
 	requestOverride := &policy.ResolutionError{Code: policy.ResolutionErrorInvalidOverride, Purpose: policy.PurposeAnthropicMessages, Source: policy.OverrideSourceRequest}
 	cls, ok := proxy.ClassifyDispatchError(fmt.Errorf("resolve: %w", requestOverride))
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorPlanOverrideRejected, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorPlanOverrideRejected, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.True(t, cls.Kind.IsClientError())
 
 	deploymentOverride := &policy.ResolutionError{Code: policy.ResolutionErrorInvalidOverride, Purpose: policy.PurposeAnthropicMessages, Source: policy.OverrideSourceDeployment}
 	cls, ok = proxy.ClassifyDispatchError(deploymentOverride)
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorPlanUnresolvable, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorPlanUnresolvable, cls.Kind)
 	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 	assert.True(t, cls.RetryAfter)
 	assert.False(t, cls.Kind.IsClientError())
@@ -118,7 +119,7 @@ func TestClassifyDispatchError_PlanResolution(t *testing.T) {
 	noBinding := &policy.ResolutionError{Code: policy.ResolutionErrorNoEligibleBinding, Purpose: policy.PurposeAnthropicMessages}
 	cls, ok = proxy.ClassifyDispatchError(noBinding)
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorPlanUnresolvable, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorPlanUnresolvable, cls.Kind)
 	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 }
 
@@ -128,7 +129,7 @@ func TestClassifyDispatchError_UpstreamStatusErrorPreservesStatus(t *testing.T) 
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorUpstreamStatus, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorUpstreamStatus, cls.Kind)
 	assert.Equal(t, http.StatusTooManyRequests, cls.Status)
 }
 
@@ -138,7 +139,7 @@ func TestClassifyDispatchError_UpstreamErrorResponsePreservesStatus(t *testing.T
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorUpstreamStatus, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorUpstreamStatus, cls.Kind)
 	assert.Equal(t, http.StatusTooManyRequests, cls.Status)
 }
 
@@ -157,14 +158,14 @@ func TestClassifyDispatchError_RoutingSentinelsKeepStatusAndKind(t *testing.T) {
 	cases := []struct {
 		name       string
 		err        error
-		kind       proxy.DispatchErrorKind
+		kind       ingress.DispatchErrorKind
 		status     int
 		retryAfter bool
 	}{
-		{"no eligible provider", router.ErrNoEligibleProvider, proxy.DispatchErrorNoEligibleProvider, http.StatusBadRequest, false},
-		{"allowlist empties pool", router.ErrAllowlistEmptiesPool, proxy.DispatchErrorAllowlistEmptiesPool, http.StatusBadRequest, false},
-		{"invalid routing knobs", router.ErrInvalidRoutingKnobs, proxy.DispatchErrorInvalidRoutingKnobs, http.StatusBadRequest, false},
-		{"routing unavailable", router.ErrRoutingUnavailable, proxy.DispatchErrorClusterUnavailable, http.StatusServiceUnavailable, true},
+		{"no eligible provider", router.ErrNoEligibleProvider, ingress.DispatchErrorNoEligibleProvider, http.StatusBadRequest, false},
+		{"allowlist empties pool", router.ErrAllowlistEmptiesPool, ingress.DispatchErrorAllowlistEmptiesPool, http.StatusBadRequest, false},
+		{"invalid routing knobs", router.ErrInvalidRoutingKnobs, ingress.DispatchErrorInvalidRoutingKnobs, http.StatusBadRequest, false},
+		{"routing unavailable", router.ErrRoutingUnavailable, ingress.DispatchErrorClusterUnavailable, http.StatusServiceUnavailable, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -197,8 +198,8 @@ func TestClassifyDispatchError_AllowlistEmptiesPoolPrecedesNoEligibleProvider(t 
 	cls, ok := proxy.ClassifyDispatchError(router.ErrAllowlistEmptiesPool)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorAllowlistEmptiesPool, cls.Kind)
-	assert.NotEqual(t, proxy.DispatchErrorNoEligibleProvider, cls.Kind, "must not fall through to the generic no-eligible-provider case")
+	assert.Equal(t, ingress.DispatchErrorAllowlistEmptiesPool, cls.Kind)
+	assert.NotEqual(t, ingress.DispatchErrorNoEligibleProvider, cls.Kind, "must not fall through to the generic no-eligible-provider case")
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.True(t, cls.Kind.IsClientError())
 	assert.Equal(t, "warn", cls.LogLevel)
@@ -219,7 +220,7 @@ func TestClassifyDispatchError_SpendCapIs402WithoutTopUpCTA(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(proxy.ErrSpendCapSubscriptionUnavailable)
 
 	require.True(t, ok, "the spend-cap sentinel must be classified")
-	assert.Equal(t, proxy.DispatchErrorSpendCapReached, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorSpendCapReached, cls.Kind)
 	assert.Equal(t, http.StatusPaymentRequired, cls.Status)
 	assert.Contains(t, cls.Message, "spend cap")
 	assert.NotContains(t, cls.Message, "credits", "a reached cap must not claim the balance is depleted")
@@ -229,7 +230,7 @@ func TestClassifyDispatchError_CreditsExhaustedIs402(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(proxy.ErrCreditsExhaustedSubscriptionUnavailable)
 
 	require.True(t, ok, "the credits-exhausted sentinel must be classified")
-	assert.Equal(t, proxy.DispatchErrorCreditsExhausted, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorCreditsExhausted, cls.Kind)
 	assert.Equal(t, http.StatusPaymentRequired, cls.Status)
 	assert.Contains(t, cls.Message, "credits are exhausted", "the client message must explain the depleted balance")
 	assert.Contains(t, cls.Message, "weave-router", "the client message must surface the top-up CTA")
@@ -249,7 +250,7 @@ func TestClassifyDispatchError_TranslationIntrinsicIncompatibilityIs400(t *testi
 	cls, ok := proxy.ClassifyDispatchError(proxy.ErrTranslationIntrinsicallyIncompatible)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorTranslationIntrinsicallyIncompatible, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorTranslationIntrinsicallyIncompatible, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.True(t, cls.Kind.IsClientError())
 	assert.False(t, cls.RetryAfter)
@@ -259,7 +260,7 @@ func TestClassifyDispatchError_TranslationCompatibleProviderUnavailableIs503(t *
 	cls, ok := proxy.ClassifyDispatchError(proxy.ErrTranslationCompatibleProviderUnavailable)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorTranslationProviderUnavailable, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorTranslationProviderUnavailable, cls.Kind)
 	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 	assert.False(t, cls.Kind.IsClientError())
 	assert.True(t, cls.RetryAfter)
@@ -271,7 +272,7 @@ func TestClassifyDispatchError_UserSpendLimitReachedIs402(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorUserSpendLimitReached, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorUserSpendLimitReached, cls.Kind)
 	assert.Equal(t, http.StatusPaymentRequired, cls.Status)
 	assert.False(t, cls.RetryAfter)
 	assert.Equal(t, "warn", cls.LogLevel)
@@ -284,7 +285,7 @@ func TestClassifyDispatchError_SpendLimitUnavailableFailsClosed503(t *testing.T)
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorSpendLimitUnavailable, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorSpendLimitUnavailable, cls.Kind)
 	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 	assert.True(t, cls.RetryAfter)
 	assert.Equal(t, "error", cls.LogLevel)
@@ -297,7 +298,7 @@ func TestClassifyDispatchError_AnthropicCacheControlOverflowIs400(t *testing.T) 
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok, "ErrAnthropicCacheControlOverflow must be classified, not fall through to a generic 502")
-	assert.Equal(t, proxy.DispatchErrorAnthropicCacheControlInvalid, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorAnthropicCacheControlInvalid, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.True(t, cls.Kind.IsClientError(), "the client's own explicit breakpoints exceeded capacity, not an upstream/routing problem")
 	assert.Equal(t, "warn", cls.LogLevel)
@@ -313,7 +314,7 @@ func TestClassifyDispatchError_AnthropicCacheControlInvalidTTLOrderingIs400(t *t
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorAnthropicCacheControlInvalid, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorAnthropicCacheControlInvalid, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.True(t, cls.Kind.IsClientError())
 	assert.NotContains(t, cls.Message, "emit body:", "the internal wrap-chain prefix must not leak into the client-facing message")
@@ -324,7 +325,7 @@ func TestClassifyDispatchError_ForcedModelUnknownIs400(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(&proxy.ForcedModelUnknownError{Model: "gpt-"})
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorForcedModelUnknown, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorForcedModelUnknown, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.True(t, cls.Kind.IsClientError(), "an unresolvable force is a client-input problem")
 	assert.Contains(t, cls.Message, "gpt-", "the caller must see the value that failed to resolve")
@@ -337,7 +338,7 @@ func TestClassifyDispatchError_PassthroughModelUnknownIs400(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorPassthroughModelUnknown, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorPassthroughModelUnknown, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.True(t, cls.Kind.IsClientError())
 	assert.Contains(t, cls.Message, `"auto"`, "the caller must see the value that failed to resolve")
@@ -349,7 +350,7 @@ func TestClassifyDispatchError_PassthroughModelUnknownFromRoutingPolicyPointsAtA
 	cls, ok := proxy.ClassifyDispatchError(&proxy.PassthroughModelUnknownError{Model: "auto", RoutingPolicyPassthrough: true})
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorPassthroughModelUnknown, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorPassthroughModelUnknown, cls.Kind)
 	assert.Contains(t, cls.Message, "ask your org admin to enable automatic routing")
 }
 
@@ -360,7 +361,7 @@ func TestClassifyDispatchError_ForcedClusterUnsupportedStrategyIs400(t *testing.
 	})
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorForcedClusterUnsupportedStrategy, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorForcedClusterUnsupportedStrategy, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.True(t, cls.Kind.IsClientError())
 	assert.Contains(t, cls.Message, "maximum")
@@ -378,7 +379,7 @@ func TestClassifyDispatchError_ForcedClusterUnservableIs400(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorForcedClusterUnservable, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorForcedClusterUnservable, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.True(t, cls.Kind.IsClientError(), "a bad cluster label is a client error, not a sidecar outage")
 	assert.Contains(t, cls.Message, "explore")
@@ -392,7 +393,7 @@ func TestClassifyDispatchError_RoutedModelIncompatibleIs502(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorRoutedModelIncompatible, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorRoutedModelIncompatible, cls.Kind)
 	assert.Equal(t, http.StatusBadGateway, cls.Status)
 	assert.False(t, cls.Kind.IsClientError(), "the routed model was incompatible, not the client's request")
 	assert.Equal(t, "warn", cls.LogLevel)
@@ -404,7 +405,7 @@ func TestClassifyDispatchError_ReasoningIncompatibleClassifiesAsRoutedModelIncom
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorRoutedModelIncompatible, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorRoutedModelIncompatible, cls.Kind)
 	assert.Equal(t, http.StatusBadGateway, cls.Status)
 }
 
@@ -417,7 +418,7 @@ func TestClassifyDispatchError_GatewayServesNoModel(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorGatewayServesNoModel, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorGatewayServesNoModel, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.Contains(t, cls.Message, "model aliases")
 	assert.False(t, cls.RetryAfter, "retrying cannot fix a configuration that routes nowhere")
@@ -431,7 +432,7 @@ func TestClassifyDispatchError_NoRoutableModels(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorNoRoutableModels, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorNoRoutableModels, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.False(t, cls.RetryAfter)
 }
@@ -457,7 +458,7 @@ func TestClassifyDispatchError_InvalidClassifierOutputStaysAnOutage(t *testing.T
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorHMMUnavailable, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorHMMUnavailable, cls.Kind)
 	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 	assert.True(t, cls.RetryAfter)
 }
@@ -469,7 +470,7 @@ func TestClassifyDispatchError_NoProviderCredentials(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorNoEligibleProvider, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorNoEligibleProvider, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.Contains(t, cls.Message, "add a provider key")
 	assert.Contains(t, cls.Message, "re-enable an excluded provider")
@@ -480,7 +481,7 @@ func TestClassifyDispatchError_HMMUnavailableStaysAnOutage(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(fmt.Errorf("hmm: sidecar decide: %w", hmm.ErrHMMUnavailable))
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorHMMUnavailable, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorHMMUnavailable, cls.Kind)
 	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 }
 
@@ -489,7 +490,7 @@ func TestClassifyDispatchError_SidecarOversizedBodyIsContextOverflowNotHMMUnavai
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.Equal(t, "context_length_exceeded", proxy.OpenAIErrorCode(cls.Kind))
 	assert.False(t, cls.RetryAfter)
@@ -502,7 +503,7 @@ func TestClassifyDispatchError_ResponsesChatCompletionsBodyIs400ClientError(t *t
 	cls, ok := proxy.ClassifyDispatchError(err)
 
 	require.True(t, ok, "a Chat Completions body on the Responses surface must be classified")
-	assert.Equal(t, proxy.DispatchErrorResponsesChatCompletionsBody, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorResponsesChatCompletionsBody, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.Contains(t, cls.Message, "moved to 'input'")
 	assert.True(t, cls.Kind.IsClientError(), "the caller sent the wrong wire format; not an upstream failure")

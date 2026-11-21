@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/eligibility"
@@ -20,25 +21,25 @@ import (
 func TestRefusalContract_Dispatch(t *testing.T) {
 	for _, scenario := range []struct {
 		err           error
-		kind          proxy.DispatchErrorKind
+		kind          ingress.DispatchErrorKind
 		status        int
 		retryAfter    bool
 		noClientRetry bool
 		clientError   bool
 	}{
-		{err: eligibility.ErrModelIneligible, kind: proxy.DispatchErrorProductIneligible, status: http.StatusForbidden, clientError: true},
-		{err: proxy.ErrSubscriptionClientAppRefused, kind: proxy.DispatchErrorSubscriptionClientAppRefused, status: http.StatusForbidden, clientError: true},
-		{err: proxy.ErrSpendCapSubscriptionUnavailable, kind: proxy.DispatchErrorSpendCapReached, status: http.StatusPaymentRequired, noClientRetry: true},
-		{err: proxy.ErrCreditsExhaustedSubscriptionUnavailable, kind: proxy.DispatchErrorCreditsExhausted, status: http.StatusPaymentRequired, noClientRetry: true},
-		{err: proxy.ErrSubscriptionUnavailableForTurn, kind: proxy.DispatchErrorSubscriptionUnavailableForTurn, status: http.StatusPaymentRequired, noClientRetry: true},
-		{err: proxy.ErrWeaveCreditsDisabled, kind: proxy.DispatchErrorWeaveCreditsDisabled, status: http.StatusPaymentRequired, noClientRetry: true},
-		{err: proxy.ErrClaudeEnterpriseSubscriptionUnavailable, kind: proxy.DispatchErrorClaudeEnterpriseOnly, status: http.StatusPaymentRequired, noClientRetry: true},
-		{err: proxy.ErrSubscriptionPoolExhausted, kind: proxy.DispatchErrorSubscriptionPoolExhausted, status: http.StatusTooManyRequests, retryAfter: true},
-		{err: proxy.ErrSubscriptionPoolThrottled, kind: proxy.DispatchErrorSubscriptionPoolThrottled, status: http.StatusTooManyRequests, retryAfter: true},
-		{err: proxy.ErrSubscriptionPoolUnavailable, kind: proxy.DispatchErrorSubscriptionPoolUnavailable, status: http.StatusServiceUnavailable, retryAfter: true},
-		{err: billing.ErrUserMonthlySpendLimitReached, kind: proxy.DispatchErrorUserSpendLimitReached, status: http.StatusPaymentRequired, noClientRetry: true},
-		{err: billing.ErrSpendLimitCheckUnavailable, kind: proxy.DispatchErrorSpendLimitUnavailable, status: http.StatusServiceUnavailable, retryAfter: true},
-		{err: router.ErrPolicyPinUnavailable, kind: proxy.DispatchErrorPolicyPinUnavailable, status: http.StatusServiceUnavailable, retryAfter: true},
+		{err: eligibility.ErrModelIneligible, kind: ingress.DispatchErrorProductIneligible, status: http.StatusForbidden, clientError: true},
+		{err: proxy.ErrSubscriptionClientAppRefused, kind: ingress.DispatchErrorSubscriptionClientAppRefused, status: http.StatusForbidden, clientError: true},
+		{err: proxy.ErrSpendCapSubscriptionUnavailable, kind: ingress.DispatchErrorSpendCapReached, status: http.StatusPaymentRequired, noClientRetry: true},
+		{err: proxy.ErrCreditsExhaustedSubscriptionUnavailable, kind: ingress.DispatchErrorCreditsExhausted, status: http.StatusPaymentRequired, noClientRetry: true},
+		{err: proxy.ErrSubscriptionUnavailableForTurn, kind: ingress.DispatchErrorSubscriptionUnavailableForTurn, status: http.StatusPaymentRequired, noClientRetry: true},
+		{err: proxy.ErrWeaveCreditsDisabled, kind: ingress.DispatchErrorWeaveCreditsDisabled, status: http.StatusPaymentRequired, noClientRetry: true},
+		{err: proxy.ErrClaudeEnterpriseSubscriptionUnavailable, kind: ingress.DispatchErrorClaudeEnterpriseOnly, status: http.StatusPaymentRequired, noClientRetry: true},
+		{err: proxy.ErrSubscriptionPoolExhausted, kind: ingress.DispatchErrorSubscriptionPoolExhausted, status: http.StatusTooManyRequests, retryAfter: true},
+		{err: proxy.ErrSubscriptionPoolThrottled, kind: ingress.DispatchErrorSubscriptionPoolThrottled, status: http.StatusTooManyRequests, retryAfter: true},
+		{err: proxy.ErrSubscriptionPoolUnavailable, kind: ingress.DispatchErrorSubscriptionPoolUnavailable, status: http.StatusServiceUnavailable, retryAfter: true},
+		{err: billing.ErrUserMonthlySpendLimitReached, kind: ingress.DispatchErrorUserSpendLimitReached, status: http.StatusPaymentRequired, noClientRetry: true},
+		{err: billing.ErrSpendLimitCheckUnavailable, kind: ingress.DispatchErrorSpendLimitUnavailable, status: http.StatusServiceUnavailable, retryAfter: true},
+		{err: router.ErrPolicyPinUnavailable, kind: ingress.DispatchErrorPolicyPinUnavailable, status: http.StatusServiceUnavailable, retryAfter: true},
 	} {
 		t.Run(scenario.err.Error(), func(t *testing.T) {
 			class, ok := proxy.ClassifyDispatchError(fmt.Errorf("dispatch: %w", scenario.err))

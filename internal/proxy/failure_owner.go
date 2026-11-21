@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
 )
@@ -46,13 +47,13 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	if errors.Is(err, errCallerPlanThrottled) {
 		return FailureOwnerClient
 	}
-	if cls, ok := ClassifyDispatchError(err); ok && cls.Kind != DispatchErrorUpstreamStatus {
+	if cls, ok := ClassifyDispatchError(err); ok && cls.Kind != ingress.DispatchErrorUpstreamStatus {
 		switch {
-		case cls.Kind == DispatchErrorHandoff && errors.Is(err, ErrHandoffUnavailable):
+		case cls.Kind == ingress.DispatchErrorHandoff && errors.Is(err, ErrHandoffUnavailable):
 			return FailureOwnerRouter
-		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && (upstreamStatus(err) == http.StatusTooManyRequests || errors.Is(err, errLinkedSeatsThrottled)):
+		case cls.Kind == ingress.DispatchErrorSubscriptionPoolExhausted && (upstreamStatus(err) == http.StatusTooManyRequests || errors.Is(err, errLinkedSeatsThrottled)):
 			return FailureOwnerProvider
-		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && errors.Is(err, errLinkedSeatsUnusable):
+		case cls.Kind == ingress.DispatchErrorSubscriptionPoolExhausted && errors.Is(err, errLinkedSeatsUnusable):
 			return FailureOwnerClient
 		}
 		return dispatchErrorKindOwner(cls.Kind)
@@ -107,27 +108,27 @@ func streamFailureOwner(class streamFailureClass) FailureOwner {
 	}
 }
 
-func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
+func dispatchErrorKindOwner(kind ingress.DispatchErrorKind) FailureOwner {
 	switch kind {
-	case DispatchErrorSubscriptionPoolExhausted, DispatchErrorNotImplemented, DispatchErrorProviderNotConfigured, DispatchErrorAnthropicFederationUnavailable, DispatchErrorRLPolicyUnavailable,
-		DispatchErrorHMMUnavailable, DispatchErrorPolicyUnavailable,
-		DispatchErrorClusterUnavailable, DispatchErrorDecisionModelUnavailable, DispatchErrorClassifierUnavailable,
-		DispatchErrorPolicyPinUnavailable, DispatchErrorPlanTargetMismatch, DispatchErrorPlanUnresolvable,
-		DispatchErrorSpendLimitUnavailable, DispatchErrorSubscriptionPoolUnavailable,
-		DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorTranslationProviderUnavailable,
-		DispatchErrorRoutedModelIncompatible, DispatchErrorNoEligibleArm:
+	case ingress.DispatchErrorSubscriptionPoolExhausted, ingress.DispatchErrorNotImplemented, ingress.DispatchErrorProviderNotConfigured, ingress.DispatchErrorAnthropicFederationUnavailable, ingress.DispatchErrorRLPolicyUnavailable,
+		ingress.DispatchErrorHMMUnavailable, ingress.DispatchErrorPolicyUnavailable,
+		ingress.DispatchErrorClusterUnavailable, ingress.DispatchErrorDecisionModelUnavailable, ingress.DispatchErrorClassifierUnavailable,
+		ingress.DispatchErrorPolicyPinUnavailable, ingress.DispatchErrorPlanTargetMismatch, ingress.DispatchErrorPlanUnresolvable,
+		ingress.DispatchErrorSpendLimitUnavailable, ingress.DispatchErrorSubscriptionPoolUnavailable,
+		ingress.DispatchErrorTranslationIntrinsicallyIncompatible, ingress.DispatchErrorTranslationProviderUnavailable,
+		ingress.DispatchErrorRoutedModelIncompatible, ingress.DispatchErrorNoEligibleArm:
 		return FailureOwnerRouter
-	case DispatchErrorCompactionUnservable, DispatchErrorSubscriptionPoolThrottled:
+	case ingress.DispatchErrorCompactionUnservable, ingress.DispatchErrorSubscriptionPoolThrottled:
 		return FailureOwnerProvider
-	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorContextWindowExceeded, DispatchErrorImageLimitExceeded,
-		DispatchErrorInvalidRoutingKnobs, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded,
-		DispatchErrorForcedModelUnknown, DispatchErrorPassthroughModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy,
-		DispatchErrorForcedClusterUnservable, DispatchErrorPlanOverrideRejected, DispatchErrorHandoff,
-		DispatchErrorClassifierHistory, DispatchErrorClassifierInputTooLong, DispatchErrorCreditsExhausted,
-		DispatchErrorUserSpendLimitReached, DispatchErrorSpendCapReached, DispatchErrorNoEligibleProvider,
-		DispatchErrorAllowlistEmptiesPool, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels,
-		DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused, DispatchErrorClaudeEnterpriseOnly,
-		DispatchErrorWeaveCreditsDisabled, DispatchErrorSubscriptionUnavailableForTurn:
+	case ingress.DispatchErrorRequestNotJSONObject, ingress.DispatchErrorResponsesChatCompletionsBody, ingress.DispatchErrorContextWindowExceeded, ingress.DispatchErrorImageLimitExceeded,
+		ingress.DispatchErrorInvalidRoutingKnobs, ingress.DispatchErrorAnthropicCacheControlInvalid, ingress.DispatchErrorForcedModelExcluded,
+		ingress.DispatchErrorForcedModelUnknown, ingress.DispatchErrorPassthroughModelUnknown, ingress.DispatchErrorForcedClusterUnsupportedStrategy,
+		ingress.DispatchErrorForcedClusterUnservable, ingress.DispatchErrorPlanOverrideRejected, ingress.DispatchErrorHandoff,
+		ingress.DispatchErrorClassifierHistory, ingress.DispatchErrorClassifierInputTooLong, ingress.DispatchErrorCreditsExhausted,
+		ingress.DispatchErrorUserSpendLimitReached, ingress.DispatchErrorSpendCapReached, ingress.DispatchErrorNoEligibleProvider,
+		ingress.DispatchErrorAllowlistEmptiesPool, ingress.DispatchErrorGatewayServesNoModel, ingress.DispatchErrorNoRoutableModels,
+		ingress.DispatchErrorProductIneligible, ingress.DispatchErrorSubscriptionClientAppRefused, ingress.DispatchErrorClaudeEnterpriseOnly,
+		ingress.DispatchErrorWeaveCreditsDisabled, ingress.DispatchErrorSubscriptionUnavailableForTurn:
 		return FailureOwnerClient
 	default:
 		return FailureOwnerUnknown

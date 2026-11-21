@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -40,7 +41,7 @@ func proxyRequestedWindowOverflow(t *testing.T, prompt string, stream bool, upst
 	return rec, upstream, err
 }
 
-func requireDispatchKind(t *testing.T, err error) proxy.DispatchErrorKind {
+func requireDispatchKind(t *testing.T, err error) ingress.DispatchErrorKind {
 	t.Helper()
 	require.Error(t, err)
 	cls, ok := proxy.ClassifyDispatchError(err)
@@ -56,7 +57,7 @@ func TestProxyMessages_PreOutputFailurePastRequestedWindowAsksClientToCompact(t 
 	for _, stream := range []bool{false, true} {
 		rec, upstream, err := proxyRequestedWindowOverflow(t, pastRequestedWindowPrompt, stream, &providers.UpstreamErrorResponse{Status: http.StatusBadGateway})
 
-		assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, requireDispatchKind(t, err), "stream=%v: %v", stream, err)
+		assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, requireDispatchKind(t, err), "stream=%v: %v", stream, err)
 		assert.NotEmpty(t, upstream.proxyBodies, "stream=%v: the larger-window model is still tried", stream)
 		assert.NotEqual(t, http.StatusBadGateway, rec.Code, "stream=%v: the upstream 5xx must not reach the client", stream)
 		if out := rec.Body.String(); out != "" {
@@ -69,7 +70,7 @@ func TestProxyMessages_PreOutputFailurePastRequestedWindowAsksClientToCompact(t 
 func TestProxyMessages_RateLimitPastRequestedWindowIsNotOverflow(t *testing.T) {
 	_, _, err := proxyRequestedWindowOverflow(t, pastRequestedWindowPrompt, false, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests})
 
-	assert.NotEqual(t, proxy.DispatchErrorContextWindowExceeded, requireDispatchKind(t, err))
+	assert.NotEqual(t, ingress.DispatchErrorContextWindowExceeded, requireDispatchKind(t, err))
 }
 
 // While the history still fits the requested model, the client's own budget is
@@ -77,7 +78,7 @@ func TestProxyMessages_RateLimitPastRequestedWindowIsNotOverflow(t *testing.T) {
 func TestProxyMessages_PreOutputFailureWithinRequestedWindowIsNotOverflow(t *testing.T) {
 	_, _, err := proxyRequestedWindowOverflow(t, "hi", false, &providers.UpstreamErrorResponse{Status: http.StatusBadGateway})
 
-	assert.NotEqual(t, proxy.DispatchErrorContextWindowExceeded, requireDispatchKind(t, err))
+	assert.NotEqual(t, ingress.DispatchErrorContextWindowExceeded, requireDispatchKind(t, err))
 }
 
 // The client's own compaction turn is its recovery from overflow: answering it
@@ -98,5 +99,5 @@ func TestProxyMessages_CompactionTurnPastRequestedWindowIsNotOverflow(t *testing
 	err := svc.ProxyMessages(authedCtx(overflowInstallationID), body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 
 	require.NotEmpty(t, upstream.proxyBodies, "the compaction turn reaches the served model")
-	assert.NotEqual(t, proxy.DispatchErrorContextWindowExceeded, requireDispatchKind(t, err))
+	assert.NotEqual(t, ingress.DispatchErrorContextWindowExceeded, requireDispatchKind(t, err))
 }

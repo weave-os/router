@@ -3,12 +3,12 @@ package proxy
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/refusal"
 	"weave-os/router/internal/router"
@@ -18,73 +18,7 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-type DispatchErrorKind int
-
-const (
-	DispatchErrorNone DispatchErrorKind = iota
-	DispatchErrorUpstreamStatus
-	DispatchErrorNotImplemented
-	DispatchErrorProviderNotConfigured
-	DispatchErrorAnthropicFederationUnavailable
-	DispatchErrorRequestNotJSONObject
-	DispatchErrorResponsesChatCompletionsBody
-	DispatchErrorNoEligibleProvider
-	DispatchErrorAllowlistEmptiesPool
-	DispatchErrorContextWindowExceeded
-	DispatchErrorImageLimitExceeded
-	DispatchErrorInvalidRoutingKnobs
-	DispatchErrorRLPolicyUnavailable
-	DispatchErrorHMMUnavailable
-	DispatchErrorPolicyUnavailable
-	DispatchErrorClusterUnavailable
-	DispatchErrorCreditsExhausted
-	DispatchErrorSubscriptionPoolExhausted
-	DispatchErrorSubscriptionPoolUnavailable
-	DispatchErrorSubscriptionPoolThrottled
-	DispatchErrorTranslationIntrinsicallyIncompatible
-	DispatchErrorTranslationProviderUnavailable
-	DispatchErrorUserSpendLimitReached
-	DispatchErrorSpendLimitUnavailable
-	DispatchErrorAnthropicCacheControlInvalid
-	DispatchErrorForcedModelExcluded
-	DispatchErrorForcedModelUnknown
-	DispatchErrorPassthroughModelUnknown
-	DispatchErrorForcedClusterUnsupportedStrategy
-	DispatchErrorForcedClusterUnservable
-	DispatchErrorRoutedModelIncompatible
-	DispatchErrorGatewayServesNoModel
-	DispatchErrorNoRoutableModels
-	DispatchErrorPlanTargetMismatch
-	DispatchErrorPlanOverrideRejected
-	DispatchErrorPlanUnresolvable
-	DispatchErrorPolicyPinUnavailable
-	DispatchErrorHandoff
-	DispatchErrorProductIneligible
-	DispatchErrorClassifierHistory
-	DispatchErrorClassifierInputTooLong
-	DispatchErrorClassifierUnavailable
-	DispatchErrorSpendCapReached
-	DispatchErrorSubscriptionClientAppRefused
-	DispatchErrorDecisionModelUnavailable
-	DispatchErrorCompactionUnservable
-	DispatchErrorClaudeEnterpriseOnly
-	DispatchErrorWeaveCreditsDisabled
-	DispatchErrorSubscriptionUnavailableForTurn
-	DispatchErrorNoEligibleArm
-)
-
-type DispatchErrorClass struct {
-	Kind          DispatchErrorKind
-	Status        int
-	Message       string
-	RetryAfter    bool
-	NoClientRetry bool
-	LogLevel      string
-	LogMessage    string
-	Refusal       *refusal.Contract
-}
-
-func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
+func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 	var statusErr *providers.UpstreamStatusError
 	var bufferedErr *providers.UpstreamErrorResponse
 	var forcedExcluded *ForcedModelExcludedError
@@ -96,61 +30,61 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var compactionUnservable *CompactionUnservableError
 	switch {
 	case errors.Is(err, auth.ErrAnthropicFederationUnavailable):
-		return DispatchErrorClass{Kind: DispatchErrorAnthropicFederationUnavailable, Status: http.StatusServiceUnavailable, Message: "Anthropic workload federation is unavailable.", RetryAfter: true}, true
+		return ingress.DispatchErrorClass{Kind: ingress.DispatchErrorAnthropicFederationUnavailable, Status: http.StatusServiceUnavailable, Message: "Anthropic workload federation is unavailable.", RetryAfter: true}, true
 	case errors.Is(err, policy.ErrClassifierWarming):
-		return DispatchErrorClass{Kind: DispatchErrorPolicyUnavailable, Status: http.StatusServiceUnavailable,
+		return ingress.DispatchErrorClass{Kind: ingress.DispatchErrorPolicyUnavailable, Status: http.StatusServiceUnavailable,
 			Message: policy.ClassifierWarmingMessage, RetryAfter: true, LogLevel: "warn", LogMessage: "Classifier warming"}, true
 	case errors.Is(err, router.ErrClassifierHistoryUnavailable), errors.Is(err, router.ErrClassifierThreadInvalid):
-		return DispatchErrorClass{Kind: DispatchErrorClassifierHistory, Status: http.StatusConflict, Message: "Classifier thread history is unavailable or changed. Restore the complete original history; do not re-enroll a compacted thread.", LogLevel: "warn", LogMessage: "Classifier history rejected"}, true
+		return ingress.DispatchErrorClass{Kind: ingress.DispatchErrorClassifierHistory, Status: http.StatusConflict, Message: "Classifier thread history is unavailable or changed. Restore the complete original history; do not re-enroll a compacted thread.", LogLevel: "warn", LogMessage: "Classifier history rejected"}, true
 	case errors.Is(err, router.ErrClassifierInputTooLong):
-		return DispatchErrorClass{Kind: DispatchErrorClassifierInputTooLong, Status: http.StatusRequestEntityTooLarge, Message: "Classifier input exceeds its inference limit. No history was truncated and no alternate policy was used.", LogLevel: "warn", LogMessage: "Classifier input exceeds inference limit"}, true
+		return ingress.DispatchErrorClass{Kind: ingress.DispatchErrorClassifierInputTooLong, Status: http.StatusRequestEntityTooLarge, Message: "Classifier input exceeds its inference limit. No history was truncated and no alternate policy was used.", LogLevel: "warn", LogMessage: "Classifier input exceeds inference limit"}, true
 	case errors.Is(err, router.ErrClassifierUnavailable):
-		return DispatchErrorClass{Kind: DispatchErrorClassifierUnavailable, Status: http.StatusServiceUnavailable, Message: "The thread's classifier release is unavailable. No alternate policy was used.", LogLevel: "warn", LogMessage: "Classifier release unavailable"}, true
+		return ingress.DispatchErrorClass{Kind: ingress.DispatchErrorClassifierUnavailable, Status: http.StatusServiceUnavailable, Message: "The thread's classifier release is unavailable. No alternate policy was used.", LogLevel: "warn", LogMessage: "Classifier release unavailable"}, true
 	case errors.Is(err, eligibility.ErrModelIneligible):
-		return refusalClass(DispatchErrorProductIneligible, refusal.ProductIneligible,
+		return refusalClass(ingress.DispatchErrorProductIneligible, refusal.ProductIneligible,
 			"This model is not included in your plan. Pick a model your plan covers.",
 			"warn", "Rejected request: model is not eligible for the caller's product"), true
 	case errors.Is(err, ErrSubscriptionClientAppRefused):
-		return refusalClass(DispatchErrorSubscriptionClientAppRefused, refusal.SubscriptionClientAppRefused,
+		return refusalClass(ingress.DispatchErrorSubscriptionClientAppRefused, refusal.SubscriptionClientAppRefused,
 			"Anthropic only lets Claude Code use Claude subscription plan limits, so this app can't use them for the forced Claude model. Use Claude Code, add extra usage at claude.ai/settings/usage, or pick a non-Claude model.",
 			"warn", "Rejected forced Claude turn: subscriptions refused third-party client"), true
 	case subscriptionLaneRefused(err):
 		return subscriptionLaneRefusalClass(err), true
 	case errors.Is(err, ErrWeaveCreditsDisabled):
-		return refusalClass(DispatchErrorWeaveCreditsDisabled, refusal.WeaveCreditsDisabled,
+		return refusalClass(ingress.DispatchErrorWeaveCreditsDisabled, refusal.WeaveCreditsDisabled,
 			"Weave credits are turned off for your organization, and none of your plans or provider API keys can serve this request. Connect a provider key or plan for this model, or allow Weave credits in settings.",
 			"warn", "Request refused: Weave credits disabled and no customer funding source"), true
 	case errors.Is(err, ErrClaudeEnterpriseSubscriptionUnavailable):
-		return refusalClass(DispatchErrorClaudeEnterpriseOnly, refusal.ClaudeEnterpriseOnly,
+		return refusalClass(ingress.DispatchErrorClaudeEnterpriseOnly, refusal.ClaudeEnterpriseOnly,
 			"Claude Enterprise-only billing is enabled, but no usable Claude account can serve this request. Connect or reconnect a Claude account, or turn off Enterprise-only billing in settings.",
 			"warn", "Claude Enterprise-only request refused"), true
 	case errors.Is(err, ErrSubscriptionPoolExhausted):
-		return refusalClass(DispatchErrorSubscriptionPoolExhausted, refusal.SubscriptionPoolExhausted,
+		return refusalClass(ingress.DispatchErrorSubscriptionPoolExhausted, refusal.SubscriptionPoolExhausted,
 			"All enrolled subscription accounts are currently unavailable.",
 			"warn", "Subscription account pool exhausted"), true
 	case errors.Is(err, ErrSubscriptionPoolThrottled):
-		return refusalClass(DispatchErrorSubscriptionPoolThrottled, refusal.SubscriptionPoolThrottled,
+		return refusalClass(ingress.DispatchErrorSubscriptionPoolThrottled, refusal.SubscriptionPoolThrottled,
 			subscriptionPoolThrottledMessage,
 			"warn", "Subscription account pool throttled"), true
 	case errors.Is(err, ErrSubscriptionPoolUnavailable):
-		return refusalClass(DispatchErrorSubscriptionPoolUnavailable, refusal.SubscriptionPoolUnavailable,
+		return refusalClass(ingress.DispatchErrorSubscriptionPoolUnavailable, refusal.SubscriptionPoolUnavailable,
 			"Subscription account service is temporarily unavailable.",
 			"error", "Subscription account pool unavailable"), true
 	case errors.Is(err, ErrHandoffInvalid):
-		return DispatchErrorClass{Kind: DispatchErrorHandoff, Status: http.StatusConflict, Message: handoffInvalidMessage, LogLevel: "warn", LogMessage: "Pi handoff rejected"}, true
+		return ingress.DispatchErrorClass{Kind: ingress.DispatchErrorHandoff, Status: http.StatusConflict, Message: handoffInvalidMessage, LogLevel: "warn", LogMessage: "Pi handoff rejected"}, true
 	case errors.Is(err, ErrHandoffUnavailable):
-		return DispatchErrorClass{Kind: DispatchErrorHandoff, Status: http.StatusServiceUnavailable, Message: handoffUnavailableMessage, LogLevel: "warn", LogMessage: "Pi handoff unavailable"}, true
+		return ingress.DispatchErrorClass{Kind: ingress.DispatchErrorHandoff, Status: http.StatusServiceUnavailable, Message: handoffUnavailableMessage, LogLevel: "warn", LogMessage: "Pi handoff unavailable"}, true
 	case errors.As(err, &forcedExcluded):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorForcedModelExcluded,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorForcedModelExcluded,
 			Status:     http.StatusBadRequest,
 			Message:    forcedExcluded.Reason + ". Clear it with the unforce-model directive, or pick a model from a permitted provider.",
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: forced model is excluded on this installation",
 		}, true
 	case errors.As(err, &forcedUnknown):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorForcedModelUnknown,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorForcedModelUnknown,
 			Status:     http.StatusBadRequest,
 			Message:    forcedUnknown.Error() + ". Use a full model ID, e.g. claude-opus-5, gpt-5.6-sol, or gemini-3-pro-preview.",
 			LogLevel:   "warn",
@@ -161,24 +95,24 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		if passthroughUnknown.RoutingPolicyPassthrough {
 			message = "Automatic routing isn't enabled for you in this organization, so the requested model is served as-is, but " + passthroughUnknown.Error() + ". Request a full model ID (e.g. claude-opus-5-5 or gpt-5.6-sol), or ask your org admin to enable automatic routing."
 		}
-		return DispatchErrorClass{
-			Kind:       DispatchErrorPassthroughModelUnknown,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorPassthroughModelUnknown,
 			Status:     http.StatusBadRequest,
 			Message:    message,
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: passthrough requested model is not a known model",
 		}, true
 	case errors.As(err, &forcedClusterStrategy):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorForcedClusterUnsupportedStrategy,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorForcedClusterUnsupportedStrategy,
 			Status:     http.StatusBadRequest,
 			Message:    forcedClusterStrategy.Error() + ". Clear " + ForceClusterHeader + ", or move the installation to a policy-sidecar strategy.",
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: forced cluster on a strategy with no policy sidecar",
 		}, true
 	case errors.As(err, &forcedClusterUnservable):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorForcedClusterUnservable,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorForcedClusterUnservable,
 			Status:     http.StatusBadRequest,
 			Message:    forcedClusterUnservable.Reason + ". Clear " + ForceClusterHeader + " or update the cluster's model list.",
 			LogLevel:   "warn",
@@ -189,62 +123,62 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	case isContextOverflow(err):
 		return contextWindowExceededClass, true
 	case errors.As(err, &statusErr):
-		return DispatchErrorClass{
-			Kind:    DispatchErrorUpstreamStatus,
+		return ingress.DispatchErrorClass{
+			Kind:    ingress.DispatchErrorUpstreamStatus,
 			Status:  statusErr.Status,
 			Message: TerminalErrorMessage(err),
 		}, true
 	case errors.As(err, &bufferedErr):
-		return DispatchErrorClass{
-			Kind:    DispatchErrorUpstreamStatus,
+		return ingress.DispatchErrorClass{
+			Kind:    ingress.DispatchErrorUpstreamStatus,
 			Status:  bufferedErr.Status,
 			Message: TerminalErrorMessage(err),
 		}, true
 	case errors.Is(err, providers.ErrNotImplemented):
-		return DispatchErrorClass{
-			Kind:    DispatchErrorNotImplemented,
+		return ingress.DispatchErrorClass{
+			Kind:    ingress.DispatchErrorNotImplemented,
 			Status:  http.StatusNotImplemented,
 			Message: "Provider not implemented.",
 		}, true
 	case errors.Is(err, ErrProviderNotConfigured), errors.Is(err, dispatch.ErrProviderNotConfigured):
-		return DispatchErrorClass{
-			Kind:    DispatchErrorProviderNotConfigured,
+		return ingress.DispatchErrorClass{
+			Kind:    ingress.DispatchErrorProviderNotConfigured,
 			Status:  http.StatusBadGateway,
 			Message: "Provider not configured.",
 		}, true
 	case errors.Is(err, ErrRequestNotJSONObject):
-		return DispatchErrorClass{
-			Kind:    DispatchErrorRequestNotJSONObject,
+		return ingress.DispatchErrorClass{
+			Kind:    ingress.DispatchErrorRequestNotJSONObject,
 			Status:  http.StatusBadRequest,
 			Message: "Request body must be a JSON object.",
 		}, true
 	case errors.Is(err, translate.ErrResponsesChatCompletionsBody):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorResponsesChatCompletionsBody,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorResponsesChatCompletionsBody,
 			Status:     http.StatusBadRequest,
 			Message:    "Unsupported parameter: 'messages'. In the Responses API, this parameter has moved to 'input'. Try again with the new parameter, or POST this body to /v1/chat/completions.",
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: Chat Completions body posted to /v1/responses",
 		}, true
 	case errors.Is(err, translate.ErrAnthropicCacheControlOverflow), errors.Is(err, translate.ErrAnthropicCacheControlInvalid):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorAnthropicCacheControlInvalid,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorAnthropicCacheControlInvalid,
 			Status:     http.StatusBadRequest,
 			Message:    unwrapToSentinelMessage(err),
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: invalid Anthropic cache_control",
 		}, true
 	case errors.Is(err, ErrTranslationIntrinsicallyIncompatible):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorTranslationIntrinsicallyIncompatible,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorTranslationIntrinsicallyIncompatible,
 			Status:     http.StatusBadRequest,
 			Message:    "This request requires a native compatibility path that the router does not support.",
 			LogLevel:   "warn",
 			LogMessage: "Translation requirements are intrinsically incompatible",
 		}, true
 	case errors.Is(err, ErrTranslationCompatibleProviderUnavailable):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorTranslationProviderUnavailable,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorTranslationProviderUnavailable,
 			Status:     http.StatusServiceUnavailable,
 			Message:    "No compatible provider is currently available for this request.",
 			RetryAfter: true,
@@ -252,16 +186,16 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Compatible translation provider unavailable",
 		}, true
 	case translate.IsIntrinsicallyIncompatible(err):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorRoutedModelIncompatible,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorRoutedModelIncompatible,
 			Status:     http.StatusBadGateway,
 			Message:    "The routed model cannot serve this request's shape (tool schema, reasoning intent, or tool history). Please retry.",
 			LogLevel:   "warn",
 			LogMessage: "Routed model cannot serve this request shape; no failover was available",
 		}, true
 	case errors.Is(err, router.ErrAllowlistEmptiesPool):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorAllowlistEmptiesPool,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorAllowlistEmptiesPool,
 			Status:     http.StatusBadRequest,
 			Message:    "No allowed model can serve this request: your organization's model allowlist has no eligible overlap. Ask your org admin to widen it.",
 			LogLevel:   "warn",
@@ -270,36 +204,36 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	case errors.Is(err, router.ErrNoEligibleProvider):
 		return noEligibleProviderClass(), true
 	case errors.Is(err, billing.ErrUserMonthlySpendLimitReached):
-		return refusalClass(DispatchErrorUserSpendLimitReached, refusal.UserSpendLimitReached,
+		return refusalClass(ingress.DispatchErrorUserSpendLimitReached, refusal.UserSpendLimitReached,
 			"You've reached your monthly Weave Router spend limit. Ask your org admin to raise it, or it resets next month.",
 			"warn", "Request refused: engineer monthly spend limit reached"), true
 	case errors.Is(err, billing.ErrSpendLimitCheckUnavailable):
-		return refusalClass(DispatchErrorSpendLimitUnavailable, refusal.SpendLimitUnavailable,
+		return refusalClass(ingress.DispatchErrorSpendLimitUnavailable, refusal.SpendLimitUnavailable,
 			"Billing system is temporarily unavailable. Retry in a few moments.",
 			"error", "Spend-limit check unavailable"), true
 	case errors.Is(err, router.ErrInvalidRoutingKnobs):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorInvalidRoutingKnobs,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorInvalidRoutingKnobs,
 			Status:     http.StatusBadRequest,
 			Message:    "Invalid routing knobs supplied.",
 			LogLevel:   "warn",
 			LogMessage: "Invalid routing knobs supplied",
 		}, true
 	case errors.Is(err, router.ErrPolicyPinUnavailable):
-		return refusalClass(DispatchErrorPolicyPinUnavailable, refusal.PolicyPinUnavailable,
+		return refusalClass(ingress.DispatchErrorPolicyPinUnavailable, refusal.PolicyPinUnavailable,
 			router.PolicyPinUnavailableReason+": the pinned policy artifact or roster is not loaded on this router.",
 			"warn", "Policy pin unavailable"), true
 	case errors.Is(err, policy.ErrGatewayServesNoDeployedModel):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorGatewayServesNoModel,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorGatewayServesNoModel,
 			Status:     http.StatusBadRequest,
 			Message:    "No model can be routed through your gateway: your gateway keys don't alias any available model. Add model aliases on the key mapping each model you want routed to the name your gateway serves it under.",
 			LogLevel:   "warn",
 			LogMessage: "Gateway-exclusive routing has no aliased model",
 		}, true
 	case errors.Is(err, policy.ErrImageLimitExceeded):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorImageLimitExceeded,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorImageLimitExceeded,
 			Status:     http.StatusBadRequest,
 			Message:    "This request carries more images than any model available to it accepts in one request. Send fewer images (or start a new conversation without earlier screenshots).",
 			LogLevel:   "warn",
@@ -310,8 +244,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	case errors.Is(err, policy.ErrNoRoutableModels), errors.Is(err, policy.ErrNoEligibleArm):
 		return routingEligibilityClass(err), true
 	case errors.Is(err, dispatch.ErrTargetMismatch):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorPlanTargetMismatch,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorPlanTargetMismatch,
 			Status:     http.StatusBadGateway,
 			Message:    "Upstream call failed: the prepared request did not match the authorized inference target.",
 			LogLevel:   "error",
@@ -335,26 +269,6 @@ func unwrapToSentinelMessage(err error) string {
 		}
 	}
 	return err.Error()
-}
-
-func (k DispatchErrorKind) IsClientError() bool {
-	switch k {
-	case DispatchErrorClassifierHistory, DispatchErrorClassifierInputTooLong:
-		return true
-	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorImageLimitExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorPassthroughModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels, DispatchErrorPlanOverrideRejected, DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused, DispatchErrorNoEligibleArm:
-		return true
-	default:
-		return false
-	}
-}
-
-func LogDispatchErrorClass(log *slog.Logger, cls DispatchErrorClass, err error) {
-	switch cls.LogLevel {
-	case "warn":
-		log.Warn(cls.LogMessage, "err", err)
-	case "error":
-		log.Error(cls.LogMessage, "err", err)
-	}
 }
 
 var allowanceWindowNames = map[entitlement.PeriodKind]string{
@@ -383,9 +297,9 @@ func includedAllowanceSpentMessage(e *IncludedAllowanceSpentError) string {
 	return message + " To keep routing until then, add credits: " + topUpURL
 }
 
-func noEligibleProviderClass() DispatchErrorClass {
-	return DispatchErrorClass{
-		Kind:       DispatchErrorNoEligibleProvider,
+func noEligibleProviderClass() ingress.DispatchErrorClass {
+	return ingress.DispatchErrorClass{
+		Kind:       ingress.DispatchErrorNoEligibleProvider,
 		Status:     http.StatusBadRequest,
 		Message:    "No enabled provider can serve any deployed model: add a provider key (BYOK or a provider Authorization header), or re-enable an excluded provider.",
 		LogLevel:   "warn",

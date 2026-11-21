@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -66,16 +67,16 @@ func asRequestedWindowOverflow(err error, pastWindow, committed bool) error {
 	return fmt.Errorf("%w: %w", policy.ErrContextWindowExceeded, err)
 }
 
-var contextWindowExceededClass = DispatchErrorClass{
-	Kind:       DispatchErrorContextWindowExceeded,
+var contextWindowExceededClass = ingress.DispatchErrorClass{
+	Kind:       ingress.DispatchErrorContextWindowExceeded,
 	Status:     http.StatusBadRequest,
 	Message:    contextOverflowMessage,
 	LogLevel:   "warn",
 	LogMessage: "Request exceeds the served model's context window; returned to the client to compact",
 }
 
-func OpenAIErrorCode(kind DispatchErrorKind) string {
-	if kind == DispatchErrorContextWindowExceeded {
+func OpenAIErrorCode(kind ingress.DispatchErrorKind) string {
+	if kind == ingress.DispatchErrorContextWindowExceeded {
 		return openAIContextOverflowCode
 	}
 	return ""
@@ -93,8 +94,8 @@ func (e *CompactionUnservableError) Error() string {
 	return fmt.Sprintf("compaction exceeded the context window of every reachable summarizer (last %s via %s): %v", e.Model, e.Provider, e.Cause)
 }
 
-var compactionUnservableClass = DispatchErrorClass{
-	Kind:          DispatchErrorCompactionUnservable,
+var compactionUnservableClass = ingress.DispatchErrorClass{
+	Kind:          ingress.DispatchErrorCompactionUnservable,
 	Status:        http.StatusBadGateway,
 	Message:       "The upstream provider rejected this compaction request as too long for every model available to it. Retrying will not help until a larger-window model is available; start a new session to continue.",
 	LogLevel:      "error",
@@ -129,7 +130,7 @@ func (s *Service) overflowRescueDecisions(ctx context.Context, failed router.Dec
 	})
 }
 
-func compactionUnservableClassFor(unservable *CompactionUnservableError) DispatchErrorClass {
+func compactionUnservableClassFor(unservable *CompactionUnservableError) ingress.DispatchErrorClass {
 	if unservable.Tokens == 0 {
 		return compactionUnservableClass
 	}

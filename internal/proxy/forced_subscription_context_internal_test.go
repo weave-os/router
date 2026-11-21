@@ -16,6 +16,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/router"
@@ -159,7 +160,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				require.Error(t, err)
 				class, ok := ClassifyDispatchError(err)
 				require.True(t, ok)
-				require.Equal(t, DispatchErrorContextWindowExceeded, class.Kind)
+				require.Equal(t, ingress.DispatchErrorContextWindowExceeded, class.Kind)
 				require.Len(t, models, 1, "a real overflow must reach the client without retrying the oversized turn")
 				_, err = proxyTurn(largeHistory, "Your task is to create a detailed summary of the conversation so far.")
 				require.Error(t, err)

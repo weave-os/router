@@ -4,14 +4,15 @@ import (
 	"errors"
 	"net/http"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/router"
 )
 
-func classifyPolicyDispatchError(err error) (DispatchErrorClass, bool) {
+func classifyPolicyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 	switch {
 	case errors.Is(err, router.ErrRLPolicyUnavailable):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorRLPolicyUnavailable,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorRLPolicyUnavailable,
 			Status:     http.StatusServiceUnavailable,
 			Message:    "Router unavailable: RL policy router failed and no fallback is configured.",
 			RetryAfter: true,
@@ -19,8 +20,8 @@ func classifyPolicyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "RL routing unavailable",
 		}, true
 	case errors.Is(err, router.ErrDecisionModelUnavailable):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorDecisionModelUnavailable,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorDecisionModelUnavailable,
 			Status:     http.StatusServiceUnavailable,
 			Message:    "Router unavailable: decision model routing failed and no fallback is configured.",
 			RetryAfter: true,
@@ -28,8 +29,8 @@ func classifyPolicyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "decision model routing unavailable",
 		}, true
 	case errors.Is(err, router.ErrHMMUnavailable):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorHMMUnavailable,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorHMMUnavailable,
 			Status:     http.StatusServiceUnavailable,
 			Message:    "Router unavailable: HMM policy router failed and no fallback is configured.",
 			RetryAfter: true,
@@ -37,8 +38,8 @@ func classifyPolicyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "HMM routing unavailable",
 		}, true
 	case errors.Is(err, router.ErrStrategyUnavailable):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorPolicyUnavailable,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorPolicyUnavailable,
 			Status:     http.StatusServiceUnavailable,
 			Message:    "Router unavailable: selected policy router is not configured.",
 			RetryAfter: true,
@@ -46,8 +47,8 @@ func classifyPolicyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Policy routing unavailable",
 		}, true
 	case errors.Is(err, router.ErrRoutingUnavailable):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorClusterUnavailable,
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorClusterUnavailable,
 			Status:     http.StatusServiceUnavailable,
 			Message:    "Router unavailable: no routing policy could serve this request.",
 			RetryAfter: true,
@@ -55,6 +56,6 @@ func classifyPolicyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Routing unavailable",
 		}, true
 	default:
-		return DispatchErrorClass{}, false
+		return ingress.DispatchErrorClass{}, false
 	}
 }

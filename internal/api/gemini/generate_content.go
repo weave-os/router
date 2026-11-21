@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -66,7 +67,7 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 
 		if err := svc.ProxyGeminiGenerateContent(c.Request.Context(), body, c.Writer, c.Request); err != nil {
 			cls, ok := proxy.ClassifyDispatchError(err)
-			if ok && cls.Kind == proxy.DispatchErrorUpstreamStatus {
+			if ok && cls.Kind == ingress.DispatchErrorUpstreamStatus {
 				if c.Writer.Written() {
 					return
 				}
@@ -82,7 +83,7 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 				return
 			}
 			if ok {
-				proxy.LogDispatchErrorClass(log, cls, err)
+				ingress.LogDispatchErrorClass(log, cls, err)
 				if cls.RetryAfter {
 					c.Header("Retry-After", "1")
 				}
@@ -131,22 +132,22 @@ func injectModelAndStream(body []byte, model string, stream bool) ([]byte, error
 	return out, nil
 }
 
-func geminiErrorStatus(cls proxy.DispatchErrorClass) string {
+func geminiErrorStatus(cls ingress.DispatchErrorClass) string {
 	if cls.Refusal != nil {
 		return cls.Refusal.GeminiStatus()
 	}
 	switch cls.Kind {
-	case proxy.DispatchErrorNotImplemented:
+	case ingress.DispatchErrorNotImplemented:
 		return "UNIMPLEMENTED"
-	case proxy.DispatchErrorProviderNotConfigured:
+	case ingress.DispatchErrorProviderNotConfigured:
 		return "FAILED_PRECONDITION"
-	case proxy.DispatchErrorRequestNotJSONObject, proxy.DispatchErrorContextWindowExceeded:
+	case ingress.DispatchErrorRequestNotJSONObject, ingress.DispatchErrorContextWindowExceeded:
 		return "INVALID_ARGUMENT"
-	case proxy.DispatchErrorNoEligibleProvider:
+	case ingress.DispatchErrorNoEligibleProvider:
 		return "FAILED_PRECONDITION"
-	case proxy.DispatchErrorInvalidRoutingKnobs, proxy.DispatchErrorPlanOverrideRejected:
+	case ingress.DispatchErrorInvalidRoutingKnobs, ingress.DispatchErrorPlanOverrideRejected:
 		return "INVALID_ARGUMENT"
-	case proxy.DispatchErrorRLPolicyUnavailable, proxy.DispatchErrorHMMUnavailable, proxy.DispatchErrorDecisionModelUnavailable, proxy.DispatchErrorPolicyUnavailable, proxy.DispatchErrorClusterUnavailable, proxy.DispatchErrorPlanUnresolvable:
+	case ingress.DispatchErrorRLPolicyUnavailable, ingress.DispatchErrorHMMUnavailable, ingress.DispatchErrorDecisionModelUnavailable, ingress.DispatchErrorPolicyUnavailable, ingress.DispatchErrorClusterUnavailable, ingress.DispatchErrorPlanUnresolvable:
 		return "UNAVAILABLE"
 	default:
 		return "UPSTREAM_ERROR"
