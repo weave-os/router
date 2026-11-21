@@ -3,6 +3,7 @@ package conversation
 type Lifecycle struct {
 	noProgress          *NoProgressTracker
 	textRepetitionBreak bool
+	routerFeedback      RouterFeedbackStore
 }
 
 func NewLifecycle() *Lifecycle {
@@ -22,4 +23,15 @@ func (l *Lifecycle) TextRepetitionBreak() bool {
 
 func (l *Lifecycle) SetTextRepetitionBreak(enabled bool) {
 	l.textRepetitionBreak = enabled
+}
+
+func (l *Lifecycle) RouterFeedbackStore() RouterFeedbackStore {
+	if l == nil {
+		return nil
+	}
+	return l.routerFeedback
+}
+
+func (l *Lifecycle) SetRouterFeedbackStore(store RouterFeedbackStore) {
+	l.routerFeedback = store
 }
