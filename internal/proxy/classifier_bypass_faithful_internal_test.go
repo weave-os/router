@@ -47,7 +47,7 @@ func runClassifierBypassWithContext(t *testing.T, parent context.Context, body, 
 	t.Helper()
 	upstream := &bypassFakeProvider{respBody: respBody}
 	svc := newBypassService(upstream)
-	svc.anthropicServerSideFallback = true
+	svc.rescueConfig.AnthropicServerSideFallback = true
 	sink := newBypassCaptureTelemetry()
 	svc.telemetry = sink
 

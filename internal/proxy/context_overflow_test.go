@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -68,7 +69,7 @@ func TestProxyMessages_ForcedModelDispatchesPastByteEstimate(t *testing.T) {
 	content := strconv.QuoteToASCII(strings.Repeat("中", 150_000))
 	body := []byte(`{"model":"` + forced + `","max_tokens":1024,"messages":[{"role":"user","content":` + content + `}]}`)
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
-	httpReq.Header.Set(proxy.ForceModelHeader, forced)
+	httpReq.Header.Set(requestcontext.ForceModelHeader, forced)
 	require.NoError(t, svc.ProxyMessages(authedCtx(overflowInstallationID), body, httptest.NewRecorder(), httpReq))
 
 	require.Len(t, upstream.proxyBodies, 1)

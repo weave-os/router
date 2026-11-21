@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -29,10 +30,10 @@ import (
 
 type fakeFeedbackStore struct {
 	mu     sync.Mutex
-	events []proxy.RouterFeedbackEvent
+	events []feedback.RouterFeedbackEvent
 }
 
-func (f *fakeFeedbackStore) InsertRouterFeedback(ctx context.Context, p proxy.RouterFeedbackEvent) error {
+func (f *fakeFeedbackStore) InsertRouterFeedback(ctx context.Context, p feedback.RouterFeedbackEvent) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.events = append(f.events, p)
@@ -217,12 +218,12 @@ func TestService_RouterFeedbackCommand_PreservesAutomaticPinForOneFollowup(t *te
 	followupRecorder := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(followupBody), followupRecorder, httpReq))
 	assert.Empty(t, policyRouter.Requests(), "the first normal turn after a slash command must reuse the automatic pin")
-	assert.Equal(t, "claude-haiku-4-5", followupRecorder.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-haiku-4-5", followupRecorder.Header().Get(requestcontext.HeaderRouterModel))
 
 	laterRecorder := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(laterBody), laterRecorder, httpReq))
 	require.Len(t, policyRouter.Requests(), 1, "the one-shot continuation must be consumed after one normal turn")
-	assert.Equal(t, "claude-sonnet-4-6", laterRecorder.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-sonnet-4-6", laterRecorder.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 func TestService_RouterFeedbackCommand_DoesNotContinueMaxedPin(t *testing.T) {
@@ -294,7 +295,7 @@ func TestService_RouterFeedbackCommand_DoesNotContinueMaxedPin(t *testing.T) {
 	followupRecorder := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(followupBody), followupRecorder, httpReq))
 	require.Len(t, policyRouter.Requests(), 1, "the maxed source pin must be excluded before fresh routing")
-	assert.Equal(t, "claude-sonnet-4-6", followupRecorder.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-sonnet-4-6", followupRecorder.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 func TestService_RouterFeedbackCommand_DoesNotResurrectClearedPin(t *testing.T) {
@@ -368,7 +369,7 @@ func TestService_RouterFeedbackCommand_DoesNotResurrectClearedPin(t *testing.T) 
 	followupRecorder := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(followupBody), followupRecorder, httpReq))
 	require.Len(t, policyRouter.Requests(), 1, "a stale continuation must not restore an intentionally cleared route")
-	assert.Equal(t, "claude-sonnet-4-6", followupRecorder.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-sonnet-4-6", followupRecorder.Header().Get(requestcontext.HeaderRouterModel))
 	store.mu.Lock()
 	continuationCount = len(store.commandContinuations)
 	store.mu.Unlock()

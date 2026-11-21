@@ -178,7 +178,7 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 }
 
 func TestForwardingRuntimeGuardsRejectUnsafeLegacyConfiguration(t *testing.T) {
-	identity := proxy.ClientIdentity{Email: "engineer@example.com"}
+	identity := requestcontext.ClientIdentity{Email: "engineer@example.com"}
 	inbound := http.Header{
 		"Authorization":      []string{"Bearer inbound-secret"},
 		"X-Weave-Router-Key": []string{"router-secret"},
@@ -208,7 +208,7 @@ func TestForwardingRuntimeGuardsRejectUnsafeLegacyConfiguration(t *testing.T) {
 }
 
 func TestForwardingRuntimeGuardsRejectBaggageOnlyCredentialRelay(t *testing.T) {
-	for name, identity := range map[string]proxy.ClientIdentity{
+	for name, identity := range map[string]requestcontext.ClientIdentity{
 		"without resolved email": {},
 		"with resolved email":    {Email: "engineer@example.com"},
 	} {
@@ -224,7 +224,7 @@ func TestForwardingRuntimeGuardsRejectBaggageOnlyCredentialRelay(t *testing.T) {
 
 func TestForwardingRuntimeGuardsPreserveUpstreamEstablishedHeaders(t *testing.T) {
 	creds := &proxy.Credentials{ForwardedClientHeaders: []string{"X-Correlation-ID"}}
-	ctx := identityCtx(creds, proxy.ClientIdentity{})
+	ctx := identityCtx(creds, requestcontext.ClientIdentity{})
 	upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	upstream.Header.Set("X-Correlation-ID", "provider-value")
 
@@ -239,7 +239,7 @@ func TestForwardingRuntimeGuardsRejectCollidingLegacyDestinations(t *testing.T) 
 		IdentityHeader:         "x-correlation-id",
 		IdentityHeaderFormat:   auth.IdentityFormatEmail,
 	}
-	ctx := identityCtx(creds, proxy.ClientIdentity{Email: "engineer@example.com"})
+	ctx := identityCtx(creds, requestcontext.ClientIdentity{Email: "engineer@example.com"})
 	upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	proxy.ApplyIdentityHeader(ctx, upstream)

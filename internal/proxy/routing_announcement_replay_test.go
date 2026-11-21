@@ -9,11 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func announcementReplayBody(t *testing.T, history ...string) []byte {
@@ -28,8 +30,8 @@ func announcementReplayBody(t *testing.T, history ...string) []byte {
 }
 
 func announcementReplayContext() context.Context {
-	return context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{
-		ClientApp: proxy.ClientAppCodex, SessionID: "synthetic-shared-conversation",
+	return context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{
+		ClientApp: requestcontext.ClientAppCodex, SessionID: "synthetic-shared-conversation",
 	})
 }
 

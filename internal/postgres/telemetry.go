@@ -8,7 +8,6 @@ import (
 
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/postgres/dbbudget"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/sqlc"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -40,39 +39,6 @@ func NewTelemetryRepo(tx sqlc.DBTX) *TelemetryRepo {
 }
 
 var _ turnrecord.TelemetryRepository = (*TelemetryRepo)(nil)
-var _ proxy.PolicyShadowStore = (*TelemetryRepo)(nil)
-
-func (r *TelemetryRepo) InsertPolicyShadowDecision(ctx context.Context, p proxy.PolicyShadowDecision) error {
-	id, err := uuid.Parse(p.InstallationID)
-	if err != nil {
-		return err
-	}
-	q := dbbudget.Queries(r.tx)
-	return q.InsertPolicyShadowDecision(ctx, sqlc.InsertPolicyShadowDecisionParams{
-		InstallationID:              id,
-		OrganizationID:              stringPtrOrNil(p.OrganizationID),
-		RolloutID:                   stringPtrOrNil(p.RolloutID),
-		ClientApp:                   stringPtrOrNil(p.ClientApp),
-		TrainingAllowed:             p.TrainingAllowed,
-		ServingStrategy:             p.ServingStrategy,
-		ServingModel:                p.ServingModel,
-		ServingProvider:             p.ServingProvider,
-		ServingRouteID:              stringPtrOrNil(p.ServingRouteID),
-		ServingPolicyRouteKey:       stringPtrOrNil(p.ServingPolicyRouteKey),
-		ServingPolicyArtifactID:     stringPtrOrNil(p.ServingPolicyArtifactID),
-		ServingPolicyArtifactSha256: stringPtrOrNil(p.ServingPolicyArtifactSHA256),
-		ShadowStrategy:              p.ShadowStrategy,
-		ShadowModel:                 stringPtrOrNil(p.ShadowModel),
-		ShadowProvider:              stringPtrOrNil(p.ShadowProvider),
-		ShadowRouteID:               stringPtrOrNil(p.ShadowRouteID),
-		ShadowPolicyRouteKey:        stringPtrOrNil(p.ShadowPolicyRouteKey),
-		ShadowPolicyArtifactID:      stringPtrOrNil(p.ShadowPolicyArtifactID),
-		ShadowPolicyArtifactSha256:  stringPtrOrNil(p.ShadowPolicyArtifactSHA256),
-		ShadowLatencyMs:             p.ShadowLatencyMs,
-		ShadowError:                 stringPtrOrNil(p.ShadowError),
-		ModelsAgree:                 p.ModelsAgree,
-	})
-}
 
 func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p turnrecord.InsertTelemetryParams) error {
 	id, err := uuid.Parse(p.InstallationID)
@@ -279,32 +245,6 @@ func inferenceUsageKnown(summary *inference.OperationSummary) *bool {
 	}
 	known := summary.Usage.Known
 	return &known
-}
-
-var _ proxy.RouterFeedbackStore = (*TelemetryRepo)(nil)
-
-func (r *TelemetryRepo) InsertRouterFeedback(ctx context.Context, p proxy.RouterFeedbackEvent) error {
-	id, err := uuid.Parse(p.InstallationID)
-	if err != nil {
-		return err
-	}
-	q := dbbudget.Queries(r.tx)
-	return q.InsertRouterFeedback(ctx, sqlc.InsertRouterFeedbackParams{
-		InstallationID: id,
-		SessionKey:     p.SessionKey,
-		Role:           p.Role,
-		RouterUserID:   uuidOrNil(p.RouterUserID),
-		ClientApp:      stringPtrOrNil(p.ClientApp),
-		SessionID:      stringPtrOrNil(p.SessionID),
-		RequestedModel: p.RequestedModel,
-		ServedModel:    p.ServedModel,
-		Rating:         stringPtrOrNil(p.Rating),
-		SuggestedLabel: stringPtrOrNil(p.SuggestedLabel),
-		Feedback:       p.Feedback,
-		Source:         p.Source,
-		RequestID:      stringPtrOrNil(p.RequestID),
-		RouteID:        stringPtrOrNil(p.RouteID),
-	})
 }
 
 func (r *TelemetryRepo) GetTelemetrySummary(ctx context.Context, installationID string, from, to time.Time) (turnrecord.TelemetrySummary, error) {

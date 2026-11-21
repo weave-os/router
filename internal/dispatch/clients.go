@@ -70,3 +70,11 @@ func (c *Clients) Len() int {
 	}
 	return len(c.byName)
 }
+
+func (c *Clients) Upstream(name string) (Upstream, error) {
+	client, err := c.Client(name)
+	if err != nil {
+		return Upstream{}, err
+	}
+	return NewUpstream(client), nil
+}

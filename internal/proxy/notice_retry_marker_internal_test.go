@@ -7,11 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (

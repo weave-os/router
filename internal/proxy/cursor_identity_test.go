@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"weave-os/router/internal/requestcontext"
 )
 
 func cursorChatBody(user, agentID string) []byte {
@@ -18,9 +19,9 @@ func cursorHeaders() http.Header {
 
 func TestChatClientIdentityUsesCursorAgentAsSession(t *testing.T) {
 	const user = "google-oauth2|user_01ABC"
-	a := ChatClientIdentity(cursorHeaders(), cursorChatBody(user, "22d7b4e0-95b6-47ba-aecb-329729a4066e"))
-	b := ChatClientIdentity(cursorHeaders(), cursorChatBody(user, "1bd32df5-d28c-46a7-a715-015226622539"))
-	if a.ClientApp != ClientAppCursor {
+	a := requestcontext.ChatClientIdentity(cursorHeaders(), cursorChatBody(user, "22d7b4e0-95b6-47ba-aecb-329729a4066e"))
+	b := requestcontext.ChatClientIdentity(cursorHeaders(), cursorChatBody(user, "1bd32df5-d28c-46a7-a715-015226622539"))
+	if a.ClientApp != requestcontext.ClientAppCursor {
 		t.Fatalf("client app = %q, want cursor", a.ClientApp)
 	}
 	if a.SessionID != "22d7b4e0-95b6-47ba-aecb-329729a4066e" {
@@ -34,8 +35,8 @@ func TestChatClientIdentityUsesCursorAgentAsSession(t *testing.T) {
 func TestChatClientIdentityKeepsHeaderSessionForCursor(t *testing.T) {
 	h := cursorHeaders()
 	h.Set("X-Claude-Code-Session-Id", "header-session")
-	got := ChatClientIdentity(h, cursorChatBody("u", "22d7b4e0-95b6-47ba-aecb-329729a4066e"))
-	if want := ClientIdentityFromHeaders(h).SessionID; want == "" || got.SessionID != want {
+	got := requestcontext.ChatClientIdentity(h, cursorChatBody("u", "22d7b4e0-95b6-47ba-aecb-329729a4066e"))
+	if want := requestcontext.ClientIdentityFromHeaders(h).SessionID; want == "" || got.SessionID != want {
 		t.Fatalf("session id = %q, want header-derived %q", got.SessionID, want)
 	}
 }
@@ -43,7 +44,7 @@ func TestChatClientIdentityKeepsHeaderSessionForCursor(t *testing.T) {
 func TestChatClientIdentityIgnoresAgentStoreForOtherClients(t *testing.T) {
 	h := http.Header{}
 	h.Set("User-Agent", "curl/8")
-	if got := ChatClientIdentity(h, cursorChatBody("u", "22d7b4e0-95b6-47ba-aecb-329729a4066e")).SessionID; got != "" {
+	if got := requestcontext.ChatClientIdentity(h, cursorChatBody("u", "22d7b4e0-95b6-47ba-aecb-329729a4066e")).SessionID; got != "" {
 		t.Fatalf("non-Cursor session id = %q, want empty", got)
 	}
 }
@@ -52,7 +53,7 @@ func TestChatClientIdentityReadsCursorAgentFromMacOSStorePath(t *testing.T) {
 	const agentID = "5fd236bb-2901-4cf0-8fa6-8f6ec342b8d2"
 	body := strings.ReplaceAll(string(cursorChatBody("google-oauth2|user_01ABC", agentID)),
 		"/tmp/cursor-1000/", "/Users/dev/Library/Application Support/Cursor/AgentStores/")
-	got := ChatClientIdentity(cursorHeaders(), []byte(body))
+	got := requestcontext.ChatClientIdentity(cursorHeaders(), []byte(body))
 	if got.SessionID != agentID {
 		t.Fatalf("session id = %q, want the Cursor agent id from a store path containing a space", got.SessionID)
 	}

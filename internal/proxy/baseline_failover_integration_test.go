@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
@@ -115,12 +116,12 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 	respBody := rec.Body.String()
 	assert.Contains(t, respBody, "event: message_start", "client sees the Anthropic stream start")
 	assert.Contains(t, respBody, "event: message_stop", "client sees the Anthropic stream end")
-	assert.Equal(t, "anthropic", rec.Header().Get(proxy.HeaderRouterProvider), "served provider header reflects the baseline failover")
+	assert.Equal(t, "anthropic", rec.Header().Get(requestcontext.HeaderRouterProvider), "served provider header reflects the baseline failover")
 	// The buffered initial marker is replaced before it becomes visible, so the
 	// client sees only the model that produced provider output.
-	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel), "x-router-model reflects the baseline model that served")
+	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(requestcontext.HeaderRouterModel), "x-router-model reflects the baseline model that served")
 	assertContextHeaders(t, rec.Header())
-	assert.Equal(t, "1000000", rec.Header().Get(proxy.HeaderRouterContextWindow))
+	assert.Equal(t, "1000000", rec.Header().Get(requestcontext.HeaderRouterContextWindow))
 	telemetryRow := tel.firstRow(t)
 	var contextSnapshot turnrecord.ContextSnapshot
 	require.NoError(t, json.Unmarshal(telemetryRow.ContextSnapshot, &contextSnapshot))
@@ -338,7 +339,7 @@ func TestProxyMessages_OSSOutageNoBaselineWhenAnthropicExcluded(t *testing.T) {
 
 	_ = svc.ProxyMessages(context.Background(), body, rec, req)
 	assert.Equal(t, 0, anthropicCount, "baseline failover must not hit Anthropic when it is excluded")
-	assert.NotEqual(t, providers.ProviderAnthropic, rec.Header().Get(proxy.HeaderRouterProvider), "served provider must not be the excluded Anthropic")
+	assert.NotEqual(t, providers.ProviderAnthropic, rec.Header().Get(requestcontext.HeaderRouterProvider), "served provider must not be the excluded Anthropic")
 }
 
 // TestProxyMessages_FailedBaselineReportsAnthropicProvider: when both the OSS

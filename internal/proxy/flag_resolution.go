@@ -71,7 +71,7 @@ func (s *Service) ResolveAuthorityCacheShadow(ctx context.Context) bool {
 }
 
 func (s *Service) ResolveSiblingFailover(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeySiblingFailover, s.siblingFailover)
+	return flags.BoolOr(ctx, flags.KeySiblingFailover, s.rescueConfig.SiblingFailover)
 }
 
 func (s *Service) ResolveAllowedModelsHeader(ctx context.Context) bool {
@@ -91,11 +91,7 @@ func (s *Service) ResolveCCAutonomySystemAppend(ctx context.Context) bool {
 }
 
 func (s *Service) ResolveEarlyStopRedo(ctx context.Context) flags.EarlyStopRedoMode {
-	mode, err := flags.ParseEarlyStopRedoMode(flags.StringOr(ctx, flags.KeyEarlyStopRedo, string(s.earlyStopRedo)))
-	if err != nil {
-		return flags.EarlyStopRedoOff
-	}
-	return mode
+	return s.rescueConfig.EarlyStopRedoMode(ctx)
 }
 
 func (s *Service) ResolveCCWorkspaceSystemAppend(ctx context.Context) bool {
@@ -103,27 +99,19 @@ func (s *Service) ResolveCCWorkspaceSystemAppend(ctx context.Context) bool {
 }
 
 func (s *Service) ResolveCommittedStreamArmDemotion(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyCommittedStreamArmDemotion, s.committedStreamArmDemotion)
+	return s.armDemotion.CommittedStreamEnabled(ctx)
 }
 
 func (s *Service) ResolveRescuedFailureArmDemotion(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyRescuedFailureArmDemotion, s.rescuedFailureArmDemotion)
+	return s.armDemotion.RescuedFailureEnabled(ctx)
 }
 
 func (s *Service) ResolveTransientRateLimit(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyTransientRateLimit, s.transientRateLimit)
+	return s.throttling.RateLimit.Transient(ctx)
 }
 
 func (s *Service) ResolveRateLimitCooldown(ctx context.Context) time.Duration {
-	seconds := flags.IntOr(ctx, flags.KeyRateLimitCooldownSeconds, s.rateLimitCooldownSeconds)
-	if seconds < 1 {
-		seconds = DefaultRateLimitCooldownSeconds
-	}
-	return time.Duration(seconds) * time.Second
-}
-
-func (s *Service) ResolveProviderOverloaded(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyProviderOverloaded, s.providerOverloaded)
+	return s.throttling.RateLimit.Cooldown(ctx)
 }
 
 func (s *Service) ResolveNativeAnthropicResponseSignals(ctx context.Context) bool {
@@ -139,19 +127,19 @@ func (s *Service) ResolveEffortEscalation(ctx context.Context) bool {
 }
 
 func (s *Service) ResolveCyberRefusalRepin(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyCyberRefusalRepin, s.cyberRefusalRepin)
+	return flags.BoolOr(ctx, flags.KeyCyberRefusalRepin, s.rescueConfig.CyberRefusalRepin)
 }
 
 func (s *Service) ResolveCyberRefusalRetry(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyCyberRefusalRetry, s.cyberRefusalRetry)
+	return flags.BoolOr(ctx, flags.KeyCyberRefusalRetry, s.rescueConfig.CyberRefusalRetry)
 }
 
 func (s *Service) ResolveCyberRefusalFallbackModel(ctx context.Context) string {
-	return flags.StringOr(ctx, flags.KeyCyberRefusalFallback, s.cyberRefusalFallbackModel)
+	return flags.StringOr(ctx, flags.KeyCyberRefusalFallback, s.rescueConfig.CyberRefusalFallbackModel)
 }
 
 func (s *Service) ResolveAnthropicServerSideFallback(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyAnthropicServerFallback, s.anthropicServerSideFallback)
+	return flags.BoolOr(ctx, flags.KeyAnthropicServerFallback, s.rescueConfig.AnthropicServerSideFallback)
 }
 
 func plannerConfigFor(ctx context.Context, cfg planner.EVConfig) planner.EVConfig {

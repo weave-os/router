@@ -5,10 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestContextEstimateHeadersProtocols(t *testing.T) {
@@ -27,11 +29,11 @@ func TestContextEstimateHeadersProtocols(t *testing.T) {
 			require.NoError(t, err)
 			headers := http.Header{}
 			setContextEstimateHeaders(headers, env.ContextOverflowTokenEstimate(), 16000)
-			require.Equal(t, "16000", headers.Get(HeaderRouterContextReserve))
-			require.Equal(t, "approximate", headers.Get(HeaderRouterContextEstimateKind))
-			require.Equal(t, "1", headers.Get(HeaderRouterContextVersion))
-			require.NotEmpty(t, headers.Get(HeaderRouterContextEstimate))
-			require.NotEqual(t, "0", headers.Get(HeaderRouterContextEstimate))
+			require.Equal(t, "16000", headers.Get(requestcontext.HeaderRouterContextReserve))
+			require.Equal(t, "approximate", headers.Get(requestcontext.HeaderRouterContextEstimateKind))
+			require.Equal(t, "1", headers.Get(requestcontext.HeaderRouterContextVersion))
+			require.NotEmpty(t, headers.Get(requestcontext.HeaderRouterContextEstimate))
+			require.NotEqual(t, "0", headers.Get(requestcontext.HeaderRouterContextEstimate))
 		})
 	}
 }
@@ -54,8 +56,8 @@ func TestContextSnapshotUsesFinalServedModel(t *testing.T) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	headers := http.Header{}
 	setContextEstimateHeaders(headers, 72000, 8000)
-	headers.Set(HeaderRouterContextWindow, "1048576")
-	headers.Set(HeaderRouterModel, "deepseek/deepseek-v4-pro")
+	headers.Set(requestcontext.HeaderRouterContextWindow, "1048576")
+	headers.Set(requestcontext.HeaderRouterModel, "deepseek/deepseek-v4-pro")
 	snapshot := contextSnapshotJSONForDecision(headers, "request-final", "claude-opus-4-8", "claude-opus-4-8", providers.ProviderAnthropic, now, now)
 	parsed := turnrecord.ParseContextSnapshot(snapshot)
 	require.NotNil(t, parsed)
