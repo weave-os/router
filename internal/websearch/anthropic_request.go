@@ -60,6 +60,16 @@ func FindServerTool(body []byte) (ServerTool, bool) {
 	return found, found.Type != ""
 }
 
+func HasDomainFilter(body []byte) bool {
+	for _, tool := range gjson.GetBytes(body, "tools").Array() {
+		if strings.HasPrefix(tool.Get("type").String(), serverToolPrefix) &&
+			(len(tool.Get("allowed_domains").Array()) > 0 || len(tool.Get("blocked_domains").Array()) > 0) {
+			return true
+		}
+	}
+	return false
+}
+
 var nativeServerToolPrefixes = []string{serverToolPrefix, "web_fetch_"}
 
 func isNativeServerTool(toolType string) bool {

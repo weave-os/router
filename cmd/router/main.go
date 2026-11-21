@@ -45,6 +45,7 @@ import (
 	"weave-os/router/internal/providers/cortexagents"
 	googleProvider "weave-os/router/internal/providers/google"
 	providerHTTP "weave-os/router/internal/providers/httputil"
+	"weave-os/router/internal/providers/keenable"
 	openaiProvider "weave-os/router/internal/providers/openai"
 	openaiCompatProvider "weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
@@ -1073,7 +1074,7 @@ func main() {
 		WithRouterFeedbackStore(repo.Telemetry).
 		WithSummarizer(summarizer).
 		WithCompactionHandoverSummarizer(compactionHandoverSz).
-		WithWebSearchExecutor(cortexWebSearch(logger)).
+		WithWebSearchExecutors(cortexWebSearch(logger), keenable.FromEnv(config.GetOr, logger)).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
@@ -1519,8 +1520,7 @@ func cortexWebSearch(logger *slog.Logger) websearch.Executor {
 	hostSuffix := config.GetOr("SNOWFLAKE_AGENT_HOST_SUFFIX", "")
 	timeout := parseEnvDurationMs("SNOWFLAKE_AGENT_TIMEOUT_MS", 0)
 	logger.Info("Cortex Agents web-search executor enabled",
-		"snowflake_role", role, "host_suffix_override", hostSuffix,
-		"timeout_ms", timeout.Milliseconds())
+		"snowflake_role", role, "host_suffix_override", hostSuffix, "timeout_ms", timeout.Milliseconds())
 	opts := []cortexagents.Option{cortexagents.WithRole(role), cortexagents.WithTimeout(timeout)}
 	if hostSuffix != "" {
 		opts = append(opts, cortexagents.WithHostSuffix(hostSuffix))

@@ -30,6 +30,28 @@ func TestFindServerToolIgnoresClientFunctionTools(t *testing.T) {
 	}
 }
 
+func TestHasDomainFilter(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "no tools", body: `{}`},
+		{name: "no filters", body: `{"tools":[{"type":"web_search_20250305","name":"web_search"}]}`},
+		{name: "allowed domains", body: `{"tools":[{"type":"web_search_20250305","name":"web_search","allowed_domains":["docs.example"]}]}`, want: true},
+		{name: "blocked domains", body: `{"tools":[{"type":"web_search_20250305","name":"web_search","blocked_domains":["blocked.example"]}]}`, want: true},
+		{name: "empty filters", body: `{"tools":[{"type":"web_search_20250305","name":"web_search","allowed_domains":[],"blocked_domains":[]}]}`},
+		{name: "web search after a client tool", body: `{"tools":[{"name":"Read"},{"type":"web_search_20250305","name":"web_search","allowed_domains":["docs.example"]}]}`, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := websearch.HasDomainFilter([]byte(tt.body)); got != tt.want {
+				t.Errorf("HasDomainFilter() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestStripServerToolsKeepsClientTools(t *testing.T) {
 	body := []byte(`{"tools":[{"name":"Bash"},{"type":"web_search_20250305","name":"web_search"},{"name":"Read"}],"tool_choice":{"type":"auto"}}`)
 	out, removed := websearch.StripServerTools(body)
