@@ -84,12 +84,6 @@ func (s *Service) maybeDemoteArmAfterUnrescuedStall(
 	})
 }
 
-func isCommittedStreamFailure(ctx context.Context, err error) bool {
-	return dispatch.IsCommittedStreamFailure(ctx, err)
-}
-
-func dispatchErrorBehindFrames(err error) error { return dispatch.ErrorBehindFrames(err) }
-
 func isUpstreamWatchdogError(err error) bool { return dispatch.IsUpstreamWatchdogError(err) }
 
 func (s *Service) maybeDemoteArmAfterRescuedFailure(

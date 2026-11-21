@@ -129,7 +129,7 @@ func IsCommittedStreamFailure(ctx context.Context, err error) bool {
 	if err == nil {
 		return false
 	}
-	err = ErrorBehindFrames(err)
+	err = UnwrapSyntheticStatusErrors(err)
 	if IsUpstreamWatchdogError(err) || IsUpstreamWatchdogError(context.Cause(ctx)) {
 		return true
 	}
@@ -147,7 +147,7 @@ func IsCommittedStreamFailure(ctx context.Context, err error) bool {
 	return ctx.Err() == nil
 }
 
-func ErrorBehindFrames(err error) error {
+func UnwrapSyntheticStatusErrors(err error) error {
 	for {
 		var synthetic *providers.UpstreamStatusError
 		if !errors.As(err, &synthetic) || synthetic.Cause == nil {
