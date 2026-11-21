@@ -84,7 +84,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	if eligible && (claudeSubscriptionSuppressed(ctx) && provider == providers.ProviderAnthropic || codexSubscriptionSuppressed(ctx) && provider == providers.ProviderOpenAI) && !managedSubscriptionEnrolled(ctx, poolProvider) && !s.managedProviderFallbackAvailable(ctx, poolProvider) {
 		return ctx, subscriptions.Lease{}, true, subscriptionPoolExhausted(ctx)
 	}
-	if !eligible || s.managedSubscriptions == nil || !managedSubscriptionEnrolled(ctx, poolProvider) ||
+	if !eligible || s.credentials.ManagedSubscriptions == nil || !managedSubscriptionEnrolled(ctx, poolProvider) ||
 		poolProvider == subscriptions.ProviderCodex && codexChatEndpoint(ctx) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
@@ -132,7 +132,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		if poolProvider == subscriptions.ProviderClaude && claudeEnterpriseEnabled(ctx) {
 			leaseCtx = requestcontext.WithSubscriptionExtraUsage(ctx)
 		}
-		lease, present, err := leaseOrMarkLeasedOut(leaseCtx, s.managedSubscriptions, owner, poolProvider, model, ClientIdentityFrom(ctx).SessionID)
+		lease, present, err := leaseOrMarkLeasedOut(leaseCtx, s.credentials.ManagedSubscriptions, owner, poolProvider, model, ClientIdentityFrom(ctx).SessionID)
 		if err != nil && !errors.Is(err, subscriptions.ErrNoAvailableAccount) {
 			if current := CredentialsFromContext(ctx); ctx.Err() == nil && current != nil && current.OAuth {
 				observability.FromContext(ctx).Warn("Subscription pool lease failed; using caller subscription", "provider", poolProvider, "err", err)
@@ -232,7 +232,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			diagnostics.skip(lease, subscriptionSkipQuotaExhausted)
 			resetAt := linkedSubscriptionResetAt(snapshot, s.clock.Now())
 			recordManagedQuotaProof(ctx, lease.AccountID, resetAt)
-			if err := exhaustManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, resetAt); err != nil {
+			if err := exhaustManagedSubscription(ctx, s.credentials.ManagedSubscriptions, owner, poolProvider, lease.AccountID, resetAt); err != nil {
 				observability.FromContext(ctx).Error("Failed to persist exhausted subscription account", "provider", poolProvider, "account_id", lease.AccountID, "err", err)
 			}
 			lease.Release()
@@ -304,7 +304,7 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 		return true
 	}
 	if provider == providers.ProviderAnthropic && providers.IsUpstreamCredentialRefusal(attemptErr) {
-		return cooldownRefusedManagedSeat(ctx, s.managedSubscriptions, s.clock.Now(), owner, poolProvider, lease, attemptErr)
+		return cooldownRefusedManagedSeat(ctx, s.credentials.ManagedSubscriptions, s.clock.Now(), owner, poolProvider, lease, attemptErr)
 	}
 	switch status {
 	case http.StatusTooManyRequests, http.StatusUnauthorized, http.StatusForbidden:
@@ -327,18 +327,18 @@ func recordManagedSubscriptionStatus(ctx context.Context, s *Service, owner auth
 			resetAt = quotaReset
 			recordManagedQuotaProof(ctx, lease.AccountID, resetAt)
 			if poolProvider == subscriptions.ProviderClaude && claudeEnterpriseOnly(ctx) {
-				if err := s.managedSubscriptions.Cooldown(ctx, owner, poolProvider, lease.AccountID, resetAt); err != nil {
+				if err := s.credentials.ManagedSubscriptions.Cooldown(ctx, owner, poolProvider, lease.AccountID, resetAt); err != nil {
 					observability.FromContext(ctx).Error("Failed to persist Claude overage refusal cooldown", "account_id", lease.AccountID, "err", err)
 				}
 				return true
 			}
-			if err := exhaustManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, resetAt); err != nil {
+			if err := exhaustManagedSubscription(ctx, s.credentials.ManagedSubscriptions, owner, poolProvider, lease.AccountID, resetAt); err != nil {
 				observability.FromContext(ctx).Error("Failed to persist exhausted subscription account", "provider", poolProvider, "account_id", lease.AccountID, "err", err)
 			}
 			observability.FromContext(ctx).Warn("Subscription included quota exhausted", "provider", poolProvider, "account_id", lease.AccountID, "reset_at", resetAt)
 			return true
 		}
-		if err := s.managedSubscriptions.Cooldown(ctx, owner, poolProvider, lease.AccountID, resetAt); err != nil {
+		if err := s.credentials.ManagedSubscriptions.Cooldown(ctx, owner, poolProvider, lease.AccountID, resetAt); err != nil {
 			observability.FromContext(ctx).Error("Failed to persist subscription account cooldown",
 				"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 		}
@@ -347,7 +347,7 @@ func recordManagedSubscriptionStatus(ctx context.Context, s *Service, owner auth
 			"provider", poolProvider, "account_id", lease.AccountID, "cooldown_until", resetAt)
 		return true
 	case http.StatusUnauthorized, http.StatusForbidden:
-		reconnect, err := rejectManagedSubscriptionCredential(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, status)
+		reconnect, err := rejectManagedSubscriptionCredential(ctx, s.credentials.ManagedSubscriptions, owner, poolProvider, lease.AccountID, status)
 		if err != nil {
 			observability.FromContext(ctx).Error("Failed to record rejected subscription account",
 				"provider", poolProvider, "account_id", lease.AccountID, "err", err)
@@ -401,7 +401,7 @@ func (s *Service) recordManagedSubscriptionSuccess(ctx context.Context, provider
 	if !eligible {
 		return
 	}
-	activateManagedSubscription(ctx, s.managedSubscriptions, subscriptionOwnerFromContext(ctx), poolProvider, lease)
+	activateManagedSubscription(ctx, s.credentials.ManagedSubscriptions, subscriptionOwnerFromContext(ctx), poolProvider, lease)
 }
 
 func (s *Service) supportsSubscriptionTransport(provider string) bool {

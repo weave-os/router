@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/subscriptions"
 )
 
 type Brokerage struct {
@@ -16,6 +17,9 @@ type Brokerage struct {
 	ExcludedProvidersOverride map[string]struct{}
 	SubscriptionModels        SubscriptionModelAccess
 	CodexExtraCredits         bool
+	ManagedSubscriptions      subscriptions.Leaser
+	SessionHolds              SubscriptionSessionHolds
+	ClaudePlans               *subscriptions.PlanResolver
 }
 
 var _ Broker = (*Brokerage)(nil)
