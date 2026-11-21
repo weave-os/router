@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/telemetry"
@@ -156,7 +157,7 @@ func TestUsageProjection_NoticesAndFeedbackContributeNoProviderUsage(t *testing.
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: router.ModelGemini4Argon}}, map[string]providers.Client{providers.ProviderGoogle: provider}, nil, nil, false, providers.ProviderGoogle, router.ModelGemini4Argon, telemetry), hmm.ServingPorts()).WithRouterFeedbackStore(&fakeFeedbackStore{})
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
-	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode})
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"hello"}]}`), rec, req))

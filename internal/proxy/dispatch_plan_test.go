@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -53,8 +54,8 @@ func TestDispatchPlanned_PrimarySucceeds(t *testing.T) {
 	assert.Equal(t, 1, primary.calls)
 	assert.Equal(t, 0, fallback.calls)
 	assert.Equal(t, "ok", rec.Body.String())
-	assert.Equal(t, providers.ProviderFireworks, rec.Header().Get(HeaderRouterProvider))
-	assert.Equal(t, plannedTestModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, providers.ProviderFireworks, rec.Header().Get(requestcontext.HeaderRouterProvider))
+	assert.Equal(t, plannedTestModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 func TestDispatchPlanned_FailsOverBeforeCommit(t *testing.T) {
@@ -72,8 +73,8 @@ func TestDispatchPlanned_FailsOverBeforeCommit(t *testing.T) {
 	assert.Equal(t, 1, primary.calls)
 	assert.Equal(t, 1, fallback.calls)
 	assert.Equal(t, "rescued", rec.Body.String())
-	assert.Equal(t, providers.ProviderFireworks, rec.Header().Get(HeaderRouterFallbackFrom))
-	assert.Equal(t, providers.ProviderOpenRouter, rec.Header().Get(HeaderRouterProvider))
+	assert.Equal(t, providers.ProviderFireworks, rec.Header().Get(requestcontext.HeaderRouterFallbackFrom))
+	assert.Equal(t, providers.ProviderOpenRouter, rec.Header().Get(requestcontext.HeaderRouterProvider))
 }
 
 func TestDispatchPlanned_NoFailoverAfterCommit(t *testing.T) {

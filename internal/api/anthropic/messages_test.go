@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
@@ -167,7 +168,7 @@ func TestMessagesHandler_RequestTooLarge(t *testing.T) {
 	svc := newTestService(&fakeRouter{}, "", nil)
 	engine := messagesEngine(svc)
 
-	oversized := bytes.Repeat([]byte("a"), proxy.MaxRequestBodyBytes+1)
+	oversized := bytes.Repeat([]byte("a"), requestcontext.MaxRequestBodyBytes+1)
 	rec := postMessages(t.Context(), engine, oversized)
 
 	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
@@ -421,7 +422,7 @@ func TestRouteHandler_RequestTooLarge(t *testing.T) {
 	svc := newTestService(&fakeRouter{}, "", nil)
 	engine := routeEngine(svc)
 
-	oversized := bytes.Repeat([]byte("a"), proxy.MaxRequestBodyBytes+1)
+	oversized := bytes.Repeat([]byte("a"), requestcontext.MaxRequestBodyBytes+1)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route", bytes.NewReader(oversized)))
 
@@ -595,7 +596,7 @@ func TestPassthroughHandler_RequestTooLarge(t *testing.T) {
 	svc := newTestService(&fakeRouter{}, "", nil)
 	engine := passthroughEngine(svc)
 
-	oversized := bytes.Repeat([]byte("a"), proxy.MaxRequestBodyBytes+1)
+	oversized := bytes.Repeat([]byte("a"), requestcontext.MaxRequestBodyBytes+1)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader(oversized)))
 

@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/hmm"
 
 	"github.com/gin-gonic/gin"
@@ -178,7 +179,7 @@ func TestSessionCostHandler(t *testing.T) {
 		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
 
 		rec := httptest.NewRecorder()
-		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/"+strings.Repeat("s", proxy.MaxClientIdentifierLen+1)+"/cost", nil))
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/"+strings.Repeat("s", requestcontext.MaxClientIdentifierLen+1)+"/cost", nil))
 
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 		body := decodePublicError(t, rec)
@@ -189,7 +190,7 @@ func TestSessionCostHandler(t *testing.T) {
 	t.Run("accepts a session id at the identifier limit", func(t *testing.T) {
 		repo := &sessionCostRepo{cost: proxy.SessionCost{SessionID: "session-1"}}
 		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
-		sessionID := strings.Repeat("s", proxy.MaxClientIdentifierLen)
+		sessionID := strings.Repeat("s", requestcontext.MaxClientIdentifierLen)
 
 		rec := httptest.NewRecorder()
 		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/"+sessionID+"/cost", nil))

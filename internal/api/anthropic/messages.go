@@ -28,13 +28,13 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
-		body, err := io.ReadAll(io.LimitReader(c.Request.Body, proxy.MaxRequestBodyBytes+1))
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, requestcontext.MaxRequestBodyBytes+1))
 		if err != nil {
 			log.Debug("Failed to read request body", "err", err)
 			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body.")
 			return
 		}
-		if len(body) > proxy.MaxRequestBodyBytes {
+		if len(body) > requestcontext.MaxRequestBodyBytes {
 			logOversizeBody(log, c.Request)
 			writeAnthropicError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body too large.")
 			return
@@ -96,13 +96,13 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 
 func stashClientIdentity(ctx context.Context, h http.Header, body []byte) context.Context {
 	metaRaw := gjson.GetBytes(body, "metadata.user_id").String()
-	meta := proxy.ParseClaudeCodeMetadata(metaRaw)
+	meta := requestcontext.ParseClaudeCodeMetadata(metaRaw)
 
-	id := proxy.ClientIdentityFromHeaders(h)
-	id.DeviceID = proxy.NormalizeClientIdentifier(meta.DeviceID)
-	id.AccountID = proxy.NormalizeClientIdentifier(meta.AccountID)
+	id := requestcontext.ClientIdentityFromHeaders(h)
+	id.DeviceID = requestcontext.NormalizeClientIdentifier(meta.DeviceID)
+	id.AccountID = requestcontext.NormalizeClientIdentifier(meta.AccountID)
 	id.SessionID = requestcontext.AnthropicHeaderSessionID(h, meta)
-	if metaEmail := proxy.NormalizeEmail(meta.Email); metaEmail != "" {
+	if metaEmail := requestcontext.NormalizeEmail(meta.Email); metaEmail != "" {
 		id.Email = metaEmail
 	}
 	observability.FromContext(ctx).Debug("anthropic stashClientIdentity",
@@ -133,7 +133,7 @@ func anthropicErrorType(cls proxy.DispatchErrorClass) string {
 func logOversizeBody(log *slog.Logger, r *http.Request) {
 	log.Warn("Request body too large",
 		"content_length", r.ContentLength,
-		"max_body_bytes", proxy.MaxRequestBodyBytes,
+		"max_body_bytes", requestcontext.MaxRequestBodyBytes,
 		"client_session_id", r.Header.Get("X-Claude-Code-Session-Id"),
 		"user_agent", r.UserAgent(),
 	)

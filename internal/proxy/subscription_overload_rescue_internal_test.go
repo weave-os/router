@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -88,7 +89,7 @@ func TestCodexPlanOverload_RescuedBySiblingCandidate(t *testing.T) {
 
 	body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	ctx = WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 	require.NoError(t, err, "the sibling must serve the turn the overloaded plan model could not")
@@ -106,7 +107,7 @@ func TestCodexPlanOverload_NoSiblingSurfacesUpstreamError(t *testing.T) {
 
 	body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	ctx = WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 	require.Error(t, err)
@@ -142,7 +143,7 @@ func proxyCodexResponsesOverload(t *testing.T, withSibling bool) (*codexInStream
 	svc := codexOverloadService(primary, sibling, withSibling)
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	ctx = WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 	return primary, sibling, rec, err
@@ -205,7 +206,7 @@ func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
 
 			body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 			rec := httptest.NewRecorder()
-			ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+			ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 			ctx = WithManagedSubscriptionUsage(ctx)
 			ctx = outOfRosterBillingCtx(ctx)
 			err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
@@ -346,7 +347,7 @@ func TestCodexPlanOverloadAfterReasoning_RescuedBySiblingCandidate(t *testing.T)
 	svc := codexOverloadService(primary, sibling, true)
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	ctx = WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 

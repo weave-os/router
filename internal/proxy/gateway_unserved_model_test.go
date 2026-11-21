@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -120,7 +121,7 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_ExcludedOnLaterTurns(t *t
 	assert.NotContains(t, seen[1].ExcludedModels, servedAlias,
 		"only the model the endpoint refused is excluded")
 	assert.Equal(t, []string{servedAlias}, gateway.servedWith)
-	assert.Equal(t, servedAlias, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, servedAlias, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // The memo is per (endpoint, model): an alias the gateway does serve must stay
@@ -151,7 +152,7 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_KeepsServedAliasesRoutabl
 		rec := httptest.NewRecorder()
 		require.NoError(t, svc.ProxyMessages(ctx, []byte(titleGenBody), rec,
 			httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
-		assert.Equal(t, servedAlias, rec.Header().Get(proxy.HeaderRouterModel))
+		assert.Equal(t, servedAlias, rec.Header().Get(requestcontext.HeaderRouterModel))
 	}
 	require.Len(t, seen, 2)
 	assert.NotContains(t, seen[1].ExcludedModels, servedAlias,

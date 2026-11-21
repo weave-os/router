@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/subscriptionlane"
@@ -9,7 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
+func WithAPIKeySpendCap(svc *billing.Service, funding credentials.CustomerFunding) gin.HandlerFunc {
+	requireCustomerFunding(funding)
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		if _, ok := proxy.AgentShadowEvalFromContext(c.Request.Context()); ok {
@@ -28,7 +30,7 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 
-		subscriptionExempt := proxy.RequestHasCustomerFunding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ByokFeeOwed(c.Request.Context()))
+		subscriptionExempt := funding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ByokFeeOwed(c.Request.Context()))
 
 		result, err := svc.CheckAPIKeySpendCap(c.Request.Context(), apiKey.ID)
 		if err != nil {

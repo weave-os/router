@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 )
 
@@ -129,5 +130,5 @@ func writeCommandAcknowledgment(ctx context.Context, w http.ResponseWriter, env 
 }
 
 func writeCommandOutcome(ctx context.Context, w http.ResponseWriter, env *translate.RequestEnvelope, text string, outcome translate.CommandOutcome, inputTokens int) error {
-	return translate.WriteCommandResponse(w, env, text, inputTokens, outcome, ClientIdentityFrom(ctx).ClientApp == ClientAppCodex)
+	return translate.WriteCommandResponse(w, env, text, inputTokens, outcome, ClientIdentityFrom(ctx).ClientApp == requestcontext.ClientAppCodex)
 }

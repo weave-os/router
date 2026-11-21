@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -130,12 +131,12 @@ func TestDispatchWithFallbackKeepsManagedThirdPartyRefusalClientSpecific(t *test
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 	svc.retrySleep = noopSleep
 
-	_, err := dispatchManagedThirdPartyTurn(t, svc, clientAppContext(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), ClientAppOpencode))
+	_, err := dispatchManagedThirdPartyTurn(t, svc, clientAppContext(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), requestcontext.ClientAppOpencode))
 	require.Error(t, err)
 	require.Equal(t, 1, upstream.subDispatches)
 
 	upstream.subErr = nil
-	claudeCodeCtx := clientAppContext(managedSubscriptionTestContext(), ClientAppClaudeCode)
+	claudeCodeCtx := clientAppContext(managedSubscriptionTestContext(), requestcontext.ClientAppClaudeCode)
 	recorder, err := dispatchManagedThirdPartyTurn(t, svc, claudeCodeCtx)
 	require.NoError(t, err)
 	assert.Equal(t, "served", recorder.Body.String())
@@ -154,7 +155,7 @@ func TestDispatchWithFallbackSurfacesManagedThirdPartyRefusalWithoutFallbackKey(
 		WithManagedSubscriptions(leaser)
 	svc.retrySleep = noopSleep
 
-	_, err := dispatchManagedThirdPartyTurn(t, svc, clientAppContext(managedSubscriptionTestContext(), ClientAppOpencode))
+	_, err := dispatchManagedThirdPartyTurn(t, svc, clientAppContext(managedSubscriptionTestContext(), requestcontext.ClientAppOpencode))
 
 	require.Error(t, err)
 	assert.Equal(t, 1, upstream.subDispatches)
@@ -202,7 +203,7 @@ func TestDispatchWithFallbackRejectsPaidFallbackForForcedThirdPartyRefusal(t *te
 	svc.retrySleep = noopSleep
 
 	for range 2 {
-		_, err := dispatchManagedThirdPartyTurnWithReason(t, svc, clientAppContext(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), ClientAppOpencode), translate.ReasonUserForceModel)
+		_, err := dispatchManagedThirdPartyTurnWithReason(t, svc, clientAppContext(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), requestcontext.ClientAppOpencode), translate.ReasonUserForceModel)
 		require.ErrorIs(t, err, ErrSubscriptionClientAppRefused)
 		cls, ok := ClassifyDispatchError(err)
 		require.True(t, ok)
@@ -241,7 +242,7 @@ func TestRotationBudgetPaidRescueRejectsForcedThirdPartyRefusal(t *testing.T) {
 // admittedThirdPartyRefusalContext admits the one linked seat the leaser hands
 // out, so paid authorization judges that seat rather than a missing snapshot.
 func admittedThirdPartyRefusalContext(paidFallbackConsented bool) context.Context {
-	return admittedClientRefusalContext(paidFallbackConsented, ClientAppOpencode)
+	return admittedClientRefusalContext(paidFallbackConsented, requestcontext.ClientAppOpencode)
 }
 
 func admittedClientRefusalContext(paidFallbackConsented bool, clientApp string) context.Context {
@@ -339,7 +340,7 @@ func TestForcedThirdPartyRefusalPaysThroughSubscriptionStateModelsOnlyWhenKeyCon
 			if consented {
 				ctx = context.WithValue(ctx, APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}, true)
 			}
-			ctx = clientAppContext(ctx, ClientAppOpencode)
+			ctx = clientAppContext(ctx, requestcontext.ClientAppOpencode)
 			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel})
 			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateClaudeModel})
 			ctx = withTurnFailures(ctx)
@@ -380,7 +381,7 @@ func sharedPoolRefusalContext(paidFallbackConsented bool) context.Context {
 	if paidFallbackConsented {
 		ctx = context.WithValue(ctx, APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}, true)
 	}
-	return clientAppContext(ctx, ClientAppOpencode)
+	return clientAppContext(ctx, requestcontext.ClientAppOpencode)
 }
 
 func newSharedPoolRefusalService(t *testing.T, leases ...subscriptions.Lease) (*Service, *parityUpstream, *scriptedSubscriptionLeaser) {

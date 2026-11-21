@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
@@ -218,13 +219,13 @@ func TestService_AgentShadowEvaluationForcesEphemerallyWithoutServingRouter(t *t
 	assert.Contains(t, string(provider.proxyBodies[0]), `"model":"claude-opus-4-8"`)
 	assert.Contains(t, string(provider.proxyBodies[0]), "old-result-0")
 	assert.NotContains(t, string(provider.proxyBodies[0]), "stale-signature")
-	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(requestcontext.HeaderRouterModel))
 	// claude-opus-4-8 is CapExtendedContext, so the served context window header
 	// reports the effective 1M window clients should budget against.
-	assert.Equal(t, "1000000", rec.Header().Get(proxy.HeaderRouterContextWindow))
+	assert.Equal(t, "1000000", rec.Header().Get(requestcontext.HeaderRouterContextWindow))
 	assertContextHeaders(t, rec.Header())
-	assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get(proxy.HeaderRouterProvider))
-	assert.Equal(t, proxy.ReasonAgentShadowEval, rec.Header().Get(proxy.HeaderRouterDecision))
+	assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get(requestcontext.HeaderRouterProvider))
+	assert.Equal(t, proxy.ReasonAgentShadowEval, rec.Header().Get(requestcontext.HeaderRouterDecision))
 	assert.Never(t, func() bool {
 		telemetry.mu.Lock()
 		defer telemetry.mu.Unlock()
@@ -268,9 +269,9 @@ func TestService_AgentShadowEvaluationNeverSubstitutesRequestedBaseline(t *testi
 
 	assert.NotEmpty(t, openAIProvider.proxyBodies, "the planned candidate must be attempted")
 	assert.Empty(t, anthropicProvider.proxyBodies, "eval forcing must never dispatch the request baseline")
-	assert.Equal(t, "gpt-5.5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "gpt-5.5", rec.Header().Get(requestcontext.HeaderRouterModel))
 	// gpt-5.5 is not CapExtendedContext, so the header carries its catalog window.
-	assert.Equal(t, "1050000", rec.Header().Get(proxy.HeaderRouterContextWindow))
+	assert.Equal(t, "1050000", rec.Header().Get(requestcontext.HeaderRouterContextWindow))
 }
 
 func TestService_AgentShadowEvaluationNeverRetriesSubscriptionOnDeploymentKey(t *testing.T) {
@@ -332,7 +333,7 @@ func TestService_ProxyOpenAIResponses_CodexFeedbackSkillIsSynthetic(t *testing.T
 		providers.ProviderOpenAI: provider,
 	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-terra", nil), hmm.ServingPorts())
 
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	body := []byte(`{"model":"gpt-5.6-terra","input":[{"type":"message","role":"user","content":"$rf +"},{"type":"message","role":"user","content":"<skill>\n<name>rf</name>\nrun the feedback skill\n</skill>"},{"type":"custom_tool_call","call_id":"call_skill","name":"exec","input":"..."},{"type":"custom_tool_call_output","call_id":"call_skill","output":[{"type":"input_text","text":"Script completed\nOutput:\n /router-feedback +\n"}]}]}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -381,7 +382,7 @@ func TestService_ProxyOpenAIResponses_StaysNativeForDirectOpenAI(t *testing.T) {
 				providers.ProviderOpenAI: provider,
 			}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
-			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppOpencode})
 			body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium"}` + tc.tools + `}`)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -424,7 +425,7 @@ func TestService_ProxyOpenAIResponses_BroadRolloutOffKeepsNarrowPromotion(t *tes
 				providers.ProviderOpenAI: provider,
 			}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
-			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppOpencode})
 			ctx = flags.WithOverrides(ctx, flags.Overrides{
 				Bools: map[flags.Key]bool{flags.KeyOpenAIResponsesBroad: false},
 			})
@@ -467,7 +468,7 @@ func TestService_ProxyOpenAIResponses_ToolTurnFallsBackWhenEndpointLacksResponse
 	ctx := context.WithValue(
 		context.Background(),
 		proxy.ClientIdentityContextKey{},
-		proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode},
+		requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppOpencode},
 	)
 	body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium"},"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`)
 
@@ -509,11 +510,11 @@ func TestService_ProxyOpenAIResponses_NativeBadgeForTerminalClientsHonorsSuppres
 		wantBadge  bool
 		wantStrip  bool
 	}{
-		{name: "Codex", clientApp: proxy.ClientAppCodex, wantBadge: true, wantStrip: true},
-		{name: "Codex marker opt-out", clientApp: proxy.ClientAppCodex, marker: "off", wantStrip: true},
-		{name: "Codex suggestion mode", clientApp: proxy.ClientAppCodex, suggestion: true, wantStrip: true},
-		{name: "OpenCode", clientApp: proxy.ClientAppOpencode, wantBadge: true, wantStrip: true},
-		{name: "OpenCode marker opt-out", clientApp: proxy.ClientAppOpencode, marker: "off", wantStrip: true},
+		{name: "Codex", clientApp: requestcontext.ClientAppCodex, wantBadge: true, wantStrip: true},
+		{name: "Codex marker opt-out", clientApp: requestcontext.ClientAppCodex, marker: "off", wantStrip: true},
+		{name: "Codex suggestion mode", clientApp: requestcontext.ClientAppCodex, suggestion: true, wantStrip: true},
+		{name: "OpenCode", clientApp: requestcontext.ClientAppOpencode, wantBadge: true, wantStrip: true},
+		{name: "OpenCode marker opt-out", clientApp: requestcontext.ClientAppOpencode, marker: "off", wantStrip: true},
 		{name: "non-terminal Responses client"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -533,7 +534,7 @@ func TestService_ProxyOpenAIResponses_NativeBadgeForTerminalClientsHonorsSuppres
 
 			ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
 			ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-123")
-			ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: tc.clientApp})
+			ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: tc.clientApp})
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"\u2063\u2060\u2063\u2060**Weave Router** — gpt-5.6-sol\n\nold answer\n\n_Weave Router feedback:_ /rf + good experience"}]},{"type":"message","role":"user","content":"continue"},{"type":"message","role":"assistant","content":[{"type":"output_text","text":""}]},{"type":"function_call","call_id":"call_shell","name":"shell","arguments":"{}"}]}`)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -582,7 +583,7 @@ func TestService_ProxyOpenAIResponses_OpenCodeStripsTerminalArtifactsBeforeTrans
 		providers.ProviderFireworks: provider,
 	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppOpencode})
 	body := []byte(`{"model":"auto","input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"` + "\u2063\u2060\u2063\u2060" + `**Weave Router** — gpt-5.6-sol\n\nold answer\n\n_Weave Router feedback:_ /rf + good experience"}]},{"type":"message","role":"user","content":"continue"}]}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -613,7 +614,7 @@ func TestService_ProxyOpenAIResponses_TranslatedMarkerOptOutPreservesStream(t *t
 		},
 	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	body := []byte(`{"model":"gpt-5.6-luna","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"say hello"}]}]}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -687,7 +688,7 @@ func TestService_ProxyOpenAIResponses_EmitsRoutingMarkerForCodex(t *testing.T) {
 				providers.ProviderOpenRouter: provider,
 			}, nil, nil, false, providers.ProviderOpenRouter, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
-			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 			body := []byte(`{"model":"gpt-5.6-luna","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"do the thing"}]}]}`)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -864,7 +865,7 @@ func TestService_ProxyOpenAIResponses_CodexPortableBridgeKeepsHMMProvidersAndRes
 
 	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
 	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-123")
-	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	body := []byte(`{
 			"model":"gpt-5.6-sol",
 			"stream":true,
@@ -1568,7 +1569,7 @@ func TestService_ProxyOpenAIResponses_NativeDispatchAppliesArmEffort(t *testing.
 				providers.ProviderOpenAI: provider,
 			}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
-			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppOpencode})
 			body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium","summary":"auto"}}`)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -1585,9 +1586,9 @@ func TestService_ProxyOpenAIResponses_NativeDispatchAppliesArmEffort(t *testing.
 
 func assertContextHeaders(t *testing.T, headers http.Header) {
 	t.Helper()
-	require.Equal(t, "1", headers.Get(proxy.HeaderRouterContextVersion))
-	require.Equal(t, "approximate", headers.Get(proxy.HeaderRouterContextEstimateKind))
-	require.Equal(t, "8000", headers.Get(proxy.HeaderRouterContextReserve))
-	require.NotEmpty(t, headers.Get(proxy.HeaderRouterContextEstimate))
-	require.NotEqual(t, "0", headers.Get(proxy.HeaderRouterContextEstimate))
+	require.Equal(t, "1", headers.Get(requestcontext.HeaderRouterContextVersion))
+	require.Equal(t, "approximate", headers.Get(requestcontext.HeaderRouterContextEstimateKind))
+	require.Equal(t, "8000", headers.Get(requestcontext.HeaderRouterContextReserve))
+	require.NotEmpty(t, headers.Get(requestcontext.HeaderRouterContextEstimate))
+	require.NotEqual(t, "0", headers.Get(requestcontext.HeaderRouterContextEstimate))
 }
