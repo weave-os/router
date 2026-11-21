@@ -17,8 +17,7 @@ func (r *TelemetryRepo) InsertPolicyShadowDecision(ctx context.Context, p teleme
 	if err != nil {
 		return err
 	}
-	q := dbbudget.Queries(r.tx)
-	return q.InsertPolicyShadowDecision(ctx, sqlc.InsertPolicyShadowDecisionParams{
+	return dbbudget.Queries(r.tx).InsertPolicyShadowDecision(ctx, sqlc.InsertPolicyShadowDecisionParams{
 		InstallationID:              id,
 		OrganizationID:              stringPtrOrNil(p.OrganizationID),
 		RolloutID:                   stringPtrOrNil(p.RolloutID),
