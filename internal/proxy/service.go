@@ -5309,34 +5309,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	return proxyErr
 }
 
-func stripResponsesVisualArtifacts(body []byte) ([]byte, error) {
-	stripped, err := translate.StripCommandOutcomesFromResponsesInput(body)
-	if err != nil {
-		return nil, fmt.Errorf("strip Responses command outcome: %w", err)
-	}
-	stripped, err = translate.StripRoutingBadgeFromResponsesInput(stripped)
-	if err != nil {
-		return nil, fmt.Errorf("strip native Responses routing badge: %w", err)
-	}
-	stripped, err = translate.StripFeedbackFooterFromResponsesInput(stripped)
-	if err != nil {
-		return nil, fmt.Errorf("strip native Responses feedback footer: %w", err)
-	}
-	return stripped, nil
-}
-
-func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
-	stripped, err := translate.StripRouterCommandsFromResponsesInput(body)
-	if err != nil {
-		return nil, fmt.Errorf("strip Responses router command: %w", err)
-	}
-	stripped, err = translate.StripHistoricalCommandsFromResponsesInput(stripped)
-	if err != nil {
-		return nil, err
-	}
-	return stripResponsesVisualArtifacts(stripped)
-}
-
 func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
@@ -5354,7 +5326,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		ctx = context.WithValue(ctx, responsesFooterEchoedContextKey{}, true)
 	}
 	ctx = withSubscriptionOnlyWarningEcho(ctx, body)
-	nativeBody, conversionBody, err := responsesDispatchBodies(body, terminalResponses)
+	nativeBody, conversionBody, err := s.ingress.Responses.DispatchBodies(body, terminalResponses)
 	if err != nil {
 		return err
 	}
@@ -5363,7 +5335,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	} else {
 		ctx = context.WithValue(ctx, responsesReplayedModelContextKey{}, translate.LastReplayedResponsesModel(body))
 	}
-	conversion, err := convertCodexResponses(ctx, conversionBody, portableCodex, codexLossyRescueNeeded(ctx, s, r.Header))
+	conversion, err := s.ingress.Responses.ConvertCodexResponses(ctx, conversionBody, portableCodex, codexLossyRescueNeeded(ctx, s, r.Header))
 	if err != nil {
 		return fmt.Errorf("translate responses request: %w", err)
 	}
