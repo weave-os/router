@@ -30,7 +30,6 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandswap"
-	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
@@ -123,10 +122,7 @@ type Service struct {
 	allowedModelsHeader            bool
 	committedStreamArmDemotion     bool
 	rescuedFailureArmDemotion      bool
-	transientRateLimit             bool
-	rateLimitCooldownSeconds       int
-	providerOverloaded             bool
-	overloadBreaker                *breaker.Registry
+	throttling                     dispatch.Throttling
 	ingress                        ingress.Formats
 	cyberRefusalFallbackModel      string
 	effortEscalation               bool
@@ -1083,8 +1079,7 @@ func (s *Service) WithRescuedFailureArmDemotion(enabled bool) *Service {
 }
 
 func (s *Service) WithTransientRateLimit(enabled bool, cooldownSeconds int) *Service {
-	s.transientRateLimit = enabled
-	s.rateLimitCooldownSeconds = cooldownSeconds
+	s.throttling.RateLimit = dispatch.NewRateLimitPolicy(enabled, cooldownSeconds)
 	return s
 }
 
