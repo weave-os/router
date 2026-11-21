@@ -171,6 +171,16 @@ jq -n '{env: {ANTHROPIC_BASE_URL: "http://127.0.0.1:9", ANTHROPIC_CUSTOM_HEADERS
 run env HOME="$explicit_keyless_home" bash "$installer" --claude-desktop --non-interactive --base-url http://127.0.0.1:9 --email dev@example.com >/dev/null 2>&1 || fail "matching keyless settings.json stopped the parked key lookup"
 [ "$(jq -r '.router_key' "$explicit_keyless_home/.weave-router/desktop-shim/config.json")" = "rk_parked_keyless" ] || fail "matching keyless settings.json hid the parked key"
 
+# A matching keyless settings.json is not reported as a mismatch because a parked install points elsewhere.
+matched_keyless_home="$work/matched-keyless-home"
+mkdir -p "$matched_keyless_home/.claude"
+jq -n '{env: {ANTHROPIC_BASE_URL: "http://127.0.0.1:9"}}' >"$matched_keyless_home/.claude/settings.json"
+jq -n '{env: {ANTHROPIC_BASE_URL: "https://router-b.example.test", ANTHROPIC_CUSTOM_HEADERS: "X-Weave-Router-Key: rk_parked_elsewhere"}}' >"$matched_keyless_home/.claude/.weave-parked.json"
+if out="$(run env HOME="$matched_keyless_home" bash "$installer" --claude-desktop --non-interactive --base-url http://127.0.0.1:9 --email dev@example.com 2>&1)"; then
+  fail "install reused a parked key from a different endpoint"
+fi
+! grep -Fq "https://router-b.example.test" <<<"$out" || fail "matching keyless settings.json reported as an endpoint mismatch: $out"
+
 # A --base-url naming a different router never receives the Claude Code key;
 # the failure names both endpoints but never prints the key.
 other_home="$work/other-home"
