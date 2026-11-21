@@ -328,13 +328,13 @@ var _ handover.Summarizer = (*ProviderSummarizer)(nil)
 
 func (s *Service) runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) dispatch.HandoverOutcome {
 	summarizer := s.summarizer
-	if compaction := s.lifecycle.CompactionHandoverSummarizer(); compaction != nil {
-		summarizer = compaction
+	if compactionSummarizer := s.lifecycle.CompactionHandoverSummarizer(); compactionSummarizer != nil {
+		summarizer = compactionSummarizer
 	}
 	return conversation.CompactionHandover{
 		Summarizer: summarizer,
 		Access:     summarizerAccess{s: s, headers: reqHeaders},
-		Now:        func() time.Time { return s.clock.Now() },
+		Now:        s.clock.Now,
 	}.Run(ctx, env, decisionModel, scope)
 }
 
