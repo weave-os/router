@@ -4765,17 +4765,20 @@ fi
 # install on a different endpoint is reported (endpoint only) so the user can
 # see why the key wasn't picked up.
 desktop_cli_other_base=""
+desktop_cli_endpoint_matched=""
 if [ "$target" = "claude-desktop" ] && { [ "$base_url_explicit" = "true" ] || [ -n "${WEAVE_ROUTER_URL:-}" ]; }; then
   for cli_settings_file in "$settings_base/.claude/settings.json" "$settings_base/.claude/.weave-parked.json"; do
     cli_base="$(json_get "$cli_settings_file" '.env.ANTHROPIC_BASE_URL')"
     router_shaped_url "$cli_base" || continue
     cli_base="$(strip_trailing_slashes "$cli_base")"
     if [ "$cli_base" = "$(strip_trailing_slashes "$base_url")" ]; then
-      desktop_cli_key="$(read_claude_key "$cli_settings_file")"
+      desktop_cli_endpoint_matched=true
       desktop_cli_other_base=""
-      break
+      desktop_cli_key="$(read_claude_key "$cli_settings_file")"
+      [ -z "$desktop_cli_key" ] || break
+      continue
     fi
-    [ -n "$desktop_cli_other_base" ] || desktop_cli_other_base="$cli_base"
+    [ -n "$desktop_cli_other_base" ] || [ -n "$desktop_cli_endpoint_matched" ] || desktop_cli_other_base="$cli_base"
   done
 fi
 
