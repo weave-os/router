@@ -20,6 +20,7 @@ import (
 	subscriptionsapi "weave-os/router/internal/api/subscriptions"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
@@ -94,6 +95,7 @@ type Features struct {
 	RosterCatalogID          func(string) string
 	TaskDomainPreview        taskdomain.Previewer
 	SeatUsage                admin.SeatUsageReader
+	SubscriptionCoverage     credentials.SubscriptionCoverage
 }
 
 func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, features Features) {
@@ -125,7 +127,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	var subscriberAllowanceMiddleware []gin.HandlerFunc
 	var subscriberProductScopeMiddleware []gin.HandlerFunc
 	if features.SubscriberAllowance != nil {
-		subscriberAllowanceMiddleware = []gin.HandlerFunc{middleware.WithSubscriberAllowance(features.SubscriberAllowance)}
+		subscriberAllowanceMiddleware = []gin.HandlerFunc{middleware.WithSubscriberAllowance(features.SubscriberAllowance, features.SubscriptionCoverage)}
 		subscriberProductScopeMiddleware = []gin.HandlerFunc{middleware.WithSubscriberProductScope(features.SubscriberAllowance)}
 	}
 	var servingAdmissionMiddleware []gin.HandlerFunc
@@ -278,10 +280,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	if billingSvc != nil {
 		messagesMiddleware = append(messagesMiddleware,
 			middleware.WithBillingSpan(),
-			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
-			middleware.WithAPIKeySpendCap(billingSvc),
-			middleware.WithDelegatedSpendCap(billingSvc),
-			middleware.WithOrgMonthlySpendCap(billingSvc),
+			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros, features.SubscriptionCoverage),
+			middleware.WithAPIKeySpendCap(billingSvc, features.SubscriptionCoverage),
+			middleware.WithDelegatedSpendCap(billingSvc, features.SubscriptionCoverage),
+			middleware.WithOrgMonthlySpendCap(billingSvc, features.SubscriptionCoverage),
 			middleware.WithBillingSpanEnd(),
 		)
 	}
@@ -308,10 +310,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	if billingSvc != nil {
 		chatCompletionMiddleware = append(chatCompletionMiddleware,
 			middleware.WithBillingSpan(),
-			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
-			middleware.WithAPIKeySpendCap(billingSvc),
-			middleware.WithDelegatedSpendCap(billingSvc),
-			middleware.WithOrgMonthlySpendCap(billingSvc),
+			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros, features.SubscriptionCoverage),
+			middleware.WithAPIKeySpendCap(billingSvc, features.SubscriptionCoverage),
+			middleware.WithDelegatedSpendCap(billingSvc, features.SubscriptionCoverage),
+			middleware.WithOrgMonthlySpendCap(billingSvc, features.SubscriptionCoverage),
 			middleware.WithBillingSpanEnd(),
 		)
 	}
@@ -349,10 +351,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	if billingSvc != nil {
 		routeMiddleware = append(routeMiddleware,
 			middleware.WithBillingSpan(),
-			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
-			middleware.WithAPIKeySpendCap(billingSvc),
-			middleware.WithDelegatedSpendCap(billingSvc),
-			middleware.WithOrgMonthlySpendCap(billingSvc),
+			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros, features.SubscriptionCoverage),
+			middleware.WithAPIKeySpendCap(billingSvc, features.SubscriptionCoverage),
+			middleware.WithDelegatedSpendCap(billingSvc, features.SubscriptionCoverage),
+			middleware.WithOrgMonthlySpendCap(billingSvc, features.SubscriptionCoverage),
 			middleware.WithBillingSpanEnd(),
 		)
 	}

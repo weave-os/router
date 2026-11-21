@@ -70,9 +70,9 @@ func TestAgentShadowEvaluation_SkipsCustomerBillingGates(t *testing.T) {
 	engine.Use(middleware.WithAgentShadowEvaluation())
 	// Nil services deliberately prove each billing gate exits on the shadow
 	// context before attempting a customer balance/cap read.
-	engine.Use(middleware.WithBalanceCheck(nil, 0))
-	engine.Use(middleware.WithAPIKeySpendCap(nil))
-	engine.Use(middleware.WithOrgMonthlySpendCap(nil))
+	engine.Use(middleware.WithBalanceCheck(nil, 0, proxy.RequestPresentsCoveringSubscription))
+	engine.Use(middleware.WithAPIKeySpendCap(nil, proxy.RequestPresentsCoveringSubscription))
+	engine.Use(middleware.WithOrgMonthlySpendCap(nil, proxy.RequestPresentsCoveringSubscription))
 	engine.POST("/v1/messages", func(c *gin.Context) { c.Status(http.StatusOK) })
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	req.Header.Set(proxy.AgentShadowModelHeader, "claude-opus-4-8")

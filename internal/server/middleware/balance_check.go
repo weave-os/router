@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/refusal"
@@ -16,7 +17,7 @@ import (
 
 const TopUpURL = "https://app.weaveos.com/organization/settings/weave-router/credits"
 
-func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerFunc {
+func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64, coverage credentials.SubscriptionCoverage) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		if owner, ok := billing.InternalTestOwnerFrom(c.Request.Context()); ok {
@@ -55,7 +56,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 			return
 		}
 
-		subscriptionExempt := proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
+		subscriptionExempt := coverage(c.Request.Context(), c.Request.Header, c.FullPath())
 
 		result, err := svc.CheckBalance(c.Request.Context(), orgID)
 		if err != nil {
