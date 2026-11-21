@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"weave-os/router/internal/api/admin"
@@ -11,6 +12,7 @@ import (
 	"weave-os/router/internal/providers"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +31,7 @@ func TestConfigHandler_EnvProviderKeys_IncludesEveryDeployedProvider(t *testing.
 	engine := gin.New()
 	engine.GET("/admin/v1/config", func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{ID: "inst-1"})
-	}, admin.ConfigHandler)
+	}, admin.ConfigHandler(admin.Config{HasDeploymentProviderKey: func(p string) bool { return os.Getenv(providers.APIKeyEnvVar(p)) != "" }}))
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/v1/config", nil)
 	rec := httptest.NewRecorder()
@@ -44,4 +46,18 @@ func TestConfigHandler_EnvProviderKeys_IncludesEveryDeployedProvider(t *testing.
 	require.Contains(t, body.EnvProviderKeys, providers.ProviderMakora)
 	require.Contains(t, body.EnvProviderKeys, providers.ProviderBedrock)
 	require.NotContains(t, rec.Body.String(), "cluster_version")
+}
+
+func TestConfigHandlerZeroConfigReportsDefaultStickyTTL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.GET("/admin/v1/config", func(c *gin.Context) {
+		c.Set("router_installation", &auth.Installation{ID: "inst-1"})
+	}, admin.ConfigHandler(admin.Config{}))
+
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/v1/config", nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"sticky_decision_ttl_ms":"0","otel_enabled":false,"env_provider_keys":[]}`, rec.Body.String())
 }
