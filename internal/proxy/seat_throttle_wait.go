@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/subscriptionlane"
 
 	"weave-os/router/internal/auth"
@@ -19,7 +20,7 @@ const shortSeatThrottleWait = 30 * time.Second
 
 func shortestSeatThrottle(ctx context.Context, pool subscriptions.Provider, now time.Time) (time.Duration, bool) {
 	candidates, _ := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
-	usageState, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	usageState, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	var shortest time.Duration
 	for _, candidate := range candidates {
 		if candidate.provider != auth.SubscriptionProvider(pool) || !candidate.enabled || !managedAccountThrottled(ctx, candidate, now) {
@@ -55,7 +56,7 @@ func waitOutShortSeatThrottle(ctx context.Context, provider, model string, err e
 }
 
 func releaseCooledSeats(ctx context.Context, at time.Time) {
-	usageState, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	usageState, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if usageState == nil {
 		return
 	}

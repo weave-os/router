@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/stretchr/testify/assert"
@@ -67,7 +68,7 @@ func spendLimitCheck(s *Service, ctx context.Context) error {
 // subscription token onto ctx, exactly as the auth middleware would.
 func withUsageBypassSubscription(ctx context.Context) context.Context {
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
-	return context.WithValue(ctx, AnthropicSubscriptionContextKey{}, "sk-ant-oat01-valid-token")
+	return context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-valid-token")
 }
 
 func TestCheckUserMonthlySpendLimit_NoBillingSkips(t *testing.T) {
@@ -138,7 +139,7 @@ func TestCheckUserMonthlySpendLimit_CapReachedNoSubscriptionStillRejects(t *test
 
 func TestCheckUserMonthlySpendLimit_CapReachedSubscriptionWithoutBypassServesSubscriptionOnly(t *testing.T) {
 	s := &Service{hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
-	ctx := context.WithValue(spendLimitCtx("u1"), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-valid-token")
+	ctx := context.WithValue(spendLimitCtx("u1"), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-valid-token")
 	outCtx, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.NoError(t, err)
 	reason, ok := billing.SubscriptionOnlyReasonFromContext(outCtx)

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -268,7 +269,7 @@ func authedCtxWithExternalKey(installationID, provider string, plaintext []byte)
 		Provider:       provider,
 		Plaintext:      plaintext,
 	}}
-	return context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, keys)
+	return context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, keys)
 }
 
 const pinTestBody = `{
@@ -1655,7 +1656,7 @@ func authedCtxWithGatewayKey(installationID, aliasedModel string) context.Contex
 	if aliasedModel != "" {
 		key.ModelAliases = map[string]string{aliasedModel: aliasedModel}
 	}
-	return context.WithValue(authedCtx(installationID), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
+	return context.WithValue(authedCtx(installationID), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
 }
 
 // A /force-model pin that names an unavailable provider was silently dropped:

@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
@@ -78,7 +79,7 @@ func (s *Service) openRouterOverflowBindings(ctx context.Context, target router.
 	}
 	if s.credentials.KeyedProviders != nil {
 		_, keyed := s.credentials.KeyedProviders[providers.ProviderOpenRouter]
-		if !keyed && BuildCredentialsMap(externalKeysFromContext(ctx))[providers.ProviderOpenRouter] == nil {
+		if !keyed && credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[providers.ProviderOpenRouter] == nil {
 			return nil
 		}
 	}

@@ -16,7 +16,7 @@ func codexLossyRescueNeeded(ctx context.Context, s *Service, headers http.Header
 }
 
 func codexPoolHasFreeSeat(ctx context.Context, s *Service) bool {
-	if s.managedSubscriptions == nil || managedSubscriptionEnrollmentUnavailable(ctx) {
+	if s.credentials.ManagedSubscriptions == nil || managedSubscriptionEnrollmentUnavailable(ctx) {
 		return false
 	}
 	now := s.clock.Now()

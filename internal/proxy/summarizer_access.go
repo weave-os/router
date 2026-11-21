@@ -11,8 +11,8 @@ type summarizerAccess struct {
 }
 
 func (a summarizerAccess) SummaryContext(ctx context.Context, provider string) (context.Context, bool) {
-	sumCreds := summarizerCredsFor(ctx, provider, a.headers)
-	nonDepCreds := a.s.requestUsesNonDeploymentCreds(ctx, a.headers)
+	sumCreds := a.s.credentials.SummarizerCredentials(ctx, provider, a.headers)
+	nonDepCreds := a.s.credentials.RequestUsesNonDeploymentCreds(ctx, a.headers)
 	if sumCreds == nil && nonDepCreds {
 		return nil, false
 	}

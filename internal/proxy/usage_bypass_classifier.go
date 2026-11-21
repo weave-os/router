@@ -18,7 +18,7 @@ func (s *Service) classifierPassthroughEngaged(ctx context.Context, headers http
 		return "", false
 	}
 	provider, token, covered := subscriptionCoveredTarget(ctx, headers, req)
-	if !covered || provider != providers.ProviderAnthropic || s.subscriptionModels.denied([]byte(token), req.RequestedModel, s.clock.Now()) {
+	if !covered || provider != providers.ProviderAnthropic || s.credentials.SubscriptionModels.Denied([]byte(token), req.RequestedModel, s.clock.Now()) {
 		return "", false
 	}
 	if s.usageObserver == nil {

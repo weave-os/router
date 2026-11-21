@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
@@ -88,7 +89,7 @@ func TestAddRoutingFundingSource(t *testing.T) {
 		},
 		{
 			name: "managed Claude subscription",
-			ctx: context.WithValue(WithManagedSubscriptionUsage(context.Background()), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
+			ctx: context.WithValue(WithManagedSubscriptionUsage(context.Background()), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
 				auth.SubscriptionProviderClaude: {},
 			}),
 			provider: providers.ProviderAnthropic,
@@ -99,7 +100,7 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			name: "managed Codex subscription is selected over BYOK",
 			ctx: context.WithValue(requestcontext.WithCredentials(WithManagedSubscriptionUsage(context.Background()), &requestcontext.Credentials{
 				Source: requestcontext.SourceBYOK,
-			}), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
+			}), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
 				auth.SubscriptionProviderCodex: {},
 			}),
 			provider: providers.ProviderOpenAI,

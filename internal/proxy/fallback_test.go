@@ -883,7 +883,7 @@ func TestShouldFailover(t *testing.T) {
 		// resolveAndInject re-resolves credentials and would prefer a BYOK key for
 		// the fallback binding, spending the customer's account without intent.
 		s := &Service{hmmServing: hmmPorts()}
-		ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{},
+		ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{},
 			[]*auth.ExternalAPIKey{
 				{Provider: providers.ProviderMakora, Plaintext: []byte("mk-byok")},
 			})

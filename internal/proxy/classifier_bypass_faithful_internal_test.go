@@ -49,7 +49,7 @@ func runClassifierBypassWithContext(t *testing.T, parent context.Context, body, 
 	svc := newBypassService(upstream)
 	svc.rescueConfig.AnthropicServerSideFallback = true
 	sink := newBypassCaptureTelemetry()
-	svc.telemetry = sink
+	svc.turnTelemetry.repo = sink
 
 	env, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)
