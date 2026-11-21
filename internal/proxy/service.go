@@ -2728,218 +2728,31 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	recordFastServed := func(fast bool) { fastServed = fast }
 
+	attemptDeps := messagesAttemptDeps{
+		r:                       r,
+		svc:                     s,
+		env:                     env,
+		routeRes:                &routeRes,
+		log:                     log,
+		crossFormat:             &crossFormat,
+		feats:                   feats,
+		anthropicTierAttemptFor: anthropicTierAttemptFor,
+		recordFastServed:        recordFastServed,
+		preludeBuf:              preludeBuf,
+		sink:                    sink,
+		anthropicPrelude:        anthropicPrelude,
+		streamCut:               streamCut,
+		setExtractor:            setExtractor,
+		setStreamCost:           setStreamCost,
+		fastServed:              &fastServed,
+		respSummary:             &respSummary,
+		reqStats:                &reqStats,
+		streamCost:              streamCost,
+		extractor:               &extractor,
+		toolValidator:           toolValidator,
+	}
 	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
-		targetNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, r.Header, s.usageObserver), r.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
-		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
-		switch providers.FamilyFor(target.Provider) {
-		case providers.FamilyAnthropic:
-			prep, emitErr := prepareAnthropicForTurn(env, r.Header, targetOpts, routeRes.TurnType)
-			if emitErr != nil {
-				log.Error("Failed to emit Anthropic body", "err", emitErr)
-				return nil, fmt.Errorf("emit body: %w", emitErr)
-			}
-			crossFormat = false
-			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
-			tiered := anthropicTierAttemptFor(targetOpts, prep, targetNotice)
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				attemptOpts, err := tiered.dispatch(actx, d, p, recordFastServed)
-				if err == nil || committed(preludeBuf) || !providers.IsUpstreamOutputConfigFormatRejection(err) {
-					return err
-				}
-				unstructuredOpts := attemptOpts
-				unstructuredOpts.StripOutputConfigFormat = true
-				unstructuredPrep, emitErr := env.PrepareAnthropic(r.Header, unstructuredOpts)
-				if emitErr != nil {
-					log.Error("Failed to re-emit Anthropic body without output_config.format", "err", emitErr)
-					return err
-				}
-				log.Warn("Retrying Anthropic request without output_config.format after upstream rejected it",
-					"model", d.Model,
-					"provider", d.Provider)
-				if preludeBuf != nil {
-					preludeBuf.Discard()
-				}
-				logUpstreamBody(log, routeRes.SessionKey, target, feats, unstructuredPrep.Body)
-				return s.anthropicNativeAttempt(env, r, unstructuredPrep, sink, preludeBuf, anthropicPrelude, streamCut, targetNotice, setExtractor, setStreamCost)(actx, d, p)
-			}, nil
-		case providers.FamilyOpenAICompat:
-			crossFormat = true
-			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses, stripPromptCacheKey bool) (func(error) error, error) {
-				attemptOpts := targetOpts
-				attemptOpts.TargetProvider = d.Provider
-				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
-				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-				attemptOpts.ReasoningReplayScope = s.reasoningReplayScope(actx, d)
-				fastServed = attemptOpts.FastMode
-				setStreamCost(d, true, nil)
-				respSummary = translate.ResponseSummary{}
-				var prep providers.PreparedRequest
-				var emitErr error
-				if useResponses {
-					prep, emitErr = env.PrepareOpenAIResponses(r.Header, attemptOpts)
-				} else {
-					prep, emitErr = env.PrepareOpenAI(r.Header, attemptOpts)
-				}
-				if emitErr != nil {
-					log.Error("Failed to translate Anthropic request to OpenAI format", "err", emitErr, "decision_provider", d.Provider, "responses_api", useResponses)
-					return func(err error) error { return err }, fmt.Errorf("translate anthropic request: %w", emitErr)
-				}
-				reqStats = prep.Stats
-				logUpstreamBody(log, routeRes.SessionKey, d, feats, prep.Body)
-				var usage translate.UsageSink
-				if s.usageRequired() || streamCost != nil {
-					extractor = telemetry.NewUsageExtractor(d.Provider)
-					usage = extractor
-				}
-				var translator translate.ResponseTranslator
-				attemptSink, noticeErr := anthropicPrelude.prepare(actx, sink, preludeBuf, translate.FormatAnthropic, env.Stream(), reconnectNoticeForAttempt(actx, r.Header, targetNotice))
-				if noticeErr != nil {
-					return func(err error) error { return err }, noticeErr
-				}
-				if useResponses {
-					responsesTranslator := translate.NewResponsesToAnthropicWriter(attemptSink, d.Model, usage).
-						WithReasoningScope(attemptOpts.ReasoningReplayScope).
-						WithEstimatedInputTokens(feats.Tokens).
-						WithRequestHadTools(feats.HasTools).
-						WithToolValidator(toolValidator)
-					if providers.OutputExcludesReasoning(d.Provider) {
-						responsesTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
-					}
-					responsesTranslator.SetClientInputTokenScale(clientInputTokenScale(routeRes, d.Provider, clientRequestedModel(ctx, feats.Model)))
-					if err := responsesTranslator.Prelude(env.Stream()); err != nil {
-						return func(err error) error { return err }, fmt.Errorf("emit Anthropic routing marker: %w", err)
-					}
-					translator = responsesTranslator
-				} else {
-					chatTranslator := translate.NewAnthropicSSETranslator(attemptSink, d.Model, usage).
-						WithLogger(log).
-						WithEstimatedInputTokens(feats.Tokens).
-						WithRequestHadTools(feats.HasTools).
-						WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
-						WithSeedToolCallMarkup(env.SeedToolCallNames(prep.ResponseToolNames)).
-						WithEscapeNormalize(flags.BoolOr(ctx, flags.KeyEscapeNormalize, s.escapeNormalize)).
-						WithToolValidator(toolValidator)
-					if providers.OutputExcludesReasoning(d.Provider) {
-						chatTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
-					}
-					chatTranslator.SetClientInputTokenScale(clientInputTokenScale(routeRes, d.Provider, clientRequestedModel(ctx, feats.Model)))
-					if err := chatTranslator.Prelude(env.Stream()); err != nil {
-						return func(err error) error { return err }, fmt.Errorf("emit Anthropic routing marker: %w", err)
-					}
-					translator = chatTranslator
-				}
-				if preludeBuf != nil {
-					preludeBuf.Seal()
-				}
-				toolNames := translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
-				rawErr := p.Proxy(actx, d, prep, streamCut.attach(toolNames), r)
-				finalize := func(err error) error {
-					if err != nil && env.Stream() && preludeBuf.Committed() {
-						streamCut.noteCut(err)
-						err = emitAnthropicSSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
-					}
-					finErr := finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
-					respSummary = translator.Summary()
-					return finErr
-				}
-				return finalize, rawErr
-			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				gatewayKey := gatewayResponsesKey(actx, d.Provider)
-				useResponses := translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
-					Provider:       d.Provider,
-					Capabilities:   targetOpts.Capabilities,
-					HasTools:       feats.HasTools,
-					ChatOnlyParams: env.RequiresChatCompletionsParams(targetOpts.Capabilities),
-					Broad:          s.ResolveOpenAIResponsesBroad(actx),
-				}) && !s.gatewayCaps.LacksResponses(gatewayKey)
-				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
-				finalize, rawErr := dispatchOpenAICompat(actx, d, p, useResponses, stripPCK)
-				if rawErr != nil && useResponses && !committed(preludeBuf) &&
-					providers.IsUpstreamResponsesUnsupported(rawErr) {
-					s.gatewayCaps.RememberLacksResponses(gatewayKey)
-					log.Warn("Gateway rejected the Responses API; retrying on chat/completions",
-						"model", d.Model,
-						"decision_provider", d.Provider)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
-					}
-					useResponses = false
-					finalize, rawErr = dispatchOpenAICompat(actx, d, p, false, stripPCK)
-				}
-				if rawErr != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
-					providers.IsUpstreamPromptCacheKeyRejection(rawErr) {
-					s.gatewayCaps.RememberRejectsPromptCacheKey(gatewayKey)
-					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
-						"model", d.Model,
-						"decision_provider", d.Provider)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
-					}
-					finalize, rawErr = dispatchOpenAICompat(actx, d, p, useResponses, true)
-				}
-				return finalize(rawErr)
-			}, nil
-		case providers.FamilyGemini:
-			prep, emitErr := env.PrepareGemini(r.Header, targetOpts)
-			reqStats = prep.Stats
-			if emitErr != nil {
-				log.Error("Failed to translate Anthropic request to Gemini format", "err", emitErr)
-				return nil, fmt.Errorf("translate anthropic request to gemini: %w", emitErr)
-			}
-			crossFormat = true
-			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
-			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (func(error) error, error) {
-				fastServed = false
-				setStreamCost(d, true, nil)
-				respSummary = translate.ResponseSummary{}
-				var usage translate.UsageSink
-				if s.usageRequired() || streamCost != nil {
-					extractor = telemetry.NewUsageExtractor(d.Provider)
-					usage = extractor
-				}
-				attemptSink, noticeErr := anthropicPrelude.prepare(actx, sink, preludeBuf, translate.FormatAnthropic, env.Stream(), reconnectNoticeForAttempt(actx, r.Header, targetNotice))
-				if noticeErr != nil {
-					return func(err error) error { return err }, noticeErr
-				}
-				anthropicTr := translate.NewAnthropicSSETranslator(attemptSink, d.Model, nil).
-					WithLogger(log).
-					WithEstimatedInputTokens(feats.Tokens).
-					WithRequestHadTools(feats.HasTools).
-					WithEscapeNormalize(flags.BoolOr(ctx, flags.KeyEscapeNormalize, s.escapeNormalize)).
-					WithToolValidator(toolValidator)
-				if err := anthropicTr.Prelude(env.Stream()); err != nil {
-					return func(err error) error { return err }, fmt.Errorf("emit Anthropic routing marker: %w", err)
-				}
-				if preludeBuf != nil {
-					preludeBuf.Seal()
-				}
-				geminiTr := translate.NewGeminiToOpenAISSETranslator(anthropicTr, d.Model, usage)
-				anthropicTr.SetUsageSource(geminiTr.UsageFacts)
-				rawErr := p.Proxy(actx, d, pr, streamCut.attach(geminiTr), r)
-				finalize := func(err error) error {
-					if err != nil && env.Stream() && preludeBuf.Committed() {
-						streamCut.noteCut(err)
-						err = emitAnthropicSSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
-					}
-					err = finalizeAfterProxy(err, geminiTr.Finalize)
-					finErr := finalizeAfterProxy(err, anthropicTr.Finalize)
-					respSummary = anthropicTr.Summary()
-					return finErr
-				}
-				return finalize, rawErr
-			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
-				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
-					reqStats = prepared.Stats
-					logUpstreamBody(log, routeRes.SessionKey, d, feats, prepared.Body)
-					return dispatchGemini(actx, d, p, prepared)
-				})
-			}, nil
-		default:
-			return nil, fmt.Errorf("%w: %s (no translation path defined for inbound Anthropic Messages)", ErrProviderNotConfigured, target.Provider)
-		}
+		return buildMessagesAttempt(ctx, attemptDeps, target, targetOpts, targetMarker, fundingCtx)
 	}
 	attempt, attemptBuildErr := buildAttempt(decision, opts, marker, fundingCtx)
 	if attemptBuildErr != nil && !translate.IsIntrinsicallyIncompatible(attemptBuildErr) {

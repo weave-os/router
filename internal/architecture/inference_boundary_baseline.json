@@ -99,11 +99,11 @@
       "removal_phase": "8"
     },
     {
-      "id": "direct_provider_call|internal/proxy/service.go|Service.ProxyMessages|weave-os/router/internal/providers.Proxy|1",
+      "id": "direct_provider_call|internal/proxy/messages_attempt.go|buildMessagesAttempt|weave-os/router/internal/providers.Proxy|1",
       "kind": "direct_provider_call",
-      "file": "internal/proxy/service.go",
-      "line": 3778,
-      "symbol": "Service.ProxyMessages",
+      "file": "internal/proxy/messages_attempt.go",
+      "line": 148,
+      "symbol": "buildMessagesAttempt",
       "detail": "weave-os/router/internal/providers.Proxy",
       "owner": "@steventohme",
       "rationale": "Existing OpenAI-compatible attempt for the Messages surface remains until executor migration preserves translation and streaming semantics.",
@@ -111,11 +111,11 @@
       "removal_phase": "8"
     },
     {
-      "id": "direct_provider_call|internal/proxy/service.go|Service.ProxyMessages|weave-os/router/internal/providers.Proxy|2",
+      "id": "direct_provider_call|internal/proxy/messages_attempt.go|buildMessagesAttempt|weave-os/router/internal/providers.Proxy|2",
       "kind": "direct_provider_call",
-      "file": "internal/proxy/service.go",
-      "line": 3883,
-      "symbol": "Service.ProxyMessages",
+      "file": "internal/proxy/messages_attempt.go",
+      "line": 232,
+      "symbol": "buildMessagesAttempt",
       "detail": "weave-os/router/internal/providers.Proxy",
       "owner": "@steventohme",
       "rationale": "Existing Gemini attempt for the Messages surface remains until executor migration preserves the two-stage translation path.",
