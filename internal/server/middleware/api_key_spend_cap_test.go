@@ -28,7 +28,7 @@ func runSpendCap(t *testing.T, keyID string, repo *stubBillingRepo) (*httptest.R
 		if keyID != "" {
 			c.Set("router_api_key", &auth.APIKey{ID: keyID})
 		}
-		middleware.WithAPIKeySpendCap(svc, proxy.RequestPresentsCoveringSubscription)(c)
+		middleware.WithAPIKeySpendCap(svc, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -106,7 +106,7 @@ func runSpendCapSub(t *testing.T, keyID string, setInstall func(*gin.Context), a
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		setInstall(c)
 		c.Set("router_api_key", &auth.APIKey{ID: keyID})
-		middleware.WithAPIKeySpendCap(svc, proxy.RequestPresentsCoveringSubscription)(c)
+		middleware.WithAPIKeySpendCap(svc, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}

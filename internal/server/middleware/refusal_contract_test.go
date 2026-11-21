@@ -41,7 +41,7 @@ func runTestBudgetCheck(t *testing.T, book stubTestBudgetBook) *httptest.Respons
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Request = c.Request.WithContext(requestcontext.WithInternalTestIdentity(c.Request.Context(), requestcontext.InternalTestIdentity{SubjectID: "subject-1"}))
-		middleware.WithBalanceCheck(svc, 0, proxy.RequestPresentsCoveringSubscription)(c)
+		middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
 		if !c.IsAborted() {
 			c.Status(http.StatusOK)
 		}

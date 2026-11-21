@@ -40,7 +40,7 @@ func billingGatedAllowanceChain(
 		withInstallation(c, "org_precedence")
 	})
 	engine.Use(middleware.WithSubscriberAllowance(allowanceSvc, proxy.RequestPresentsCoveringSubscription))
-	engine.Use(middleware.WithBalanceCheck(billing.NewService(repo), billing.MinBalanceMicros, proxy.RequestPresentsCoveringSubscription))
+	engine.Use(middleware.WithBalanceCheck(billing.NewService(repo), billing.MinBalanceMicros, proxy.RequestHasCustomerFunding))
 	engine.POST("/v1/messages", serve)
 	return engine
 }

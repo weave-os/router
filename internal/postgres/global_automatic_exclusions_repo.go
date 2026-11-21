@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/postgres/dbbudget"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/sqlc"
 )
 
@@ -16,7 +16,7 @@ func NewGlobalAutomaticExclusionRepo(tx sqlc.DBTX) *GlobalAutomaticExclusionRepo
 	return &GlobalAutomaticExclusionRepo{tx: tx}
 }
 
-var _ proxy.GlobalAutomaticExclusionStore = (*GlobalAutomaticExclusionRepo)(nil)
+var _ candidates.GlobalAutomaticExclusionStore = (*GlobalAutomaticExclusionRepo)(nil)
 
 func (r *GlobalAutomaticExclusionRepo) ListGlobalAutomaticRoutingExclusions(ctx context.Context) (map[string]string, error) {
 	rows, err := dbbudget.Queries(r.tx).ListGlobalAutomaticRoutingExclusions(ctx)

@@ -39,7 +39,7 @@ func runDelegatedSpendCap(t *testing.T, reader *stubDelegatedSpend, session *aut
 		c.Request = c.Request.WithContext(auth.WithDelegatedSession(c.Request.Context(), session))
 		c.Next()
 	})
-	engine.Use(middleware.WithDelegatedSpendCap(svc, proxy.RequestPresentsCoveringSubscription))
+	engine.Use(middleware.WithDelegatedSpendCap(svc, proxy.RequestHasCustomerFunding))
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		reached = true
 		c.Status(http.StatusOK)

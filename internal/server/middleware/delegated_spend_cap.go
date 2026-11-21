@@ -18,7 +18,7 @@ const (
 	DelegatedSpendScopeTask    DelegatedSpendScope = "task"
 )
 
-func WithDelegatedSpendCap(svc *billing.Service, coverage credentials.SubscriptionCoverage) gin.HandlerFunc {
+func WithDelegatedSpendCap(svc *billing.Service, funding credentials.CustomerFunding) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 		session := auth.DelegatedSessionFrom(ctx)
@@ -42,8 +42,8 @@ func WithDelegatedSpendCap(svc *billing.Service, coverage credentials.Subscripti
 			c.Next()
 			return
 		}
-		kind, refused := tripSubscriptionLane(c, subscriptionlane.DelegatedSpendCapGate,
-			coverage(ctx, c.Request.Header, c.FullPath()))
+		kind, refused := tripSubscriptionLane(c, svc, subscriptionlane.DelegatedSpendCapGate,
+			funding(ctx, c.Request.Header, c.FullPath(), svc.ByokFeeOwed(ctx)))
 		if !refused {
 			log.Info("Delegated spend cap reached but subscription covers the route: serving subscription-only", "scope", scope)
 			c.Next()

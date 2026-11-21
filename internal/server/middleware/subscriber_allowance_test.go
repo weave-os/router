@@ -297,9 +297,9 @@ func runSubscriberOrganizationBillingChain(
 		c.Next()
 	})
 	engine.Use(middleware.WithSubscriberAllowance(allowanceService, proxy.RequestPresentsCoveringSubscription))
-	engine.Use(middleware.WithBalanceCheck(billingService, billing.MinBalanceMicros, proxy.RequestPresentsCoveringSubscription))
-	engine.Use(middleware.WithAPIKeySpendCap(billingService, proxy.RequestPresentsCoveringSubscription))
-	engine.Use(middleware.WithOrgMonthlySpendCap(billingService, proxy.RequestPresentsCoveringSubscription))
+	engine.Use(middleware.WithBalanceCheck(billingService, billing.MinBalanceMicros, proxy.RequestHasCustomerFunding))
+	engine.Use(middleware.WithAPIKeySpendCap(billingService, proxy.RequestHasCustomerFunding))
+	engine.Use(middleware.WithOrgMonthlySpendCap(billingService, proxy.RequestHasCustomerFunding))
 	reached := false
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		reached = true

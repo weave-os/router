@@ -17,7 +17,7 @@ import (
 
 const TopUpURL = "https://app.weaveos.com/organization/settings/weave-router/credits"
 
-func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64, coverage credentials.SubscriptionCoverage) gin.HandlerFunc {
+func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64, funding credentials.CustomerFunding) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		if owner, ok := billing.InternalTestOwnerFrom(c.Request.Context()); ok {
@@ -56,12 +56,12 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64, coverage cre
 			return
 		}
 
-		subscriptionExempt := coverage(c.Request.Context(), c.Request.Header, c.FullPath())
+		subscriptionExempt := funding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ByokFeeOwed(c.Request.Context()))
 
 		result, err := svc.CheckBalance(c.Request.Context(), orgID)
 		if err != nil {
 			if errors.Is(err, billing.ErrBalanceRowMissing) {
-				kind, refused := tripSubscriptionLane(c, subscriptionlane.BalanceGate, subscriptionExempt)
+				kind, refused := tripSubscriptionLane(c, svc, subscriptionlane.BalanceGate, subscriptionExempt)
 				if !refused {
 					log.Warn("Balance row missing: serving subscription-only, paid failover disabled",
 						"organization_id", orgID)
@@ -91,7 +91,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64, coverage cre
 		threshold := minBalanceMicros
 
 		if result.BalanceMicros <= threshold {
-			kind, refused := tripSubscriptionLane(c, subscriptionlane.BalanceGate, subscriptionExempt)
+			kind, refused := tripSubscriptionLane(c, svc, subscriptionlane.BalanceGate, subscriptionExempt)
 			if !refused {
 				log.Warn("Balance depleted: serving subscription-only, paid failover disabled",
 					"organization_id", orgID,

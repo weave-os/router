@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func WithAPIKeySpendCap(svc *billing.Service, coverage credentials.SubscriptionCoverage) gin.HandlerFunc {
+func WithAPIKeySpendCap(svc *billing.Service, funding credentials.CustomerFunding) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		if _, ok := proxy.AgentShadowEvalFromContext(c.Request.Context()); ok {
@@ -29,7 +29,7 @@ func WithAPIKeySpendCap(svc *billing.Service, coverage credentials.SubscriptionC
 			return
 		}
 
-		subscriptionExempt := coverage(c.Request.Context(), c.Request.Header, c.FullPath())
+		subscriptionExempt := funding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ByokFeeOwed(c.Request.Context()))
 
 		result, err := svc.CheckAPIKeySpendCap(c.Request.Context(), apiKey.ID)
 		if err != nil {
@@ -44,7 +44,7 @@ func WithAPIKeySpendCap(svc *billing.Service, coverage credentials.SubscriptionC
 		}
 
 		if result.SpentMicros >= *result.CapMicros {
-			kind, refused := tripSubscriptionLane(c, subscriptionlane.KeySpendCapGate, subscriptionExempt)
+			kind, refused := tripSubscriptionLane(c, svc, subscriptionlane.KeySpendCapGate, subscriptionExempt)
 			if !refused {
 				log.Info("API key spend cap reached but subscription covers the route: serving subscription-only",
 					"api_key_id", apiKey.ID,

@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func WithOrgMonthlySpendCap(svc *billing.Service, coverage credentials.SubscriptionCoverage) gin.HandlerFunc {
+func WithOrgMonthlySpendCap(svc *billing.Service, funding credentials.CustomerFunding) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		if _, ok := billing.InternalTestOwnerFrom(c.Request.Context()); ok {
@@ -40,7 +40,7 @@ func WithOrgMonthlySpendCap(svc *billing.Service, coverage credentials.Subscript
 			return
 		}
 
-		subscriptionExempt := coverage(c.Request.Context(), c.Request.Header, c.FullPath())
+		subscriptionExempt := funding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ByokFeeOwed(c.Request.Context()))
 
 		result, err := svc.CheckOrgMonthlySpend(c.Request.Context(), orgID)
 		if err != nil {
@@ -50,7 +50,7 @@ func WithOrgMonthlySpendCap(svc *billing.Service, coverage credentials.Subscript
 		}
 
 		if result.LimitReached() {
-			kind, refused := tripSubscriptionLane(c, subscriptionlane.OrgMonthlySpendCapGate, subscriptionExempt)
+			kind, refused := tripSubscriptionLane(c, svc, subscriptionlane.OrgMonthlySpendCapGate, subscriptionExempt)
 			if !refused {
 				log.Info("Org monthly cap reached but subscription covers the route: serving subscription-only",
 					"organization_id", orgID,

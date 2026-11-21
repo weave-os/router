@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
@@ -169,13 +170,13 @@ func TestRefreshPin_CarriesEffortForward(t *testing.T) {
 }
 
 func TestOrderBandPair_AnchoredHalfKeepsEffort(t *testing.T) {
-	large, small := orderBandPair(sessionpin.Pin{
+	large, small := sessionpin.Pin{
 		Provider:       providers.ProviderAnthropic,
 		Model:          "claude-opus-4-7",
 		Effort:         "high",
 		PairedProvider: providers.ProviderAnthropic,
 		PairedModel:    "claude-haiku-4-5",
-	})
+	}.OrderedBandPair()
 	assert.Equal(t, "claude-opus-4-7", large.Model)
 	assert.Equal(t, "high", large.Effort)
 	assert.Empty(t, small.Effort)
@@ -192,11 +193,11 @@ func TestResolveEffort_KnobWinsOverDecision(t *testing.T) {
 	ctx := router.WithRoutingKnobs(context.Background(), &router.Overrides{ForceEffort: "low"})
 	knobbed := svc.resolveEffort(ctx, decision, caps, false)
 	assert.Equal(t, "low", knobbed.Selected)
-	assert.Equal(t, effortSourceUser, knobbed.Source)
+	assert.Equal(t, dispatch.EffortSourceUser, knobbed.Source)
 
 	arm := svc.resolveEffort(context.Background(), decision, caps, false)
 	assert.Equal(t, "xhigh", arm.Selected)
-	assert.Equal(t, effortSourceArm, arm.Source)
+	assert.Equal(t, dispatch.EffortSourceArm, arm.Source)
 
 	assert.Empty(t, svc.resolveEffort(context.Background(),
 		router.Decision{Provider: decision.Provider, Model: decision.Model}, caps, false).Selected)

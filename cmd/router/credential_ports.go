@@ -7,5 +7,6 @@ import (
 
 func withCredentialPorts(features server.Features) server.Features {
 	features.SubscriptionCoverage = proxy.RequestPresentsCoveringSubscription
+	features.CustomerFunding = proxy.RequestHasCustomerFunding
 	return features
 }
