@@ -3863,57 +3863,6 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 	return excluded
 }
 
-func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
-	byok := BuildCredentialsMap(externalKeysFromContext(ctx))
-	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst && !billing.ByokFeeUnpayable(ctx) {
-		return context.WithValue(ctx, CredentialsContextKey{}, byok[provider])
-	}
-	routerKeyed := installationIDFromContext(ctx) != (uuid.UUID{})
-	subDisabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
-	suppressClaudeSub := claudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model)
-	suppressCodexSub := codexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || codexChatEndpoint(ctx) || subDisabled || !codexSubscriptionCanAttemptModel(model)
-	if provider == providers.ProviderAnthropic && !suppressClaudeSub {
-		if sub := subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)); sub != nil {
-			return context.WithValue(ctx, CredentialsContextKey{}, sub)
-		}
-		if inbound := ExtractClientCredentials(provider, headers); inbound != nil && inbound.OAuth {
-			observability.FromContext(ctx).Info("Resolved Claude subscription credential",
-				"credential_source", inbound.Source)
-			return context.WithValue(ctx, CredentialsContextKey{}, inbound)
-		}
-	}
-	if provider == providers.ProviderOpenAI && !suppressCodexSub {
-		if sub := codexSubscriptionFromContext(ctx); sub != nil {
-			return context.WithValue(ctx, CredentialsContextKey{}, sub)
-		}
-		if inbound := ExtractClientCredentials(provider, headers); inbound != nil && inbound.OAuth {
-			observability.FromContext(ctx).Debug("Resolved Codex subscription credential for OpenAI turn", "credential_source", inbound.Source)
-			return context.WithValue(ctx, CredentialsContextKey{}, inbound)
-		}
-	}
-	var creds *Credentials
-	if byok != nil {
-		creds = byok[provider]
-	}
-	if creds == nil && !routerKeyed {
-		client := ExtractClientCredentials(provider, headers)
-		if client != nil && client.OAuth &&
-			((provider == providers.ProviderAnthropic && suppressClaudeSub) ||
-				(provider == providers.ProviderOpenAI && suppressCodexSub)) {
-			client = nil
-		}
-		creds = client
-	}
-	if creds != nil {
-		return context.WithValue(ctx, CredentialsContextKey{}, creds)
-	}
-	if (suppressClaudeSub && provider == providers.ProviderAnthropic) ||
-		(suppressCodexSub && provider == providers.ProviderOpenAI) {
-		return clearCredentials(ctx)
-	}
-	return ctx
-}
-
 func addTimingAttrs(ctx context.Context, b *telemetry.AttrBuilder) {
 	applyServingSpanAttrs(ctx, b)
 	t := timing.TimingFrom(ctx)

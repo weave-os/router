@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/requestcontext"
 )
 
@@ -22,5 +23,6 @@ func requestFactsFrom(ctx context.Context, headers http.Header) requestcontext.R
 		AnthropicSubscription: anthropicSubscription,
 		OpenAISubscription:    openAISubscription,
 		OpenAIAccountID:       openaiAccountIDFromContext(ctx),
+		ByokFeeUnpayable:      billing.ByokFeeUnpayable(ctx),
 	}
 }
