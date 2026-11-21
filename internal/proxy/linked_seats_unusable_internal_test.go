@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 func TestPoolExhaustionOwnerFollowsLinkedSeatState(t *testing.T) {
@@ -21,27 +22,27 @@ func TestPoolExhaustionOwnerFollowsLinkedSeatState(t *testing.T) {
 		name    string
 		overage bool
 		seats   []*auth.SubscriptionAccount
-		owner   FailureOwner
+		owner   turnrecord.FailureOwner
 	}{
 		{name: "every linked seat disabled, spent or disconnected", seats: []*auth.SubscriptionAccount{
 			{ID: "disabled", Provider: auth.SubscriptionProviderClaude, Enabled: false, State: auth.SubscriptionAccountStateDisabled},
 			{ID: "disconnected", Provider: auth.SubscriptionProviderClaude, Enabled: false, State: auth.SubscriptionAccountStateReconnectRequired, CredentialRejections: 3},
 			{ID: "spent", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &spentUntil},
-		}, owner: FailureOwnerClient},
+		}, owner: turnrecord.FailureOwnerClient},
 		{name: "a healthy linked seat the pool failed to lease", seats: []*auth.SubscriptionAccount{
 			{ID: "healthy", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive},
 			{ID: "disabled", Provider: auth.SubscriptionProviderClaude, Enabled: false, State: auth.SubscriptionAccountStateDisabled},
-		}, owner: FailureOwnerRouter},
+		}, owner: turnrecord.FailureOwnerRouter},
 		{name: "an exhausted seat with no recorded reset", seats: []*auth.SubscriptionAccount{
 			{ID: "exhausted", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted},
-		}, owner: FailureOwnerClient},
+		}, owner: turnrecord.FailureOwnerClient},
 		{name: "a seat in a short provider rate-limit cooldown", seats: []*auth.SubscriptionAccount{
 			{ID: "throttled", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &throttledUntil},
 			{ID: "disabled", Provider: auth.SubscriptionProviderClaude, Enabled: false, State: auth.SubscriptionAccountStateDisabled},
-		}, owner: FailureOwnerProvider},
+		}, owner: turnrecord.FailureOwnerProvider},
 		{name: "an exhausted seat that extra usage still lets serve", overage: true, seats: []*auth.SubscriptionAccount{
 			{ID: "overage", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &spentUntil},
-		}, owner: FailureOwnerRouter},
+		}, owner: turnrecord.FailureOwnerRouter},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})

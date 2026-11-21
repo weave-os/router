@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 const individualTopModels = 3
@@ -77,7 +78,7 @@ type individualActivity struct {
 	models                      map[string]int64
 }
 
-func dashboardIndividuals(facts []proxy.TelemetryIndividualFact, people []proxy.TelemetryPerson) []dashboardIndividual {
+func dashboardIndividuals(facts []turnrecord.TelemetryIndividualFact, people []turnrecord.TelemetryPerson) []dashboardIndividual {
 	byID := map[string]*dashboardIndividual{}
 	activity := map[string]*individualActivity{}
 	individualFor := func(id string, linked bool, displayName, email string) *dashboardIndividual {

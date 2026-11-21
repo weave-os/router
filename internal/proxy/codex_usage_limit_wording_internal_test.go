@@ -13,10 +13,11 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
 
-func codexUsageLimitAttempt(owner FailureOwner) dispatch.TracedAttempt {
+func codexUsageLimitAttempt(owner turnrecord.FailureOwner) dispatch.TracedAttempt {
 	at := time.Date(2026, 1, 2, 3, 0, 0, 0, time.UTC)
 	quota := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(
 		`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_at":` +
@@ -24,7 +25,7 @@ func codexUsageLimitAttempt(owner FailureOwner) dispatch.TracedAttempt {
 	return dispatch.TracedAttempt{
 		Target:       inference.Target{Provider: providers.ProviderOpenAI},
 		Err:          errors.Join(codexSubscriptionModelUnavailable("gpt-test"), quota),
-		Diagnosis:    inference.AttemptDiagnosis{ErrorClass: string(TurnErrorModelNotFound), FailureOwner: string(owner)},
+		Diagnosis:    inference.AttemptDiagnosis{ErrorClass: string(turnrecord.TurnErrorModelNotFound), FailureOwner: string(owner)},
 		At:           at,
 		Subscription: true,
 	}
@@ -32,7 +33,7 @@ func codexUsageLimitAttempt(owner FailureOwner) dispatch.TracedAttempt {
 
 func TestCodexUsageLimitWordingSurvivesSyntheticModelUnavailable(t *testing.T) {
 	t.Parallel()
-	for _, owner := range []FailureOwner{FailureOwnerRouter, FailureOwnerProvider, FailureOwnerClient} {
+	for _, owner := range []turnrecord.FailureOwner{turnrecord.FailureOwnerRouter, turnrecord.FailureOwnerProvider, turnrecord.FailureOwnerClient} {
 		a := codexUsageLimitAttempt(owner)
 		assert.Equal(t, "hit the Codex usage limit (resets in 1h 29m)", failureWordingFor(a).badge, owner)
 		assert.Equal(t, translate.RescueDetailPrefix+"OpenAI hit the Codex usage limit (resets in 1h 29m)\n\n", rescueDetailLine(a), owner)
@@ -46,7 +47,7 @@ func TestCodexUsageLimitWordingWithoutReset(t *testing.T) {
 	a := dispatch.TracedAttempt{
 		Target:    inference.Target{Provider: providers.ProviderOpenAI},
 		Err:       &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"insufficient_quota"}}`)},
-		Diagnosis: inference.AttemptDiagnosis{FailureOwner: string(FailureOwnerProvider)},
+		Diagnosis: inference.AttemptDiagnosis{FailureOwner: string(turnrecord.FailureOwnerProvider)},
 	}
 	a.Subscription = true
 	assert.Equal(t, "hit the Codex usage limit", failureWordingFor(a).badge)
@@ -55,7 +56,7 @@ func TestCodexUsageLimitWordingWithoutReset(t *testing.T) {
 
 func TestAPIKeyQuotaIsNotCodexUsageLimit(t *testing.T) {
 	t.Parallel()
-	a := codexUsageLimitAttempt(FailureOwnerProvider)
+	a := codexUsageLimitAttempt(turnrecord.FailureOwnerProvider)
 	a.Subscription = false
 	assert.NotContains(t, failureWordingFor(a).badge, "Codex")
 	assert.NotContains(t, terminalMessageFor(a), "Codex")
@@ -75,11 +76,11 @@ func TestShortDuration(t *testing.T) {
 
 func tracedCodexQuotaThenLeaseFailure(t *testing.T, creds *Credentials) (*dispatch.AttemptTrace, error) {
 	t.Helper()
-	a := codexUsageLimitAttempt(FailureOwnerProvider)
+	a := codexUsageLimitAttempt(turnrecord.FailureOwnerProvider)
 	quota := a.Err
 	target := inference.Target{Provider: providers.ProviderOpenAI, CatalogID: "gpt-test"}
 	routerOwned := func([]byte, []byte, bool) inference.AttemptDiagnosis {
-		return inference.AttemptDiagnosis{FailureOwner: string(FailureOwnerRouter)}
+		return inference.AttemptDiagnosis{FailureOwner: string(turnrecord.FailureOwnerRouter)}
 	}
 	trace := dispatch.NewAttemptTrace(nil, false)
 	trace.BeginAttempt(target, "", a.At)

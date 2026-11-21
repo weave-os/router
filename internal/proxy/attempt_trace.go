@@ -12,12 +12,13 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 type attemptTraceContextKey struct{}
 
-func attemptOwner(a dispatch.TracedAttempt) FailureOwner {
-	return FailureOwner(a.Diagnosis.FailureOwner)
+func attemptOwner(a dispatch.TracedAttempt) turnrecord.FailureOwner {
+	return turnrecord.FailureOwner(a.Diagnosis.FailureOwner)
 }
 
 func withAttemptTrace(ctx context.Context, inbound []byte, h http.Header) context.Context {
@@ -89,13 +90,13 @@ func logAttemptFailure(ctx context.Context, attempt dispatch.Attempt, err error,
 		"err", err,
 	}
 	level, msg := slog.LevelInfo, "Upstream attempt failed"
-	if FailureOwner(diagnosis.FailureOwner) == FailureOwnerUnknown {
+	if turnrecord.FailureOwner(diagnosis.FailureOwner) == turnrecord.FailureOwnerUnknown {
 		level, msg = slog.LevelWarn, "Upstream attempt failed with unknown failure owner"
 	}
 	observability.FromContext(ctx).Log(ctx, level, msg, fields...)
 }
 
-func turnFailureOwnerFor(ctx context.Context, err error, class TurnErrorClass) FailureOwner {
+func turnFailureOwnerFor(ctx context.Context, err error, class turnrecord.TurnErrorClass) turnrecord.FailureOwner {
 	if err == nil {
 		return turnFailureOwner(class)
 	}

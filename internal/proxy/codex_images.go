@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/tidwall/gjson"
 )
@@ -152,7 +153,7 @@ func recordCodexImageUsage(ctx context.Context, svc *Service, model string, star
 	}
 	requestID := observability.RequestIDFromContext(ctx)
 	latency := svc.clock.Now().Sub(started).Milliseconds()
-	params := InsertTelemetryParams{
+	params := turnrecord.InsertTelemetryParams{
 		InstallationID:     installationID.String(),
 		APIKeyID:           apiKeyIDFromContext(ctx),
 		RequestID:          requestID,

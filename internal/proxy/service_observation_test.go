@@ -17,6 +17,8 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -27,13 +29,13 @@ import (
 // notify channel is the rendezvous for the async goroutine.
 type captureTelemetry struct {
 	mu           sync.Mutex
-	rows         []proxy.InsertTelemetryParams
-	shadowRows   []proxy.PolicyShadowDecision
+	rows         []turnrecord.InsertTelemetryParams
+	shadowRows   []telemetry.PolicyShadowDecision
 	notify       chan struct{}
 	shadowNotify chan struct{}
 	// seqResult and seqErr configure GetTelemetryBySessionSequence; seqCalls
 	// records the sequence arguments the code under test resolved against.
-	seqResult proxy.TelemetryTurnResult
+	seqResult turnrecord.TelemetryTurnResult
 	seqErr    error
 	seqCalls  []int
 }
@@ -45,7 +47,7 @@ func newCaptureTelemetry() *captureTelemetry {
 	}
 }
 
-func (c *captureTelemetry) InsertRequestTelemetry(_ context.Context, p proxy.InsertTelemetryParams) error {
+func (c *captureTelemetry) InsertRequestTelemetry(_ context.Context, p turnrecord.InsertTelemetryParams) error {
 	c.mu.Lock()
 	c.rows = append(c.rows, p)
 	c.mu.Unlock()
@@ -56,7 +58,7 @@ func (c *captureTelemetry) InsertRequestTelemetry(_ context.Context, p proxy.Ins
 	return nil
 }
 
-func (c *captureTelemetry) InsertPolicyShadowDecision(_ context.Context, event proxy.PolicyShadowDecision) error {
+func (c *captureTelemetry) InsertPolicyShadowDecision(_ context.Context, event telemetry.PolicyShadowDecision) error {
 	c.mu.Lock()
 	c.shadowRows = append(c.shadowRows, event)
 	c.mu.Unlock()
@@ -67,43 +69,43 @@ func (c *captureTelemetry) InsertPolicyShadowDecision(_ context.Context, event p
 	return nil
 }
 
-func (c *captureTelemetry) GetTelemetrySummary(context.Context, string, time.Time, time.Time) (proxy.TelemetrySummary, error) {
-	return proxy.TelemetrySummary{}, nil
+func (c *captureTelemetry) GetTelemetrySummary(context.Context, string, time.Time, time.Time) (turnrecord.TelemetrySummary, error) {
+	return turnrecord.TelemetrySummary{}, nil
 }
 
-func (c *captureTelemetry) GetTelemetryTimeseries(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryBucket, error) {
+func (c *captureTelemetry) GetTelemetryTimeseries(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryBucket, error) {
 	return nil, nil
 }
 
-func (c *captureTelemetry) GetTelemetrySummaryAll(context.Context, time.Time, time.Time) (proxy.TelemetrySummary, error) {
-	return proxy.TelemetrySummary{}, nil
+func (c *captureTelemetry) GetTelemetrySummaryAll(context.Context, time.Time, time.Time) (turnrecord.TelemetrySummary, error) {
+	return turnrecord.TelemetrySummary{}, nil
 }
 
-func (c *captureTelemetry) GetTelemetryTimeseriesAll(context.Context, time.Time, time.Time, string) ([]proxy.TelemetryBucket, error) {
+func (c *captureTelemetry) GetTelemetryTimeseriesAll(context.Context, time.Time, time.Time, string) ([]turnrecord.TelemetryBucket, error) {
 	return nil, nil
 }
 
-func (c *captureTelemetry) GetTelemetryRows(context.Context, string, time.Time, time.Time, int32) ([]proxy.TelemetryRow, error) {
+func (c *captureTelemetry) GetTelemetryRows(context.Context, string, time.Time, time.Time, int32) ([]turnrecord.TelemetryRow, error) {
 	return nil, nil
 }
 
-func (c *captureTelemetry) GetTelemetryRowsAll(context.Context, time.Time, time.Time, int32) ([]proxy.TelemetryRow, error) {
+func (c *captureTelemetry) GetTelemetryRowsAll(context.Context, time.Time, time.Time, int32) ([]turnrecord.TelemetryRow, error) {
 	return nil, nil
 }
 
-func (c *captureTelemetry) GetTelemetryModelBreakdown(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryModelBucket, error) {
+func (c *captureTelemetry) GetTelemetryModelBreakdown(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryModelBucket, error) {
 	return nil, nil
 }
 
-func (c *captureTelemetry) GetTelemetryModelBreakdownAll(context.Context, time.Time, time.Time, string) ([]proxy.TelemetryModelBucket, error) {
+func (c *captureTelemetry) GetTelemetryModelBreakdownAll(context.Context, time.Time, time.Time, string) ([]turnrecord.TelemetryModelBucket, error) {
 	return nil, nil
 }
 
-func (c *captureTelemetry) GetSessionCost(context.Context, string, string) (proxy.SessionCost, error) {
-	return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
+func (c *captureTelemetry) GetSessionCost(context.Context, string, string) (turnrecord.SessionCost, error) {
+	return turnrecord.SessionCost{}, turnrecord.ErrSessionCostNotFound
 }
 
-func (c *captureTelemetry) GetTelemetryBySessionSequence(_ context.Context, _ uuid.UUID, _ []byte, _ string, seq int) (proxy.TelemetryTurnResult, error) {
+func (c *captureTelemetry) GetTelemetryBySessionSequence(_ context.Context, _ uuid.UUID, _ []byte, _ string, seq int) (turnrecord.TelemetryTurnResult, error) {
 	c.mu.Lock()
 	c.seqCalls = append(c.seqCalls, seq)
 	res := c.seqResult
@@ -112,7 +114,7 @@ func (c *captureTelemetry) GetTelemetryBySessionSequence(_ context.Context, _ uu
 	return res, err
 }
 
-func (c *captureTelemetry) firstRow(t *testing.T) proxy.InsertTelemetryParams {
+func (c *captureTelemetry) firstRow(t *testing.T) turnrecord.InsertTelemetryParams {
 	t.Helper()
 	select {
 	case <-c.notify:
@@ -125,7 +127,7 @@ func (c *captureTelemetry) firstRow(t *testing.T) proxy.InsertTelemetryParams {
 	return c.rows[0]
 }
 
-func (c *captureTelemetry) firstShadowRow(t *testing.T) proxy.PolicyShadowDecision {
+func (c *captureTelemetry) firstShadowRow(t *testing.T) telemetry.PolicyShadowDecision {
 	t.Helper()
 	select {
 	case <-c.shadowNotify:
@@ -705,7 +707,7 @@ func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
 			row := telem.firstRow(t)
 			if tt.wantCut {
 				require.Error(t, err, "a stream without message_stop is not a served turn")
-				assert.Equal(t, proxy.TurnErrorStreamCut, row.ErrorClass)
+				assert.Equal(t, turnrecord.TurnErrorStreamCut, row.ErrorClass)
 			} else {
 				require.NoError(t, err)
 				assert.Empty(t, row.ErrorClass)
@@ -988,26 +990,26 @@ func TestProxyOpenAIResponses_NativeResponseSignals(t *testing.T) {
 
 func ptrTo[T any](v T) *T { return &v }
 
-func (*captureTelemetry) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryDashboardFact, error) {
+func (*captureTelemetry) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryDashboardFact, error) {
 	return nil, nil
 }
 
-func (*captureTelemetry) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryActiveUsers, error) {
+func (*captureTelemetry) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryActiveUsers, error) {
 	return nil, nil
 }
 
-func (*captureTelemetry) GetTelemetryDashboardPeople(context.Context, string) ([]proxy.TelemetryPerson, error) {
+func (*captureTelemetry) GetTelemetryDashboardPeople(context.Context, string) ([]turnrecord.TelemetryPerson, error) {
 	return nil, nil
 }
 
-func (*captureTelemetry) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
+func (*captureTelemetry) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]turnrecord.TelemetrySubscriptionSeat, error) {
 	return nil, nil
 }
 
-func (*captureTelemetry) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]proxy.TelemetryDrillDownRow, error) {
+func (*captureTelemetry) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]turnrecord.TelemetryDrillDownRow, error) {
 	return nil, nil
 }
 
-func (*captureTelemetry) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryIndividualFact, error) {
+func (*captureTelemetry) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryIndividualFact, error) {
 	return nil, nil
 }

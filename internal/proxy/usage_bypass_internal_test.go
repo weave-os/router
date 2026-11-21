@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -662,12 +663,12 @@ func TestBypass_EmitsUsageAndCost(t *testing.T) {
 	assert.InDelta(t, wantIn, spanFloat(t, sp, "cost.requested_input_usd"), 1e-9)
 }
 
-// bypassCaptureTelemetry records InsertTelemetryParams rows for assertions.
+// bypassCaptureTelemetry records turnrecord.InsertTelemetryParams rows for assertions.
 // Only InsertRequestTelemetry matters; the read methods satisfy the interface.
 type bypassCaptureTelemetry struct {
 	panicTelemetryRepo // inherit no-op reads
 	mu                 sync.Mutex
-	rows               []InsertTelemetryParams
+	rows               []turnrecord.InsertTelemetryParams
 	notify             chan struct{}
 }
 
@@ -675,7 +676,7 @@ func newBypassCaptureTelemetry() *bypassCaptureTelemetry {
 	return &bypassCaptureTelemetry{notify: make(chan struct{}, 4)}
 }
 
-func (c *bypassCaptureTelemetry) InsertRequestTelemetry(_ context.Context, p InsertTelemetryParams) error {
+func (c *bypassCaptureTelemetry) InsertRequestTelemetry(_ context.Context, p turnrecord.InsertTelemetryParams) error {
 	c.mu.Lock()
 	c.rows = append(c.rows, p)
 	c.mu.Unlock()
@@ -807,5 +808,5 @@ func TestBypass_TelemetryRowClassifiesOutputCap(t *testing.T) {
 	sink.mu.Lock()
 	defer sink.mu.Unlock()
 	require.Len(t, sink.rows, 1)
-	assert.Equal(t, TurnErrorMaxTokens, sink.rows[0].ErrorClass, "a bypass reply cut off at its output cap is classified like a routed one")
+	assert.Equal(t, turnrecord.TurnErrorMaxTokens, sink.rows[0].ErrorClass, "a bypass reply cut off at its output cap is classified like a routed one")
 }

@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 func turnSignalCaptureAllowed(trainingAllowed bool, capture ContentCaptureMode) bool {
@@ -9,7 +10,7 @@ func turnSignalCaptureAllowed(trainingAllowed bool, capture ContentCaptureMode) 
 }
 
 func applyTurnSignalTelemetry(
-	p *InsertTelemetryParams,
+	p *turnrecord.InsertTelemetryParams,
 	sig conversation.SpiralSignals,
 	reasons []conversation.SpiralReason,
 	computed bool,
