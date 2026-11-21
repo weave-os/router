@@ -22,11 +22,34 @@ type codexInputMessage struct {
 	Content []codexInputText `json:"content"`
 }
 
-func codexBackendBody(body []byte) []byte {
+func codexDispatchBody(body []byte) (shaped []byte, collectForcedStream bool, err error) {
+	shaped, err = codexBackendBody(body)
+	if err != nil {
+		return nil, false, fmt.Errorf("shape Codex body: %w", err)
+	}
+	if gjson.GetBytes(shaped, "stream").Bool() {
+		return shaped, false, nil
+	}
+	streamed, err := sjson.SetBytes(shaped, "stream", true)
+	if err != nil {
+		return nil, false, fmt.Errorf("force Codex stream: %w", err)
+	}
+	return streamed, true, nil
+}
+
+func codexBackendBody(body []byte) ([]byte, error) {
 	body = stripCodexUnsupportedParams(body)
-	body = listCodexInput(body)
-	body = disableCodexStore(body)
-	return demoteCodexSystemItems(body)
+	body, err := wrapCodexStringInput(body)
+	if err != nil {
+		return nil, fmt.Errorf("wrap Codex string input: %w", err)
+	}
+	if body, err = disableCodexStore(body); err != nil {
+		return nil, fmt.Errorf("disable Codex store: %w", err)
+	}
+	if body, err = demoteCodexSystemItems(body); err != nil {
+		return nil, fmt.Errorf("demote Codex system items: %w", err)
+	}
+	return body, nil
 }
 
 func stripCodexUnsupportedParams(body []byte) []byte {
@@ -43,40 +66,36 @@ func stripCodexUnsupportedParams(body []byte) []byte {
 	return body
 }
 
-func listCodexInput(body []byte) []byte {
+func wrapCodexStringInput(body []byte) ([]byte, error) {
 	input := gjson.GetBytes(body, "input")
 	if input.Type != gjson.String {
-		return body
+		return body, nil
 	}
-	message := codexInputMessage{Type: "message", Role: "user", Content: []codexInputText{{Type: "input_text", Text: input.Str}}}
-	out, err := sjson.SetBytes(body, "input", []codexInputMessage{message})
-	if err != nil {
-		return body
+	message := codexInputMessage{
+		Type:    "message",
+		Role:    "user",
+		Content: []codexInputText{{Type: "input_text", Text: input.Str}},
 	}
-	return out
+	return sjson.SetBytes(body, "input", []codexInputMessage{message})
 }
 
-func disableCodexStore(body []byte) []byte {
+func disableCodexStore(body []byte) ([]byte, error) {
 	if gjson.GetBytes(body, "store").Type == gjson.False {
-		return body
+		return body, nil
 	}
-	out, err := sjson.SetBytes(body, "store", false)
-	if err != nil {
-		return body
-	}
-	return out
+	return sjson.SetBytes(body, "store", false)
 }
 
-func demoteCodexSystemItems(body []byte) []byte {
+func demoteCodexSystemItems(body []byte) ([]byte, error) {
 	for i, item := range gjson.GetBytes(body, "input").Array() {
 		if item.Get("role").Str != "system" {
 			continue
 		}
 		out, err := sjson.SetBytes(body, fmt.Sprintf("input.%d.role", i), "developer")
 		if err != nil {
-			continue
+			return nil, err
 		}
 		body = out
 	}
-	return body
+	return body, nil
 }

@@ -213,15 +213,11 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	if useCodex {
 		baseURL = c.codexBaseURL
 		path = codexResponsesPath
-		reqBody = codexBackendBody(reqBody)
-		if !gjson.GetBytes(reqBody, "stream").Bool() {
-			streamed, err := sjson.SetBytes(reqBody, "stream", true)
-			if err != nil {
-				return fmt.Errorf("force Codex stream: %w", err)
-			}
-			reqBody = streamed
-			collectCodexResponse = true
+		shaped, collect, err := codexDispatchBody(reqBody)
+		if err != nil {
+			return err
 		}
+		reqBody, collectCodexResponse = shaped, collect
 	} else if prep.Endpoint == providers.EndpointResponses {
 		reqBody = maxEffortToXhigh(reqBody, decision.Model)
 	}
