@@ -121,7 +121,7 @@ func (s *Service) recordAgreementShadow(ctx context.Context, log *slog.Logger, p
 	if p.agreementShadow == nil {
 		return
 	}
-	store, ok := s.telemetry.(switchpolicy.ShadowStore)
+	store, ok := s.turnTelemetry.repo.(switchpolicy.ShadowStore)
 	if !ok {
 		log.Warn("Agreement shadow store is unavailable", "installation_id", p.InstallationID)
 		return

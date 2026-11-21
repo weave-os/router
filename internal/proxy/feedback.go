@@ -99,7 +99,7 @@ func (s *Service) SubmitFeedback(ctx context.Context, p SubmitFeedbackParams) er
 }
 
 func (s *Service) emitFeedbackSpan(ctx context.Context, p SubmitFeedbackParams) {
-	if s.emitter == nil {
+	if s.turnTelemetry.emitter == nil {
 		return
 	}
 	now := s.clock.Now()

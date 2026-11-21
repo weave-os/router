@@ -400,7 +400,7 @@ func TestBypass_NonStreamResponseIncludesCostHeaders(t *testing.T) {
 	)
 	upstream := &bypassFakeProvider{respBody: `{"usage":{"input_tokens":1200,"output_tokens":340}}`}
 	svc := newBypassService(upstream)
-	svc.telemetry = newBypassCaptureTelemetry() // enables usage extraction
+	svc.turnTelemetry.repo = newBypassCaptureTelemetry() // enables usage extraction
 
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
@@ -619,7 +619,7 @@ func TestBypass_EmitsUsageAndCost(t *testing.T) {
 
 	upstream := &bypassFakeProvider{respBody: sse}
 	svc := newBypassService(upstream)
-	svc.emitter = emitter // makes usageRequired() true so the extractor runs
+	svc.turnTelemetry.emitter = emitter // makes usageRequired() true so the extractor runs
 
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
@@ -695,7 +695,7 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 	upstream := &bypassFakeProvider{respBody: "{}"}
 	svc := newBypassService(upstream)
 	sink := newBypassCaptureTelemetry()
-	svc.telemetry = sink
+	svc.turnTelemetry.repo = sink
 
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
@@ -766,7 +766,7 @@ func TestBypass_NoTelemetryRowWithoutInstallation(t *testing.T) {
 	upstream := &bypassFakeProvider{respBody: "{}"}
 	svc := newBypassService(upstream)
 	sink := newBypassCaptureTelemetry()
-	svc.telemetry = sink
+	svc.turnTelemetry.repo = sink
 
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
@@ -788,7 +788,7 @@ func TestBypass_TelemetryRowClassifiesOutputCap(t *testing.T) {
 		`"stop_reason":"max_tokens","usage":{"input_tokens":3,"output_tokens":5}}`}
 	svc := newBypassService(upstream)
 	sink := newBypassCaptureTelemetry()
-	svc.telemetry = sink
+	svc.turnTelemetry.repo = sink
 
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()

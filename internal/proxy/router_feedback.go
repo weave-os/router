@@ -78,8 +78,8 @@ func (s *Service) handleRouterFeedbackCommand(
 	var telemetryRequestID string
 	var telemetryRouteID string
 	var telemetryStrategy string
-	if cmd.Sequence != 0 && s.telemetry != nil {
-		turn, err := s.telemetry.GetTelemetryBySessionSequence(ctx, target.installationID, target.sessionKey[:], role, cmd.Sequence)
+	if cmd.Sequence != 0 && s.turnTelemetry.repo != nil {
+		turn, err := s.turnTelemetry.repo.GetTelemetryBySessionSequence(ctx, target.installationID, target.sessionKey[:], role, cmd.Sequence)
 		if err != nil {
 			log.Error("/router-feedback: sequence lookup failed", "sequence", cmd.Sequence, "err", err)
 			if errors.Is(err, sql.ErrNoRows) {

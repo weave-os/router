@@ -281,7 +281,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		}
 		proxySink := attemptSink
 		if s.usageRequired() {
-			extractor, proxySink = s.newUsageExtractor(attemptSink, d.Provider)
+			extractor, proxySink = s.turnTelemetry.newUsageExtractor(attemptSink, d.Provider)
 		}
 		preludeBuf.Seal()
 		err := p.Proxy(actx, d, prep, proxySink, r)

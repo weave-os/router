@@ -54,7 +54,7 @@ func (s *Service) firePolicyShadowDecision(ctx context.Context, servingStrategy 
 	shadowReq.ShadowMode = true
 	shadowReq.TrainingAllowed = false
 	shadowReq.DebugEnabled = false
-	store, _ := s.telemetry.(PolicyShadowStore)
+	store, _ := s.turnTelemetry.repo.(PolicyShadowStore)
 	base := PolicyShadowDecision{
 		InstallationID:  s.installationID(ctx),
 		OrganizationID:  req.OrganizationID,
