@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 type routeFailureRequest struct {
@@ -27,7 +28,7 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, request route
 	if installationID == uuid.Nil {
 		return
 	}
-	params := InsertTelemetryParams{
+	params := turnrecord.InsertTelemetryParams{
 		InstallationID: installationID.String(),
 		APIKeyID:       apiKeyIDFromContext(ctx),
 		RequestID:      request.RequestID,
@@ -37,7 +38,7 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, request route
 		RequestedModel: request.RequestedModel,
 		TurnType:       string(turnType),
 		DecisionReason: DecisionReasonPolicyPinUnservable,
-		ErrorClass:     TurnErrorRoutingRefused,
+		ErrorClass:     turnrecord.TurnErrorRoutingRefused,
 		UserPrompt:     &userPrompt,
 		Strategy:       string(request.Strategy),
 		RouterUserID:   auth.UserIDFrom(ctx),

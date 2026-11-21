@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
 
@@ -55,8 +56,8 @@ func TestRequestNoticeStream_FailedFallbackCandidatesShowNoMarker(t *testing.T) 
 
 func TestSiblingMarkerReason_CitesThePickedModelsOwnFailure(t *testing.T) {
 	trace := traceOf(
-		cortexAttempt(markerSol, ErrSubscriptionPoolThrottled, TurnErrorRateLimited),
-		cortexAttempt(markerOpus, ErrSubscriptionPoolExhausted, TurnErrorRateLimited),
+		cortexAttempt(markerSol, ErrSubscriptionPoolThrottled, turnrecord.TurnErrorRateLimited),
+		cortexAttempt(markerOpus, ErrSubscriptionPoolExhausted, turnrecord.TurnErrorRateLimited),
 	)
 	ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, trace)
 	assert.Equal(t, "switched after "+markerSol+" had every subscription seat rate-limited", siblingMarkerReason(ctx, markerSol))

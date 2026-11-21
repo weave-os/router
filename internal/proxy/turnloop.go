@@ -24,6 +24,7 @@ import (
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -388,11 +389,11 @@ func (s *Service) runTurnLoop(
 		}
 		if routeErr != nil && agreementShadowEnabled(ctx) {
 			key := deriveSessionKeyForRequest(ctx, env, apiKeyID)
-			params := InsertTelemetryParams{InstallationID: installationID.String(), RequestID: observability.RequestIDFromContext(ctx),
+			params := turnrecord.InsertTelemetryParams{InstallationID: installationID.String(), RequestID: observability.RequestIDFromContext(ctx),
 				Timestamp: shadowStartedAt, SessionKey: key[:], Role: res.PinRole,
-				TurnType: string(turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx)))), ErrorClass: TurnErrorRoutingRefused}
+				TurnType: string(turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx)))), ErrorClass: turnrecord.TurnErrorRoutingRefused}
 			applyAgreementShadowTelemetry(s.strategyPorts, ctx, &params, res)
-			if params.agreementShadow != nil {
+			if params.AgreementShadow != nil {
 				log := observability.FromContext(ctx)
 				observability.SafeGoContext(ctx, log, 5*time.Second, "agreementShadowRoutingFailure", func(shadowCtx context.Context) {
 					s.recordAgreementShadow(shadowCtx, log, params)
@@ -1194,18 +1195,6 @@ func (s *Service) authorityCacheShadowFor(
 		shadow.StayProvider = stayPin.Provider
 	}
 	return shadow
-}
-
-func candidateScoreFor(ports continuity.StrategyPorts, dec router.Decision, servedIdentity string) *float64 {
-	return candidateScoreForWithProvider(ports, dec, servedIdentity, dec.Provider)
-}
-
-func candidateScoreForWithProvider(ports continuity.StrategyPorts, dec router.Decision, servedIdentity, provider string) *float64 {
-	return candidateScoreForWithArm(ports, dec, servedIdentity, provider, "")
-}
-
-func candidateScoreForWithArm(ports continuity.StrategyPorts, dec router.Decision, servedIdentity, provider, rosterArmID string) *float64 {
-	return ports.Facts.CandidateScore(dec, servedIdentity, provider, rosterArmID)
 }
 
 func (s *Service) logAuthorityCacheShadow(ctx context.Context, res turnLoopResult) {

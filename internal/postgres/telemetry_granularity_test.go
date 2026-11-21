@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/postgres"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -41,7 +41,7 @@ func insertGranularityInstallation(ctx context.Context, t *testing.T, repo *post
 		assert.NoError(t, exec(context.WithoutCancel(ctx), "DELETE FROM router.model_router_installations WHERE id = $1", id))
 	})
 	for _, turn := range turns {
-		require.NoError(t, repo.InsertRequestTelemetry(ctx, proxy.InsertTelemetryParams{
+		require.NoError(t, repo.InsertRequestTelemetry(ctx, turnrecord.InsertTelemetryParams{
 			InstallationID:         id.String(),
 			RequestID:              uuid.NewString(),
 			SpanType:               turn.spanType,
@@ -106,23 +106,23 @@ func TestTelemetryTimeseriesGranularityAgainstPostgres(t *testing.T) {
 	repo, installation := seedGranularityTelemetry(t)
 	type costCase struct {
 		granularity string
-		scoped, all []proxy.TelemetryBucket
+		scoped, all []turnrecord.TelemetryBucket
 	}
 	for _, tc := range []costCase{
 		{
 			granularity: "week",
-			scoped:      []proxy.TelemetryBucket{{Bucket: granularityAt(1, 0, 0), RequestedCostUSD: 0.93, ActualCostUSD: 0.42}, {Bucket: granularityAt(8, 0, 0), RequestedCostUSD: 2, ActualCostUSD: 1}},
-			all:         []proxy.TelemetryBucket{{Bucket: granularityAt(1, 0, 0), RequestedCostUSD: 1.53, ActualCostUSD: 0.82}, {Bucket: granularityAt(8, 0, 0), RequestedCostUSD: 2, ActualCostUSD: 1}},
+			scoped:      []turnrecord.TelemetryBucket{{Bucket: granularityAt(1, 0, 0), RequestedCostUSD: 0.93, ActualCostUSD: 0.42}, {Bucket: granularityAt(8, 0, 0), RequestedCostUSD: 2, ActualCostUSD: 1}},
+			all:         []turnrecord.TelemetryBucket{{Bucket: granularityAt(1, 0, 0), RequestedCostUSD: 1.53, ActualCostUSD: 0.82}, {Bucket: granularityAt(8, 0, 0), RequestedCostUSD: 2, ActualCostUSD: 1}},
 		},
 		{
 			granularity: "day",
-			scoped:      []proxy.TelemetryBucket{{Bucket: granularityAt(2, 0, 0), RequestedCostUSD: 0.9, ActualCostUSD: 0.4}, {Bucket: granularityAt(4, 0, 0), RequestedCostUSD: 0.03, ActualCostUSD: 0.02}, {Bucket: granularityAt(9, 0, 0), RequestedCostUSD: 2, ActualCostUSD: 1}},
-			all:         []proxy.TelemetryBucket{{Bucket: granularityAt(2, 0, 0), RequestedCostUSD: 1.5, ActualCostUSD: 0.8}, {Bucket: granularityAt(4, 0, 0), RequestedCostUSD: 0.03, ActualCostUSD: 0.02}, {Bucket: granularityAt(9, 0, 0), RequestedCostUSD: 2, ActualCostUSD: 1}},
+			scoped:      []turnrecord.TelemetryBucket{{Bucket: granularityAt(2, 0, 0), RequestedCostUSD: 0.9, ActualCostUSD: 0.4}, {Bucket: granularityAt(4, 0, 0), RequestedCostUSD: 0.03, ActualCostUSD: 0.02}, {Bucket: granularityAt(9, 0, 0), RequestedCostUSD: 2, ActualCostUSD: 1}},
+			all:         []turnrecord.TelemetryBucket{{Bucket: granularityAt(2, 0, 0), RequestedCostUSD: 1.5, ActualCostUSD: 0.8}, {Bucket: granularityAt(4, 0, 0), RequestedCostUSD: 0.03, ActualCostUSD: 0.02}, {Bucket: granularityAt(9, 0, 0), RequestedCostUSD: 2, ActualCostUSD: 1}},
 		},
 		{
 			granularity: "hour",
-			scoped:      []proxy.TelemetryBucket{{Bucket: granularityAt(2, 10, 0), RequestedCostUSD: 0.9, ActualCostUSD: 0.4}, {Bucket: granularityAt(4, 8, 0), RequestedCostUSD: 0.03, ActualCostUSD: 0.02}, {Bucket: granularityAt(9, 12, 0), RequestedCostUSD: 2, ActualCostUSD: 1}},
-			all:         []proxy.TelemetryBucket{{Bucket: granularityAt(2, 10, 0), RequestedCostUSD: 0.9, ActualCostUSD: 0.4}, {Bucket: granularityAt(2, 11, 0), RequestedCostUSD: 0.6, ActualCostUSD: 0.4}, {Bucket: granularityAt(4, 8, 0), RequestedCostUSD: 0.03, ActualCostUSD: 0.02}, {Bucket: granularityAt(9, 12, 0), RequestedCostUSD: 2, ActualCostUSD: 1}},
+			scoped:      []turnrecord.TelemetryBucket{{Bucket: granularityAt(2, 10, 0), RequestedCostUSD: 0.9, ActualCostUSD: 0.4}, {Bucket: granularityAt(4, 8, 0), RequestedCostUSD: 0.03, ActualCostUSD: 0.02}, {Bucket: granularityAt(9, 12, 0), RequestedCostUSD: 2, ActualCostUSD: 1}},
+			all:         []turnrecord.TelemetryBucket{{Bucket: granularityAt(2, 10, 0), RequestedCostUSD: 0.9, ActualCostUSD: 0.4}, {Bucket: granularityAt(2, 11, 0), RequestedCostUSD: 0.6, ActualCostUSD: 0.4}, {Bucket: granularityAt(4, 8, 0), RequestedCostUSD: 0.03, ActualCostUSD: 0.02}, {Bucket: granularityAt(9, 12, 0), RequestedCostUSD: 2, ActualCostUSD: 1}},
 		},
 	} {
 		for _, granularity := range granularityRequests(tc.granularity) {
@@ -143,34 +143,34 @@ func TestTelemetryTimeseriesGranularityAgainstPostgres(t *testing.T) {
 func TestTelemetryModelBreakdownGranularityAgainstPostgres(t *testing.T) {
 	ctx := context.Background()
 	repo, installation := seedGranularityTelemetry(t)
-	modelA := func(at time.Time, count, tokens int64, cost float64) proxy.TelemetryModelBucket {
-		return proxy.TelemetryModelBucket{Bucket: at, DecisionModel: "model-a", RequestCount: count, TotalTokens: tokens, ActualCostUSD: cost}
+	modelA := func(at time.Time, count, tokens int64, cost float64) turnrecord.TelemetryModelBucket {
+		return turnrecord.TelemetryModelBucket{Bucket: at, DecisionModel: "model-a", RequestCount: count, TotalTokens: tokens, ActualCostUSD: cost}
 	}
-	modelB := proxy.TelemetryModelBucket{DecisionModel: "model-b", RequestCount: 1, TotalTokens: 60, ActualCostUSD: 0.1}
-	modelC := proxy.TelemetryModelBucket{DecisionModel: "model-c", RequestCount: 1, TotalTokens: 10, ActualCostUSD: 0.4}
-	withBucket := func(bucket proxy.TelemetryModelBucket, when time.Time) proxy.TelemetryModelBucket {
+	modelB := turnrecord.TelemetryModelBucket{DecisionModel: "model-b", RequestCount: 1, TotalTokens: 60, ActualCostUSD: 0.1}
+	modelC := turnrecord.TelemetryModelBucket{DecisionModel: "model-c", RequestCount: 1, TotalTokens: 10, ActualCostUSD: 0.4}
+	withBucket := func(bucket turnrecord.TelemetryModelBucket, when time.Time) turnrecord.TelemetryModelBucket {
 		bucket.Bucket = when
 		return bucket
 	}
 	type modelCase struct {
 		granularity string
-		scoped, all []proxy.TelemetryModelBucket
+		scoped, all []turnrecord.TelemetryModelBucket
 	}
 	for _, tc := range []modelCase{
 		{
 			granularity: "week",
-			scoped:      []proxy.TelemetryModelBucket{modelA(granularityAt(1, 0, 0), 2, 135, 0.32), withBucket(modelB, granularityAt(1, 0, 0)), modelA(granularityAt(8, 0, 0), 1, 2, 1)},
-			all:         []proxy.TelemetryModelBucket{modelA(granularityAt(1, 0, 0), 2, 135, 0.32), withBucket(modelB, granularityAt(1, 0, 0)), withBucket(modelC, granularityAt(1, 0, 0)), modelA(granularityAt(8, 0, 0), 1, 2, 1)},
+			scoped:      []turnrecord.TelemetryModelBucket{modelA(granularityAt(1, 0, 0), 2, 135, 0.32), withBucket(modelB, granularityAt(1, 0, 0)), modelA(granularityAt(8, 0, 0), 1, 2, 1)},
+			all:         []turnrecord.TelemetryModelBucket{modelA(granularityAt(1, 0, 0), 2, 135, 0.32), withBucket(modelB, granularityAt(1, 0, 0)), withBucket(modelC, granularityAt(1, 0, 0)), modelA(granularityAt(8, 0, 0), 1, 2, 1)},
 		},
 		{
 			granularity: "day",
-			scoped:      []proxy.TelemetryModelBucket{modelA(granularityAt(2, 0, 0), 1, 120, 0.3), withBucket(modelB, granularityAt(2, 0, 0)), modelA(granularityAt(4, 0, 0), 1, 15, 0.02), modelA(granularityAt(9, 0, 0), 1, 2, 1)},
-			all:         []proxy.TelemetryModelBucket{modelA(granularityAt(2, 0, 0), 1, 120, 0.3), withBucket(modelB, granularityAt(2, 0, 0)), withBucket(modelC, granularityAt(2, 0, 0)), modelA(granularityAt(4, 0, 0), 1, 15, 0.02), modelA(granularityAt(9, 0, 0), 1, 2, 1)},
+			scoped:      []turnrecord.TelemetryModelBucket{modelA(granularityAt(2, 0, 0), 1, 120, 0.3), withBucket(modelB, granularityAt(2, 0, 0)), modelA(granularityAt(4, 0, 0), 1, 15, 0.02), modelA(granularityAt(9, 0, 0), 1, 2, 1)},
+			all:         []turnrecord.TelemetryModelBucket{modelA(granularityAt(2, 0, 0), 1, 120, 0.3), withBucket(modelB, granularityAt(2, 0, 0)), withBucket(modelC, granularityAt(2, 0, 0)), modelA(granularityAt(4, 0, 0), 1, 15, 0.02), modelA(granularityAt(9, 0, 0), 1, 2, 1)},
 		},
 		{
 			granularity: "hour",
-			scoped:      []proxy.TelemetryModelBucket{modelA(granularityAt(2, 10, 0), 1, 120, 0.3), withBucket(modelB, granularityAt(2, 10, 0)), modelA(granularityAt(4, 8, 0), 1, 15, 0.02), modelA(granularityAt(9, 12, 0), 1, 2, 1)},
-			all:         []proxy.TelemetryModelBucket{modelA(granularityAt(2, 10, 0), 1, 120, 0.3), withBucket(modelB, granularityAt(2, 10, 0)), withBucket(modelC, granularityAt(2, 11, 0)), modelA(granularityAt(4, 8, 0), 1, 15, 0.02), modelA(granularityAt(9, 12, 0), 1, 2, 1)},
+			scoped:      []turnrecord.TelemetryModelBucket{modelA(granularityAt(2, 10, 0), 1, 120, 0.3), withBucket(modelB, granularityAt(2, 10, 0)), modelA(granularityAt(4, 8, 0), 1, 15, 0.02), modelA(granularityAt(9, 12, 0), 1, 2, 1)},
+			all:         []turnrecord.TelemetryModelBucket{modelA(granularityAt(2, 10, 0), 1, 120, 0.3), withBucket(modelB, granularityAt(2, 10, 0)), withBucket(modelC, granularityAt(2, 11, 0)), modelA(granularityAt(4, 8, 0), 1, 15, 0.02), modelA(granularityAt(9, 12, 0), 1, 2, 1)},
 		},
 	} {
 		for _, granularity := range granularityRequests(tc.granularity) {
@@ -194,7 +194,7 @@ func roundToMicros(usd float64) float64 {
 	return math.Round(usd*1e6) / 1e6
 }
 
-func utcCostBuckets(buckets []proxy.TelemetryBucket) []proxy.TelemetryBucket {
+func utcCostBuckets(buckets []turnrecord.TelemetryBucket) []turnrecord.TelemetryBucket {
 	for i := range buckets {
 		buckets[i].Bucket = buckets[i].Bucket.UTC()
 		buckets[i].RequestedCostUSD = roundToMicros(buckets[i].RequestedCostUSD)
@@ -203,7 +203,7 @@ func utcCostBuckets(buckets []proxy.TelemetryBucket) []proxy.TelemetryBucket {
 	return buckets
 }
 
-func utcModelBuckets(buckets []proxy.TelemetryModelBucket) []proxy.TelemetryModelBucket {
+func utcModelBuckets(buckets []turnrecord.TelemetryModelBucket) []turnrecord.TelemetryModelBucket {
 	for i := range buckets {
 		buckets[i].Bucket = buckets[i].Bucket.UTC()
 		buckets[i].ActualCostUSD = roundToMicros(buckets[i].ActualCostUSD)

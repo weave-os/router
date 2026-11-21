@@ -3,12 +3,13 @@ package proxy
 import (
 	"testing"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestApplyEffortTelemetry_SkippedWhenNothingResolved(t *testing.T) {
-	p := InsertTelemetryParams{RequestID: "r"}
+	p := turnrecord.InsertTelemetryParams{RequestID: "r"}
 	applyEffortTelemetry(&p, dispatch.EffortResolution{})
 	assert.Empty(t, p.EffortArm)
 	assert.Empty(t, p.EffortSelected)
@@ -17,7 +18,7 @@ func TestApplyEffortTelemetry_SkippedWhenNothingResolved(t *testing.T) {
 }
 
 func TestApplyEffortTelemetry_RecordsClampedWireLevel(t *testing.T) {
-	p := InsertTelemetryParams{}
+	p := turnrecord.InsertTelemetryParams{}
 	applyEffortTelemetry(&p, dispatch.EffortResolution{
 		Arm:      "xhigh",
 		Selected: "xhigh",
@@ -31,7 +32,7 @@ func TestApplyEffortTelemetry_RecordsClampedWireLevel(t *testing.T) {
 }
 
 func TestApplyEffortTelemetry_RecordsOverrideSource(t *testing.T) {
-	p := InsertTelemetryParams{}
+	p := turnrecord.InsertTelemetryParams{}
 	applyEffortTelemetry(&p, dispatch.EffortResolution{
 		Arm:      "low",
 		Selected: "high",
