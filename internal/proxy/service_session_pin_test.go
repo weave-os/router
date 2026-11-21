@@ -22,6 +22,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -240,7 +241,7 @@ func newPinSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 
 }
 
-func newPinSvcWithTelemetry(fr *fakeRouter, store *fakePinStore, telemetry proxy.TelemetryRepository) *proxy.Service {
+func newPinSvcWithTelemetry(fr *fakeRouter, store *fakePinStore, telemetry turnrecord.TelemetryRepository) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},

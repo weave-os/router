@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 func TestPreDispatchFundingRefusalIsClassifiedAndOwned(t *testing.T) {
@@ -25,21 +26,21 @@ func TestPreDispatchFundingRefusalIsClassifiedAndOwned(t *testing.T) {
 	require.True(t, managed)
 	require.ErrorIs(t, disabledSeatErr, ErrSubscriptionPoolExhausted)
 
-	fundingRefused := TurnErrorFundingRefused
+	fundingRefused := turnrecord.TurnErrorFundingRefused
 	for _, scenario := range []struct {
 		name  string
 		err   error
-		class TurnErrorClass
-		owner FailureOwner
+		class turnrecord.TurnErrorClass
+		owner turnrecord.FailureOwner
 	}{
-		{name: "only linked seat disabled", err: disabledSeatErr, class: fundingRefused, owner: FailureOwnerClient},
-		{name: "caller plan rate-limited behind the funding authorization", err: fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, errCallerPlanThrottled), class: TurnErrorRateLimited, owner: FailureOwnerClient},
-		{name: "every usable linked seat throttled", err: fmt.Errorf("%w: %w", ErrSubscriptionPoolExhausted, errLinkedSeatsThrottled), class: TurnErrorRateLimited, owner: FailureOwnerProvider},
-		{name: "subscription pool throttled", err: ErrSubscriptionPoolThrottled, class: TurnErrorRateLimited, owner: FailureOwnerProvider},
-		{name: "credits exhausted and subscription unavailable", err: ErrCreditsExhaustedSubscriptionUnavailable, class: fundingRefused, owner: FailureOwnerClient},
-		{name: "spend cap reached and subscription unavailable", err: ErrSpendCapSubscriptionUnavailable, class: fundingRefused, owner: FailureOwnerClient},
-		{name: "Weave credits disabled", err: ErrWeaveCreditsDisabled, class: fundingRefused, owner: FailureOwnerClient},
-		{name: "Claude Enterprise-only with no usable account", err: ErrClaudeEnterpriseSubscriptionUnavailable, class: fundingRefused, owner: FailureOwnerClient},
+		{name: "only linked seat disabled", err: disabledSeatErr, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
+		{name: "caller plan rate-limited behind the funding authorization", err: fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, errCallerPlanThrottled), class: turnrecord.TurnErrorRateLimited, owner: turnrecord.FailureOwnerClient},
+		{name: "every usable linked seat throttled", err: fmt.Errorf("%w: %w", ErrSubscriptionPoolExhausted, errLinkedSeatsThrottled), class: turnrecord.TurnErrorRateLimited, owner: turnrecord.FailureOwnerProvider},
+		{name: "subscription pool throttled", err: ErrSubscriptionPoolThrottled, class: turnrecord.TurnErrorRateLimited, owner: turnrecord.FailureOwnerProvider},
+		{name: "credits exhausted and subscription unavailable", err: ErrCreditsExhaustedSubscriptionUnavailable, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
+		{name: "spend cap reached and subscription unavailable", err: ErrSpendCapSubscriptionUnavailable, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
+		{name: "Weave credits disabled", err: ErrWeaveCreditsDisabled, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
+		{name: "Claude Enterprise-only with no usable account", err: ErrClaudeEnterpriseSubscriptionUnavailable, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			assert.Equal(t, scenario.class, classifyTurnError(scenario.err, "", 0))

@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/require"
@@ -39,16 +40,16 @@ func TestContextEstimateHeadersProtocols(t *testing.T) {
 
 func TestContextSnapshotFreshness(t *testing.T) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	snapshot := ContextSnapshot{Version: 1, EstimateKind: ContextEstimateApproximate, EstimateTokens: 72000, ContextWindow: 128000, OutputReserveTokens: 8000, ServedModel: "gpt-5.6-sol", RequestID: "request-test", RequestedAt: now.Add(-time.Minute), RecordedAt: now}
+	snapshot := turnrecord.ContextSnapshot{Version: 1, EstimateKind: turnrecord.ContextEstimateApproximate, EstimateTokens: 72000, ContextWindow: 128000, OutputReserveTokens: 8000, ServedModel: "gpt-5.6-sol", RequestID: "request-test", RequestedAt: now.Add(-time.Minute), RecordedAt: now}
 	require.True(t, snapshot.Fresh(now))
-	require.False(t, snapshot.Fresh(now.Add(ContextSnapshotTTL+time.Second)))
+	require.False(t, snapshot.Fresh(now.Add(turnrecord.ContextSnapshotTTL+time.Second)))
 	require.False(t, snapshot.Fresh(now.Add(-time.Second)))
 	snapshot.EstimateKind = "exact"
 	require.False(t, snapshot.Fresh(now))
-	snapshot.EstimateKind = ContextEstimateApproximate
+	snapshot.EstimateKind = turnrecord.ContextEstimateApproximate
 	snapshot.EstimateTokens = 0
 	require.False(t, snapshot.Fresh(now))
-	require.Nil(t, ParseContextSnapshot([]byte(`{"version":`)))
+	require.Nil(t, turnrecord.ParseContextSnapshot([]byte(`{"version":`)))
 }
 
 func TestContextSnapshotUsesFinalServedModel(t *testing.T) {
@@ -58,7 +59,7 @@ func TestContextSnapshotUsesFinalServedModel(t *testing.T) {
 	headers.Set(requestcontext.HeaderRouterContextWindow, "1048576")
 	headers.Set(requestcontext.HeaderRouterModel, "deepseek/deepseek-v4-pro")
 	snapshot := contextSnapshotJSONForDecision(headers, "request-final", "claude-opus-4-8", "claude-opus-4-8", providers.ProviderAnthropic, now, now)
-	parsed := ParseContextSnapshot(snapshot)
+	parsed := turnrecord.ParseContextSnapshot(snapshot)
 	require.NotNil(t, parsed)
 	require.Equal(t, "claude-opus-4-8", parsed.ServedModel)
 	require.Equal(t, 1_000_000, parsed.ContextWindow)

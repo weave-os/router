@@ -110,7 +110,7 @@ func decisionSpanEmbed(t *testing.T, svc *Service, collector *bypassSpanCollecto
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(context.Background(), embedTurnBody(), rec, httpReq))
 
-	em := mustAs[*otel.Emitter](t, svc.emitter)
+	em := mustAs[*otel.Emitter](t, svc.turnTelemetry.emitter)
 	require.NoError(t, em.Shutdown(context.Background()))
 
 	collector.mu.Lock()
@@ -264,7 +264,7 @@ func TestDecisionSpan_RolloutIDFromClientIdentity(t *testing.T) {
 	})
 	require.NoError(t, svc.ProxyMessages(ctx, embedTurnBody(), rec, httpReq))
 
-	em := mustAs[*otel.Emitter](t, svc.emitter)
+	em := mustAs[*otel.Emitter](t, svc.turnTelemetry.emitter)
 	require.NoError(t, em.Shutdown(context.Background()))
 
 	collector.mu.Lock()
@@ -344,7 +344,7 @@ func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
 				rec := httptest.NewRecorder()
 				httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, ingress.path, strings.NewReader(""))
 				require.NoError(t, ingress.call(svc, tc.ctx, ingress.body, rec, httpReq))
-				require.NoError(t, mustAs[*otel.Emitter](t, svc.emitter).Shutdown(context.Background()))
+				require.NoError(t, mustAs[*otel.Emitter](t, svc.turnTelemetry.emitter).Shutdown(context.Background()))
 
 				collector.mu.Lock()
 				defer collector.mu.Unlock()

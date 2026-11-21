@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -89,7 +90,7 @@ func rescueService(p *modelScriptedProvider, retry bool, fallbackModel string) (
 	svc.rescueConfig.CyberRefusalRetry = retry
 	svc.rescueConfig.CyberRefusalFallbackModel = fallbackModel
 	sink := newBypassCaptureTelemetry()
-	svc.telemetry = sink
+	svc.turnTelemetry.repo = sink
 	return svc, sink
 }
 
@@ -200,7 +201,7 @@ func TestBypass_ClassifierRefusal_DoesNotTryModelsSubscriptionNeverServed(t *tes
 	assert.JSONEq(t, rescueRefusal(rescueRefusingModel), rec.Body.String())
 }
 
-func rescueTelemetryRow(t *testing.T, sink *bypassCaptureTelemetry) InsertTelemetryParams {
+func rescueTelemetryRow(t *testing.T, sink *bypassCaptureTelemetry) turnrecord.InsertTelemetryParams {
 	t.Helper()
 	select {
 	case <-sink.notify:

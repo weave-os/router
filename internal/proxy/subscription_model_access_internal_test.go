@@ -59,7 +59,7 @@ func TestSubscriptionModelAccessPreservesFailedAttemptAttribution(t *testing.T) 
 	upstream := &parityUpstream{subErr: modelAccessError(), paidErr: modelAccessError()}
 	svc := in.parityService(upstream)
 	telemetry := &auxTelemetryRepo{}
-	svc.telemetry = telemetry
+	svc.turnTelemetry.repo = telemetry
 	rec, req, body := in.request(t, false)
 	require.ErrorIs(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req), ErrWeaveCreditsDisabled)
 	assert.Empty(t, rec.Body.String(), "blocked funding must not commit a success response")

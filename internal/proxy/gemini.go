@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -231,7 +232,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		}
 		proxySink := attemptSink
 		if s.usageRequired() {
-			extractor, proxySink = s.newUsageExtractor(attemptSink, d.Provider)
+			extractor, proxySink = s.turnTelemetry.newUsageExtractor(attemptSink, d.Provider)
 		}
 		preludeBuf.Seal()
 		err := p.Proxy(actx, d, prep, proxySink, r)
@@ -296,15 +297,15 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
 	s.clearRecoveredCooldown(ctx, routeRes, decision.Model, proxyErr)
 
-	var subscriberTelemetry *InsertTelemetryParams
+	var subscriberTelemetry *turnrecord.InsertTelemetryParams
 	if facts.InstallationID != uuid.Nil {
 		credentialKeyPrefix, credentialKeySuffix, credentialSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, proxyErr)
 		errorClass := classifyTurnError(proxyErr, "", 0)
 		if errorClass == "" && extractor.OutputLimitReached() {
-			errorClass = TurnErrorMaxTokens
+			errorClass = turnrecord.TurnErrorMaxTokens
 		}
-		telemetryParams := InsertTelemetryParams{
+		telemetryParams := turnrecord.InsertTelemetryParams{
 			InstallationID:         facts.InstallationID.String(),
 			APIKeyID:               apiKeyIDFromContext(ctx),
 			RequestID:              facts.RequestID,
