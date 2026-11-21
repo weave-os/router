@@ -3145,106 +3145,29 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			)
 			s.evictPinAfterDegenerateResponse(ctx, strategy, stickyHit, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes))
 		}
-		tel := InsertTelemetryParams{
-			InstallationID:           facts.InstallationID.String(),
-			APIKeyID:                 apiKeyIDFromContext(ctx),
-			RequestID:                facts.RequestID,
-			SpanType:                 "router.upstream",
-			TraceID:                  facts.RequestID,
-			Timestamp:                requestStart,
-			RequestedModel:           feats.Model,
-			DecisionModel:            decision.Model,
-			DecisionProvider:         decision.Provider,
-			DecisionReason:           telemetryDecisionReason(ctx, decision.Reason),
-			RequestedAllowedModels:   requestedAllowedModelsForTelemetry(ctx),
-			EstimatedInputTokens:     int32(feats.Tokens),
-			ContextSnapshot:          contextSnapshotJSONForDecision(w.Header(), facts.RequestID, feats.Model, decision.Model, decision.Provider, requestStart, s.clock.Now()),
-			StickyHit:                stickyHit,
-			PinTier:                  routeRes.PinTier,
-			EmbedInput:               embedInput,
-			InputTokens:              int32(in),
-			OutputTokens:             int32(out),
-			RequestedInputCostUSD:    requestedInputCost,
-			RequestedOutputCostUSD:   catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, reqPricing, usageMods),
-			ActualInputCostUSD:       catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods),
-			ActualOutputCostUSD:      catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, actPricing, usageMods),
-			RouteLatencyMs:           routeMs,
-			UpstreamLatencyMs:        proxyMs,
-			TotalLatencyMs:           s.clock.Now().Sub(requestStart).Milliseconds(),
-			CrossFormat:              crossFormat,
-			UpstreamStatusCode:       int32(upstreamStatus(proxyErr)),
-			CandidateModels:          obs.CandidateModels,
-			ChosenScore:              obs.ChosenScore,
-			CandidateScores:          obs.CandidateScores,
-			Propensity:               obs.Propensity,
-			Strategy:                 obs.Strategy,
-			RouteID:                  obs.RouteID,
-			PolicyRouteKey:           obs.PolicyRouteKey,
-			PolicyArtifactID:         obs.PolicyArtifactID,
-			PolicyArtifactSHA256:     obs.PolicyArtifactSHA256,
-			RosterVersion:            obs.RosterVersion,
-			ClassifierArtifactID:     obs.ClassifierArtifactID,
-			ClassifierArtifactSHA256: obs.ClassifierArtifactSHA256,
-			ClassifierPredictedLabel: obs.ClassifierPredictedLabel,
-			ClassifierClassOrder:     obs.ClassifierClassOrder,
-			ClassifierProbabilities:  obs.ClassifierProbabilities,
-			SelectionPolicyReleaseID: obs.SelectionPolicyReleaseID,
-			SelectionPolicySHA256:    obs.SelectionPolicySHA256,
-			SelectionHeadGeneration:  int64PtrIf(obs.SelectionHeadGeneration > 0, obs.SelectionHeadGeneration),
-			SelectionTrace:           obs.SelectionTrace,
-			SidecarSchemaVersion:     obs.SidecarSchemaVersion,
-			TrainingAllowed:          obs.TrainingAllowed,
-			CaptureMode:              obs.CaptureMode,
-			DebugRef:                 obs.DebugRef,
-			TTFTMs:                   obs.TTFTMs,
-			CacheCreationTokens:      cacheTokenPtr(cacheCreation),
-			CacheCreation1hTokens:    cacheCreation1hPtr(cacheCreation, usageMods.CacheCreation1h),
-			CacheReadTokens:          cacheTokenPtr(cacheRead),
-			Speed:                    string(extractor.Speed()),
-			InferenceGeo:             string(extractor.InferenceGeo()),
-			ReasoningTokens:          cacheTokenPtr(extractor.ReasoningTokens()),
-			DeviceID:                 facts.Client.DeviceID,
-			SessionID:                facts.Client.SessionID,
-			RouterUserID:             auth.UserIDFrom(ctx),
-			ClientApp:                facts.Client.TelemetryClientApp(),
-			TurnType:                 string(routeRes.TurnType),
-			RolloutID:                obs.RolloutID,
-			UpstreamFinishReason:     stringPtrOrEmpty(respSummary.UpstreamFinishReason),
-			StopReason:               stringPtrOrEmpty(respSummary.StopReason),
-			ToolUseBlocks:            int32PtrIfKnown(int32(respSummary.ToolUseBlocks), respSummary.StopReason != ""),
-			InvalidToolArgsBlocks:    int32PtrIfKnown(int32(respSummary.InvalidToolArgsBlocks), respSummary.StopReason != "" && !nativeRespSummary),
-			LastToolUseName:          terminalToolUse.Name,
-			LastToolUseInputBytes:    int32PtrIfKnown(int32(terminalToolUse.InputBytes), endedOnToolUse),
-			ToolErrorCounts:          toolErrorCountsJSON(toolErrorTally),
-			AutonomyAppendFired:      boolPtrOrNil(autonomyAppendFired(opts, finalProvider)),
-			WorkspaceAppendFired:     boolPtrOrNil(workspaceAppendFired(opts, finalProvider)),
-			FailoverUsed:             boolPtrTrue(rescue.failoverUsed),
-			FailoverAttempted:        boolPtrTrue(rescue.failoverAttempted),
-			DegenerateShadow:         boolPtrOrNil(degenerateShadow),
-			SessionKey:               sessionKey[:],
-			Role:                     routeRes.PinRole,
-			FreshDecisionModel:       obs.FreshDecisionModel,
-			FreshCandidateScores:     obs.FreshCandidateScores,
-			PinAgeSec:                int64PtrIf(stickyHit && pinAgeSec > 0, pinAgeSec),
-			ToolResultBytes:          toolResultBytesPtr(inboundLastUser, tt),
-			UserPrompt:               &inboundUserPrompt,
-			ErrorClass:               classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks),
-			FailureOwner:             turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), terminalFinishReason),
-			LatestToolCallCounts:     inboundLatestToolCalls,
-			CredentialKeyPrefix:      credentialKeyPrefix,
-			CredentialKeySuffix:      credentialKeySuffix,
-			CredentialSource:         credSource,
-			UnifiedLimitHeaders:      unifiedLimitHeadersJSON(ctx),
-			CodexLimitHeaders:        codexLimitHeadersJSON(ctx),
-		}
-		applyServedGroupTelemetry(s.strategyPorts, ctx, &tel, routeRes, decision)
-		applyPlannerTelemetry(&tel, routeRes)
-		applyEffortTelemetry(&tel, effortServed)
-		applyAuthorityShadowTelemetry(&tel, routeRes)
-		applyBlindExperimentTelemetry(ctx, &tel, &routeRes)
-		applyPolicyPinTelemetry(ctx, &tel, decision.Metadata)
-		applySubscriberTelemetry(ctx, &tel)
-		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &tel, routeRes)
+		tel := newUpstreamTelemetryRow(ctx, s.clock, upstreamTelemetryRow{
+			selectionAndResponseFields: true, respSummary: respSummary, nativeRespSummary: nativeRespSummary,
+			installationID: facts.InstallationID.String(), facts: facts, feats: feats, decision: decision, provider: decision.Provider,
+			contextSnapshot: contextSnapshotJSONForDecision(w.Header(), facts.RequestID, feats.Model, decision.Model, decision.Provider, requestStart, s.clock.Now()),
+			routeRes:        &routeRes, obs: obs, stickyHit: stickyHit, embedInput: embedInput,
+			inputTokens: in, outputTokens: out, cacheCreation: cacheCreation, cacheRead: cacheRead, usageMods: usageMods,
+			requestedInputCost: requestedInputCost, reqPricing: reqPricing, actPricing: actPricing,
+			routeMs: routeMs, proxyMs: proxyMs, requestStart: requestStart, crossFormat: crossFormat, proxyErr: proxyErr, extractor: extractor,
+			failoverUsed: boolPtrTrue(rescue.failoverUsed), failoverAttempted: boolPtrTrue(rescue.failoverAttempted),
+			sessionKey: sessionKey[:], pinAgeSec: pinAgeSec, inboundLastUser: inboundLastUser, turnType: tt, userPrompt: &inboundUserPrompt,
+			errorClass: classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), failureOwner: turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), terminalFinishReason),
+			credentialKeyPrefix: credentialKeyPrefix, credentialKeySuffix: credentialKeySuffix, credentialSource: credSource,
+			effortServed: effortServed, strategyPorts: s.strategyPorts,
+			surfaceFields: func(row *InsertTelemetryParams) {
+				row.LastToolUseName = terminalToolUse.Name
+				row.LastToolUseInputBytes = int32PtrIfKnown(int32(terminalToolUse.InputBytes), endedOnToolUse)
+				row.ToolErrorCounts = toolErrorCountsJSON(toolErrorTally)
+				row.AutonomyAppendFired = boolPtrOrNil(autonomyAppendFired(opts, finalProvider))
+				row.WorkspaceAppendFired = boolPtrOrNil(workspaceAppendFired(opts, finalProvider))
+				row.DegenerateShadow = boolPtrOrNil(degenerateShadow)
+				row.LatestToolCallCounts = inboundLatestToolCalls
+			},
+		})
 		signalTurn := tt == turntype.MainLoop || tt == turntype.ToolResult
 		applyTurnSignalTelemetry(&tel, inboundSpiralSignals, inboundSpiralReasons,
 			inboundSpiralComputed && signalTurn,
@@ -3262,11 +3185,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 	if subscriberTelemetry != nil {
-		if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
-			applySubscriberSettlementTelemetry(subscriberSettlement, subscriberTelemetry)
-		} else {
-			markSubscriberTelemetryUnsettled(subscriberTelemetry)
-		}
+		applyTelemetrySettlement(subscriberTelemetry, turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead), subscriberSettlement)
 		s.fireTelemetry(ctx, *subscriberTelemetry)
 	}
 
@@ -5349,104 +5268,21 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if installationIDOAI != "" {
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, proxyErr)
-		telOAI := InsertTelemetryParams{
-			InstallationID:           installationIDOAI,
-			APIKeyID:                 apiKeyIDFromContext(ctx),
-			RequestID:                facts.RequestID,
-			SpanType:                 "router.upstream",
-			TraceID:                  facts.RequestID,
-			Timestamp:                requestStart,
-			RequestedModel:           feats.Model,
-			DecisionModel:            decision.Model,
-			DecisionProvider:         decision.Provider,
-			DecisionReason:           telemetryDecisionReason(ctx, decision.Reason),
-			RequestedAllowedModels:   requestedAllowedModelsForTelemetry(ctx),
-			EstimatedInputTokens:     int32(feats.Tokens),
-			ContextSnapshot:          contextSnapshotJSONForDecision(w.Header(), facts.RequestID, feats.Model, decision.Model, decision.Provider, requestStart, s.clock.Now()),
-			StickyHit:                stickyHit,
-			PinTier:                  routeRes.PinTier,
-			EmbedInput:               embedInput,
-			InputTokens:              int32(in),
-			OutputTokens:             int32(out),
-			RequestedInputCostUSD:    requestedInputCost,
-			RequestedOutputCostUSD:   catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, reqPricing, usageMods),
-			ActualInputCostUSD:       catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods),
-			ActualOutputCostUSD:      catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, actPricing, usageMods),
-			RouteLatencyMs:           routeMs,
-			UpstreamLatencyMs:        proxyMs,
-			TotalLatencyMs:           s.clock.Now().Sub(requestStart).Milliseconds(),
-			CrossFormat:              crossFormat,
-			UpstreamStatusCode:       int32(upstreamStatus(proxyErr)),
-			CandidateModels:          openaiObs.CandidateModels,
-			ChosenScore:              openaiObs.ChosenScore,
-			CandidateScores:          openaiObs.CandidateScores,
-			Propensity:               openaiObs.Propensity,
-			Strategy:                 openaiObs.Strategy,
-			RouteID:                  openaiObs.RouteID,
-			PolicyRouteKey:           openaiObs.PolicyRouteKey,
-			PolicyArtifactID:         openaiObs.PolicyArtifactID,
-			PolicyArtifactSHA256:     openaiObs.PolicyArtifactSHA256,
-			RosterVersion:            openaiObs.RosterVersion,
-			ClassifierArtifactID:     openaiObs.ClassifierArtifactID,
-			ClassifierArtifactSHA256: openaiObs.ClassifierArtifactSHA256,
-			ClassifierPredictedLabel: openaiObs.ClassifierPredictedLabel,
-			ClassifierClassOrder:     openaiObs.ClassifierClassOrder,
-			ClassifierProbabilities:  openaiObs.ClassifierProbabilities,
-			SelectionPolicyReleaseID: openaiObs.SelectionPolicyReleaseID,
-			SelectionPolicySHA256:    openaiObs.SelectionPolicySHA256,
-			SelectionHeadGeneration:  int64PtrIf(openaiObs.SelectionHeadGeneration > 0, openaiObs.SelectionHeadGeneration),
-			SelectionTrace:           openaiObs.SelectionTrace,
-			SidecarSchemaVersion:     openaiObs.SidecarSchemaVersion,
-			TrainingAllowed:          openaiObs.TrainingAllowed,
-			CaptureMode:              openaiObs.CaptureMode,
-			DebugRef:                 openaiObs.DebugRef,
-			TTFTMs:                   openaiObs.TTFTMs,
-			CacheCreationTokens:      cacheTokenPtr(cacheCreation),
-			CacheCreation1hTokens:    cacheCreation1hPtr(cacheCreation, usageMods.CacheCreation1h),
-			CacheReadTokens:          cacheTokenPtr(cacheRead),
-			Speed:                    string(extractor.Speed()),
-			InferenceGeo:             string(extractor.InferenceGeo()),
-			ReasoningTokens:          cacheTokenPtr(extractor.ReasoningTokens()),
-			DeviceID:                 facts.Client.DeviceID,
-			SessionID:                facts.Client.SessionID,
-			RouterUserID:             auth.UserIDFrom(ctx),
-			ClientApp:                facts.Client.TelemetryClientApp(),
-			TurnType:                 string(routeRes.TurnType),
-			RolloutID:                openaiObs.RolloutID,
-			UpstreamFinishReason:     stringPtrOrEmpty(respSummary.UpstreamFinishReason),
-			StopReason:               stringPtrOrEmpty(respSummary.StopReason),
-			ToolUseBlocks:            int32PtrIfKnown(int32(respSummary.ToolUseBlocks), respSummary.StopReason != ""),
-			InvalidToolArgsBlocks:    int32PtrIfKnown(int32(respSummary.InvalidToolArgsBlocks), respSummary.StopReason != "" && !nativeRespSummary),
-			FailoverUsed:             boolPtrTrue(rescue.failoverUsed),
-			FailoverAttempted:        boolPtrTrue(rescue.failoverAttempted),
-			SessionKey:               sessionKey[:],
-			Role:                     routeRes.PinRole,
-			FreshDecisionModel:       openaiObs.FreshDecisionModel,
-			FreshCandidateScores:     openaiObs.FreshCandidateScores,
-			PinAgeSec:                int64PtrIf(stickyHit && pinAgeSec > 0, pinAgeSec),
-			ToolResultBytes:          toolResultBytesPtr(inboundLastUser, tt),
-			UserPrompt:               &inboundUserPromptOpenAI,
-			ErrorClass:               classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks),
-			FailureOwner:             turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), respSummary.UpstreamFinishReason),
-			CredentialKeyPrefix:      credentialKeyPrefix,
-			CredentialKeySuffix:      credentialKeySuffix,
-			CredentialSource:         credSource,
-			UnifiedLimitHeaders:      unifiedLimitHeadersJSON(ctx),
-			CodexLimitHeaders:        codexLimitHeadersJSON(ctx),
-		}
-		applyServedGroupTelemetry(s.strategyPorts, ctx, &telOAI, routeRes, decision)
-		applyPlannerTelemetry(&telOAI, routeRes)
-		applyEffortTelemetry(&telOAI, effortServed)
-		applyAuthorityShadowTelemetry(&telOAI, routeRes)
-		applyBlindExperimentTelemetry(ctx, &telOAI, &routeRes)
-		applyPolicyPinTelemetry(ctx, &telOAI, decision.Metadata)
-		applySubscriberTelemetry(ctx, &telOAI)
-		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &telOAI, routeRes)
-		if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
-			applySubscriberSettlementTelemetry(subscriberSettlement, &telOAI)
-		} else {
-			markSubscriberTelemetryUnsettled(&telOAI)
-		}
+		telOAI := newUpstreamTelemetryRow(ctx, s.clock, upstreamTelemetryRow{
+			selectionAndResponseFields: true, respSummary: respSummary, nativeRespSummary: nativeRespSummary,
+			installationID: installationIDOAI, facts: facts, feats: feats, decision: decision, provider: decision.Provider,
+			contextSnapshot: contextSnapshotJSONForDecision(w.Header(), facts.RequestID, feats.Model, decision.Model, decision.Provider, requestStart, s.clock.Now()),
+			routeRes:        &routeRes, obs: openaiObs, stickyHit: stickyHit, embedInput: embedInput,
+			inputTokens: in, outputTokens: out, cacheCreation: cacheCreation, cacheRead: cacheRead, usageMods: usageMods,
+			requestedInputCost: requestedInputCost, reqPricing: reqPricing, actPricing: actPricing,
+			routeMs: routeMs, proxyMs: proxyMs, requestStart: requestStart, crossFormat: crossFormat, proxyErr: proxyErr, extractor: extractor,
+			failoverUsed: boolPtrTrue(rescue.failoverUsed), failoverAttempted: boolPtrTrue(rescue.failoverAttempted),
+			sessionKey: sessionKey[:], pinAgeSec: pinAgeSec, inboundLastUser: inboundLastUser, turnType: tt, userPrompt: &inboundUserPromptOpenAI,
+			errorClass: classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), failureOwner: turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), respSummary.UpstreamFinishReason),
+			credentialKeyPrefix: credentialKeyPrefix, credentialKeySuffix: credentialKeySuffix, credentialSource: credSource,
+			effortServed: effortServed, strategyPorts: s.strategyPorts,
+		})
+		applyTelemetrySettlement(&telOAI, turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead), subscriberSettlement)
 		s.fireTelemetry(ctx, telOAI)
 	}
 
