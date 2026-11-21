@@ -113,6 +113,9 @@ func clientSessionIDForRequest(ctx context.Context, env *translate.RequestEnvelo
 	if id := requestcontext.ClientIdentityFrom(ctx).SessionID; id != "" {
 		return id
 	}
+	if _, gateway := requestcontext.UpstreamGatewayFrom(ctx); gateway {
+		return ""
+	}
 	if env != nil {
 		return env.ClientSessionID()
 	}
