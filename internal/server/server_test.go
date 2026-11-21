@@ -275,9 +275,8 @@ func TestStartupDatabaseCheckHonorsRequestCancellation(t *testing.T) {
 }
 
 func TestManagedValidationRejectsPublicCredentials(t *testing.T) {
-	t.Setenv("ROUTER_INTERNAL_SERVICE_TOKEN", "internal-fixture-token")
 	engine := gin.New()
-	server.RegisterWithFeatures(engine, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
+	server.RegisterWithFeatures(engine, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}, InternalServiceToken: "internal-fixture-token"})
 	for _, credential := range []string{"", "rk_public-key"} {
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, policyregistry.WorkerValidationPath, nil)
 		request.Header.Set("Authorization", "Bearer "+credential)

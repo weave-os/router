@@ -22,7 +22,7 @@ import (
 )
 
 func TestLoggerWithTraceContextUsesCloudLoggingFields(t *testing.T) {
-	t.Setenv("GCP_PROJECT_ID", "router-project")
+	configureGCPProject(t, "router-project")
 	var buf strings.Builder
 	log := slog.New(slog.NewJSONHandler(&buf, nil))
 	traceID, err := oteltrace.TraceIDFromHex("0123456789abcdef0123456789abcdef")
@@ -91,7 +91,7 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 func TestMiddlewareIncludesTraceContextInRequestLogs(t *testing.T) {
-	t.Setenv("GCP_PROJECT_ID", "router-project")
+	configureGCPProject(t, "router-project")
 	var buf strings.Builder
 	restore := swapDefaultLogger(t, &buf)
 	defer restore()
@@ -113,4 +113,10 @@ func TestMiddlewareIncludesTraceContextInRequestLogs(t *testing.T) {
 	line := findLogLine(t, buf.String(), "handler ran")
 	assert.Equal(t, "projects/router-project/traces/0123456789abcdef0123456789abcdef", line["logging.googleapis.com/trace"])
 	assert.Equal(t, "0123456789abcdef", line["logging.googleapis.com/spanId"])
+}
+
+func configureGCPProject(t *testing.T, projectID string) {
+	t.Helper()
+	observability.Configure(observability.Config{GCPProjectID: projectID})
+	t.Cleanup(func() { observability.Configure(observability.Config{}) })
 }
