@@ -419,5 +419,6 @@ func TestDirectConversationIDUsesUpstreamGatewaySession(t *testing.T) {
 	}
 
 	assert.NotEqual(t, conversation("gateway-a"), conversation("gateway-b"), "separate gateway sessions must not share an admission binding")
-	assert.Equal(t, conversation("gateway-a"), conversation("gateway-a"))
+	first := conversation("gateway-a")
+	assert.Equal(t, first, conversation("gateway-a"), "the same gateway session keeps one admission binding")
 }
