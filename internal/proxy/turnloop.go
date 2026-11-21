@@ -501,7 +501,7 @@ func (s *Service) runTurnLoop(
 		forceModelFound = true
 	}
 	if !forceModelFound {
-		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey, threadSessionKey, turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
+		forceModelPin, forceModelFound, forceModelCleared = routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).Load(ctx, forceModelSessionKey, sessionKeyHex(threadSessionKey), turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
 	}
 	if forcePinBindsNonClassifierTurn(forceModelFound, res.TurnType) {
 		binding, refusal := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)
