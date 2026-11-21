@@ -4,12 +4,12 @@ import (
 	"testing"
 	"time"
 
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
-func individualFact(model, decisionType string, at time.Time, requests int64, cost float64) proxy.TelemetryIndividualFact {
-	return proxy.TelemetryIndividualFact{
-		TelemetryDashboardFact: proxy.TelemetryDashboardFact{
+func individualFact(model, decisionType string, at time.Time, requests int64, cost float64) turnrecord.TelemetryIndividualFact {
+	return turnrecord.TelemetryIndividualFact{
+		TelemetryDashboardFact: turnrecord.TelemetryDashboardFact{
 			Bucket: at, DecisionModel: model, DecisionType: decisionType, RequestCount: requests, ActualCostUSD: cost,
 		},
 		PersonID: "ada",
@@ -20,13 +20,13 @@ func individualFact(model, decisionType string, at time.Time, requests int64, co
 func TestDashboardIndividualsSumsUsageAndRoutedModels(t *testing.T) {
 	day := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
 	seen := day.Add(time.Hour)
-	individuals := dashboardIndividuals([]proxy.TelemetryIndividualFact{
+	individuals := dashboardIndividuals([]turnrecord.TelemetryIndividualFact{
 		individualFact("gpt-5", string(dashboardDecisionRouterPick), day, 4, 2),
 		individualFact("claude-haiku-4-5", string(dashboardDecisionRouterPick), day, 3, 1),
 		individualFact("gemini-2.5-pro", string(dashboardDecisionRouterPick), day.AddDate(0, 0, 1), 2, 1),
 		individualFact("gpt-5-mini", string(dashboardDecisionRouterPick), day.AddDate(0, 0, 1), 1, 1),
 		individualFact("claude-opus-4-1", string(dashboardDecisionPassthrough), day.AddDate(0, 0, 1), 5, 3),
-	}, []proxy.TelemetryPerson{{ID: "ada", Linked: true, LastRequestAt: &seen}, {ID: "idle", Linked: true}})
+	}, []turnrecord.TelemetryPerson{{ID: "ada", Linked: true, LastRequestAt: &seen}, {ID: "idle", Linked: true}})
 
 	if len(individuals) != 2 || individuals[1].ID != "idle" || individuals[1].Requests != 0 {
 		t.Fatalf("individuals = %+v, want ada plus idle with no usage", individuals)

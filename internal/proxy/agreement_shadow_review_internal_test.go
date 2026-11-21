@@ -20,11 +20,12 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/switchpolicy"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
 
 func TestAgreementShadowCompletedQualityLabelsKeepEvidence(t *testing.T) {
-	for _, quality := range []TurnErrorClass{TurnErrorMaxTokens, TurnErrorRefusal, TurnErrorInvalidToolArgs} {
+	for _, quality := range []turnrecord.TurnErrorClass{turnrecord.TurnErrorMaxTokens, turnrecord.TurnErrorRefusal, turnrecord.TurnErrorInvalidToolArgs} {
 		t.Run(string(quality), func(t *testing.T) {
 			store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}}
 			svc := &Service{hmmServing: hmmPorts(), telemetry: store}
@@ -47,7 +48,7 @@ func TestAgreementShadowCompletedQualityLabelsKeepEvidence(t *testing.T) {
 }
 
 func TestAgreementShadowStillGapsCommittedStreamFailures(t *testing.T) {
-	for _, transport := range []TurnErrorClass{TurnErrorStreamCut, TurnErrorStreamStalled, TurnErrorTimeout, TurnErrorClientCanceled, TurnErrorOther} {
+	for _, transport := range []turnrecord.TurnErrorClass{turnrecord.TurnErrorStreamCut, turnrecord.TurnErrorStreamStalled, turnrecord.TurnErrorTimeout, turnrecord.TurnErrorClientCanceled, turnrecord.TurnErrorOther} {
 		t.Run(string(transport), func(t *testing.T) {
 			store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}}
 			svc := &Service{hmmServing: hmmPorts(), telemetry: store}
@@ -90,7 +91,7 @@ func TestAgreementShadowForceUnforceBeforeToolResultBreaksVotes(t *testing.T) {
 		WithDeploymentKeyedProviders(keyed(providers.ProviderOpenAI)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: &authorityShadowTestRouter{decision: initial.Fresh}, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), ctx, &p, initial)
-	key := p.agreementShadow.Key
+	key := p.AgreementShadow.Key
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	svc.recordAgreementShadow(ctx, log, p)
 	before, _, _ := store.GetAgreementShadow(ctx, key)
@@ -114,8 +115,8 @@ func TestAgreementShadowForceUnforceBeforeToolResultBreaksVotes(t *testing.T) {
 	p.RequestID, p.Timestamp = "next-tool-result", time.Now()
 	p.DecisionModel, p.DecisionProvider = routed.Decision.Model, routed.Decision.Provider
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), ctx, &p, routed)
-	if p.agreementShadow == nil || p.agreementShadow.Observation.Gap != switchpolicy.ShadowGapNone {
-		t.Fatalf("tool result did not reach ordinary classification: %+v", p.agreementShadow)
+	if p.AgreementShadow == nil || p.AgreementShadow.Observation.Gap != switchpolicy.ShadowGapNone {
+		t.Fatalf("tool result did not reach ordinary classification: %+v", p.AgreementShadow)
 	}
 	svc.recordAgreementShadow(ctx, log, p)
 	after, _, _ := store.GetAgreementShadow(ctx, key)
@@ -139,7 +140,7 @@ func TestAgreementShadowRejectedAndFailedCommandsKeepHistory(t *testing.T) {
 			p.SessionKey = threadKey[:]
 			applyAgreementShadowTelemetry(hmm.ServingPorts(), ctx, &p, res)
 			svc.recordAgreementShadow(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), p)
-			before, _, _ := store.GetAgreementShadow(ctx, p.agreementShadow.Key)
+			before, _, _ := store.GetAgreementShadow(ctx, p.AgreementShadow.Key)
 			model := "synthetic-unrecognized-model"
 			if failed {
 				model = agreementSol
@@ -148,7 +149,7 @@ func TestAgreementShadowRejectedAndFailedCommandsKeepHistory(t *testing.T) {
 			if (err != nil) != failed {
 				t.Fatalf("unexpected command result: %v", err)
 			}
-			after, _, _ := store.GetAgreementShadow(ctx, p.agreementShadow.Key)
+			after, _, _ := store.GetAgreementShadow(ctx, p.AgreementShadow.Key)
 			if after != before {
 				t.Fatalf("command without a persisted transition reset the comparison: before=%+v after=%+v", before, after)
 			}

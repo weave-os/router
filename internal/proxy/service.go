@@ -47,6 +47,7 @@ import (
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/timing"
 	"weave-os/router/internal/translate"
 	providerusage "weave-os/router/internal/usage"
@@ -95,7 +96,7 @@ type Service struct {
 	hardPinResolver              HardPinResolver
 	subAgentProvider             string
 	subAgentModel                string
-	telemetry                    TelemetryRepository
+	telemetry                    turnrecord.TelemetryRepository
 	turnClock                    telemetry.SessionTurnClock
 	captureMode                  ContentCaptureMode
 	captureMaxBytes              int
@@ -978,7 +979,7 @@ func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 	return false
 }
 
-func NewService(r router.Router, providerMap map[string]providers.Client, emitter telemetry.Emitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetryRepo TelemetryRepository) *Service {
+func NewService(r router.Router, providerMap map[string]providers.Client, emitter telemetry.Emitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetryRepo turnrecord.TelemetryRepository) *Service {
 	s := &Service{
 		clients:                      dispatch.NewClients(providerMap),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
@@ -1580,114 +1581,113 @@ func (s *Service) WithPassthroughEligibleProviders(set map[string]struct{}) *Ser
 	return s
 }
 
-func (s *Service) MetricsSummary(ctx context.Context, installationID string, from, to time.Time) (TelemetrySummary, error) {
+func (s *Service) MetricsSummary(ctx context.Context, installationID string, from, to time.Time) (turnrecord.TelemetrySummary, error) {
 	if s.telemetry == nil {
-		return TelemetrySummary{}, nil
+		return turnrecord.TelemetrySummary{}, nil
 	}
 	return s.telemetry.GetTelemetrySummary(ctx, installationID, from, to)
 }
 
 var (
-	ErrSessionCostNotFound    = errors.New("no committed router telemetry for session")
 	ErrInvalidSessionID       = errors.New("session id must be non-empty and at most 128 bytes")
 	ErrSessionCostUnavailable = errors.New("router telemetry storage is not configured")
 )
 
-func (s *Service) SessionCost(ctx context.Context, installationID, sessionID string) (SessionCost, error) {
+func (s *Service) SessionCost(ctx context.Context, installationID, sessionID string) (turnrecord.SessionCost, error) {
 	if sessionID == "" || len(sessionID) > MaxClientIdentifierLen {
-		return SessionCost{}, ErrInvalidSessionID
+		return turnrecord.SessionCost{}, ErrInvalidSessionID
 	}
 	if s.telemetry == nil {
-		return SessionCost{}, ErrSessionCostUnavailable
+		return turnrecord.SessionCost{}, ErrSessionCostUnavailable
 	}
 	return s.telemetry.GetSessionCost(ctx, installationID, sessionID)
 }
 
-func (s *Service) MetricsTimeseries(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryBucket, error) {
+func (s *Service) MetricsTimeseries(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryBucket, error) {
 	if s.telemetry == nil {
 		return nil, nil
 	}
 	return s.telemetry.GetTelemetryTimeseries(ctx, installationID, from, to, granularity)
 }
 
-func (s *Service) MetricsSummaryAll(ctx context.Context, from, to time.Time) (TelemetrySummary, error) {
+func (s *Service) MetricsSummaryAll(ctx context.Context, from, to time.Time) (turnrecord.TelemetrySummary, error) {
 	if s.telemetry == nil {
-		return TelemetrySummary{}, nil
+		return turnrecord.TelemetrySummary{}, nil
 	}
 	return s.telemetry.GetTelemetrySummaryAll(ctx, from, to)
 }
 
-func (s *Service) MetricsTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]TelemetryBucket, error) {
+func (s *Service) MetricsTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]turnrecord.TelemetryBucket, error) {
 	if s.telemetry == nil {
 		return nil, nil
 	}
 	return s.telemetry.GetTelemetryTimeseriesAll(ctx, from, to, granularity)
 }
 
-func (s *Service) MetricsDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryDashboardFact, error) {
+func (s *Service) MetricsDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryDashboardFact, error) {
 	if s.telemetry == nil {
 		return nil, nil
 	}
 	return s.telemetry.GetTelemetryDashboardFacts(ctx, installationID, from, to, granularity)
 }
 
-func (s *Service) MetricsActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryActiveUsers, error) {
+func (s *Service) MetricsActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryActiveUsers, error) {
 	if s.telemetry == nil {
 		return nil, nil
 	}
 	return s.telemetry.GetTelemetryDashboardActiveUsers(ctx, installationID, from, to, granularity)
 }
 
-func (s *Service) MetricsPeople(ctx context.Context, installationID string) ([]TelemetryPerson, error) {
+func (s *Service) MetricsPeople(ctx context.Context, installationID string) ([]turnrecord.TelemetryPerson, error) {
 	if s.telemetry == nil {
 		return nil, nil
 	}
 	return s.telemetry.GetTelemetryDashboardPeople(ctx, installationID)
 }
 
-func (s *Service) MetricsDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]TelemetryDrillDownRow, error) {
+func (s *Service) MetricsDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]turnrecord.TelemetryDrillDownRow, error) {
 	if s.telemetry == nil {
 		return nil, nil
 	}
 	return s.telemetry.GetTelemetryDashboardDrillDown(ctx, installationID, from, to)
 }
 
-func (s *Service) MetricsIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryIndividualFact, error) {
+func (s *Service) MetricsIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryIndividualFact, error) {
 	if s.telemetry == nil {
 		return nil, nil
 	}
 	return s.telemetry.GetTelemetryDashboardIndividualFacts(ctx, installationID, from, to, granularity)
 }
 
-func (s *Service) MetricsSubscriptionPool(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]TelemetrySubscriptionSeat, error) {
+func (s *Service) MetricsSubscriptionPool(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]turnrecord.TelemetrySubscriptionSeat, error) {
 	if s.telemetry == nil {
 		return nil, nil
 	}
 	return s.telemetry.GetTelemetrySubscriptionPoolSeats(ctx, installationID, servedSince, readingsSince)
 }
 
-func (s *Service) MetricsModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryModelBucket, error) {
+func (s *Service) MetricsModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryModelBucket, error) {
 	if s.telemetry == nil {
 		return nil, nil
 	}
 	return s.telemetry.GetTelemetryModelBreakdown(ctx, installationID, from, to, granularity)
 }
 
-func (s *Service) MetricsModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]TelemetryModelBucket, error) {
+func (s *Service) MetricsModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]turnrecord.TelemetryModelBucket, error) {
 	if s.telemetry == nil {
 		return nil, nil
 	}
 	return s.telemetry.GetTelemetryModelBreakdownAll(ctx, from, to, granularity)
 }
 
-func (s *Service) MetricsRows(ctx context.Context, installationID string, from, to time.Time, limit int32) ([]TelemetryRow, error) {
+func (s *Service) MetricsRows(ctx context.Context, installationID string, from, to time.Time, limit int32) ([]turnrecord.TelemetryRow, error) {
 	if s.telemetry == nil {
 		return nil, nil
 	}
 	return s.telemetry.GetTelemetryRows(ctx, installationID, from, to, limit)
 }
 
-func (s *Service) MetricsRowsAll(ctx context.Context, from, to time.Time, limit int32) ([]TelemetryRow, error) {
+func (s *Service) MetricsRowsAll(ctx context.Context, from, to time.Time, limit int32) ([]turnrecord.TelemetryRow, error) {
 	if s.telemetry == nil {
 		return nil, nil
 	}
@@ -2789,7 +2789,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		s.clearRecoveredCooldown(ctx, routeRes, decision.Model, proxyErr)
 	}
 
-	var subscriberTelemetry *InsertTelemetryParams
+	var subscriberTelemetry *turnrecord.InsertTelemetryParams
 	if !agentShadowMode && facts.InstallationID != uuid.Nil {
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, proxyErr)
@@ -2806,7 +2806,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			)
 			s.evictPinAfterDegenerateResponse(ctx, strategy, stickyHit, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes))
 		}
-		tel := InsertTelemetryParams{
+		tel := turnrecord.InsertTelemetryParams{
 			InstallationID:           facts.InstallationID.String(),
 			APIKeyID:                 apiKeyIDFromContext(ctx),
 			RequestID:                facts.RequestID,
@@ -3660,7 +3660,7 @@ func isDegenerateResponse(outputTokens, toolUseBlocks int, stopReason string, st
 		!stopReasonDemoted
 }
 
-func (s *Service) fireTelemetry(ctx context.Context, p InsertTelemetryParams) {
+func (s *Service) fireTelemetry(ctx context.Context, p turnrecord.InsertTelemetryParams) {
 	if p.UpstreamStatusCode != http.StatusOK || !conversationContextTurn(turntype.TurnType(p.TurnType)) {
 		p.ContextSnapshot = nil
 	}
@@ -4481,7 +4481,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if installationIDOAI != "" {
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, proxyErr)
-		telOAI := InsertTelemetryParams{
+		telOAI := turnrecord.InsertTelemetryParams{
 			InstallationID:           installationIDOAI,
 			APIKeyID:                 apiKeyIDFromContext(ctx),
 			RequestID:                facts.RequestID,
