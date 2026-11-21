@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 )
 
@@ -26,7 +27,7 @@ func TestOpenCodeCompletionUsesRoutingViewForEachWireFormat(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			env, err := test.parse([]byte(test.body))
 			require.NoError(t, err)
-			ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppOpencode})
+			ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppOpencode})
 			prompt, messages := routingInputForRequest(ctx, env, "unfiltered")
 			require.Len(t, messages, 5)
 			assert.Equal(t, "Fix the test", prompt)
@@ -50,7 +51,7 @@ func TestOpenCodeCompletionBehindSystemNoticeIsNotAUserPrompt(t *testing.T) {
 	]}`
 	env, err := translate.ParseOpenAI([]byte(body))
 	require.NoError(t, err)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppOpencode})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppOpencode})
 	assert.False(t, routingEndsWithUserPrompt(ctx, env))
 	assert.True(t, routingEndsWithUserPrompt(context.Background(), env))
 }
@@ -67,7 +68,7 @@ func TestOpenCodeCompletedTaskReceiptDoesNotConsumeLaterUserQuote(t *testing.T) 
 	]}`
 	env, err := translate.ParseOpenAI([]byte(body))
 	require.NoError(t, err)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppOpencode})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppOpencode})
 	_, messages := routingInputForRequest(ctx, env, "unfiltered")
 	require.Len(t, messages, 7)
 	assert.Equal(t, string(translate.EscalationRoleAssistant), messages[4].Role)
@@ -83,7 +84,7 @@ func TestClaudeNotificationProjectionDoesNotRewriteGenericUserInput(t *testing.T
 	_, genericMessages := routingInputForRequest(context.Background(), env, "unfiltered")
 	require.Len(t, genericMessages, 3)
 	assert.Equal(t, notification, genericMessages[2].Text)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
 	prompt, claudeMessages := routingInputForRequest(ctx, env, "unfiltered")
 	require.Len(t, claudeMessages, 2)
 	assert.Equal(t, "Fix the test", prompt)

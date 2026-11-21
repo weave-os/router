@@ -18,19 +18,27 @@ func paidFallbackForbiddenByPlan(ctx context.Context) bool {
 }
 
 func paidFallbackForbiddenFor(ctx context.Context, provider string) bool {
-	return !servingCommitted(ctx, paidFallbackBinding(ctx), paidFallbackEvent(usableBYOK(ctx, provider)))
+	return !servingCommitted(ctx, paidFallbackBinding(ctx), payableServingEvent(ctx, paidFallbackEvent(usableBYOK(ctx, provider))))
 }
 
 func paidAttemptForbidden(ctx context.Context, creds *Credentials) bool {
-	return !servingCommitted(ctx, paidFallbackBinding(ctx), servingEvent(creds))
+	return !servingCommitted(ctx, paidFallbackBinding(ctx), payableServingEvent(ctx, servingEvent(creds)))
 }
 
 func subscriptionOnlyUnservable(ctx context.Context, provider, model string) bool {
-	return !servedOnSubscription(ctx) && !(paidCapacityUnfunded(ctx) && servedOnCustomerKey(ctx)) && !managedSubscriptionCanServe(ctx, provider, model)
+	return !servedOnSubscription(ctx) && !servedOnUnfundedKey(ctx) && !managedSubscriptionCanServe(ctx, provider, model)
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
-	return !servingCommitted(ctx, paidFallbackBindingForModel(ctx, model), subscriptionlane.OrganizationCreditsServed)
+	return paidFallbackForbiddenForModelOnProvider(ctx, "", model)
+}
+
+func paidFallbackForbiddenForModelOnProvider(ctx context.Context, provider, model string) bool {
+	event := subscriptionlane.OrganizationCreditsServed
+	if provider != "" && paidCapacityUnfunded(ctx) {
+		event = payableServingEvent(ctx, paidFallbackEvent(usableBYOK(ctx, provider)))
+	}
+	return !servingCommitted(ctx, paidFallbackBindingForModel(ctx, model), event)
 }
 
 func subscriptionStatePaidRescueContext(ctx context.Context, model string) context.Context {
@@ -68,4 +76,19 @@ func releaseThrottledLinkedFirst(ctx context.Context) (context.Context, bool) {
 	}
 	observability.FromContext(ctx).Info("Linked subscription rejected the turn; rerouting on organization credits")
 	return billing.ReleaseLinkedFirst(ctx), true
+}
+
+func payableServingEvent(ctx context.Context, event subscriptionlane.Event) subscriptionlane.Event {
+	if event == subscriptionlane.CustomerKeyServed && billing.ByokFeeUnpayable(ctx) {
+		return subscriptionlane.OrganizationCreditsServed
+	}
+	return event
+}
+
+func unfundedKeyFunds(ctx context.Context, creds *Credentials) bool {
+	return customerKeyFunded(creds) && !billing.ByokFeeUnpayable(ctx)
+}
+
+func servedOnUnfundedKey(ctx context.Context) bool {
+	return paidCapacityUnfunded(ctx) && unfundedKeyFunds(ctx, CredentialsFromContext(ctx))
 }

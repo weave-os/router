@@ -28,7 +28,7 @@ func TestSelfHostedDistributionComesFromConfiguredRosterSource(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	unwired := gin.New()
-	server.Register(unwired, nil, nil, fakeHMMRosterSource{}, server.DeploymentModeSelfHosted, nil, nil, nil, nil)
+	server.Register(unwired, nil, nil, fakeHMMRosterSource{}, server.DeploymentModeSelfHosted, nil, nil, nil)
 	assert.NotContains(t, routeSet(unwired), "GET /v1/router/routing-distribution",
 		"without an HMM distribution source no legacy projection may be mounted")
 

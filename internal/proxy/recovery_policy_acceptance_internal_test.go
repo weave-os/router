@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
@@ -162,7 +163,7 @@ func TestRecoveryAcceptanceCooldownExpiryAdmitsOneConcurrentProbe(t *testing.T) 
 	body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic concurrent recovery"}]}`)
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil)))
-	require.Equal(t, recoveryOpusModel, rec.Header().Get(HeaderRouterModel))
+	require.Equal(t, recoveryOpusModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	require.Contains(t, (<-scorer.requests).Candidates.AutomaticExcludedModels, catalog.ModelGPT6Luna, "before expiry the real turn loop must load the history cooldown")
 	require.Empty(t, provider.entered)
 	now = rateLimitTestNow

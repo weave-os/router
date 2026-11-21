@@ -17,22 +17,22 @@ func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handle
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
-		body, err := io.ReadAll(io.LimitReader(c.Request.Body, proxy.MaxRequestBodyBytes+1))
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, requestcontext.MaxRequestBodyBytes+1))
 		if err != nil {
 			log.Debug("Failed to read request body", "err", err)
 			writeOpenAIError(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body.")
 			return
 		}
-		if len(body) > proxy.MaxRequestBodyBytes {
+		if len(body) > requestcontext.MaxRequestBodyBytes {
 			writeOpenAIError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body too large.")
 			return
 		}
 		observability.LogServerProxyRequestShape(c, body)
 		defer observability.RecordServerProxyResponseID(c)()
 
-		ctx := requestcontext.WithClientIdentity(c.Request.Context(), proxy.ChatClientIdentity(c.Request.Header, body))
-		ctx = proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c))
-		ctx, err = proxy.ResolveRoutingAssignment(ctx, authSvc, middleware.InstallationFrom(c))
+		ctx := requestcontext.WithClientIdentity(c.Request.Context(), requestcontext.ChatClientIdentity(c.Request.Header, body))
+		ctx = auth.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c), requestcontext.CallerFrom(ctx))
+		ctx, err = auth.ResolveRoutingAssignment(ctx, authSvc, middleware.InstallationFrom(c), requestcontext.CallerFrom(ctx))
 		if err != nil {
 			log.Error("Failed to resolve routing assignment", "installation_id", middleware.InstallationFrom(c).ID, "err", err)
 			c.Header("Retry-After", "1")

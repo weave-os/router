@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
@@ -67,7 +68,7 @@ func TestForceModelHeader_PersistsEffortOnPin(t *testing.T) {
 	env := forceCommandEnv(t)
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
-	req.Header.Set(ForceModelHeader, "opus:high")
+	req.Header.Set(requestcontext.ForceModelHeader, "opus:high")
 
 	_, _, forceErr := svc.applyForceModelHeader(
 		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))
@@ -170,13 +171,13 @@ func TestRefreshPin_CarriesEffortForward(t *testing.T) {
 }
 
 func TestOrderBandPair_AnchoredHalfKeepsEffort(t *testing.T) {
-	large, small := orderBandPair(sessionpin.Pin{
+	large, small := sessionpin.Pin{
 		Provider:       providers.ProviderAnthropic,
 		Model:          "claude-opus-4-7",
 		Effort:         "high",
 		PairedProvider: providers.ProviderAnthropic,
 		PairedModel:    "claude-haiku-4-5",
-	})
+	}.OrderedBandPair()
 	assert.Equal(t, "claude-opus-4-7", large.Model)
 	assert.Equal(t, "high", large.Effort)
 	assert.Empty(t, small.Effort)

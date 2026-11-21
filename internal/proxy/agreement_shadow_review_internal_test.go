@@ -101,7 +101,7 @@ func TestAgreementShadowForceUnforceBeforeToolResultBreaksVotes(t *testing.T) {
 		if err := (forceModelCommands{svc}).handle(ctx, httptest.NewRecorder(), typedCommandEnv(t, "/fm sol"), command, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: installationID, sessionKey: threadKey}, controlKey, 1); err != nil {
 			t.Fatal(err)
 		}
-		svc.grantPostCommandContinuation(ctx, router.StrategyFromContext(ctx), installationID, threadKey, sessionpin.DefaultRole)
+		postCommandContinuation(svc, router.StrategyFromContext(ctx)).Grant(ctx, installationID, threadKey, sessionpin.DefaultRole)
 		boundary, _, err := store.GetAgreementShadow(ctx, key)
 		if err != nil || boundary.SegmentID != "" || boundary.OneUp.Current.Target != (switchpolicy.Target{}) || boundary.TwoUp.Current.Target != (switchpolicy.Target{}) {
 			t.Fatalf("successful command left simulated histories connected: %+v %v", boundary, err)

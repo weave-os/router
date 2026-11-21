@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
@@ -21,7 +22,6 @@ import (
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalation/floor"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 
@@ -702,7 +702,7 @@ func (s *Service) runTurnLoop(
 
 	sessionKey := threadSessionKey
 
-	res.PrefixTrimmed = s.compaction.CheckAndRecord(
+	res.PrefixTrimmed = s.lifecycle.Compaction().CheckAndRecord(
 		sessionKey, installationID, res.PinRole,
 		feats.MessageCount, len(env.AssistantToolCallSignatures()),
 	)
@@ -745,7 +745,7 @@ func (s *Service) runTurnLoop(
 	commandContinuation := sessionpin.Pin{}
 	commandContinuationFound := false
 	if res.TurnType == turntype.MainLoop {
-		commandContinuation, commandContinuationFound = s.consumePostCommandContinuation(ctx, strategy, res.SessionKey, res.PinRole)
+		commandContinuation, commandContinuationFound = postCommandContinuation(s, strategy).Consume(ctx, res.SessionKey, res.PinRole)
 	}
 	if pinFound && isUserForcedReason(pin.Reason) {
 		binding, refusal := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
@@ -842,7 +842,7 @@ func (s *Service) runTurnLoop(
 		commandContinuationFound = false
 	}
 	if commandContinuationFound && candidates.AutomaticPinEligible(commandContinuation, req) {
-		decision := pinDecision(commandContinuation)
+		decision := commandContinuation.Decision()
 		res.Decision = decision
 		res.StickyHit = true
 		res.PinTier = "post_command_continuation"
@@ -893,21 +893,21 @@ func (s *Service) runTurnLoop(
 			s.strategyPorts.Ownership.Owns(strategy) &&
 			!hasTextUserBoundary(req.ConversationMessages) {
 			if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
-				decision := pinDecision(pin)
+				decision := pin.Decision()
 				decision.Reason = unscorableHMMStickyReason
 				res.Decision = decision
 				res.StickyHit = true
 				res.PinTier = unscorableHMMStickyReason
 				log.Info("HMM turn has no user text; preserving eligible session pin",
 					"pin_model", pin.Model, "pin_provider", pin.Provider)
-				sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
+				sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pin.Decision())
 				return res, nil
 			}
 		}
 		turn := continuity.Turn{IsToolResult: res.TurnType == turntype.ToolResult, Escalated: req.Escalation != nil, AuthoritativePerTurn: res.AuthoritativePerTurn}
 		continuityCfg := continuity.Config{PlannerEnabled: s.ResolvePlannerEnabled(ctx), ScoreToolResultTurns: s.ResolveScoreToolResultTurns(ctx), HoldToolResult: holdToolResult, Planner: s.continuityConfig.Planner}
 		if continuity.ToolResultSticky(req.Session, turn, continuityCfg) {
-			decision := pinDecision(pin)
+			decision := pin.Decision()
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = "postgres_tool_result_sc"
@@ -916,7 +916,7 @@ func (s *Service) runTurnLoop(
 		}
 
 		if continuity.CanReusePin(req.Session, turn, continuityCfg) {
-			decision := pinDecision(pin)
+			decision := pin.Decision()
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = "postgres"
@@ -1022,7 +1022,7 @@ func (s *Service) runTurnLoop(
 			case continuity.ReanchorSkipTextOnly:
 				log.Info("Expired session pin is text-only for image-bearing turn; skipping re-anchor", "pin_model", pin.Model, "pin_provider", pin.Provider)
 			case continuity.ReanchorServe:
-				priorDecision := pinDecision(pin)
+				priorDecision := pin.Decision()
 				res.Decision = priorDecision
 				res.StickyHit = true
 				res.PinTier = "postgres_reanchor"
@@ -1051,7 +1051,7 @@ func (s *Service) runTurnLoop(
 
 		outcome := continuity.Settle(decision, pinFound, prefixBroken)
 		if outcome.Stay {
-			anchor := pinDecision(pin)
+			anchor := pin.Decision()
 			served := s.bandSwapServed(ctx, res.TurnType, pin, fresh, req.HasImages, req.ImageCount, req.EnabledProviders, req.Candidates.ExcludedModels)
 			res.Decision = served
 			res.StickyHit = true
@@ -1064,50 +1064,14 @@ func (s *Service) runTurnLoop(
 			log.Info("Handover summarizer skipped: client history trim already bounded this switch turn", "pin_model", pin.Model, "fresh_model", fresh.Model)
 		}
 		if outcome.Handover == continuity.HandoverSummarize {
-			var (
-				sumProvider       string
-				sumCreds          *Credentials
-				canCallSummarizer bool
-			)
-			if s.summarizer != nil {
-				sumProvider = s.summarizer.Provider()
-				sumCreds = resolveSummarizerCreds(ctx, sumProvider, reqHeaders)
-				nonDepCreds := s.requestUsesNonDeploymentCreds(ctx, reqHeaders)
-				canCallSummarizer = sumCreds != nil || !nonDepCreds
-			}
-			switch {
-			case s.summarizer == nil:
-				res.Handover.Invoked = true
-				res.Handover.FallbackToFullHistory = true
-				log.Info("Handover summarizer not wired; preserved full history instead", "pin_model", pin.Model, "fresh_model", fresh.Model)
-			case !canCallSummarizer:
-				res.Handover.Invoked = true
-				res.Handover.FallbackToFullHistory = true
-				log.Info("Handover summarizer skipped to preserve tenant boundary; preserved full history instead", "pin_model", pin.Model, "fresh_model", fresh.Model, "sum_provider", sumProvider)
-			default:
-				var summCtx context.Context
-				if sumCreds != nil {
-					summCtx = context.WithValue(ctx, CredentialsContextKey{}, sumCreds)
-				} else {
-					summCtx = clearCredentials(ctx)
-				}
-				start := s.clock.Now()
-				summary, summaryUsage, sumErr := s.summarizer.Summarize(summCtx, env, req)
-				res.Handover.Invoked = true
-				res.Handover.LatencyMS = s.clock.Now().Sub(start).Milliseconds()
-				switch {
-				case sumErr != nil:
-					res.Handover.FallbackToFullHistory = true
-					log.Warn("Handover summarizer failed; preserved full history instead", "err", sumErr, "pin_model", pin.Model, "fresh_model", fresh.Model)
-				case summary == "":
-					res.Handover.FallbackToFullHistory = true
-					log.Warn("Handover summarizer returned empty summary; preserved full history instead", "pin_model", pin.Model, "fresh_model", fresh.Model)
-				default:
-					handover.RewriteEnvelope(env, summary)
-					res.ContextEstimate = env.ContextOverflowTokenEstimate()
-					res.Handover.SummaryTokens = estimateSummaryTokens(summary)
-					res.Handover.SummaryUsage = summaryUsage
-				}
+			var rewritten bool
+			res.Handover, rewritten = conversation.ModelSwitchSummary{
+				Summarizer: s.summarizer,
+				Access:     summarizerAccess{s: s, headers: reqHeaders},
+				Now:        s.clock.Now,
+			}.Run(ctx, env, req, pin.Model, fresh.Model)
+			if rewritten {
+				res.ContextEstimate = env.ContextOverflowTokenEstimate()
 			}
 		}
 
@@ -1176,7 +1140,7 @@ func (s *Service) authorityCacheShadowFor(
 	stayPin, stayPinOK := hmmStayPin(s, req, activePin, hmmHistory)
 	if stayPinOK && stayPin.Model == stayModel {
 		stayProvider = stayPin.Provider
-		stayIdentity = pinDecision(stayPin).ServedIdentity()
+		stayIdentity = stayPin.Decision().ServedIdentity()
 	}
 	freshRosterArmID := ""
 	if fresh.Metadata != nil {
@@ -1333,12 +1297,7 @@ func buildPolicyTurnContext(
 	}
 }
 
-func estimateSummaryTokens(s string) int {
-	if s == "" {
-		return 0
-	}
-	return len(s) / 4
-}
+func estimateSummaryTokens(s string) int { return conversation.EstimateSummaryTokens(s) }
 
 func resolveSummarizerCreds(ctx context.Context, provider string, headers http.Header) *Credentials {
 	if provider == "" {

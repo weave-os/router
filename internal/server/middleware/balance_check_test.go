@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -93,7 +94,7 @@ func runMiddleware(t *testing.T, repo billing.Repo, threshold int64) (*httptest.
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		// Synthetic auth: pre-stash the installation the way WithAuth would.
 		withInstallation(c, "org_x")
-		middleware.WithBalanceCheck(svc, threshold)(c)
+		middleware.WithBalanceCheck(svc, threshold, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -117,7 +118,7 @@ func runMiddlewareWith(t *testing.T, repo billing.Repo, setInstall func(*gin.Con
 	reached := false
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		setInstall(c)
-		middleware.WithBalanceCheck(svc, 0)(c)
+		middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -184,7 +185,7 @@ func TestWithBalanceCheck_FlagsOrganizationPrepaidAdmission(t *testing.T) {
 			var admitted bool
 			engine.GET("/probe", func(c *gin.Context) {
 				withInstallation(c, "org_x")
-				middleware.WithBalanceCheck(svc, 1_000_000)(c)
+				middleware.WithBalanceCheck(svc, 1_000_000, proxy.RequestHasCustomerFunding)(c)
 				if c.IsAborted() {
 					return
 				}
@@ -210,7 +211,7 @@ func TestWithBalanceCheck_OverrideShortCircuitsAndFlagsContext(t *testing.T) {
 	var hasOverride bool
 	engine.GET("/probe", func(c *gin.Context) {
 		withInstallation(c, "org_internal")
-		middleware.WithBalanceCheck(svc, 1_000_000)(c)
+		middleware.WithBalanceCheck(svc, 1_000_000, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -282,7 +283,7 @@ func TestWithBalanceCheck_SkipsWhenInstallationMissing(t *testing.T) {
 	reached := false
 	engine.GET("/probe", func(c *gin.Context) {
 		// Note: no withInstallation() call.
-		middleware.WithBalanceCheck(svc, 1_000_000)(c)
+		middleware.WithBalanceCheck(svc, 1_000_000, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -353,7 +354,7 @@ func runMiddlewarePrep(t *testing.T, repo billing.Repo, routePath string, prep f
 	hasOverride := false
 	engine.GET(routePath, func(c *gin.Context) {
 		prep(c)
-		middleware.WithBalanceCheck(svc, 0)(c)
+		middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -465,7 +466,7 @@ func TestWithBalanceCheck_SubscriptionOnlyAtDepletedBalance(t *testing.T) {
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		withInstallation(c, "org_sub")
 		c.Request.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
-		middleware.WithBalanceCheck(svc, 0)(c)
+		middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -478,6 +479,45 @@ func TestWithBalanceCheck_SubscriptionOnlyAtDepletedBalance(t *testing.T) {
 	assert.True(t, reached, "subscription request at the prepaid threshold must pass through")
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, subOnly, "at the prepaid threshold the request must be flagged subscription-only")
+}
+
+func TestWithBalanceCheck_DepletedBalanceOwesNoByokFeeAtZeroRate(t *testing.T) {
+	// A depleted organization cannot pay a BYOK fee: with a fee rate above zero
+	// the customer's key may not serve the turn, while at the default zero rate
+	// a $0 or negative balance leaves it free to serve.
+	for name, tc := range map[string]struct {
+		balance int64
+		feeRate float64
+		owed    bool
+	}{
+		"zero_balance_zero_fee":     {balance: 0},
+		"negative_balance_zero_fee": {balance: -500},
+		"zero_balance_fee_charged":  {balance: 0, feeRate: 0.05, owed: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			svc := billing.NewService(&stubBillingRepo{balance: tc.balance}).WithByokFeeRate(tc.feeRate)
+			engine := gin.New()
+			var reason billing.SubscriptionOnlyReason
+			owed := false
+			engine.GET("/v1/messages", func(c *gin.Context) {
+				withInstallation(c, "org_sub")
+				c.Request.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
+				middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
+				if c.IsAborted() {
+					return
+				}
+				reason, _ = billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
+				owed = billing.ByokFeeUnpayable(c.Request.Context())
+				c.Status(http.StatusOK)
+			})
+			w := httptest.NewRecorder()
+			engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil))
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, billing.SubscriptionOnlyCreditsDepleted, reason)
+			assert.Equal(t, tc.owed, owed)
+		})
+	}
 }
 
 func TestWithBalanceCheck_SubscriptionOnlyWhenBalanceRowMissing(t *testing.T) {
@@ -493,7 +533,7 @@ func TestWithBalanceCheck_SubscriptionOnlyWhenBalanceRowMissing(t *testing.T) {
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		withInstallation(c, "org_sub")
 		c.Request.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
-		middleware.WithBalanceCheck(svc, 0)(c)
+		middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -550,7 +590,7 @@ func TestWithBalanceCheck_MarksWeaveCreditsDenied(t *testing.T) {
 		var denied bool
 		engine.GET("/probe", func(c *gin.Context) {
 			c.Set("router_installation", &auth.Installation{ID: "00000000-0000-0000-0000-000000000001", ExternalID: "org_x", WeaveCreditInferenceEnabled: allowed})
-			middleware.WithBalanceCheck(svc, 1_000_000)(c)
+			middleware.WithBalanceCheck(svc, 1_000_000, proxy.RequestHasCustomerFunding)(c)
 			denied = billing.WeaveCreditsDeniedFromContext(c.Request.Context())
 			c.Status(http.StatusOK)
 		})
@@ -574,7 +614,7 @@ func TestWithBalanceCheck_CreditsDisabledIgnoresBalance(t *testing.T) {
 			var reached, subOnly, denied, override bool
 			engine.GET("/v1/messages", func(c *gin.Context) {
 				c.Set("router_installation", &auth.Installation{ID: "00000000-0000-0000-0000-000000000001", ExternalID: "org_keys_only"})
-				middleware.WithBalanceCheck(svc, 0)(c)
+				middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
 				if c.IsAborted() {
 					return
 				}
@@ -593,4 +633,49 @@ func TestWithBalanceCheck_CreditsDisabledIgnoresBalance(t *testing.T) {
 			assert.True(t, denied)
 		})
 	}
+}
+
+// runBalanceWithKeys runs WithBalanceCheck at a zero balance for a key-only
+// caller and reports the subscription-only reason the proxy would see.
+func runBalanceWithKeys(t *testing.T, feeRate float64, keys []*auth.ExternalAPIKey) (*httptest.ResponseRecorder, billing.SubscriptionOnlyReason, bool) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	var reason billing.SubscriptionOnlyReason
+	reached := false
+	engine.GET("/v1/messages", func(c *gin.Context) {
+		withInstallation(c, "org_keys")
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), proxy.ExternalAPIKeysContextKey{}, keys))
+		middleware.WithBalanceCheck(billing.NewService(&stubBillingRepo{balance: 0}).WithByokFeeRate(feeRate), 0, proxy.RequestHasCustomerFunding)(c)
+		if c.IsAborted() {
+			return
+		}
+		reached = true
+		reason, _ = billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
+		c.Status(http.StatusOK)
+	})
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil))
+	return w, reason, reached
+}
+
+func TestWithBalanceCheck_AdmitsKeyOnlyCallerAsUnfunded(t *testing.T) {
+	w, reason, reached := runBalanceWithKeys(t, 0, []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")}})
+	assert.True(t, reached, "a usable provider key can serve the turn, so admission must not 402 it")
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, billing.SubscriptionOnlyCreditsDepleted, reason, "the proxy must see the turn as unfunded so only the customer's key serves it")
+}
+
+func TestWithBalanceCheck_UnusableKeyStill402s(t *testing.T) {
+	w, _, reached := runBalanceWithKeys(t, 0, []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, CredentialError: errors.New("decrypt failed")}})
+	assert.False(t, reached)
+	assert.Equal(t, http.StatusPaymentRequired, w.Code)
+}
+
+func TestWithBalanceCheck_KeyOnlyCallerOwingAByokFee402s(t *testing.T) {
+	// A depleted organization cannot pay a BYOK fee, so a key-only caller has
+	// nothing that can fund the turn and is refused at admission.
+	w, _, reached := runBalanceWithKeys(t, 0.05, []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")}})
+	assert.False(t, reached)
+	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }

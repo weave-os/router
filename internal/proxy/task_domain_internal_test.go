@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/taskdomain"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTaskInputIgnoresInjectedBlocksWithoutChangingRoot(t *testing.T) {

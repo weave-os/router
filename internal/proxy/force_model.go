@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
@@ -20,8 +21,6 @@ import (
 
 	"github.com/google/uuid"
 )
-
-const ForceModelHeader = "x-weave-force-model"
 
 var ErrForcedModelUnknown = errors.New("forced model is not a known model")
 
@@ -351,7 +350,7 @@ func (s *Service) applyForceModelHeader(
 	installationID uuid.UUID,
 	forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 ) (context.Context, string, error) {
-	raw := strings.TrimSpace(r.Header.Get(ForceModelHeader))
+	raw := strings.TrimSpace(r.Header.Get(requestcontext.ForceModelHeader))
 	if raw == "" {
 		return ctx, "", nil
 	}

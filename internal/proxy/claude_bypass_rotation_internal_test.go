@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 )
@@ -137,12 +138,12 @@ func TestClaudeBypassDepletedCreditsRotatesLinkedAccounts(t *testing.T) {
 					require.NoError(t, err)
 					require.Contains(t, rec.Body.String(), "linked answer")
 					require.Equal(t, []string{"Bearer sk-ant-oat01-direct-spent", "Bearer sk-ant-oat01-linked-spent", "Bearer sk-ant-oat01-linked-healthy"}, tokens)
-					require.Equal(t, model, rec.Header().Get(HeaderRouterModel))
+					require.Equal(t, model, rec.Header().Get(requestcontext.HeaderRouterModel))
 					wantReason := reasonUsageBypass
 					if classifier {
 						wantReason = reasonClassifierPassthrough
 					}
-					require.Equal(t, wantReason, rec.Header().Get(HeaderRouterDecision))
+					require.Equal(t, wantReason, rec.Header().Get(requestcontext.HeaderRouterDecision))
 					require.True(t, managedSubscriptionServed(ctx))
 				} else {
 					require.Error(t, err)

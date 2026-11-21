@@ -46,7 +46,7 @@ func (s *Service) expireSessionPinRow(
 	if !invalidateContinuation {
 		return nil
 	}
-	return s.invalidatePostCommandContinuation(ctx, strategy, sessionKey, role)
+	return postCommandContinuation(s, strategy).Invalidate(ctx, sessionKey, role)
 }
 
 func expiredSessionPin(
