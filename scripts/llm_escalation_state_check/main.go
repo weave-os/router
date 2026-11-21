@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/router/escalation"
@@ -22,6 +23,7 @@ import (
 )
 
 func main() {
+	logconfig.Configure()
 	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
 	if dsn == "" {
 		slog.Info("ROUTER_TEST_DATABASE_URL unset; skipping LLM escalation database check")

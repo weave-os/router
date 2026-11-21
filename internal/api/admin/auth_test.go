@@ -3,7 +3,6 @@ package admin_test
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -17,10 +16,14 @@ import (
 )
 
 func adminLoginEngine() *gin.Engine {
+	return adminLoginEngineWithConfig(admin.Config{})
+}
+
+func adminLoginEngineWithConfig(cfg admin.Config) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	svc := auth.NewService(nil, nil, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).WithAdminPassword("operator-password")
 	engine := gin.New()
-	engine.POST("/admin/v1/auth/login", admin.LoginHandler(svc))
+	engine.POST("/admin/v1/auth/login", admin.LoginHandler(svc, cfg))
 	return engine
 }
 
@@ -47,9 +50,6 @@ func TestLoginHandlerThrottlesTCPPeerDespiteRotatedForwardedFor(t *testing.T) {
 }
 
 func TestLoginHandlerSetsSecureHTTPOnlyCookieByDefault(t *testing.T) {
-	if os.Getenv("ROUTER_COOKIE_INSECURE") == "true" {
-		t.Skip("ROUTER_COOKIE_INSECURE=true opts out of Secure cookies")
-	}
 	rr := postAdminLogin(t, adminLoginEngine(), "operator-password", "")
 
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -59,4 +59,14 @@ func TestLoginHandlerSetsSecureHTTPOnlyCookieByDefault(t *testing.T) {
 	assert.True(t, cookies[0].Secure)
 	assert.True(t, cookies[0].HttpOnly)
 	assert.Equal(t, http.SameSiteLaxMode, cookies[0].SameSite)
+}
+
+func TestLoginHandlerCookieInsecureDropsSecureFlag(t *testing.T) {
+	rr := postAdminLogin(t, adminLoginEngineWithConfig(admin.Config{CookieInsecure: true}), "operator-password", "")
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	cookies := rr.Result().Cookies()
+	require.Len(t, cookies, 1)
+	assert.False(t, cookies[0].Secure)
+	assert.True(t, cookies[0].HttpOnly)
 }
