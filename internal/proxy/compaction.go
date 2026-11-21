@@ -153,7 +153,7 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 	if !fits || struck || !candidates.AutomaticPinEligible(pin, req) {
 		return router.Decision{}, strikes, false
 	}
-	return pinDecision(pin), strikes, true
+	return pin.Decision(), strikes, true
 }
 
 func (s *Service) crossGatewayRescuers(ctx context.Context, primary compactionSummarizer, req router.Request) []compactionSummarizer {

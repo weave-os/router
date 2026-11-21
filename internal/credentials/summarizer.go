@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/requestcontext"
 )
 
@@ -12,6 +13,9 @@ func (b Brokerage) SummarizerCredentials(ctx context.Context, provider string, h
 		return nil
 	}
 	if creds, ok := BuildCredentialsMap(ExternalKeysFromContext(ctx))[provider]; ok {
+		if billing.ByokFeeUnpayable(ctx) {
+			return nil
+		}
 		return creds
 	}
 	creds := requestcontext.ExtractClientCredentials(provider, headers)
