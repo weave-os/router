@@ -37,3 +37,9 @@ func TestHandleTextRepetitionBreak_ZeroSessionKeyWritesNoPin(t *testing.T) {
 		})
 	}
 }
+
+func TestWithTextRepetitionBreakOnZeroValueService(t *testing.T) {
+	svc := (&Service{}).WithTextRepetitionBreak(true)
+	assert.True(t, svc.lifecycle.TextRepetitionBreak())
+	assert.Nil(t, svc.lifecycle.NoProgress(), "a zero-value Service must not gain a no-progress tracker")
+}
