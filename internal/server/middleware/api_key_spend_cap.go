@@ -43,7 +43,7 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 		}
 
 		if result.SpentMicros >= *result.CapMicros {
-			kind, refused := tripSubscriptionLane(c, subscriptionlane.KeySpendCapGate, subscriptionExempt)
+			kind, refused := tripSubscriptionLane(c, svc, subscriptionlane.KeySpendCapGate, subscriptionExempt)
 			if !refused {
 				log.Info("API key spend cap reached but subscription covers the route: serving subscription-only",
 					"api_key_id", apiKey.ID,

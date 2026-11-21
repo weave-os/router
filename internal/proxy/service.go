@@ -92,7 +92,7 @@ type Service struct {
 	llmEscalationInvalidate      func(string)
 	sessionStrategyStore         sessionstrategy.Store
 	classifierSessions           *classifierSessions
-	noProgress                   *conversation.NoProgressTracker
+	lifecycle                    *conversation.Lifecycle
 	compaction                   *conversation.CompactionTracker
 	prefixTrimFreeSwitch         bool
 	escapeNormalize              bool
@@ -142,7 +142,6 @@ type Service struct {
 	bandSwap                       *bandswap.Classifier
 
 	turnSignalCaptureEnabled     bool
-	textRepetitionBreakEnabled   bool
 	feedbackStore                RouterFeedbackStore
 	summarizer                   handover.Summarizer
 	webSearch                    websearch.Executor
@@ -1002,13 +1001,12 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		turnTelemetry:                  turnTelemetry{emitter: emitter, repo: telemetry},
 		ingress:                        ingress.New(0),
 		pinStore:                       pinStore,
-		noProgress:                     conversation.NewNoProgressTracker(),
+		lifecycle:                      conversation.NewLifecycle(),
 		searchUse:                      newSearchUseTracker(),
 		searchRequirementDecayTurns:    DefaultSearchRequirementDecayTurns,
 		compaction:                     conversation.NewCompactionTracker(),
 		prefixTrimFreeSwitch:           true,
 		turnSignalCaptureEnabled:       true,
-		textRepetitionBreakEnabled:     true,
 		ccOrchToolsCrossVendor:         true,
 		hardPinExplore:                 hardPinExplore,
 		hardPinProvider:                hardPinProvider,
@@ -1436,7 +1434,7 @@ func (s *Service) HasExcludedModelsOverride() bool {
 	return s.routing.ExcludedModelsOverride() != nil
 }
 
-func (s *Service) WithGlobalAutomaticExclusions(store GlobalAutomaticExclusionStore) *Service {
+func (s *Service) WithGlobalAutomaticExclusions(store candidates.GlobalAutomaticExclusionStore) *Service {
 	if store == nil {
 		s.globalAutomaticExclusions = nil
 		return s
@@ -1837,7 +1835,7 @@ func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strateg
 func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {
 	registered, ok := s.strategies[strategy]
 	if !ok || registered.router == nil {
-		unavailable := defaultStrategyUnavailable(strategy)
+		unavailable := router.StrategyUnavailableError(strategy)
 		if ok && registered.unavailable != nil {
 			unavailable = registered.unavailable
 		}
@@ -1874,17 +1872,6 @@ func policyRolloutIDFromContext(ctx context.Context) string {
 		return rolloutID
 	}
 	return ClientIdentityFrom(ctx).RolloutID
-}
-
-func defaultStrategyUnavailable(strategy router.Strategy) error {
-	switch strategy {
-	case router.StrategyRL:
-		return router.ErrRLPolicyUnavailable
-	case router.StrategyHMM, router.StrategyHMMEmbedding, router.StrategyHMMBeta, router.StrategyHMMQwen:
-		return router.ErrHMMUnavailable
-	default:
-		return router.ErrStrategyUnavailable
-	}
 }
 
 func (s *Service) Route(ctx context.Context, req router.Request) (router.Decision, error) {
@@ -1984,8 +1971,8 @@ func (s *Service) anthropicNativeAttempt(
 	notice translate.RouterNotice,
 	setExtractor func(*telemetry.UsageExtractor),
 	setStreamCost func(router.Decision, bool, func() bool),
-) dispatchAttempt {
-	return func(actx context.Context, d router.Decision, p providers.Client) error {
+) dispatch.UpstreamAttempt {
+	return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 		requestCacheTTL1h := func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) }
 		setStreamCost(d, false, requestCacheTTL1h)
 		attemptSink, noticeErr := preludeState.prepare(actx, sink, preludeBuf, translate.FormatAnthropic, env.Stream(), reconnectNoticeForAttempt(actx, r.Header, notice))
@@ -2064,7 +2051,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, strategy router.Str
 		return
 	}
 	log.Info("safety refusal — re-pinned session off refusing model",
-		"session_key", shortSessionKey(sessionKey),
+		"session_key", conversation.ShortSessionKey(sessionKey),
 		"refusal_category", category,
 		"from_model", served.Model,
 		"to_model", fbModel,
@@ -2486,24 +2473,23 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	tt := routeRes.TurnType
 	stickyHit := routeRes.StickyHit
-	pinTier := routeRes.PinTier
 	pinAgeSec := routeRes.PinAgeSec
 	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
 	s.logPlannerOutcome(ctx, routeRes)
 
 	toolBearingTurn := inboundToolCallCount > 0 || inboundLastUser.HasToolResult
-	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && toolBearingTurn && s.noProgress != nil {
+	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && toolBearingTurn && s.lifecycle.NoProgress() != nil {
 		fp := conversation.ComputeNoProgressFingerprint(decision, promptText, feats.MessageCount, conversation.ToolProgressMarker(env))
 		role := roleForTier(catalog.TierFor(feats.Model))
-		if looped, count := s.noProgress.RecordAndDetect(routeRes.SessionKey, facts.InstallationID, role, fp, s.clock.Now()); looped {
-			return s.handleNoProgressBreak(ctx, w, env, count, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, role, decision.Model, decision.Provider, feats.Tokens, routeRes.Decision.Reason)
+		if looped, count := s.lifecycle.NoProgress().RecordAndDetect(routeRes.SessionKey, facts.InstallationID, role, fp, s.clock.Now()); looped {
+			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, role, decision).NoProgress(ctx, env, count, routeRes.Decision.Reason), feats.Tokens)
 		}
 	}
 
 	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
-			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, role, decision.Model, decision.Provider, feats.Tokens)
+			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, role, decision).TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
 		}
 	}
 
@@ -2513,7 +2499,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
-	var compactionHandoverOutcome handoverOutcome
+	var compactionHandoverOutcome dispatch.HandoverOutcome
 	if !agentShadowMode && !subscriptionStateModelsEnabled(ctx) && !routeRes.AuthoritativePerTurn && decision.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.Handover.Invoked && routeRes.PrefixTrimmed {
 		log.Info("Context trimming detected on non-Anthropic route; rewriting context with handover summary",
 			"message_count", feats.MessageCount,
@@ -2541,49 +2527,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	reqPricing, _ := catalog.PrimaryPriceFor(s.baselineFor(ctx, feats.Model))
 	actPricing, _ := catalog.PrimaryPriceFor(decision.Model)
-	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
-	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
-	decisionBuilder := telemetry.NewAttrBuilder(46).
-		String("request_id", facts.RequestID).
-		String("external_id", facts.ExternalID).
-		String("router_user_id", auth.UserIDFrom(ctx)).
-		String("client.device_id", facts.Client.DeviceID).
-		String("client.account_id", facts.Client.AccountID).
-		String("client.session_id", facts.Client.SessionID).
-		String("client.user_agent", facts.Client.UserAgent).
-		String("client.app", facts.Client.TelemetryClientApp()).
-		String("rollout_id", policyRolloutIDFromContext(ctx)).
-		String("requested.model", feats.Model).
-		String("decision.model", decision.Model).
-		String("decision.provider", decision.Provider).
-		String("decision.reason", decision.Reason).
-		Bool("routing.policy_fallback", routeRes.PolicyFallback).
-		Bool("routing.sticky_hit", stickyHit).
-		Bool("routing.session_pin_hit", pinTier == "in_proc" || pinTier == "postgres").
-		String("routing.session_pin_tier", pinTier).
-		Int64("routing.session_pin_age_s", pinAgeSec).
-		String("routing.turn_type", string(tt)).
-		String("routing.embed_input", embedInput).
-		Int64("routing.estimated_input_tokens", int64(feats.Tokens)).
-		Float64("catalog.requested_input_per_1m", reqDecisionPricing.InputUSDPer1M).
-		Float64("catalog.requested_output_per_1m", reqDecisionPricing.OutputUSDPer1M).
-		Float64("catalog.actual_input_per_1m", actDecisionPricing.InputUSDPer1M).
-		Float64("catalog.actual_output_per_1m", actDecisionPricing.OutputUSDPer1M).
-		Int64("latency.route_ms", routeMs)
-	applySubscriptionDecisionSpanTelemetry(ctx, decisionBuilder, feats.Model, decision.Model)
-	applyServingSpanAttrs(ctx, decisionBuilder)
-	applySidecarAttrs(decisionBuilder, routeRes)
-	applyPlannerAttrs(decisionBuilder, routeRes)
-	applyRoutingStateAttrs(decisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
-	applyCallerRoutingAttrs(ctx, decisionBuilder)
-	applyExperimentAttrs(ctx, decisionBuilder, &routeRes, taskArm, feats.Model, routeRes.Decision.Model)
-	telemetry.Record(ctx, telemetry.Span{
-		Name:  "router.decision",
-		Start: requestStart,
-		End:   s.clock.Now(),
-		Attrs: decisionBuilder.Build(),
+	recordDecisionSpan(ctx, s.clock, decisionSpan{
+		surface: decisionSpanWithTaskArmAndSubscriber, facts: facts, feats: feats, decision: decision, routeRes: &routeRes, taskArm: taskArm,
+		sessionKey: sessionKey, embedInput: embedInput, routeMs: routeMs,
+		reqPricing: reqPricing, actPricing: actPricing, start: requestStart,
 	})
-	telemetry.Flush(ctx)
 
 	opts := translate.EmitOptions{
 		TargetModel:                       decision.Model,
@@ -2600,7 +2548,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		AppendWorkspaceSystem:             s.workspaceSystemAppendApplies(ctx, body, env, routeRes.TurnType),
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
-	effortServed.apply(&opts)
+	effortServed.Apply(&opts)
 
 	if s.claudeSubscriptionExhausted(ctx, r.Header) {
 		ctx = withSuppressedClaudeSubscription(ctx)
@@ -2718,7 +2666,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	recordFastServed := func(fast bool) { fastServed = fast }
 
-	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
+	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
 		targetNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, r.Header, s.usageObserver), r.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
 		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
 		switch providers.FamilyFor(target.Provider) {
@@ -2731,7 +2679,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			crossFormat = false
 			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
 			tiered := anthropicTierAttemptFor(targetOpts, prep, targetNotice)
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				attemptOpts, err := tiered.dispatch(actx, d, p, recordFastServed)
 				if err == nil || committed(preludeBuf) || !providers.IsUpstreamOutputConfigFormatRejection(err) {
 					return err
@@ -2755,7 +2703,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}, nil
 		case providers.FamilyOpenAICompat:
 			crossFormat = true
-			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses, stripPromptCacheKey bool) (func(error) error, error) {
+			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p dispatch.Upstream, useResponses, stripPromptCacheKey bool) (func(error) error, error) {
 				attemptOpts := targetOpts
 				attemptOpts.TargetProvider = d.Provider
 				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
@@ -2835,7 +2783,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				return finalize, rawErr
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
 				useResponses := translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
 					Provider:       d.Provider,
@@ -2882,7 +2830,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}
 			crossFormat = true
 			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
-			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (func(error) error, error) {
+			dispatchGemini := func(actx context.Context, d router.Decision, p dispatch.Upstream, pr providers.PreparedRequest) (func(error) error, error) {
 				fastServed = false
 				setStreamCost(d, true, nil)
 				respSummary = translate.ResponseSummary{}
@@ -2922,7 +2870,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				return finalize, rawErr
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
 				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
 					reqStats = prepared.Stats
@@ -2942,7 +2890,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	rescue := &messagesRescue{
 		rescueChain: &rescueChain{
-			svc: s, strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.usageObserver,
+			rescuePorts: rescuePortsFor(s), strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.usageObserver,
 			r:                r,
 			log:              log,
 			env:              env,
@@ -3306,7 +3254,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			"repair_actions", iss.Actions,
 			"model", decision.Model,
 			"provider", finalProvider,
-			"session_key_prefix", shortSessionKey(routeRes.SessionKey),
+			"session_key_prefix", conversation.ShortSessionKey(routeRes.SessionKey),
 		)
 	}
 
@@ -3595,7 +3543,7 @@ func isAuthoritativePinHoldMismatch(res turnLoopResult, served router.Decision) 
 	}
 }
 
-func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, decision router.Decision, effort effortResolution, finalProvider string, servedFast bool, estimatedInputTokens, inputTokens, outputTokens, cacheCreation, cacheRead int, usageMods catalog.UsageModifiers, routeMs, proxyMs int64, proxyErr error, response *policyOutcomeResponse) {
+func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, decision router.Decision, effort dispatch.EffortResolution, finalProvider string, servedFast bool, estimatedInputTokens, inputTokens, outputTokens, cacheCreation, cacheRead int, usageMods catalog.UsageModifiers, routeMs, proxyMs int64, proxyErr error, response *policyOutcomeResponse) {
 	routeDecision, routeMetadata, reporter, ok := s.policyOutcomeRoute(res, decision)
 	if !ok {
 		return
@@ -3726,37 +3674,6 @@ func pinDecision(p sessionpin.Pin) router.Decision {
 		Effort:   p.Effort,
 		Reason:   p.Reason,
 	}
-}
-
-func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Decision, bool) {
-	if s.policyDeadlineDefaultModel == "" {
-		return router.Decision{}, false
-	}
-	if _, excluded := req.Candidates.ExcludedModels[s.policyDeadlineDefaultModel]; excluded {
-		return router.Decision{}, false
-	}
-	if _, excluded := req.Candidates.SafetyExcludedModels[s.policyDeadlineDefaultModel]; excluded {
-		return router.Decision{}, false
-	}
-
-	providerSet := make(map[string]struct{}, s.clients.Len())
-	for _, provider := range s.clients.Names() {
-		if req.EnabledProviders != nil {
-			if _, enabled := req.EnabledProviders[provider]; !enabled {
-				continue
-			}
-		}
-		providerSet[provider] = struct{}{}
-	}
-	binding, ok := catalog.ResolveBinding(s.policyDeadlineDefaultModel, providerSet)
-	if !ok {
-		return router.Decision{}, false
-	}
-	return router.Decision{
-		Provider: binding.Provider,
-		Model:    s.policyDeadlineDefaultModel,
-		Reason:   policyDeadlineDefaultReason,
-	}, true
 }
 
 func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, hasImages bool, imageCount int, enabledProviders, excludedModels map[string]struct{}) router.Decision {
@@ -3938,7 +3855,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
 	byok := BuildCredentialsMap(externalKeysFromContext(ctx))
-	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst {
+	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst && !billing.ByokFeeUnpayable(ctx) {
 		return context.WithValue(ctx, CredentialsContextKey{}, byok[provider])
 	}
 	routerKeyed := installationIDFromContext(ctx) != (uuid.UUID{})
@@ -4527,7 +4444,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if facts.Client.ClientApp == ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
-			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, role, decision.Model, decision.Provider, feats.Tokens)
+			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, sessionKey, role, decision).TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
 		}
 	}
 
@@ -4546,49 +4463,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	reqPricing, _ := catalog.PrimaryPriceFor(s.baselineFor(ctx, feats.Model))
 	actPricing, _ := catalog.PrimaryPriceFor(decision.Model)
-	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
-	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
-	openaiDecisionBuilder := telemetry.NewAttrBuilder(46).
-		String("request_id", facts.RequestID).
-		String("external_id", facts.ExternalID).
-		String("router_user_id", auth.UserIDFrom(ctx)).
-		String("client.device_id", facts.Client.DeviceID).
-		String("client.account_id", facts.Client.AccountID).
-		String("client.session_id", facts.Client.SessionID).
-		String("client.user_agent", facts.Client.UserAgent).
-		String("client.app", facts.Client.TelemetryClientApp()).
-		String("rollout_id", policyRolloutIDFromContext(ctx)).
-		String("requested.model", feats.Model).
-		String("decision.model", decision.Model).
-		String("decision.provider", decision.Provider).
-		String("decision.reason", decision.Reason).
-		Bool("routing.policy_fallback", routeRes.PolicyFallback).
-		Bool("routing.sticky_hit", stickyHit).
-		Bool("routing.session_pin_hit", pinTier == "in_proc" || pinTier == "postgres").
-		String("routing.session_pin_tier", pinTier).
-		Int64("routing.session_pin_age_s", pinAgeSec).
-		String("routing.turn_type", string(tt)).
-		String("routing.embed_input", embedInput).
-		Int64("routing.estimated_input_tokens", int64(feats.Tokens)).
-		Float64("catalog.requested_input_per_1m", reqDecisionPricing.InputUSDPer1M).
-		Float64("catalog.requested_output_per_1m", reqDecisionPricing.OutputUSDPer1M).
-		Float64("catalog.actual_input_per_1m", actDecisionPricing.InputUSDPer1M).
-		Float64("catalog.actual_output_per_1m", actDecisionPricing.OutputUSDPer1M).
-		Int64("latency.route_ms", routeMs)
-	applySubscriptionDecisionSpanTelemetry(ctx, openaiDecisionBuilder, feats.Model, decision.Model)
-	applyServingSpanAttrs(ctx, openaiDecisionBuilder)
-	applySidecarAttrs(openaiDecisionBuilder, routeRes)
-	applyPlannerAttrs(openaiDecisionBuilder, routeRes)
-	applyRoutingStateAttrs(openaiDecisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
-	applyCallerRoutingAttrs(ctx, openaiDecisionBuilder)
-	applyExperimentAttrs(ctx, openaiDecisionBuilder, &routeRes, taskArm, feats.Model, routeRes.Decision.Model)
-	telemetry.Record(ctx, telemetry.Span{
-		Name:  "router.decision",
-		Start: requestStart,
-		End:   s.clock.Now(),
-		Attrs: openaiDecisionBuilder.Build(),
+	recordDecisionSpan(ctx, s.clock, decisionSpan{
+		surface: decisionSpanWithTaskArmAndSubscriber, facts: facts, feats: feats, decision: decision, routeRes: &routeRes, taskArm: taskArm,
+		sessionKey: sessionKey, embedInput: embedInput, routeMs: routeMs,
+		reqPricing: reqPricing, actPricing: actPricing, start: requestStart,
 	})
-	telemetry.Flush(ctx)
 
 	opts := translate.EmitOptions{
 		TargetModel:              decision.Model,
@@ -4601,7 +4480,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		EnableExtendedContext:    shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
-	effortServed.apply(&opts)
+	effortServed.Apply(&opts)
 
 	if s.codexSubscriptionExhausted(ctx, r.Header) {
 		nudge := codexSubscriptionReconnectNudge(ctx, r.Header, s.usageObserver)
@@ -4781,7 +4660,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	cyberRetryArmed := false
 	preOutputRescueArmed := false
 	cyberRefusalSeen := false
-	buildProviderAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
+	buildProviderAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
 		targetNotice := routerNoticeForDecision(withOwnCodexRejectionNudge(ctx, r.Header, s.usageObserver), r.Header, target, targetMarker)
 		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
 		if isResponses {
@@ -4794,7 +4673,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 		switch providers.FamilyFor(target.Provider) {
 		case providers.FamilyOpenAICompat:
-			dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
+			dispatchOpenAI := func(actx context.Context, d router.Decision, p dispatch.Upstream, surface openAISurface, stripPromptCacheKey bool) error {
 				resetResponsesAttempt(w)
 				var prep providers.PreparedRequest
 				switch surface {
@@ -4977,7 +4856,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 				return err
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				surface := responseSwitch.surface(d.Provider, servedOnCodexSubscription(actx))
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
 				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
@@ -5020,7 +4899,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				log.Error("Failed to translate OpenAI request to Gemini format", "err", emitErr)
 				return nil, fmt.Errorf("translate openai request to gemini: %w", emitErr)
 			}
-			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (func(error) error, error) {
+			dispatchGemini := func(actx context.Context, d router.Decision, p dispatch.Upstream, pr providers.PreparedRequest) (func(error) error, error) {
 				resetResponsesAttempt(w)
 				var usage translate.UsageSink
 				if s.usageRequired() {
@@ -5047,7 +4926,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 				return finalize, rawErr
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
 				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
 					return dispatchGemini(actx, d, p, prepared)
@@ -5060,7 +4939,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				log.Error("Failed to translate OpenAI request to Anthropic format", "err", emitErr)
 				return nil, fmt.Errorf("translate openai request: %w", emitErr)
 			}
-			dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, attemptPrep providers.PreparedRequest, fast bool) (func(error) error, error) {
+			dispatchAnthropic := func(actx context.Context, d router.Decision, p dispatch.Upstream, attemptPrep providers.PreparedRequest, fast bool) (func(error) error, error) {
 				resetResponsesAttempt(w)
 				fastServed = fast
 				var usage translate.UsageSink
@@ -5093,7 +4972,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 				return finalize, rawErr
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				attemptOpts := targetOpts
 				attemptOpts.TargetProvider = d.Provider
 				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
@@ -5138,7 +5017,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	rescue := &chatRescue{
 		rescueChain: &rescueChain{
-			svc: s, strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock,
+			rescuePorts: rescuePortsFor(s), strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock,
 			r:                r,
 			log:              log,
 			env:              env,
@@ -5453,7 +5332,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			"repair_actions", iss.Actions,
 			"model", decision.Model,
 			"provider", finalProvider,
-			"session_key_prefix", shortSessionKey(routeRes.SessionKey),
+			"session_key_prefix", conversation.ShortSessionKey(routeRes.SessionKey),
 		)
 	}
 
