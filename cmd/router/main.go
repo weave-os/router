@@ -63,6 +63,7 @@ import (
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/websearch"
 	"weave-os/router/internal/wif"
 
@@ -562,7 +563,7 @@ func main() {
 		logger.Error("Failed to create OTel emitter", "err", err)
 		panic(err)
 	}
-	var telemetryEmitter proxy.TelemetryEmitter
+	var telemetryEmitter telemetry.Emitter
 	if emitter != nil {
 		telemetryEmitter = emitter
 		authSvc.WithOnboardingObserver(otel.NewOnboardingObserver(emitter))
