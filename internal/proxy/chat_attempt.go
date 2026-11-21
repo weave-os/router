@@ -247,12 +247,12 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 		return func(actx context.Context, d router.Decision, p providers.Client) error {
 			surface := deps.responseSwitch.surface(d.Provider, servedOnCodexSubscription(actx))
 			gatewayKey := gatewayResponsesKey(actx, d.Provider)
-			stripPCK := deps.svc.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
-			err := dispatchOpenAI(actx, d, p, surface, stripPCK)
-			if err != nil && !stripPCK && gatewayKey != "" && !committed(deps.preludeBuf) &&
+			stripPromptCacheKey := deps.svc.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
+			err := dispatchOpenAI(actx, d, p, surface, stripPromptCacheKey)
+			if err != nil && !stripPromptCacheKey && gatewayKey != "" && !committed(deps.preludeBuf) &&
 				providers.IsUpstreamPromptCacheKeyRejection(err) {
 				deps.svc.gatewayCaps.RememberRejectsPromptCacheKey(gatewayKey)
-				stripPCK = true
+				stripPromptCacheKey = true
 				deps.log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
 					"model", d.Model,
 					"decision_provider", d.Provider)
@@ -276,7 +276,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			if deps.preludeBuf != nil {
 				deps.preludeBuf.Discard()
 			}
-			return dispatchOpenAI(actx, d, p, surfaceChat, stripPCK)
+			return dispatchOpenAI(actx, d, p, surfaceChat, stripPromptCacheKey)
 		}, nil
 	case providers.FamilyGemini:
 		*deps.crossFormat = true
