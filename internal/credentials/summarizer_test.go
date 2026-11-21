@@ -13,16 +13,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolveSummarizerCreds_DropsSubscriptionToken(t *testing.T) {
+func TestSummarizerCredentials_DropsSubscriptionToken(t *testing.T) {
 	// The synthetic summarizer body has no Claude Code identity block, which a
 	// subscription token requires — so it must never run on one.
 	headers := http.Header{"Authorization": []string{"Bearer sk-ant-oat01-subscription-token"}}
 	creds := credentials.Brokerage{}.SummarizerCredentials(context.Background(), providers.ProviderAnthropic, headers)
 	assert.Nil(t, creds,
-		"resolveSummarizerCreds must decline a subscription OAuth token so the synthetic summary call doesn't 401")
+		"SummarizerCredentials must decline a subscription OAuth token so the synthetic summary call doesn't 401")
 }
 
-func TestResolveSummarizerCreds_ReturnsBYOK(t *testing.T) {
+func TestSummarizerCredentials_ReturnsBYOK(t *testing.T) {
 	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
 	})
