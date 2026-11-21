@@ -2483,7 +2483,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	tt := routeRes.TurnType
 	stickyHit := routeRes.StickyHit
-	pinTier := routeRes.PinTier
 	pinAgeSec := routeRes.PinAgeSec
 	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
 	s.logPlannerOutcome(ctx, routeRes)
@@ -2538,49 +2537,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	reqPricing, _ := catalog.PrimaryPriceFor(s.baselineFor(ctx, feats.Model))
 	actPricing, _ := catalog.PrimaryPriceFor(decision.Model)
-	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
-	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
-	decisionBuilder := telemetry.NewAttrBuilder(46).
-		String("request_id", facts.RequestID).
-		String("external_id", facts.ExternalID).
-		String("router_user_id", auth.UserIDFrom(ctx)).
-		String("client.device_id", facts.Client.DeviceID).
-		String("client.account_id", facts.Client.AccountID).
-		String("client.session_id", facts.Client.SessionID).
-		String("client.user_agent", facts.Client.UserAgent).
-		String("client.app", facts.Client.TelemetryClientApp()).
-		String("rollout_id", policyRolloutIDFromContext(ctx)).
-		String("requested.model", feats.Model).
-		String("decision.model", decision.Model).
-		String("decision.provider", decision.Provider).
-		String("decision.reason", decision.Reason).
-		Bool("routing.policy_fallback", routeRes.PolicyFallback).
-		Bool("routing.sticky_hit", stickyHit).
-		Bool("routing.session_pin_hit", pinTier == "in_proc" || pinTier == "postgres").
-		String("routing.session_pin_tier", pinTier).
-		Int64("routing.session_pin_age_s", pinAgeSec).
-		String("routing.turn_type", string(tt)).
-		String("routing.embed_input", embedInput).
-		Int64("routing.estimated_input_tokens", int64(feats.Tokens)).
-		Float64("catalog.requested_input_per_1m", reqDecisionPricing.InputUSDPer1M).
-		Float64("catalog.requested_output_per_1m", reqDecisionPricing.OutputUSDPer1M).
-		Float64("catalog.actual_input_per_1m", actDecisionPricing.InputUSDPer1M).
-		Float64("catalog.actual_output_per_1m", actDecisionPricing.OutputUSDPer1M).
-		Int64("latency.route_ms", routeMs)
-	applySubscriptionDecisionSpanTelemetry(ctx, decisionBuilder, feats.Model, decision.Model)
-	applyServingSpanAttrs(ctx, decisionBuilder)
-	applySidecarAttrs(decisionBuilder, routeRes)
-	applyPlannerAttrs(decisionBuilder, routeRes)
-	applyRoutingStateAttrs(decisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
-	applyCallerRoutingAttrs(ctx, decisionBuilder)
-	applyExperimentAttrs(ctx, decisionBuilder, &routeRes, taskArm, feats.Model, routeRes.Decision.Model)
-	telemetry.Record(ctx, telemetry.Span{
-		Name:  "router.decision",
-		Start: requestStart,
-		End:   s.clock.Now(),
-		Attrs: decisionBuilder.Build(),
+	recordDecisionSpan(ctx, s.clock, decisionSpan{
+		surface: decisionSpanWithTaskArmAndSubscriber, facts: facts, feats: feats, decision: decision, routeRes: &routeRes, taskArm: taskArm,
+		sessionKey: sessionKey, embedInput: embedInput, routeMs: routeMs,
+		reqPricing: reqPricing, actPricing: actPricing, start: requestStart,
 	})
-	telemetry.Flush(ctx)
 
 	opts := translate.EmitOptions{
 		TargetModel:                       decision.Model,
@@ -4512,49 +4473,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	reqPricing, _ := catalog.PrimaryPriceFor(s.baselineFor(ctx, feats.Model))
 	actPricing, _ := catalog.PrimaryPriceFor(decision.Model)
-	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
-	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
-	openaiDecisionBuilder := telemetry.NewAttrBuilder(46).
-		String("request_id", facts.RequestID).
-		String("external_id", facts.ExternalID).
-		String("router_user_id", auth.UserIDFrom(ctx)).
-		String("client.device_id", facts.Client.DeviceID).
-		String("client.account_id", facts.Client.AccountID).
-		String("client.session_id", facts.Client.SessionID).
-		String("client.user_agent", facts.Client.UserAgent).
-		String("client.app", facts.Client.TelemetryClientApp()).
-		String("rollout_id", policyRolloutIDFromContext(ctx)).
-		String("requested.model", feats.Model).
-		String("decision.model", decision.Model).
-		String("decision.provider", decision.Provider).
-		String("decision.reason", decision.Reason).
-		Bool("routing.policy_fallback", routeRes.PolicyFallback).
-		Bool("routing.sticky_hit", stickyHit).
-		Bool("routing.session_pin_hit", pinTier == "in_proc" || pinTier == "postgres").
-		String("routing.session_pin_tier", pinTier).
-		Int64("routing.session_pin_age_s", pinAgeSec).
-		String("routing.turn_type", string(tt)).
-		String("routing.embed_input", embedInput).
-		Int64("routing.estimated_input_tokens", int64(feats.Tokens)).
-		Float64("catalog.requested_input_per_1m", reqDecisionPricing.InputUSDPer1M).
-		Float64("catalog.requested_output_per_1m", reqDecisionPricing.OutputUSDPer1M).
-		Float64("catalog.actual_input_per_1m", actDecisionPricing.InputUSDPer1M).
-		Float64("catalog.actual_output_per_1m", actDecisionPricing.OutputUSDPer1M).
-		Int64("latency.route_ms", routeMs)
-	applySubscriptionDecisionSpanTelemetry(ctx, openaiDecisionBuilder, feats.Model, decision.Model)
-	applyServingSpanAttrs(ctx, openaiDecisionBuilder)
-	applySidecarAttrs(openaiDecisionBuilder, routeRes)
-	applyPlannerAttrs(openaiDecisionBuilder, routeRes)
-	applyRoutingStateAttrs(openaiDecisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
-	applyCallerRoutingAttrs(ctx, openaiDecisionBuilder)
-	applyExperimentAttrs(ctx, openaiDecisionBuilder, &routeRes, taskArm, feats.Model, routeRes.Decision.Model)
-	telemetry.Record(ctx, telemetry.Span{
-		Name:  "router.decision",
-		Start: requestStart,
-		End:   s.clock.Now(),
-		Attrs: openaiDecisionBuilder.Build(),
+	recordDecisionSpan(ctx, s.clock, decisionSpan{
+		surface: decisionSpanWithTaskArmAndSubscriber, facts: facts, feats: feats, decision: decision, routeRes: &routeRes, taskArm: taskArm,
+		sessionKey: sessionKey, embedInput: embedInput, routeMs: routeMs,
+		reqPricing: reqPricing, actPricing: actPricing, start: requestStart,
 	})
-	telemetry.Flush(ctx)
 
 	opts := translate.EmitOptions{
 		TargetModel:              decision.Model,
