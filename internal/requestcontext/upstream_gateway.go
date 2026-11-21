@@ -18,8 +18,8 @@ func WithUpstreamGateway(ctx context.Context, sessionHeaders []string, inbound h
 }
 
 func UpstreamGatewayFrom(ctx context.Context) (UpstreamGateway, bool) {
-	gw, ok := ctx.Value(upstreamGatewayContextKey{}).(UpstreamGateway)
-	return gw, ok
+	upstreamGateway, ok := ctx.Value(upstreamGatewayContextKey{}).(UpstreamGateway)
+	return upstreamGateway, ok
 }
 
 func IsUpstreamGatewayHop(inbound http.Header) bool {
@@ -28,9 +28,9 @@ func IsUpstreamGatewayHop(inbound http.Header) bool {
 
 func gatewaySessionID(sessionHeaders []string, inbound http.Header) string {
 	for _, name := range sessionHeaders {
-		if v := inbound.Get(name); v != "" {
-			return v
+		if id := NormalizeClientIdentifier(inbound.Get(name)); id != "" {
+			return id
 		}
 	}
-	return inbound.Get(ClaudeCodeSessionHeader)
+	return NormalizeClientIdentifier(inbound.Get(ClaudeCodeSessionHeader))
 }

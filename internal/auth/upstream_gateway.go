@@ -195,7 +195,7 @@ func (s *Service) VerifyUpstreamGatewayToken(ctx context.Context, rawToken strin
 func (s *Service) verifyUpstreamGatewayClaims(ctx context.Context, rawToken string, issuer UpstreamGatewayIssuer) (*jwt.RegisteredClaims, error) {
 	var lookupErr error
 	claims := &jwt.RegisteredClaims{}
-	token, err := jwt.ParseWithClaims(rawToken, claims,
+	_, err := jwt.ParseWithClaims(rawToken, claims,
 		func(token *jwt.Token) (any, error) {
 			kid, _ := token.Header["kid"].(string)
 			if kid == "" {
@@ -216,7 +216,7 @@ func (s *Service) verifyUpstreamGatewayClaims(ctx context.Context, rawToken stri
 	if lookupErr != nil && !errors.Is(lookupErr, ErrInvalidToken) {
 		return nil, lookupErr
 	}
-	if err != nil || !token.Valid || claims.IssuedAt == nil ||
+	if err != nil || claims.IssuedAt == nil ||
 		claims.ExpiresAt.Sub(claims.IssuedAt.Time) > issuer.maxLifetime() || !slices.Contains(issuer.Subjects, claims.Subject) {
 		return nil, ErrInvalidToken
 	}

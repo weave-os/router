@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,6 +44,14 @@ func TestUpstreamGatewaySessionID(t *testing.T) {
 		ctx := gatewayCtx(t, &requestcontext.Credentials{}, nil, http.Header{})
 		assert.Empty(t, requestcontext.ClientIdentityFrom(ctx).SessionID,
 			"a body metadata session must not stand in for the gateway session")
+	})
+	t.Run("oversized session header falls through", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-Gateway-Session", strings.Repeat("s", requestcontext.MaxClientIdentifierLen+1))
+		h.Set(requestcontext.ClaudeCodeSessionHeader, "cc-1")
+		ctx := gatewayCtx(t, &requestcontext.Credentials{}, []string{"X-Gateway-Session"}, h)
+		assert.Equal(t, "cc-1", requestcontext.ClientIdentityFrom(ctx).SessionID,
+			"gateway session IDs get the same length cap as every other client session source")
 	})
 }
 

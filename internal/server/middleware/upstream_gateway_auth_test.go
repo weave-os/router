@@ -97,9 +97,9 @@ func TestWithAuth_UpstreamGatewayTokenEntersGatewayMode(t *testing.T) {
 
 	ctx := h.seen.Context()
 	assert.Equal(t, "issuer-gw", ctx.Value(requestcontext.APIKeyIDContextKey{}), "spend and attribution stay on the bound issuer key")
-	gw, ok := requestcontext.UpstreamGatewayFrom(ctx)
+	upstreamGateway, ok := requestcontext.UpstreamGatewayFrom(ctx)
 	require.True(t, ok)
-	assert.Equal(t, "gw-session-1", gw.SessionID)
+	assert.Equal(t, "gw-session-1", upstreamGateway.SessionID)
 	assert.Empty(t, h.seen.Header.Get("Authorization"), "the inbound gateway credential must not stay on the request")
 }
 
