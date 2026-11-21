@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/subscriptions"
 )
 
 type Brokerage struct {
@@ -14,11 +15,16 @@ type Brokerage struct {
 	KeyedProviders            map[string]struct{}
 	PassthroughEligible       map[string]struct{}
 	ExcludedProvidersOverride map[string]struct{}
+	SubscriptionModels        SubscriptionModelAccess
+	CodexExtraCredits         bool
+	ManagedSubscriptions      subscriptions.Leaser
+	SessionHolds              SubscriptionSessionHolds
+	ClaudePlans               *subscriptions.PlanResolver
 }
 
-var _ Broker = Brokerage{}
+var _ Broker = (*Brokerage)(nil)
 
-func (b Brokerage) Eligibility(_ context.Context, req EligibilityRequest) Eligibility {
+func (b *Brokerage) Eligibility(_ context.Context, req EligibilityRequest) Eligibility {
 	excluded := b.ExcludedProviders(req.InstallationExcludedProviders, req.SessionDisabledProviders)
 	return Eligibility{
 		EnabledProviders:       b.enabledProviders(req, excluded),
@@ -31,11 +37,11 @@ func (b Brokerage) Eligibility(_ context.Context, req EligibilityRequest) Eligib
 	}
 }
 
-func (b Brokerage) EnabledProviders(req EligibilityRequest) map[string]struct{} {
+func (b *Brokerage) EnabledProviders(req EligibilityRequest) map[string]struct{} {
 	return b.enabledProviders(req, b.ExcludedProviders(req.InstallationExcludedProviders, req.SessionDisabledProviders))
 }
 
-func (b Brokerage) UsesNonDeploymentCreds(keys []*auth.ExternalAPIKey, headers http.Header) bool {
+func (b *Brokerage) UsesNonDeploymentCreds(keys []*auth.ExternalAPIKey, headers http.Header) bool {
 	if b.BYOKOnly {
 		return true
 	}
@@ -50,7 +56,7 @@ func (b Brokerage) UsesNonDeploymentCreds(keys []*auth.ExternalAPIKey, headers h
 	return false
 }
 
-func (b Brokerage) PolicyExcludedProviders(installationExcluded []string) map[string]struct{} {
+func (b *Brokerage) PolicyExcludedProviders(installationExcluded []string) map[string]struct{} {
 	if b.ExcludedProvidersOverride != nil {
 		return b.ExcludedProvidersOverride
 	}
@@ -64,7 +70,7 @@ func (b Brokerage) PolicyExcludedProviders(installationExcluded []string) map[st
 	return out
 }
 
-func (b Brokerage) ExcludedProviders(installationExcluded, sessionDisabled []string) map[string]struct{} {
+func (b *Brokerage) ExcludedProviders(installationExcluded, sessionDisabled []string) map[string]struct{} {
 	base := b.PolicyExcludedProviders(installationExcluded)
 	if len(sessionDisabled) == 0 {
 		return base
@@ -79,7 +85,7 @@ func (b Brokerage) ExcludedProviders(installationExcluded, sessionDisabled []str
 	return out
 }
 
-func (b Brokerage) enabledProviders(req EligibilityRequest, excluded map[string]struct{}) map[string]struct{} {
+func (b *Brokerage) enabledProviders(req EligibilityRequest, excluded map[string]struct{}) map[string]struct{} {
 	out := b.keyedProviders(req)
 	enrollPassthrough(out, b.PassthroughEligible, req)
 	for p := range req.SubscriptionLanes {
@@ -95,7 +101,7 @@ func (b Brokerage) enabledProviders(req EligibilityRequest, excluded map[string]
 	return out
 }
 
-func (b Brokerage) keyedProviders(req EligibilityRequest) map[string]struct{} {
+func (b *Brokerage) keyedProviders(req EligibilityRequest) map[string]struct{} {
 	out := make(map[string]struct{}, len(req.Registered))
 	if !b.BYOKOnly {
 		if b.KeyedProviders != nil {

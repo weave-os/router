@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 
@@ -68,10 +69,10 @@ func paidFallbackBindings() []paidFallbackFacts {
 		}},
 		{"enterprise-seat", withEnterpriseSeat},
 		{"enterprise-cap-refused", func(ctx context.Context) context.Context {
-			return context.WithValue(withEnterpriseSeat(ctx), ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
+			return context.WithValue(withEnterpriseSeat(ctx), credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
 		}},
 		{"enterprise-cap-refused-attempt", func(ctx context.Context) context.Context {
-			ctx = context.WithValue(withEnterpriseSeat(ctx), ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
+			ctx = context.WithValue(withEnterpriseSeat(ctx), credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
 			return context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
 		}},
 	}
@@ -80,7 +81,7 @@ func paidFallbackBindings() []paidFallbackFacts {
 func paidFallbackCustomerKeys() []paidFallbackFacts {
 	withAnthropicCustomerKey := func(priority auth.FundingPriority) func(context.Context) context.Context {
 		return func(ctx context.Context) context.Context {
-			return context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+			return context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 				{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-customer"), FundingPriority: priority},
 			})
 		}

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -37,7 +37,7 @@ func TestFederationAdmissionFailureHonorsBYOKOptIn(t *testing.T) {
 			engine := gin.New()
 			engine.Use(middleware.WithAuth(svc, tc.managed))
 			engine.GET("/probe", func(c *gin.Context) {
-				resolved, _ := c.Request.Context().Value(requestcontext.ExternalAPIKeysContextKey{}).([]*auth.ExternalAPIKey)
+				resolved, _ := c.Request.Context().Value(credentials.ExternalAPIKeysContextKey{}).([]*auth.ExternalAPIKey)
 				if tc.managed && !tc.optedIn {
 					assert.Empty(t, resolved)
 				} else {

@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
-	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -135,8 +135,8 @@ func goldenResponsesOK(text string) goldenStep {
 }
 
 func goldenCodexCtx(ctx context.Context) context.Context {
-	ctx = context.WithValue(ctx, requestcontext.OpenAISubscriptionContextKey{}, "eyJhbGciOiJIUzI1NiJ9.golden-codex-jwt.signature")
-	return context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "acct_golden")
+	ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, "eyJhbGciOiJIUzI1NiJ9.golden-codex-jwt.signature")
+	return context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct_golden")
 }
 
 // goldenCapabilityScenarios cover per-endpoint and per-plan memory a failed

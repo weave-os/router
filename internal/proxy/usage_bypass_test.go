@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -74,7 +75,7 @@ func bypassFixture(t *testing.T, seedUtil float64) (*proxy.Service, *fakeRouter,
 // bypassCtx returns a ctx carrying a Claude subscription token plus a
 // per-installation usage-bypass config at the given threshold.
 func bypassCtx(threshold float64) context.Context {
-	ctx := context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, bypassSubToken)
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: false}})
 	return context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{
 		Enabled:   true,
@@ -159,8 +160,8 @@ func TestUsageBypass_CodexSubscriptionPreservesRequestedModel(t *testing.T) {
 	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
 		WithUsageObserver(obs)
 	threshold := 0.80
-	ctx := context.WithValue(context.Background(), requestcontext.OpenAISubscriptionContextKey{}, codexToken)
-	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "account-1")
+	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, codexToken)
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "account-1")
 	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
@@ -184,7 +185,7 @@ func TestUsageBypass_GateDisabled_EngagesRouting(t *testing.T) {
 	svc, fr, _ := bypassFixture(t, 0.20)
 	rec, req, body := bypassRequest(t)
 	// Subscription present, but the installation never enabled the gate.
-	ctx := context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, bypassSubToken)
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken)
 
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
 
@@ -275,7 +276,7 @@ func TestUsageBypass_MaxedOutModel_EngagesRouting(t *testing.T) {
 	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}, nil, store, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
 		WithUsageObserver(obs)
 
-	ctx := context.WithValue(authedCtx(uuid.New().String()), requestcontext.AnthropicSubscriptionContextKey{}, bypassSubToken)
+	ctx := context.WithValue(authedCtx(uuid.New().String()), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	threshold := 0.80
 	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	rec, req, body := bypassRequest(t)
@@ -310,7 +311,7 @@ func TestUsageBypass_ToolResult_BeatsStalePin(t *testing.T) {
 	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}, nil, store, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
 		WithUsageObserver(obs)
 
-	ctx := context.WithValue(authedCtx(uuid.New().String()), requestcontext.AnthropicSubscriptionContextKey{}, bypassSubToken)
+	ctx := context.WithValue(authedCtx(uuid.New().String()), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	threshold := 0.80
 	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 
@@ -352,7 +353,7 @@ func TestUsageBypass_SessionDemotedModel_EngagesRouting(t *testing.T) {
 	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}, nil, store, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
 		WithUsageObserver(obs)
 
-	ctx := context.WithValue(authedCtx(uuid.New().String()), requestcontext.AnthropicSubscriptionContextKey{}, bypassSubToken)
+	ctx := context.WithValue(authedCtx(uuid.New().String()), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	threshold := 0.80
 	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	rec, req, body := bypassRequest(t)
@@ -663,7 +664,7 @@ func TestSubscriptionOnly_VerifiedEnterpriseOverage_ServesOnSub(t *testing.T) {
 
 			rec, req, body := bypassRequest(t)
 			ctx := billing.WithSubscriptionOnly(
-				context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, bypassSubToken),
+				context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken),
 				reason)
 			require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
 
@@ -693,7 +694,7 @@ func TestSubscriptionOnly_PlanOverage_Refuses402(t *testing.T) {
 
 	rec, req, body := bypassRequest(t)
 	ctx := billing.WithSubscriptionOnly(
-		context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, bypassSubToken),
+		context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken),
 		billing.SubscriptionOnlyCreditsDepleted)
 	err := svc.ProxyMessages(claudeCreditFallbackContext(ctx), body, rec, req)
 	require.Error(t, err)
@@ -721,7 +722,7 @@ func TestSubscriptionOnly_NonBypassServedOnSub_Serves(t *testing.T) {
 	// engages; the caller still presents a Claude OAuth subscription and the
 	// scorer routes to Anthropic, so the turn serves on that subscription.
 	ctx := billing.WithSubscriptionOnly(
-		context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, bypassSubToken),
+		context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken),
 		billing.SubscriptionOnlyCreditsDepleted)
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
 
@@ -750,7 +751,7 @@ func TestSubscriptionOnly_NonBypassPaidRoute_Refuses402(t *testing.T) {
 	rec, req, body := bypassRequest(t)
 	// Sub present but the scorer routes to a paid provider it can't cover.
 	ctx := billing.WithSubscriptionOnly(
-		context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, bypassSubToken),
+		context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken),
 		billing.SubscriptionOnlyCreditsDepleted)
 	err := svc.ProxyMessages(ctx, body, rec, req)
 	require.Error(t, err)
@@ -841,7 +842,7 @@ func TestUsageBypass_HealthyHighOutputKeepsBypassEligible(t *testing.T) {
 	svc := proxy.WithStrategyPorts(proxy.NewService(routes, map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}, nil, store, false,
 		providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
 		WithUsageObserver(obs)
-	ctx := context.WithValue(authedCtx(uuid.NewString()), requestcontext.AnthropicSubscriptionContextKey{}, bypassSubToken)
+	ctx := context.WithValue(authedCtx(uuid.NewString()), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	threshold := 0.80
 	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	rec, req, body := bypassRequest(t)

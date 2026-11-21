@@ -46,6 +46,18 @@ func addToSet(set map[string]struct{}, model string) map[string]struct{} {
 	return out
 }
 
+func installationIDFromContext(ctx context.Context) uuid.UUID {
+	raw, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
+	if raw == "" {
+		return uuid.Nil
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil
+	}
+	return id
+}
+
 func applyPinEvidence(ports continuity.StrategyPorts, res *turnLoopResult, pin sessionpin.Pin, now time.Time) {
 	res.PinModel = pin.Model
 	res.PinProvider = pin.Provider
@@ -1276,22 +1288,6 @@ func buildPolicyTurnContext(
 }
 
 func estimateSummaryTokens(s string) int { return conversation.EstimateSummaryTokens(s) }
-
-func resolveSummarizerCreds(ctx context.Context, provider string, headers http.Header) *Credentials {
-	if provider == "" {
-		return nil
-	}
-	if byok := BuildCredentialsMap(externalKeysFromContext(ctx)); byok != nil {
-		if creds, ok := byok[provider]; ok {
-			return creds
-		}
-	}
-	creds := ExtractClientCredentials(provider, headers)
-	if creds != nil && creds.OAuth {
-		return nil
-	}
-	return creds
-}
 
 func sortedEnabledKeys(m map[string]struct{}) []string {
 	if len(m) == 0 {

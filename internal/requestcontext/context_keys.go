@@ -6,9 +6,7 @@ type (
 	APIKeyIDContextKey                                   struct{}
 	APIKeyPaidFallbackOnSubscriptionRefusalContextKey    struct{}
 	AgentShadowEvalContextKey                            struct{}
-	AnthropicSubscriptionContextKey                      struct{}
 	ClusterModelListsContextKey                          struct{}
-	ExternalAPIKeysContextKey                            struct{}
 	ExternalIDContextKey                                 struct{}
 	InstallationAllowedModelsContextKey                  struct{}
 	InstallationCaptureModeContextKey                    struct{}
@@ -27,10 +25,6 @@ type (
 	InstallationSubscriptionStateModelsEnabledContextKey struct{}
 	InstallationTrialCaptureContextKey                   struct{}
 	InstallationUsageBypassContextKey                    struct{}
-	ManagedSubscriptionEnrollmentUnavailableContextKey   struct{}
-	ManagedSubscriptionProvidersContextKey               struct{}
-	OpenAIAccountIDContextKey                            struct{}
-	OpenAISubscriptionContextKey                         struct{}
 	PolicyDebugEnabledContextKey                         struct{}
 	PolicyRolloutIDContextKey                            struct{}
 	PolicyRoutingIntentContextKey                        struct{}

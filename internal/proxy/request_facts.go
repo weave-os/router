@@ -4,13 +4,14 @@ import (
 	"context"
 	"net/http"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/requestcontext"
 )
 
 func requestFactsFrom(ctx context.Context, headers http.Header) requestcontext.RequestFacts {
 	externalID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
-	anthropicSubscription, _ := ctx.Value(requestcontext.AnthropicSubscriptionContextKey{}).(string)
-	openAISubscription, _ := ctx.Value(requestcontext.OpenAISubscriptionContextKey{}).(string)
+	anthropicSubscription, _ := ctx.Value(credentials.AnthropicSubscriptionContextKey{}).(string)
+	openAISubscription, _ := ctx.Value(credentials.OpenAISubscriptionContextKey{}).(string)
 	return requestcontext.RequestFacts{
 		RequestID:             requestIDFor(ctx),
 		APIKeyID:              apiKeyIDFromContext(ctx),
@@ -18,7 +19,7 @@ func requestFactsFrom(ctx context.Context, headers http.Header) requestcontext.R
 		InstallationID:        installationIDFromContext(ctx),
 		Client:                ClientIdentityFrom(ctx),
 		Headers:               headers,
-		ExternalKeys:          externalKeysFromContext(ctx),
+		ExternalKeys:          credentials.ExternalKeysFromContext(ctx),
 		AnthropicSubscription: anthropicSubscription,
 		OpenAISubscription:    openAISubscription,
 		OpenAIAccountID:       openaiAccountIDFromContext(ctx),

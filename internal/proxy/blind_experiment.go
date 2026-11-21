@@ -216,7 +216,7 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 	if len(req.GatewayProviders) > 0 {
 		provider, found := gatewayProviderFor(req.RequestedModel, req.CustomBindings, req.GatewayProviders)
 		if !found {
-			provider, found = gatewayProviderFor(req.RequestedModel, credentials.AliasedBindings(externalKeysFromContext(ctx), true), req.GatewayProviders)
+			provider, found = gatewayProviderFor(req.RequestedModel, credentials.AliasedBindings(credentials.ExternalKeysFromContext(ctx), true), req.GatewayProviders)
 		}
 		if !found {
 			return router.Decision{}, fmt.Errorf("requested model %q has no available gateway alias: %w", req.RequestedModel, policy.ErrGatewayServesNoDeployedModel)

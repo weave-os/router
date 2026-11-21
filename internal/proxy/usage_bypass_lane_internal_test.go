@@ -30,7 +30,7 @@ func TestUsageBypassDecisionRequiresTheProductToSellTheRequestedModel(t *testing
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
 	svc := &Service{hmmServing: hmmPorts(), clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}), usageObserver: obs}
-	ctx := context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, token)
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 
 	_, sold := svc.usageBypassDecision(ctx, http.Header{}, router.Request{RequestedModel: "claude-sonnet-4-6"}, nil, turntype.MainLoop)

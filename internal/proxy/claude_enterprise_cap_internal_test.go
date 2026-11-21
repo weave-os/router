@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 
@@ -33,7 +34,7 @@ func enterpriseCapUpstream(ingress parityIngress, headers http.Header) *parityUp
 }
 
 func withAnthropicKey(ctx context.Context) context.Context {
-	return context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	return context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderAnthropic, Plaintext: []byte(parityAnthropicBYOK), FundingPriority: auth.FundingPriorityPlanFirst},
 	})
 }
@@ -90,7 +91,7 @@ func TestClaudeEnterpriseOverageCapRescueSurvivesEmptyLinkedPool(t *testing.T) {
 	upstream := enterpriseCapUpstream(ingress, enterpriseCapRefusalHeaders())
 	service := ingress.quotaService(upstream).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
 	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()))
-	ctx = context.WithValue(ctx, requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	ctx = context.WithValue(ctx, credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 	recorder, request, body := ingress.request(t, false)
 	require.NoError(t, ingress.call(service, ctx, body, recorder, request))
 	require.Equal(t, []string{parityAnthropicBYOK}, upstream.paidKeys)

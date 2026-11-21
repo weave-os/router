@@ -92,7 +92,7 @@ func parityAnthropicIngress() parityIngress {
 		token:          parityAnthropicToken,
 		byokKey:        parityAnthropicBYOK,
 		subCtx: func() context.Context {
-			ctx := context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+			ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 			// These parity cases exercise the explicitly enabled API fallback.
 			return withClaudeCreditFallback(context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, parityInstallationID))
 		},
@@ -134,8 +134,8 @@ func parityCodexIngress() parityIngress {
 		token:          parityCodexToken,
 		byokKey:        parityCodexBYOK,
 		subCtx: func() context.Context {
-			ctx := context.WithValue(context.Background(), requestcontext.OpenAISubscriptionContextKey{}, parityCodexToken)
-			ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, parityCodexAccountID)
+			ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, parityCodexToken)
+			ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, parityCodexAccountID)
 			return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, parityInstallationID)
 		},
 		servedOnSub:       servedOnCodexSubscription,
@@ -175,7 +175,7 @@ func (in parityIngress) byokCtx(ctx context.Context) context.Context {
 	if in.provider == providers.ProviderAnthropic {
 		priority = auth.FundingPriorityKeyFirst
 	}
-	return context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	return context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: in.provider, Plaintext: []byte(in.byokKey), FundingPriority: priority},
 	})
 }
@@ -260,7 +260,7 @@ func TestSubscriptionFailoverParity_SubscriptionShape(t *testing.T) {
 
 	t.Run("codex: OAuth without an account id is not Codex-served", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, parityInstallationID)
-		ctx = context.WithValue(ctx, requestcontext.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+		ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 		ctx = resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
 		assert.True(t, servedOnSubscription(ctx))
 		assert.False(t, servedOnCodexSubscription(ctx),
@@ -373,9 +373,9 @@ func TestSubscriptionFailoverParity_PreDispatchSuppression(t *testing.T) {
 func TestSubscriptionFailoverParity_SuppressionIsProviderScoped(t *testing.T) {
 	bothSubs := func() context.Context {
 		ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, parityInstallationID)
-		ctx = context.WithValue(ctx, requestcontext.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
-		ctx = context.WithValue(ctx, requestcontext.OpenAISubscriptionContextKey{}, parityCodexToken)
-		return context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, parityCodexAccountID)
+		ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+		ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, parityCodexToken)
+		return context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, parityCodexAccountID)
 	}
 
 	t.Run("suppressing Claude leaves Codex intact", func(t *testing.T) {

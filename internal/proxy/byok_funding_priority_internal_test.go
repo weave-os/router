@@ -6,15 +6,15 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func fundingPriorityCtx(ctx context.Context, provider string, priority auth.FundingPriority) context.Context {
-	return context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	return context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: provider, FundingPriority: priority, Plaintext: []byte("synthetic-byok-" + provider)},
 	})
 }
@@ -76,8 +76,8 @@ func TestOpenAIKeyFundingPriority(t *testing.T) {
 	} {
 		t.Run(string(tc.priority), func(t *testing.T) {
 			ctx := fundingPriorityCtx(routerKeyedCtx(), providers.ProviderOpenAI, tc.priority)
-			ctx = context.WithValue(ctx, requestcontext.OpenAISubscriptionContextKey{}, codexTestJWT)
-			ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "acct-1")
+			ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestJWT)
+			ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-1")
 
 			creds := CredentialsFromContext(resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.6-sol", http.Header{}))
 
@@ -88,7 +88,7 @@ func TestOpenAIKeyFundingPriority(t *testing.T) {
 }
 
 func TestPlanFirstAnthropicKeyKeepsEnterprisePlanInPlay(t *testing.T) {
-	ctx := context.WithValue(routerKeyedCtx(), requestcontext.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+	ctx := context.WithValue(routerKeyedCtx(), credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 	planFirst := enterpriseOnlyContext(fundingPriorityCtx(ctx, providers.ProviderAnthropic, auth.FundingPriorityPlanFirst))
 	keyFirst := enterpriseOnlyContext(fundingPriorityCtx(ctx, providers.ProviderAnthropic, auth.FundingPriorityKeyFirst))
 
@@ -102,7 +102,7 @@ func TestKeyFirstOpenAIKeyHidesCodexPlan(t *testing.T) {
 		"Chatgpt-Account-Id": []string{"acct-1"},
 	}
 	keyFirst := fundingPriorityCtx(routerKeyedCtx(), providers.ProviderOpenAI, auth.FundingPriorityKeyFirst)
-	keyFirst = context.WithValue(keyFirst, requestcontext.OpenAISubscriptionContextKey{}, codexTestJWT)
+	keyFirst = context.WithValue(keyFirst, credentials.OpenAISubscriptionContextKey{}, codexTestJWT)
 
 	codex, _ := presentSubscriptionTokens(keyFirst, headers)
 	assert.Empty(t, codex, "a key-first OpenAI key must not enter Codex subscription bypass")

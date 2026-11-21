@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -43,7 +44,7 @@ func gatewayKeyCtx(gateway string, aliased ...string) func(string) context.Conte
 		for _, model := range aliased {
 			key.ModelAliases[model] = "gw-" + model
 		}
-		return context.WithValue(authedCtx(installationID), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
+		return context.WithValue(authedCtx(installationID), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
 	}
 }
 

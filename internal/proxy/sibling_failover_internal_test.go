@@ -320,7 +320,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 
 	t.Run("gateway BYOK rescues via a sibling behind a held gateway key", func(t *testing.T) {
 		s := &Service{hmmServing: hmmPorts()}
-		gwCtx := context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		gwCtx := context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{
 				Provider:     providers.ProviderOpenAIGateway,
 				Plaintext:    []byte("pat"),
@@ -349,7 +349,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 
 	t.Run("gateway BYOK walks the ranked fallback before other gateway aliases", func(t *testing.T) {
 		s := &Service{hmmServing: hmmPorts()}
-		gwCtx := context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		gwCtx := context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{
 				Provider:     providers.ProviderOpenAIGateway,
 				Plaintext:    []byte("pat"),
@@ -376,7 +376,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 
 	t.Run("gateway BYOK never rescues onto a provider without a held gateway key", func(t *testing.T) {
 		s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}}
-		gwCtx := context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		gwCtx := context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{
 				Provider:     providers.ProviderOpenAIGateway,
 				Plaintext:    []byte("pat"),
@@ -399,7 +399,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 
 	t.Run("gateway BYOK rescues on the same gateway when it aliases a sibling", func(t *testing.T) {
 		s := &Service{hmmServing: hmmPorts()}
-		gwCtx := context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		gwCtx := context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{
 				Provider:     providers.ProviderOpenAIGateway,
 				Plaintext:    []byte("pat"),
@@ -459,7 +459,7 @@ func TestSiblingFailover_RosterOrderBeatsProviderPreferenceAndExcludesUnlistedMo
 // lifted for the walk, and the arm that just failed is never re-served.
 func TestGatewayRescueDecisions_AllArmsStruckOutReadmitsDemotedSibling(t *testing.T) {
 	s := &Service{hmmServing: hmmPorts()}
-	ctx := context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("pat"), ModelAliases: map[string]string{catalog.ModelGPT6Luna: catalog.ModelGPT6Luna}},
 		{Provider: providers.ProviderAnthropicGateway, Plaintext: []byte("pat"), ModelAliases: map[string]string{"claude-opus-5-5": "claude-opus-5-5"}},
 	})

@@ -9,6 +9,7 @@ import (
 	"testing/synctest"
 	"time"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -97,7 +98,7 @@ func TestSubscriptionFundingFinalOAuthLeaseIsAllowed(t *testing.T) {
 
 func TestSubscriptionFundingUnknownEnrollmentAndGatewayBinding(t *testing.T) {
 	svc := newServiceWithProviders(t, nil)
-	unknownCtx := context.WithValue(context.Background(), requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+	unknownCtx := context.WithValue(context.Background(), credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	require.ErrorIs(t, svc.subscriptionAPIAuthorization(unknownCtx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String()), ErrSubscriptionPoolUnavailable)
 	// Gemini has no compatible subscription pool; unrelated uncertainty cannot block it.
 	_, known := catalog.ByID(catalog.ModelIDGemini31ProPreview.String())
@@ -332,7 +333,7 @@ func TestSubscriptionFundingDirectTokenOverageIsQuotaProof(t *testing.T) {
 }
 
 func TestEnrolledPoolWithoutQuotaSnapshotFundsCredits(t *testing.T) {
-	ctx := context.WithValue(context.Background(), requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	ctx := context.WithValue(context.Background(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 	svc := newServiceWithProviders(t, nil)
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{}))
 	require.ErrorIs(t, svc.authorizeSubscriptionAPI(billing.WithWeaveCreditsDenied(ctx), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable)

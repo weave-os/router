@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
-	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -56,7 +56,7 @@ func TestProxyMessages_SubscriptionRescueFailurePreservesHTTPError(t *testing.T)
 
 	ctx := context.WithValue(
 		authedCtx("11111111-1111-1111-1111-111111111111"),
-		requestcontext.AnthropicSubscriptionContextKey{},
+		credentials.AnthropicSubscriptionContextKey{},
 		"sk-ant-oat01-subscription-token",
 	)
 	rec := httptest.NewRecorder()

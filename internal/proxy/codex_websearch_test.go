@@ -15,6 +15,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -27,8 +28,8 @@ import (
 const codexSearchModel = "gpt-6-luna"
 
 func codexSearchContext() context.Context {
-	ctx := context.WithValue(context.Background(), requestcontext.OpenAISubscriptionContextKey{}, "synthetic-codex-bearer")
-	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "synthetic-codex-account")
+	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "synthetic-codex-bearer")
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "synthetic-codex-account")
 	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "3f4c1c2e-2b4d-4c3a-9f6d-0d1a2b3c4d5e")
 }
 

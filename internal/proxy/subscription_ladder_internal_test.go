@@ -21,7 +21,7 @@ func TestSelectableSubscriptionProvidersCoverCallerFundedLanes(t *testing.T) {
 		http.CanonicalHeaderKey(requestcontext.ChatGPTAccountIDHeader): []string{"acct-1"},
 	}
 	ownKeys := func(provider string) context.Context {
-		return context.WithValue(routerKeyedCtx(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		return context.WithValue(routerKeyedCtx(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{Provider: provider, Plaintext: []byte("synthetic-own-key")},
 		})
 	}

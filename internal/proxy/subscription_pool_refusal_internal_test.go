@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
-	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/telemetry/turnrecord"
 
 	"weave-os/router/internal/auth"
@@ -34,11 +34,11 @@ func poolRefusalPins() map[string]poolRefusalPin {
 	throttledSeat := &auth.SubscriptionAccount{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooling}
 	svc := &Service{hmmServing: hmmPorts(), clock: func() time.Time { return now }}
 	enrollmentUnknown := func(ctx context.Context) context.Context {
-		return context.WithValue(WithManagedSubscriptionUsage(ctx), requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+		return context.WithValue(WithManagedSubscriptionUsage(ctx), credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	}
 	callerPlanThrottledCtx := func(ctx context.Context) context.Context {
 		ctx = WithManagedSubscriptionUsage(ctx)
-		state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+		state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 		state.ThrottledProviders = map[subscriptions.Provider]time.Time{subscriptions.ProviderClaude: cooling}
 		return ctx
 	}

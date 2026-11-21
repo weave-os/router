@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/requestcontext"
@@ -165,14 +166,14 @@ func TestResolvedOAuthRemainsAvailableWithoutManagedCapacity(t *testing.T) {
 		availableSeat bool
 	}{
 		{"no enrolled pool", func(ctx context.Context) context.Context {
-			return context.WithValue(ctx, requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{})
+			return context.WithValue(ctx, credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{})
 		}, false},
 		{"no available seat", func(ctx context.Context) context.Context { return ctx }, false},
 		{"enrollment unavailable", func(ctx context.Context) context.Context {
-			return context.WithValue(ctx, requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+			return context.WithValue(ctx, credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 		}, false},
 		{"explicit own-plan pick", func(ctx context.Context) context.Context {
-			ctx = context.WithValue(ctx, requestcontext.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+			ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 			return fundOnOwnPlan(ctx, providers.ProviderAnthropic)
 		}, true},
 	} {

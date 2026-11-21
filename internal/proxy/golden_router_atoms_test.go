@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -182,7 +183,7 @@ func atomUsageBypassCoverageScenarios() []goldenScenario {
 		return svc.WithUsageObserver(observer)
 	}
 	ctx := func(ctx context.Context) context.Context {
-		ctx = context.WithValue(ctx, requestcontext.AnthropicSubscriptionContextKey{}, token)
+		ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, token)
 		ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: false}})
 		return context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	}

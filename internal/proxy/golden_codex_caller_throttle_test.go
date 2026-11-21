@@ -14,6 +14,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -54,8 +55,8 @@ var (
 // with no quota snapshot.
 func goldenCallerCodexSeatsCtx(seats ...*auth.SubscriptionAccount) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		ctx = context.WithValue(ctx, requestcontext.OpenAISubscriptionContextKey{}, goldenCallerCodexJWT)
-		ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, goldenLinkedCodexAccount)
+		ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, goldenCallerCodexJWT)
+		ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, goldenLinkedCodexAccount)
 		ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyOwnSeatFirst: true}})
 		ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyLinkedFirst)
 		ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})

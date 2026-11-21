@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -24,8 +25,8 @@ const nativeResponsesInstallationID = "3f4c1c2e-2b4d-4c3a-9f6d-0d1a2b3c4d5e"
 // makes ProxyOpenAIResponses dispatch the caller's original bytes verbatim,
 // which is the path that runs no translator.
 func codexNativeResponsesCtx() context.Context {
-	ctx := context.WithValue(context.Background(), requestcontext.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
-	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "acct-123")
+	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-123")
 	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, nativeResponsesInstallationID)
 }

@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/api/subscriptions"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -264,7 +265,7 @@ func TestWithAuthLeavesControlPlaneAvailableWhenSubscriptionEnrollmentLookupFail
 	engine := gin.New()
 	engine.Use(middleware.WithAuth(svc, false))
 	engine.GET("/validate", func(c *gin.Context) {
-		unavailable, _ := c.Request.Context().Value(requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}).(bool)
+		unavailable, _ := c.Request.Context().Value(credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}).(bool)
 		require.True(t, unavailable)
 		c.Status(http.StatusOK)
 	})
@@ -383,7 +384,7 @@ func TestWithAuthManagedModeDropsBYOKWhenNotOptedIn(t *testing.T) {
 	engine := gin.New()
 	engine.Use(middleware.WithAuth(svc, true))
 	engine.GET("/probe", func(c *gin.Context) {
-		assert.Nil(t, c.Request.Context().Value(requestcontext.ExternalAPIKeysContextKey{}),
+		assert.Nil(t, c.Request.Context().Value(credentials.ExternalAPIKeysContextKey{}),
 			"managed mode must drop BYOK rows for an installation that hasn't opted in; a leftover row in the table must not reach the proxy ctx")
 		c.Status(http.StatusOK)
 	})
@@ -416,7 +417,7 @@ func TestWithAuthManagedModeKeepsBYOKWhenOptedIn(t *testing.T) {
 	engine := gin.New()
 	engine.Use(middleware.WithAuth(svc, true))
 	engine.GET("/probe", func(c *gin.Context) {
-		v, ok := c.Request.Context().Value(requestcontext.ExternalAPIKeysContextKey{}).([]*auth.ExternalAPIKey)
+		v, ok := c.Request.Context().Value(credentials.ExternalAPIKeysContextKey{}).([]*auth.ExternalAPIKey)
 		require.True(t, ok, "managed mode must propagate BYOK rows once the installation opts in")
 		require.Len(t, v, 1)
 		assert.Equal(t, "makora", v[0].Provider)
@@ -451,7 +452,7 @@ func TestWithAuthSelfHostedKeepsBYOKInContext(t *testing.T) {
 	engine := gin.New()
 	engine.Use(middleware.WithAuth(svc, false))
 	engine.GET("/probe", func(c *gin.Context) {
-		v, ok := c.Request.Context().Value(requestcontext.ExternalAPIKeysContextKey{}).([]*auth.ExternalAPIKey)
+		v, ok := c.Request.Context().Value(credentials.ExternalAPIKeysContextKey{}).([]*auth.ExternalAPIKey)
 		require.True(t, ok, "self-hosted mode must propagate BYOK rows to the proxy ctx")
 		require.Len(t, v, 1)
 		assert.Equal(t, "anthropic", v[0].Provider)

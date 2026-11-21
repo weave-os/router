@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 
@@ -43,7 +44,7 @@ func InternalListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Se
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to load provider key."})
 			return
 		}
-		creds := proxy.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[key.Provider]
+		creds := credentials.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[key.Provider]
 		models, err := proxySvc.ListUpstreamModels(c.Request.Context(), key.Provider, creds)
 		if err != nil {
 			abortForListingError(c, key.Provider, key.ID, err)

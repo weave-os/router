@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/requestcontext"
@@ -61,7 +62,7 @@ func TestVerificationNonstreamFailedJSONCannotWin(t *testing.T) {
 				"uncommitted failed JSON rotates included seats without authorizing API")
 			require.Equal(t, "/responses", paths[0], "the personal subscription attempt uses the Codex Responses endpoint")
 			require.Equal(t, "first-provider", providerAccounts[0], "the personal lease keeps its provider account identity")
-			winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+			winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 			assert.False(t, winner.Served, "failure must not count as an included winner")
 			require.False(t, winner.OverageInUse)
 			require.NotContains(t, rec.Body.String(), `"status":"completed"`)

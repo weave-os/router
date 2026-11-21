@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/refusal"
 	"weave-os/router/internal/requestcontext"
@@ -113,12 +114,12 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			ctx = proxy.WithManagedSubscriptionUsage(ctx)
 			owner := subscriptionOwnerForRequest(c, apiKey)
 			c.Set(ctxKeySubscriptionOwner, owner)
-			ctx = proxy.WithSubscriptionOwner(ctx, owner)
+			ctx = credentials.WithSubscriptionOwner(ctx, owner)
 			if testPlan == nil && svc.SubscriptionAccountsEnabled() {
 				accounts, listErr := svc.ListSubscriptionCandidates(ctx, owner)
 				if listErr != nil {
 					observability.FromContext(ctx).Error("Failed to load subscription account enrollment", "err", listErr)
-					ctx = context.WithValue(ctx, requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+					ctx = context.WithValue(ctx, credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 				} else {
 					ctx = proxy.WithManagedSubscriptionCandidates(ctx, accounts)
 				}
@@ -206,7 +207,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		}
 		byokAllowed := testPlan == nil && (!byokRequiresOptIn || (installation != nil && installation.ByokEnabled))
 		if externalKeys != nil && byokAllowed {
-			ctx = context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, externalKeys)
+			ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, externalKeys)
 			ctx = proxy.WithForwardedHeaderSnapshot(ctx, externalKeys, c.Request.Header)
 		}
 		if len(clusterModelLists) > 0 {

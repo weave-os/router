@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
-	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
@@ -65,7 +65,7 @@ func TestProfileFailureCannotIdentifyEnterpriseOrAuthorizePaidFallback(t *testin
 	service := newServiceWithProviders(t, nil).WithClaudeSubscriptionPlanReader(subscriptionPlanReaderFunc(func(context.Context, []byte) (providers.SubscriptionPlan, error) {
 		return providers.SubscriptionPlanUnknown, errors.New("synthetic profile unavailable")
 	}))
-	ctx := context.WithValue(routerKeyedCtx(), requestcontext.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+	ctx := context.WithValue(routerKeyedCtx(), credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 	ctx = service.withSubscriptionFundingAuthorization(ctx, nil)
 	require.False(t, claudeEnterpriseOnly(ctx))
 	require.ErrorIs(t, service.subscriptionAPIAuthorization(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String()), ErrSubscriptionPoolUnavailable)
@@ -125,7 +125,7 @@ func TestSkippedPoolSeatDoesNotSetTheServedPlan(t *testing.T) {
 			ctx := managedSubscriptionTestContext()
 			_, _, _, err := service.leaseManagedSubscription(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String())
 			require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
-			state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+			state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 			require.Empty(t, state.ClaudeSubscriptionPlan, "a seat excluded before dispatch cannot become the request's served plan")
 			require.Equal(t, plan == providers.SubscriptionPlanUnknown, state.ClaudePlanUnverified)
 		})
@@ -134,7 +134,7 @@ func TestSkippedPoolSeatDoesNotSetTheServedPlan(t *testing.T) {
 
 func TestEnterpriseSeatDoesNotMarkAnIndependentNonClaudeTurn(t *testing.T) {
 	ctx := WithManagedSubscriptionUsage(context.Background())
-	state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+	state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 	state.ClaudeSubscriptionPlan = providers.SubscriptionPlanEnterprise
 	nonClaude := withClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderGoogle, Model: catalog.ModelIDGemini31ProPreview.String()})
 	require.False(t, claudeEnterpriseTurn(nonClaude))

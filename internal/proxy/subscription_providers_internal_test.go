@@ -6,12 +6,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 )
 
 func TestSubscriptionProvidersHonorRoutingToggle(t *testing.T) {
-	ctx := context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-token")
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-token")
 	require.Contains(t, subscriptionProvidersForRequest(ctx), providers.ProviderAnthropic)
 
 	disabled := context.WithValue(ctx, requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true)
