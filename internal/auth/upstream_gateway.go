@@ -129,9 +129,13 @@ func (e upstreamGatewayIssuerJSON) validate() (UpstreamGatewayIssuer, error) {
 	}, nil
 }
 
+type upstreamGatewayVerifier struct {
+	issuers []UpstreamGatewayIssuer
+	keys    OIDCKeySet
+}
+
 func (s *Service) WithUpstreamGatewayIssuers(issuers []UpstreamGatewayIssuer, keys OIDCKeySet) *Service {
-	s.upstreamGatewayIssuers = issuers
-	s.upstreamGatewayKeys = keys
+	s.upstreamGateway = upstreamGatewayVerifier{issuers: issuers, keys: keys}
 	return s
 }
 
@@ -154,7 +158,7 @@ func (i UpstreamGatewayIssuer) algorithms() []string {
 }
 
 func (s *Service) upstreamGatewayIssuer(iss string) (UpstreamGatewayIssuer, bool) {
-	for _, issuer := range s.upstreamGatewayIssuers {
+	for _, issuer := range s.upstreamGateway.issuers {
 		if issuer.IssuerURL == iss {
 			return issuer, true
 		}
@@ -163,7 +167,7 @@ func (s *Service) upstreamGatewayIssuer(iss string) (UpstreamGatewayIssuer, bool
 }
 
 func (s *Service) VerifyUpstreamGatewayToken(ctx context.Context, rawToken string) (*Installation, *APIKey, []*ExternalAPIKey, []ClusterModelList, *UpstreamGatewayPrincipal, error) {
-	if s.upstreamGatewayKeys == nil || !IsUpstreamGatewayToken(rawToken) || len(rawToken) > UpstreamGatewayTokenMaxBytes {
+	if s.upstreamGateway.keys == nil || !IsUpstreamGatewayToken(rawToken) || len(rawToken) > UpstreamGatewayTokenMaxBytes {
 		return nil, nil, nil, nil, nil, ErrInvalidToken
 	}
 	unverified := &jwt.RegisteredClaims{}
@@ -198,7 +202,7 @@ func (s *Service) verifyUpstreamGatewayClaims(ctx context.Context, rawToken stri
 				return nil, ErrInvalidToken
 			}
 			var key crypto.PublicKey
-			key, lookupErr = s.upstreamGatewayKeys.VerificationKey(ctx, issuer.IssuerURL, kid)
+			key, lookupErr = s.upstreamGateway.keys.VerificationKey(ctx, issuer.IssuerURL, kid)
 			return key, lookupErr
 		},
 		jwt.WithValidMethods(issuer.algorithms()),

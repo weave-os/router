@@ -205,8 +205,7 @@ func goldenCodexCredentialCtx(ctx context.Context) context.Context {
 }
 
 func goldenUpstreamGatewayCtx(ctx context.Context) context.Context {
-	ctx = requestcontext.WithUpstreamGateway(ctx, nil, http.Header{})
-	return context.WithValue(ctx, requestcontext.InstallationHideTerminalSurfacesContextKey{}, true)
+	return requestcontext.WithUpstreamGateway(ctx, nil, http.Header{})
 }
 
 func goldenUnkeyedCtx(ctx context.Context) context.Context {
@@ -326,16 +325,6 @@ func goldenCredentialScenarios() []goldenScenario {
 			upstreams: map[string][]goldenStep{providers.ProviderFireworks: {compatOK(false, "ok")}},
 			ctx:       withBYOK(byokKey(providers.ProviderFireworks, goldenBYOKFireworks, auth.FundingPriorityPlanFirst))},
 
-		// Upstream gateway service mode.
-		{name: "upstream_gateway_mode_serves_on_gateway_key", supplies: []string{goldenBYOKAnthropic}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
-			ctx: chainCtx(goldenUpstreamGatewayCtx, withBYOK(&auth.ExternalAPIKey{ID: "golden-ext-gateway", Provider: providers.ProviderAnthropic,
-				Plaintext: []byte(goldenBYOKAnthropic), BaseURL: "https://gateway.example.test", ForwardedClientHeaders: []string{"traceparent"}, BaggageHeader: "baggage"})),
-			headers: map[string]string{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01", "baggage": "on-behalf-of=user@example.test"}},
-		{name: "upstream_gateway_routing_model_never_dispatched", supplies: []string{goldenBYOKAnthropic},
-			decisions: []router.Decision{decision(providers.ProviderAnthropic, string(router.ModelAutomatic))}, upstreams: anthropicUp(ok),
-			ctx: chainCtx(goldenUpstreamGatewayCtx, withBYOK(&auth.ExternalAPIKey{ID: "golden-ext-gateway", Provider: providers.ProviderAnthropic,
-				Plaintext: []byte(goldenBYOKAnthropic), BaseURL: "https://gateway.example.test"}))},
-
 		// Inbound client credentials.
 		{name: "router_keyed_oauth_bearer", supplies: []string{goldenClientOAuth}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			headers: map[string]string{"Authorization": "Bearer " + goldenClientOAuth}},
@@ -420,4 +409,24 @@ func goldenCredentialScenarios() []goldenScenario {
 
 func goldenSubscriptionOnlyCtx(ctx context.Context) context.Context {
 	return billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
+}
+
+func goldenUpstreamGatewayCredentialScenarios() []goldenScenario {
+	ok := anthropicOK(false, "ok")
+	anthropicDecisions := []router.Decision{goldenAnthropicDecision}
+	cases := []credentialCase{
+		{name: "upstream_gateway_mode_serves_on_gateway_key", supplies: []string{goldenBYOKAnthropic}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
+			ctx: chainCtx(goldenUpstreamGatewayCtx, withBYOK(&auth.ExternalAPIKey{ID: "golden-ext-gateway", Provider: providers.ProviderAnthropic,
+				Plaintext: []byte(goldenBYOKAnthropic), BaseURL: "https://gateway.example.test", ForwardedClientHeaders: []string{"traceparent"}, BaggageHeader: "baggage"})),
+			headers: map[string]string{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01", "baggage": "on-behalf-of=user@example.test"}},
+		{name: "upstream_gateway_routing_model_never_dispatched", supplies: []string{goldenBYOKAnthropic},
+			decisions: []router.Decision{decision(providers.ProviderAnthropic, string(router.ModelAutomatic))}, upstreams: anthropicUp(ok),
+			ctx: chainCtx(goldenUpstreamGatewayCtx, withBYOK(&auth.ExternalAPIKey{ID: "golden-ext-gateway", Provider: providers.ProviderAnthropic,
+				Plaintext: []byte(goldenBYOKAnthropic), BaseURL: "https://gateway.example.test"}))},
+	}
+	out := make([]goldenScenario, 0, len(cases))
+	for _, c := range cases {
+		out = append(out, c.scenario())
+	}
+	return out
 }

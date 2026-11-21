@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const upstreamGatewayRoute = "/v1/messages"
@@ -29,7 +30,22 @@ func stripInboundCredentials(headers http.Header) {
 	headers.Del(auth.RouterKeyHeader)
 }
 
+func refuseUpstreamGateway(c *gin.Context, principal *auth.UpstreamGatewayPrincipal, authSpan trace.Span) bool {
+	if principal == nil {
+		return false
+	}
+	if kind, refused := upstreamGatewayRefusal(c); refused {
+		finishAuthSpan(authSpan, nil)
+		abortRefusal(c, kind, nil)
+		return true
+	}
+	stripInboundCredentials(c.Request.Header)
+	return false
+}
+
 func withUpstreamGatewayMode(ctx context.Context, principal *auth.UpstreamGatewayPrincipal, inbound http.Header) context.Context {
-	ctx = requestcontext.WithUpstreamGateway(ctx, principal.SessionHeaders, inbound)
-	return context.WithValue(ctx, requestcontext.InstallationHideTerminalSurfacesContextKey{}, true)
+	if principal == nil {
+		return ctx
+	}
+	return requestcontext.WithUpstreamGateway(ctx, principal.SessionHeaders, inbound)
 }

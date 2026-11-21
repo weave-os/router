@@ -89,13 +89,8 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			handleAuthError(c, err)
 			return
 		}
-		if verified.upstreamGateway != nil {
-			if kind, refused := upstreamGatewayRefusal(c); refused {
-				finishAuthSpan(authSpan, nil)
-				abortRefusal(c, kind, nil)
-				return
-			}
-			stripInboundCredentials(c.Request.Header)
+		if refuseUpstreamGateway(c, verified.upstreamGateway, authSpan) {
+			return
 		}
 		if testPlan != nil && (apiKey.CredentialSubjectID != testPlan.SubjectID || apiKey.InstallationID != installation.ID) {
 			abortRefusal(c, refusal.TestIdentityMismatch, nil)
@@ -213,29 +208,29 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, externalKeys)
 			ctx = requestcontext.WithForwardedHeaderSnapshot(ctx, externalKeys, c.Request.Header)
 		}
-		if len(clusterModelLists) > 0 {
-			overrides := make(map[string][]string, len(clusterModelLists))
-			for _, list := range clusterModelLists {
-				if len(list.Models) == 0 {
-					continue
-				}
-				overrides[list.ClusterLabel] = list.Models
-			}
-			if len(overrides) > 0 {
-				ctx = context.WithValue(ctx, requestcontext.ClusterModelListsContextKey{}, overrides)
-			}
-		}
+		ctx = withClusterModelListOverrides(ctx, clusterModelLists)
 		if installation != nil && installation.ID != "" {
 			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, installation.ID)
 		}
-		if verified.upstreamGateway != nil {
-			ctx = withUpstreamGatewayMode(ctx, verified.upstreamGateway, c.Request.Header)
-		}
+		ctx = withUpstreamGatewayMode(ctx, verified.upstreamGateway, c.Request.Header)
 		finishAuthSpan(authSpan, nil)
 		ctx = restoreRequestParent(ctx, parentCtx)
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
+}
+
+func withClusterModelListOverrides(ctx context.Context, lists []auth.ClusterModelList) context.Context {
+	overrides := make(map[string][]string, len(lists))
+	for _, list := range lists {
+		if len(list.Models) > 0 {
+			overrides[list.ClusterLabel] = list.Models
+		}
+	}
+	if len(overrides) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, requestcontext.ClusterModelListsContextKey{}, overrides)
 }
 
 func isAuthFailure(err error) bool {
