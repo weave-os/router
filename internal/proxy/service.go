@@ -2207,13 +2207,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			log.Info("ProxyMessages force-model command", "force_model_cmd", cmd)
 			if cmd.FromToolResult {
 				var err error
-				agentForceModel, _, err = s.applyForceModelCommand(ctx, strategy, cmd, facts.InstallationID, sessionKey, forceModelSessionKey)
+				agentForceModel, _, err = (forceModelCommands{s}).apply(ctx, strategy, cmd, facts.InstallationID, sessionKey, forceModelSessionKey)
 				if err != nil {
 					return err
 				}
 				requestBodyChanged = true
 			} else {
-				if err := s.handleForceModelCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
+				if err := (forceModelCommands{s}).handle(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
 					return err
 				}
 				s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
@@ -4241,13 +4241,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
 			if agentForceModelContinuesTurn(ctx, cmd) {
 				var err error
-				agentForceModel, _, err = s.applyForceModelCommand(ctx, strategy, cmd, facts.InstallationID, sessionKey, forceModelSessionKey)
+				agentForceModel, _, err = (forceModelCommands{s}).apply(ctx, strategy, cmd, facts.InstallationID, sessionKey, forceModelSessionKey)
 				if err != nil {
 					return err
 				}
 				requestBodyChanged = true
 			} else {
-				if err := s.handleForceModelCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
+				if err := (forceModelCommands{s}).handle(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
 					return err
 				}
 				s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))

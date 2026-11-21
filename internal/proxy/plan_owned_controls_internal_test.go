@@ -188,7 +188,7 @@ func TestBoostServingAppliesForceModelCommand(t *testing.T) {
 	threadKey := [sessionpin.SessionKeyLen]byte{2}
 	forceKey := [sessionpin.SessionKeyLen]byte{3}
 
-	forcedModel, message, err := svc.applyForceModelCommand(
+	forcedModel, message, err := (forceModelCommands{svc}).apply(
 		boostDefaultRoutingContext(), router.StrategyFromContext(boostDefaultRoutingContext()), translate.ForceModelResult{Model: "sol"}, uuid.New(), threadKey, forceKey,
 	)
 	require.NoError(t, err)
@@ -223,7 +223,7 @@ func TestMaxServingStillRejectsClosedSourceForceModel(t *testing.T) {
 	store := newForceModelMapStore()
 	svc := &Service{hmmServing: hmmPorts(), pinStore: store}
 	env := forceCommandEnv(t)
-	_, message, err := svc.applyForceModelCommand(
+	_, message, err := (forceModelCommands{svc}).apply(
 		planOwnedContext(), router.StrategyFromContext(planOwnedContext()), translate.ForceModelResult{Model: "opus"}, uuid.New(),
 		[sessionpin.SessionKeyLen]byte{4}, [sessionpin.SessionKeyLen]byte{5},
 	)

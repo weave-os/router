@@ -28,7 +28,7 @@ func TestForceModelCommand_PersistsEffortOnPin(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env,
+	require.NoError(t, (forceModelCommands{svc}).handle(context.Background(), rec, env,
 		translate.ForceModelResult{Model: "opus:xhigh"}, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
@@ -47,7 +47,7 @@ func TestApplyForceModelCommand_ReturnsEffortQualifiedSpec(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	env := forceCommandEnv(t)
-	spec, _, err := svc.applyForceModelCommand(context.Background(), router.StrategyFromContext(context.Background()),
+	spec, _, err := (forceModelCommands{svc}).apply(context.Background(), router.StrategyFromContext(context.Background()),
 		translate.ForceModelResult{Model: "opus:xhigh", FromToolResult: true},
 		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"))
 	require.NoError(t, err)
