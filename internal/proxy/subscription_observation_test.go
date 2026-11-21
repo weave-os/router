@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
@@ -93,6 +94,6 @@ func TestPresentSubscriptionTokens_MaxProductScopeReportsNone(t *testing.T) {
 	assert.Empty(t, codex)
 	assert.False(t, RequestPresentsCoveringSubscription(ctx, h, routePathMessages))
 
-	enrolled := context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	enrolled := context.WithValue(ctx, credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 	assert.False(t, RequestPresentsCoveringSubscription(enrolled, http.Header{}, routePathMessages))
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/proxy/usage"
 
@@ -14,7 +15,7 @@ import (
 const conditionalModelsSubscriptionToken = "sk-ant-oat01-conditional-models"
 
 func conditionalModelsContext(active, inactive []string) context.Context {
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, conditionalModelsSubscriptionToken)
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, conditionalModelsSubscriptionToken)
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, active)
 	return context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, inactive)
 }

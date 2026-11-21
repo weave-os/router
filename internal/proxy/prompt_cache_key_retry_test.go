@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -53,7 +54,7 @@ func TestService_ProxyOpenAIChatCompletion_GatewayPromptCacheKeyRejectionRetries
 		providers.ProviderOpenAIGateway: gw,
 	}), nil, nil, false, providers.ProviderOpenAIGateway, "grok-4.6", nil), hmm.ServingPorts())
 
-	ctx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("gw-key"), BaseURL: "https://gw.example.com/v1"},
 	})
 	body := []byte(`{"model":"grok-4.6","messages":[{"role":"system","content":"You are a terse assistant."},{"role":"user","content":"hello"}]}`)

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/providers"
@@ -98,7 +99,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 		body, _ := io.ReadAll(c.Request.Body)
 		resolvedOwners = append(resolvedOwners, middleware.SubscriptionOwnerFrom(c))
 		proxyErrors = append(proxyErrors, svc.ProxyOpenAIChatCompletion(c.Request.Context(), body, c.Writer, c.Request))
-		winners = append(winners, c.Request.Context().Value(proxy.ManagedSubscriptionUsageContextKey{}))
+		winners = append(winners, c.Request.Context().Value(credentials.ManagedSubscriptionUsageContextKey{}))
 	})
 	actualIngress := httptest.NewServer(engine)
 	defer actualIngress.Close()

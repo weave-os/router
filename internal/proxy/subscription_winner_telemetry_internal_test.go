@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -15,7 +16,7 @@ import (
 
 func TestSubscriptionWinnerTelemetryPreservesOwnerAndAlternative(t *testing.T) {
 	ctx := WithManagedSubscriptionUsage(context.Background())
-	winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+	winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 	winner.Served = true
 	winner.SubscriptionAccountID = "00000000-0000-0000-0000-000000000101"
 	winner.SubscriptionOwnerID = "00000000-0000-0000-0000-000000000102"
@@ -44,7 +45,7 @@ func TestSubscriptionWinnerTelemetryPreservesOwnerAndAlternative(t *testing.T) {
 
 func TestFailedAPIFallbackReplacesInboundSubscriptionAttribution(t *testing.T) {
 	ctx := WithManagedSubscriptionUsage(context.Background())
-	usage := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+	usage := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 	usage.SubscriptionAttempted = true
 	ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
 		APIKey: []byte("oauth-sentinel"),
@@ -74,7 +75,7 @@ func TestFailedAPIFallbackReplacesInboundSubscriptionAttribution(t *testing.T) {
 func TestSubscriptionWinnerTelemetryDoesNotAttributeUnservedOrPaidCapacity(t *testing.T) {
 	for _, served := range []bool{false, true} {
 		ctx := WithManagedSubscriptionUsage(context.Background())
-		winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+		winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 		winner.Served = served
 		winner.OverageInUse = served
 		winner.SubscriptionAccountID = "00000000-0000-0000-0000-000000000101"

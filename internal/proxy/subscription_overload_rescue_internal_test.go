@@ -214,7 +214,7 @@ func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
 			require.Error(t, err)
 			assert.Equal(t, 0, sibling.calls, "no paid sibling without a plan 5xx")
 			assert.Empty(t, repo.snapshot())
-			state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+			state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 			assert.Empty(t, state.UnavailableProviders)
 		})
 	}
@@ -283,7 +283,7 @@ func TestSubscriptionSiblingAllowed(t *testing.T) {
 	t.Run("BYOK keys on the request keep the generic rule", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
-		ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderMakora, Plaintext: []byte("mk")}})
+		ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderMakora, Plaintext: []byte("mk")}})
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK-only deployment never rescues", func(t *testing.T) {

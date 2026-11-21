@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
@@ -27,7 +28,7 @@ const classifierTestSubToken = "sk-ant-oat01-classifier-subscription-token"
 
 func TestClassifierPassthroughEngaged(t *testing.T) {
 	const claude = "claude-sonnet-4-6"
-	subCtx := withClaudeCreditFallback(context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken))
+	subCtx := withClaudeCreditFallback(context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, classifierTestSubToken))
 	observerAt := func(snap usage.Snapshot) *usage.Observer {
 		obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 		obs.Record(obs.Key([]byte(classifierTestSubToken)), snap)
@@ -75,8 +76,8 @@ func TestClassifierPassthroughEngaged(t *testing.T) {
 			name: "classifier requesting a Codex model stays scored",
 			svc:  &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}))},
 			ctx: context.WithValue(context.WithValue(context.Background(),
-				OpenAISubscriptionContextKey{}, "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.signature"),
-				OpenAIAccountIDContextKey{}, "account-1"),
+				credentials.OpenAISubscriptionContextKey{}, "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.signature"),
+				credentials.OpenAIAccountIDContextKey{}, "account-1"),
 			headers: http.Header{},
 			req:     router.Request{RequestedModel: "gpt-5.6-sol"}, turnType: turntype.Classifier, want: false,
 		},
@@ -134,7 +135,7 @@ func TestUsageBypassDecision_ClassifierLaneOutranksUsageBypass(t *testing.T) {
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
 	svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})), usageObserver: obs}
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken)
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, classifierTestSubToken)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	req := router.Request{RequestedModel: model}
 
@@ -163,7 +164,7 @@ func TestRunTurnLoop_ClassifierPassthrough_NoSessionState(t *testing.T) {
 	store.getPin = sessionpin.Pin{Provider: providers.ProviderOpenAI, Model: "gpt-5.5", Reason: "cluster", PinnedUntil: time.Now().Add(time.Hour)}
 	svc := withHMMPorts(NewService(&betaTestRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: &betaTestRouter{}})
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken)
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, classifierTestSubToken)
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{"claude-sonnet-4-6"})
 	var zeroKey [sessionpin.SessionKeyLen]byte
 
@@ -183,7 +184,7 @@ func TestRunTurnLoop_ClassifierForceModel_DoesNotApply(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures()
 	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}), nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken)
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, classifierTestSubToken)
 
 	res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, router.Request{RequestedModel: feats.Model, ForceModel: "claude-sonnet-5"})
 

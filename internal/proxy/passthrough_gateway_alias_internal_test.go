@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -39,7 +40,7 @@ func TestRoutingPolicyPassthroughServesGatewayAliasedRetiredModel(t *testing.T) 
 	require.NoError(t, err)
 	ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "key-1")
 	ctx = context.WithValue(ctx, InstallationIDContextKey{}, installationID)
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{
 		InstallationID: installationID,
 		Provider:       providers.ProviderAnthropicGateway,
 		Plaintext:      []byte("gw-token"),

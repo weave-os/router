@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
@@ -121,7 +122,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 				require.Contains(t, rec.Body.String(), alternative)
 				require.Equal(t, "read_file", gjson.GetBytes(sent[1], "tools.0.name").String())
 				require.Equal(t, "medium", gjson.GetBytes(sent[1], "reasoning.effort").String())
-				winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+				winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 				require.Equal(t, codexCoveredModel, winner.IntendedModel)
 				require.Equal(t, "alternative-account", winner.SubscriptionAccountID)
 				require.Equal(t, "synthetic-owner", winner.SubscriptionOwnerID)

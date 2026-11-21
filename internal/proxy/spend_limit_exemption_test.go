@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -89,7 +90,7 @@ func TestProxyMessages_OverEngineerCap_CoveringSubscription_ServesFreeNo402(t *t
 	ctx := context.WithValue(context.Background(), proxy.ExternalIDContextKey{}, "org-capped")
 	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "engineer-1")
 	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true})
-	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, subToken)
+	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, subToken)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -133,7 +134,7 @@ func TestProxyMessages_OverEngineerCap_WarningAlreadyShown_NotRepeated(t *testin
 	ctx := context.WithValue(context.Background(), proxy.ExternalIDContextKey{}, "org-capped")
 	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "engineer-1")
 	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true})
-	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, subToken)
+	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, subToken)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -215,7 +216,7 @@ func TestProxyMessages_OverEngineerCap_ExhaustedSubscription_Refuses402(t *testi
 	ctx := context.WithValue(context.Background(), proxy.ExternalIDContextKey{}, "org-capped")
 	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "engineer-1")
 	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true})
-	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, subToken)
+	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, subToken)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))

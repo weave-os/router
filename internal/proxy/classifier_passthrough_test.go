@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -52,7 +53,7 @@ func classifierPassthroughFixture(t *testing.T, obs *usage.Observer) (*proxy.Ser
 }
 
 func classifierSubscriptionCtx() context.Context {
-	return claudeCreditFallbackContext(context.WithValue(authedCtx(uuid.New().String()), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken))
+	return claudeCreditFallbackContext(context.WithValue(authedCtx(uuid.New().String()), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken))
 }
 
 func classifierRequest(ctx context.Context) (*httptest.ResponseRecorder, *http.Request) {

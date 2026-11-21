@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
@@ -36,7 +37,7 @@ func TestProxyMessages_SpentOwnClaudePlanNudgesToConnectASeat(t *testing.T) {
 
 	serve := func(body string) string {
 		rec := httptest.NewRecorder()
-		ctx := context.WithValue(authedCtx("11111111-1111-1111-1111-111111111111"), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken)
+		ctx := context.WithValue(authedCtx("11111111-1111-1111-1111-111111111111"), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken)
 		require.NoError(t, svc.ProxyMessages(claudeCreditFallbackContext(ctx), []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 		return rec.Body.String()
 	}
