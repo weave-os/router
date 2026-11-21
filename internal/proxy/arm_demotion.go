@@ -179,7 +179,7 @@ func (s *Service) demoteArmForSession(
 			return false
 		}
 	}
-	if err := s.invalidatePostCommandContinuation(ctx, target.strategy, target.sessionKey, pinRole); err != nil {
+	if err := postCommandContinuation(s, target.strategy).Invalidate(ctx, target.sessionKey, pinRole); err != nil {
 		log.Error("continuation invalidation after session model demotion failed", "err", err, "role", role, "pin_role", pinRole, "model", model, "reason", string(reason))
 		return false
 	}
