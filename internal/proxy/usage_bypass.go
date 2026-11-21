@@ -126,7 +126,7 @@ func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
 }
 
 func (s *Service) anthropicFallbackKeyAvailable(ctx context.Context) bool {
-	if byok := BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
+	if byok := credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
 		if _, ok := byok[providers.ProviderAnthropic]; ok {
 			return true
 		}

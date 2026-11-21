@@ -212,7 +212,7 @@ func TestExternalKeyPrincipalChangesWithTheUpstreamAccount(t *testing.T) {
 		return &auth.ExternalAPIKey{ID: "key-1", Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok"), AuthAccount: account, AuthUser: user}
 	}
 	principal := func(k *auth.ExternalAPIKey) string {
-		return BuildCredentialsMap([]*auth.ExternalAPIKey{k})[providers.ProviderAnthropic].PrincipalID
+		return credentials.BuildCredentialsMap([]*auth.ExternalAPIKey{k})[providers.ProviderAnthropic].PrincipalID
 	}
 
 	assert.NotEqual(t, principal(key("account-a", "user")), principal(key("account-b", "user")))

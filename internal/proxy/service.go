@@ -3929,7 +3929,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 }
 
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
-	byok := BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))
+	byok := credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))
 	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst {
 		return context.WithValue(ctx, CredentialsContextKey{}, byok[provider])
 	}

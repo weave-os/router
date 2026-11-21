@@ -29,7 +29,7 @@ func withWeaveCreditsFunding(ctx context.Context, headers http.Header) context.C
 
 func customerFundedProviders(ctx context.Context, headers http.Header) map[string]struct{} {
 	funded := subscriptionServableProviders(ctx, headers)
-	for provider := range BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)) {
+	for provider := range credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)) {
 		if usableBYOK(ctx, provider) != nil {
 			funded[provider] = struct{}{}
 		}
@@ -69,7 +69,7 @@ func applyWeaveCreditsPolicy(ctx context.Context, enabled map[string]struct{}) (
 }
 
 func usableBYOK(ctx context.Context, provider string) *Credentials {
-	creds := BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[provider]
+	creds := credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[provider]
 	if creds == nil || creds.CredentialError != nil || len(creds.APIKey) == 0 {
 		return nil
 	}

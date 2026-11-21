@@ -35,7 +35,7 @@ func codexExhaustionWindow(resetAt time.Time, now time.Time) usage.Window {
 }
 
 func (s *Service) openaiFallbackKeyAvailable(ctx context.Context) bool {
-	if byok := BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
+	if byok := credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
 		if _, ok := byok[providers.ProviderOpenAI]; ok {
 			return true
 		}
