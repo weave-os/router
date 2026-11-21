@@ -245,8 +245,6 @@ const (
 
 const policyDeadlineFallbackReason = "policy_deadline_last_known_good"
 
-const policyDeadlineDefaultReason = "policy_deadline_default_model"
-
 const unscorableHMMStickyReason = "hmm_no_user_boundary_sticky"
 
 func isPolicyDeadlineErr(err error) bool {
@@ -1228,39 +1226,8 @@ func (s *Service) runTurnLoop(
 		if !routed {
 			dec, err := s.routeFor(ctx, strategy, req)
 			if err != nil {
-				if s.policyDeadlineFallback && isPolicyDeadlineErr(err) {
-					if pinFound && pin.Model != "" {
-						decision := pinDecision(pin)
-						decision.Reason = policyDeadlineFallbackReason
-						res.Decision = decision
-						res.StickyHit = true
-						res.PinTier = policyDeadlineFallbackReason
-						res.PolicyFallback = true
-						log.Warn("policy sidecar missed its deadline; serving session pin",
-							"err", err,
-							"pin_model", pin.Model,
-							"pin_provider", pin.Provider,
-							"pin_policy_group", s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup,
-							"requested_model", req.RequestedModel,
-						)
-						refreshed := decision
-						refreshed.Reason = pin.Reason
-						sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, refreshed)
-						return res, nil
-					}
-					if decision, ok := s.policyDeadlineDefaultDecision(req); ok {
-						res.Decision = decision
-						res.PinTier = policyDeadlineFallbackReason
-						res.PolicyFallback = true
-						log.Warn("policy sidecar missed its deadline; no session pin, serving tier-3 default",
-							"err", err,
-							"default_model", decision.Model,
-							"default_provider", decision.Provider,
-							"requested_model", req.RequestedModel,
-						)
-						sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, decision)
-						return res, nil
-					}
+				if s.policyDeadlineFallback && isPolicyDeadlineErr(err) && servePolicyDeadlineFallback(ctx, s, &res, err, req, sessionPins, pinIfFound(pin, pinFound)) {
+					return res, nil
 				}
 				log.Error("turnloop scorer failed", "err", err, "requested_model", req.RequestedModel)
 				return res, err
