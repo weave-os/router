@@ -216,7 +216,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				if servedOnStateCredits(model, scenario.claudeOnCredits) {
 					require.False(t, subscriptionFunding[i])
 				} else {
-					require.True(t, subscriptionFunding[i], "expensive models must never reach paid authHeaders")
+					require.True(t, subscriptionFunding[i], "expensive models must never reach paid credentials")
 				}
 			}
 			if scenario.liveReject && !scenario.wantErr {
