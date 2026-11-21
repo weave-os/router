@@ -6,38 +6,8 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry"
 )
-
-type PolicyShadowStore interface {
-	InsertPolicyShadowDecision(ctx context.Context, event PolicyShadowDecision) error
-}
-
-type PolicyShadowDecision struct {
-	InstallationID  string
-	OrganizationID  string
-	RolloutID       string
-	ClientApp       string
-	TrainingAllowed bool
-
-	ServingStrategy             string
-	ServingModel                string
-	ServingProvider             string
-	ServingRouteID              string
-	ServingPolicyRouteKey       string
-	ServingPolicyArtifactID     string
-	ServingPolicyArtifactSHA256 string
-
-	ShadowStrategy             string
-	ShadowModel                string
-	ShadowProvider             string
-	ShadowRouteID              string
-	ShadowPolicyRouteKey       string
-	ShadowPolicyArtifactID     string
-	ShadowPolicyArtifactSHA256 string
-	ShadowLatencyMs            int64
-	ShadowError                string
-	ModelsAgree                bool
-}
 
 func (s *Service) firePolicyShadowForServingDecision(ctx context.Context, strategy router.Strategy, serving router.Decision, req router.Request) {
 	req = s.withPolicyRequestContext(ctx, req)
@@ -54,8 +24,8 @@ func (s *Service) firePolicyShadowDecision(ctx context.Context, servingStrategy 
 	shadowReq.ShadowMode = true
 	shadowReq.TrainingAllowed = false
 	shadowReq.DebugEnabled = false
-	store, _ := s.telemetry.(PolicyShadowStore)
-	base := PolicyShadowDecision{
+	store, _ := s.telemetry.(telemetry.PolicyShadowStore)
+	base := telemetry.PolicyShadowDecision{
 		InstallationID:  s.installationID(ctx),
 		OrganizationID:  req.OrganizationID,
 		RolloutID:       req.RolloutID,
@@ -107,7 +77,7 @@ func (s *Service) installationID(ctx context.Context) string {
 	return id
 }
 
-func applyServingPolicyMetadata(event *PolicyShadowDecision, metadata *router.RoutingMetadata) {
+func applyServingPolicyMetadata(event *telemetry.PolicyShadowDecision, metadata *router.RoutingMetadata) {
 	if metadata == nil {
 		return
 	}
@@ -117,7 +87,7 @@ func applyServingPolicyMetadata(event *PolicyShadowDecision, metadata *router.Ro
 	event.ServingPolicyArtifactSHA256 = metadata.PolicyArtifactSHA256
 }
 
-func applyShadowPolicyMetadata(event *PolicyShadowDecision, metadata *router.RoutingMetadata) {
+func applyShadowPolicyMetadata(event *telemetry.PolicyShadowDecision, metadata *router.RoutingMetadata) {
 	if metadata == nil {
 		return
 	}
