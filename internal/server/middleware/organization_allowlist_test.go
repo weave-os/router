@@ -14,8 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const inferenceOrganizationAllowlistEnv = "ROUTER_INFERENCE_ORGANIZATION_ALLOWLIST"
-
 func TestWithAuthInferenceOrganizationAllowlist(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, scenario := range []struct {
@@ -30,7 +28,8 @@ func TestWithAuthInferenceOrganizationAllowlist(t *testing.T) {
 		{name: "installation without organization is rejected", allowlist: "org-allowed", wantStatus: http.StatusForbidden},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			t.Setenv(inferenceOrganizationAllowlistEnv, scenario.allowlist)
+			middleware.Configure(middleware.Config{InferenceOrganizationAllowlist: middleware.ParseOrganizationAllowlist(scenario.allowlist)})
+			t.Cleanup(func() { middleware.Configure(middleware.Config{}) })
 			const routerToken = "rk_allowlist_probe"
 			hash, prefix, suffix := auth.APITokenFingerprint(routerToken)
 			repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{hash: {
@@ -58,4 +57,10 @@ func TestWithAuthInferenceOrganizationAllowlist(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseOrganizationAllowlistTrimsAndDropsBlanks(t *testing.T) {
+	assert.Nil(t, middleware.ParseOrganizationAllowlist(""))
+	assert.Nil(t, middleware.ParseOrganizationAllowlist(" , ,"))
+	assert.Equal(t, []string{"org-a", "org-b"}, middleware.ParseOrganizationAllowlist(" org-a ,, org-b "))
 }

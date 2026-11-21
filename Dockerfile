@@ -51,6 +51,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY cmd/seed ./cmd/seed
+COPY cmd/logconfig ./cmd/logconfig
 COPY internal ./internal
 RUN CGO_ENABLED=0 go build -o /seed ./cmd/seed
 

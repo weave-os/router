@@ -21,7 +21,7 @@ func TestConfigureWithoutCertificatesLeavesPgxTLSIntact(t *testing.T) {
 	poolConfig := parseConfig(t, "postgres://user:pw@10.55.0.3:5432/db?sslmode=prefer")
 	fallbackCount := len(poolConfig.ConnConfig.Fallbacks)
 
-	configured, err := Configure(poolConfig)
+	configured, err := Configure(poolConfig, Config{})
 	if err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -35,23 +35,20 @@ func TestConfigureWithoutCertificatesLeavesPgxTLSIntact(t *testing.T) {
 
 func TestConfigureRejectsPartialCertificateMaterial(t *testing.T) {
 	certPEM, keyPEM := selfSignedPEM(t)
-	t.Setenv(clientCertEnvVar, certPEM)
-	t.Setenv(clientKeyEnvVar, keyPEM)
-
-	if _, err := Configure(parseConfig(t, "postgres://user:pw@10.55.0.3:5432/db")); err == nil {
-		t.Fatal("expected an error when the server CA is missing")
+	_, err := Configure(parseConfig(t, "postgres://user:pw@10.55.0.3:5432/db"), Config{ClientCert: certPEM, ClientKey: keyPEM})
+	want := "postgres client TLS needs POSTGRES_SERVER_CA_CERT, POSTGRES_CLIENT_CERT and POSTGRES_CLIENT_KEY together"
+	if err == nil || err.Error() != want {
+		t.Fatalf("Configure error = %v, want %q", err, want)
 	}
 }
 
 func TestConfigureInstallsClientCertificateAndDropsPlaintextFallback(t *testing.T) {
 	certPEM, keyPEM := selfSignedPEM(t)
-	t.Setenv(serverCACertEnvVar, certPEM)
-	t.Setenv(clientCertEnvVar, certPEM)
-	t.Setenv(clientKeyEnvVar, keyPEM)
+	pgtlsInput := Config{ServerCACert: certPEM, ClientCert: certPEM, ClientKey: keyPEM}
 
 	// sslmode=prefer is the shape that gives pgx a plaintext fallback to prune.
 	poolConfig := parseConfig(t, "postgres://user:pw@10.55.0.3:5432/db?sslmode=prefer")
-	configured, err := Configure(poolConfig)
+	configured, err := Configure(poolConfig, pgtlsInput)
 	if err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -59,15 +56,15 @@ func TestConfigureInstallsClientCertificateAndDropsPlaintextFallback(t *testing.
 		t.Fatal("expected client TLS to be configured")
 	}
 
-	tlsConfig := poolConfig.ConnConfig.TLSConfig
-	if tlsConfig == nil {
+	installed := poolConfig.ConnConfig.TLSConfig
+	if installed == nil {
 		t.Fatal("expected a TLS config on the connection")
 	}
-	if len(tlsConfig.Certificates) != 1 {
-		t.Fatalf("expected one client certificate, got %d", len(tlsConfig.Certificates))
+	if len(installed.Certificates) != 1 {
+		t.Fatalf("expected one client certificate, got %d", len(installed.Certificates))
 	}
 	for _, fallback := range poolConfig.ConnConfig.Fallbacks {
-		if fallback.TLSConfig != tlsConfig {
+		if fallback.TLSConfig != installed {
 			t.Fatal("expected every remaining fallback to reuse the certificate TLS config")
 		}
 	}
@@ -79,9 +76,7 @@ func TestConfigureVerifiesTheExpectedServerIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("X509KeyPair: %v", err)
 	}
-	t.Setenv(serverCACertEnvVar, certPEM)
-	t.Setenv(clientCertEnvVar, certPEM)
-	t.Setenv(clientKeyEnvVar, keyPEM)
+	pgtlsInput := Config{ServerCACert: certPEM, ClientCert: certPEM, ClientKey: keyPEM}
 
 	for _, testCase := range []struct {
 		name         string
@@ -93,9 +88,10 @@ func TestConfigureVerifiesTheExpectedServerIdentity(t *testing.T) {
 		{name: "another endpoint under the same CA is rejected", serverName: "workweave-staging-01:us-central1:other-instance"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			t.Setenv(serverNameEnvVar, testCase.serverName)
+			withServerName := pgtlsInput
+			withServerName.ServerName = testCase.serverName
 			poolConfig := parseConfig(t, "postgres://user:pw@10.55.0.3:5432/db")
-			if _, err := Configure(poolConfig); err != nil {
+			if _, err := Configure(poolConfig, withServerName); err != nil {
 				t.Fatalf("Configure: %v", err)
 			}
 
@@ -109,11 +105,9 @@ func TestConfigureVerifiesTheExpectedServerIdentity(t *testing.T) {
 
 func TestConfigureRejectsServerCertificateFromAnotherCA(t *testing.T) {
 	certPEM, keyPEM := selfSignedPEM(t)
-	t.Setenv(serverCACertEnvVar, certPEM)
-	t.Setenv(clientCertEnvVar, certPEM)
-	t.Setenv(clientKeyEnvVar, keyPEM)
+	pgtlsInput := Config{ServerCACert: certPEM, ClientCert: certPEM, ClientKey: keyPEM}
 	poolConfig := parseConfig(t, "postgres://user:pw@10.55.0.3:5432/db")
-	if _, err := Configure(poolConfig); err != nil {
+	if _, err := Configure(poolConfig, pgtlsInput); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
 
