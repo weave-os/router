@@ -64,14 +64,12 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	RegisterWithFeatures(engine, authSvc, proxySvc, hmmModels, mode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, Features{})
 }
 
-func DefaultStrategyFromEnv() (router.Strategy, error) {
-	return ParseDefaultStrategy(os.Getenv("ROUTER_DEFAULT_STRATEGY"))
-}
+const deploymentDefaultStrategy = router.StrategyHMMEmbedding
 
 func ParseDefaultStrategy(raw string) (router.Strategy, error) {
 	strategy := router.Strategy(strings.ToLower(strings.TrimSpace(raw)))
 	if strategy == "" {
-		return router.StrategyHMMEmbedding, nil
+		return deploymentDefaultStrategy, nil
 	}
 	if router.IsBetaStrategy(strategy) || strategy == router.StrategyLLMClassifier {
 		return "", fmt.Errorf("ROUTER_DEFAULT_STRATEGY=%q is not a valid deployment default: beta and classifier lanes are opt-in per installation", raw)
@@ -94,6 +92,16 @@ type Features struct {
 	RosterCatalogID          func(string) string
 	TaskDomainPreview        taskdomain.Previewer
 	SeatUsage                admin.SeatUsageReader
+	DefaultStrategy          router.Strategy
+	InternalServiceToken     string
+	Admin                    admin.Config
+}
+
+func (f Features) defaultStrategy() router.Strategy {
+	if f.DefaultStrategy == "" {
+		return deploymentDefaultStrategy
+	}
+	return f.DefaultStrategy
 }
 
 func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, features Features) {
@@ -131,7 +139,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	var servingAdmissionMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {
 		servingAdmissionMiddleware = []gin.HandlerFunc{middleware.WithServingAdmission(features.ServingAdmission)}
-		engine.POST(policyregistry.WorkerValidationPath, middleware.WithTimeout(30*time.Second), middleware.WithInternalServiceAuth(strings.TrimSpace(os.Getenv("ROUTER_INTERNAL_SERVICE_TOKEN"))), middleware.ServingValidationHandler(features.ServingAdmission))
+		engine.POST(policyregistry.WorkerValidationPath, middleware.WithTimeout(30*time.Second), middleware.WithInternalServiceAuth(features.InternalServiceToken), middleware.ServingValidationHandler(features.ServingAdmission))
 	}
 	var discoveryMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {
@@ -159,11 +167,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		registeredStrategies = proxySvc.RegisteredStrategies()
 		strategyAvailability = proxySvc.PolicyStrategyAvailable
 	}
-	envDefaultStrategy, err := DefaultStrategyFromEnv()
-	if err != nil {
-		panic(err)
-	}
-	defaultStrategy := middleware.NormalizeRouterStrategyDefault(envDefaultStrategy, registeredStrategies...)
+	defaultStrategy := middleware.NormalizeRouterStrategyDefault(features.defaultStrategy(), registeredStrategies...)
 	discovery.GET(
 		"/v1/router/policies",
 		middleware.WithTimeout(healthTimeout),
@@ -176,7 +180,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 
 	registerStrategyDiscovery(discovery, hmmRosterSources, features)
 
-	if internalToken := strings.TrimSpace(os.Getenv("ROUTER_INTERNAL_SERVICE_TOKEN")); internalToken != "" {
+	if internalToken := features.InternalServiceToken; internalToken != "" {
 		internalGroup := engine.Group("/internal/v1", middleware.WithTimeout(adminTimeout), middleware.WithInternalServiceAuth(internalToken))
 		if features.TestPlans != nil {
 			internalGroup.GET("/test-plans/identities", admin.InternalTestPlanIdentitiesHandler(features.TestPlans))
@@ -221,9 +225,9 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		registerUIStatic(engine, "./assets/ui")
 
 		authPublic := engine.Group("/admin/v1/auth", middleware.WithTimeout(adminTimeout))
-		authPublic.POST("/login", admin.LoginHandler(authSvc))
-		authPublic.POST("/logout", admin.LogoutHandler())
-		authPublic.GET("/me", admin.MeHandler(authSvc))
+		authPublic.POST("/login", admin.LoginHandler(authSvc, features.Admin))
+		authPublic.POST("/logout", admin.LogoutHandler(features.Admin))
+		authPublic.GET("/me", admin.MeHandler(authSvc, features.Admin))
 
 		metrics := engine.Group("/admin/v1", middleware.WithTimeout(adminTimeout), middleware.WithAdminOrAuth(authSvc, byokRequiresOptIn))
 		metrics.GET("/metrics/summary", admin.MetricsSummaryHandler(proxySvc))
@@ -243,13 +247,13 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		mgmt.POST("/keys/:id/rotate", admin.RotateAPIKeyHandler(authSvc))
 		mgmt.DELETE("/keys/:id", admin.DeleteAPIKeyHandler(authSvc))
 		mgmt.GET("/provider-keys", admin.ListExternalKeysHandler(authSvc))
-		mgmt.POST("/provider-keys", admin.UpsertExternalKeyHandler(authSvc, hmmModels))
+		mgmt.POST("/provider-keys", admin.UpsertExternalKeyHandler(authSvc, hmmModels, features.Admin))
 		mgmt.PUT("/provider-keys/:id/model-aliases", admin.UpdateExternalKeyAliasesHandler(authSvc, hmmModels))
 		mgmt.PUT("/provider-keys/:id/funding-priority", admin.UpdateExternalKeyFundingPriorityHandler(authSvc))
 		mgmt.GET("/provider-keys/:id/models", admin.ListUpstreamModelsHandler(authSvc, proxySvc))
 		mgmt.POST("/provider-keys/discover-models", admin.DiscoverModelsHandler(proxySvc))
 		mgmt.DELETE("/provider-keys/:id", admin.DeleteExternalKeyHandler(authSvc))
-		mgmt.GET("/config", admin.ConfigHandler)
+		mgmt.GET("/config", admin.ConfigHandler(features.Admin))
 		mgmt.GET("/onboarding", admin.OnboardingHandler(authSvc))
 		mgmt.GET("/routing-preferences", admin.GetRoutingPreferencesHandler(authSvc))
 		mgmt.PUT("/routing-preferences", admin.UpdateRoutingPreferencesHandler(authSvc))
