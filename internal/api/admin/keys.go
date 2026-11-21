@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/config"
 	"weave-os/router/internal/providers"
 
 	"github.com/gin-gonic/gin"
@@ -240,7 +239,7 @@ func ListExternalKeysHandler(authSvc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-func UpsertExternalKeyHandler(authSvc *auth.Service, models HMMRosterSource) gin.HandlerFunc {
+func UpsertExternalKeyHandler(authSvc *auth.Service, models HMMRosterSource, cfg Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
@@ -256,7 +255,7 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models HMMRosterSource) gin
 			return
 		}
 		anthropicFederation := req.Provider == providers.ProviderAnthropic && req.AuthType == auth.AuthTypeAnthropicWIF
-		if !anthropicFederation && config.GetOr(providers.APIKeyEnvVar(req.Provider), "") != "" {
+		if !anthropicFederation && cfg.deploymentProviderKey(req.Provider) {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Provider already configured via deployment environment variable. Remove the env var before adding a dashboard key."})
 			return
 		}
