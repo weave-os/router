@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
@@ -157,7 +158,7 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 					if trueCap && action == 4 {
 						want = outputLimitSecondModel
 					}
-					assert.Equal(t, want, rec.Header().Get(HeaderRouterModel), "action %d", action)
+					assert.Equal(t, want, rec.Header().Get(requestcontext.HeaderRouterModel), "action %d", action)
 					require.Len(t, routes.requests, action+1)
 					if trueCap && action == 4 {
 						assert.Contains(t, routes.requests[action].Candidates.SafetyExcludedModels, outputLimitFirstModel)

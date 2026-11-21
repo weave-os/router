@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -30,7 +31,7 @@ func TestProxyOpenAIResponses_BlindPassthroughDoesNotRescueOrMutatePins(t *testi
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	ctx := blindExperimentPassthroughContext(authedCtx(cyberRefusalInstallationID))
-	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 
 	_ = svc.ProxyOpenAIResponses(ctx, []byte(responsesTurnBody), recorder, request)
 
@@ -38,7 +39,7 @@ func TestProxyOpenAIResponses_BlindPassthroughDoesNotRescueOrMutatePins(t *testi
 	assert.Equal(t, 1, openAIHits)
 	assert.Zero(t, anthropicHits, "passthrough must not substitute a fallback model after a refusal")
 	assert.Contains(t, recorder.Body.String(), "cybersecurity risk", "the requested model's response must be returned unchanged")
-	assert.Empty(t, recorder.Header().Get(proxy.HeaderRouterModel), "experiment subjects must not see the served model")
+	assert.Empty(t, recorder.Header().Get(requestcontext.HeaderRouterModel), "experiment subjects must not see the served model")
 	assert.NotContains(t, recorder.Body.String(), "Weave Router")
 
 	store.mu.Lock()

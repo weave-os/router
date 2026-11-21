@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -162,7 +163,7 @@ func TestForceModelHeader_RejectsExcludedModel(t *testing.T) {
 	env := forceCommandEnv(t)
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
-	req.Header.Set(ForceModelHeader, "opus")
+	req.Header.Set(requestcontext.ForceModelHeader, "opus")
 
 	_, model, forceErr := svc.applyForceModelHeader(
 		excludedProvidersCtx(providers.ProviderAnthropic), req,
@@ -184,7 +185,7 @@ func TestForceModelHeader_UnfencedInstallationUnaffected(t *testing.T) {
 	env := forceCommandEnv(t)
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
-	req.Header.Set(ForceModelHeader, "opus")
+	req.Header.Set(requestcontext.ForceModelHeader, "opus")
 
 	_, model, forceErr := svc.applyForceModelHeader(
 		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))
@@ -205,7 +206,7 @@ func TestForceModelHeader_EffortSuffixLandsOnReturnedContext(t *testing.T) {
 	env := forceCommandEnv(t)
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
-	req.Header.Set(ForceModelHeader, "opus:xhigh")
+	req.Header.Set(requestcontext.ForceModelHeader, "opus:xhigh")
 
 	ctx, model, forceErr := svc.applyForceModelHeader(
 		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))

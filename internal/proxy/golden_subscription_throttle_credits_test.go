@@ -32,7 +32,7 @@ func withLongThrottledClaudeSeats(svc *proxy.Service, h *goldenHarness) *proxy.S
 // Claude seats are all rate-limited past the short wait.
 func goldenNoLoginLongThrottledClaudeSeatsCtx(ctx context.Context) context.Context {
 	models := []string{goldenAnthropicModel}
-	ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
+	ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 	ctx = proxy.WithSubscriptionStateModels(ctx, models, models)
 	cooldown := goldenClaudeSeatLongCooldown
 	ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
@@ -47,7 +47,7 @@ func goldenNoLoginLongThrottledClaudeSeatsScenario(suffix string, forced bool) g
 	headers := goldenCodexSessionHeadersFor(suffix)
 	name := ingressResponses + "_stream_no_login_long_claude_seat_throttle_funds_credits"
 	if forced {
-		headers[proxy.ForceModelHeader] = goldenAnthropicModel
+		headers[requestcontext.ForceModelHeader] = goldenAnthropicModel
 		name = ingressResponses + "_stream_forced_no_login_long_claude_seat_throttle_funds_credits"
 	}
 	return goldenScenario{
