@@ -29,71 +29,70 @@ type authoritativeTurn struct {
 }
 
 func serveAuthoritativeTurn(ctx context.Context, s *Service, res *turnLoopResult, in authoritativeTurn) (turnLoopResult, error) {
-	env, feats, strategy, req, pin, pinFound, hmmHistory, fresh, prefixBroken, sessionPins, installationID := in.env, in.feats, in.strategy, in.req, in.pin, in.pinFound, in.hmmHistory, in.fresh, in.prefixBroken, in.sessionPins, in.installationID
 	log := observability.FromContext(ctx)
 	activePin := sessionpin.Pin{}
-	if pinFound {
-		activePin = pin
+	if in.pinFound {
+		activePin = in.pin
 	}
-	plannerTokens := s.plannerTokensFor(ctx, env, feats)
-	res.UpgradeShadow = s.authoritativeUpgradeFor(ctx, req, activePin, fresh, *res, plannerTokens)
+	plannerTokens := s.plannerTokensFor(ctx, in.env, in.feats)
+	res.UpgradeShadow = s.authoritativeUpgradeFor(ctx, in.req, activePin, in.fresh, *res, plannerTokens)
 	res.AuthorityShadow = s.authorityCacheShadowFor(
-		ctx, req, activePin, hmmHistory, fresh, plannerTokens, prefixBroken,
+		ctx, in.req, activePin, in.hmmHistory, in.fresh, plannerTokens, in.prefixBroken,
 	)
 	s.logAuthorityCacheShadow(ctx, *res)
 	if res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.DemotedModel() {
-		if pinFound && candidates.AutomaticPinEligible(pin, req) {
-			decision := pinDecision(pin)
+		if in.pinFound && candidates.AutomaticPinEligible(in.pin, in.req) {
+			decision := pinDecision(in.pin)
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = string(pinTierAuthoritativeExcludedPin)
 			log.Warn("authoritative policy returned an excluded model; keeping session pin",
-				"pin_model", pin.Model,
-				"fresh_model", fresh.Model,
+				"pin_model", in.pin.Model,
+				"fresh_model", in.fresh.Model,
 				"reason", res.UpgradeShadow.Verdict.Reason,
 			)
-			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+			in.sessionPins.Refresh(ctx, in.installationID, res.SessionKey, in.pin, res.PinRole, decision)
 			return *res, nil
 		}
 
-		rerouted, rerouteErr := s.routeFor(ctx, strategy, req)
+		rerouted, rerouteErr := s.routeFor(ctx, in.strategy, in.req)
 		if rerouteErr != nil {
 			return *res, rerouteErr
 		}
-		if !routingpolicy.ExcludedRerouteServable(rerouted, req, s.availableModels) {
+		if !routingpolicy.ExcludedRerouteServable(rerouted, in.req, s.availableModels) {
 			return *res, fmt.Errorf("authoritative policy returned excluded model %q after reroute: %w", rerouted.Model, router.ErrNoEligibleProvider)
 		}
 		res.Fresh = rerouted
 		res.Decision = rerouted
 		res.PinTier = string(pinTierAuthoritativeExcludedReroute)
 		log.Warn("authoritative policy returned an excluded model; serving rerouted decision",
-			"excluded_model", fresh.Model,
+			"excluded_model", in.fresh.Model,
 			"rerouted_model", rerouted.Model,
 			"reason", res.UpgradeShadow.Verdict.Reason,
 		)
-		sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, rerouted)
+		in.sessionPins.WriteNew(ctx, in.installationID, res.SessionKey, res.PinRole, rerouted)
 		return *res, nil
 	}
-	sliding := s.strategyPorts.Upgrade.SlidingThresholdServes(req, pin, fresh)
+	sliding := s.strategyPorts.Upgrade.SlidingThresholdServes(in.req, in.pin, in.fresh)
 	if sliding.Served {
 		log.Info("authoritative sliding threshold serving fresh model",
-			"pin_model", pin.Model,
-			"pin_group", req.Session.SlidingThresholdPinGroup,
-			"fresh_model", fresh.Model,
+			"pin_model", in.pin.Model,
+			"pin_group", in.req.Session.SlidingThresholdPinGroup,
+			"fresh_model", in.fresh.Model,
 			"fresh_group", sliding.FreshGroup,
 			"classified_group", sliding.ClassifiedGroup,
 			"probability", sliding.Probability,
 		)
 	}
-	verdict := s.strategyPorts.Upgrade.JudgeAuthoritative(authoritativeGuardsFor(ctx, s, sliding.Served), pin, pinFound, fresh, plannerTokens)
-	if holdAuthoritativePin(ctx, sessionPins, s.strategyPorts.Ownership, res, pin, fresh, verdict) {
+	verdict := s.strategyPorts.Upgrade.JudgeAuthoritative(authoritativeGuardsFor(ctx, s, sliding.Served), in.pin, in.pinFound, in.fresh, plannerTokens)
+	if holdAuthoritativePin(ctx, in.sessionPins, s.strategyPorts.Ownership, res, in.pin, in.fresh, verdict) {
 		return *res, nil
 	}
-	res.Decision = fresh
+	res.Decision = in.fresh
 	res.PinTier = "authoritative_per_turn"
 	if sliding.Served {
 		res.PinTier = string(pinTierAuthoritativeSlidingThresholdUpgrade)
 	}
-	sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
+	in.sessionPins.WriteNew(ctx, in.installationID, res.SessionKey, res.PinRole, in.fresh)
 	return *res, nil
 }
