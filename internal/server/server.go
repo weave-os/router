@@ -61,8 +61,8 @@ const (
 	DeploymentModeManaged    DeploymentMode = "managed"
 )
 
-func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service) {
-	RegisterWithFeatures(engine, authSvc, proxySvc, hmmModels, mode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, Features{})
+func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service) {
+	RegisterWithFeatures(engine, authSvc, proxySvc, hmmModels, mode, nil, readinessChecker, hmmRosterSources, analyticsSvc, Features{})
 }
 
 func DefaultStrategyFromEnv() (router.Strategy, error) {
