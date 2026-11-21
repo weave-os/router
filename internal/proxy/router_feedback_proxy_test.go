@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -27,10 +28,10 @@ import (
 
 type fakeFeedbackStore struct {
 	mu     sync.Mutex
-	events []proxy.RouterFeedbackEvent
+	events []feedback.RouterFeedbackEvent
 }
 
-func (f *fakeFeedbackStore) InsertRouterFeedback(ctx context.Context, p proxy.RouterFeedbackEvent) error {
+func (f *fakeFeedbackStore) InsertRouterFeedback(ctx context.Context, p feedback.RouterFeedbackEvent) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.events = append(f.events, p)
