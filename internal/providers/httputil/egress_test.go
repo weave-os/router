@@ -96,10 +96,11 @@ func TestPublicDestinationsOnlyFollowsDeploymentModeUnlessOverridden(t *testing.
 		{mode: "managed", override: "false", want: false},
 		{mode: "selfhosted", override: "true", want: true},
 		{mode: "managed", override: "nonsense", want: true},
+		{mode: " Managed ", want: true},
+		{mode: "selfhosted", override: " 1 ", want: true},
+		{mode: "managed", override: "0", want: false},
 	} {
-		t.Setenv("ROUTER_DEPLOYMENT_MODE", tc.mode)
-		t.Setenv(restrictUpstreamEgressEnv, tc.override)
-		assert.Equal(t, tc.want, publicDestinationsOnlyFromEnv(), "mode=%q override=%q", tc.mode, tc.override)
+		assert.Equal(t, tc.want, ParsePublicDestinationsOnly(tc.override, tc.mode), "mode=%q override=%q", tc.mode, tc.override)
 	}
 }
 

@@ -76,6 +76,7 @@ import (
 
 func main() {
 	logger := observability.Get()
+	configureUpstreamHTTP()
 	egressProbe, err := newStartupEgressProbe(config.GetOr("ROUTER_STARTUP_EGRESS_ORIGINS", ""))
 	if err != nil {
 		logger.Error("Invalid startup egress configuration; refusing to boot", "err", err)

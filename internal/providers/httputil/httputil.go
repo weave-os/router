@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,44 +31,78 @@ const (
 	defaultResponsesSSEIdleBudget = 90 * time.Second
 )
 
-var DefaultSSEIdleTimeout = idleTimeoutFromEnv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS", defaultSSEIdleBudget)
+type Config struct {
+	SSEIdleTimeout               time.Duration
+	ResponsesSSEIdleTimeout      time.Duration
+	ResponsesOutputStallTimeout  time.Duration
+	OutputStallTimeout           time.Duration
+	ThroughputWindow             time.Duration
+	ThroughputMinElapsed         time.Duration
+	MinThroughputDeltasPerWindow int
+	H2ReadIdleTimeout            time.Duration
+	H2PingTimeout                time.Duration
+	PublicDestinationsOnly       bool
+}
 
-var DefaultResponsesSSEIdleTimeout = idleTimeoutFromEnv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", defaultResponsesSSEIdleBudget)
+func DefaultConfig() Config {
+	return Config{
+		SSEIdleTimeout:               defaultSSEIdleBudget,
+		ResponsesSSEIdleTimeout:      defaultResponsesSSEIdleBudget,
+		ResponsesOutputStallTimeout:  240 * time.Second,
+		OutputStallTimeout:           240 * time.Second,
+		ThroughputWindow:             20 * time.Second,
+		ThroughputMinElapsed:         90 * time.Second,
+		MinThroughputDeltasPerWindow: 8,
+		H2ReadIdleTimeout:            15 * time.Second,
+		H2PingTimeout:                5 * time.Second,
+	}
+}
 
-var DefaultResponsesOutputStallTimeout = idleTimeoutFromEnv("ROUTER_RESPONSES_OUTPUT_STALL_TIMEOUT_SECONDS", 240*time.Second)
+var DefaultSSEIdleTimeout = DefaultConfig().SSEIdleTimeout
 
-var DefaultOutputStallTimeout = idleTimeoutFromEnv("ROUTER_OUTPUT_STALL_TIMEOUT_SECONDS", 240*time.Second)
+var DefaultResponsesSSEIdleTimeout = DefaultConfig().ResponsesSSEIdleTimeout
+
+var DefaultResponsesOutputStallTimeout = DefaultConfig().ResponsesOutputStallTimeout
+
+var DefaultOutputStallTimeout = DefaultConfig().OutputStallTimeout
 
 var (
-	DefaultThroughputWindow = idleTimeoutFromEnv("ROUTER_THROUGHPUT_WINDOW_SECONDS", 20*time.Second)
+	DefaultThroughputWindow = DefaultConfig().ThroughputWindow
 
-	DefaultThroughputMinElapsed = idleTimeoutFromEnv("ROUTER_THROUGHPUT_MIN_ELAPSED_SECONDS", 90*time.Second)
+	DefaultThroughputMinElapsed = DefaultConfig().ThroughputMinElapsed
 
-	DefaultMinThroughputDeltasPerWindow = intFromEnv("ROUTER_MIN_THROUGHPUT_DELTAS_PER_WINDOW", 8)
+	DefaultMinThroughputDeltasPerWindow = DefaultConfig().MinThroughputDeltasPerWindow
 )
 
-func intFromEnv(envVar string, fallback int) int {
-	v := os.Getenv(envVar)
-	if v == "" {
+func Configure(cfg Config) {
+	DefaultSSEIdleTimeout = cfg.SSEIdleTimeout
+	DefaultResponsesSSEIdleTimeout = cfg.ResponsesSSEIdleTimeout
+	DefaultResponsesOutputStallTimeout = cfg.ResponsesOutputStallTimeout
+	DefaultOutputStallTimeout = cfg.OutputStallTimeout
+	DefaultThroughputWindow = cfg.ThroughputWindow
+	DefaultThroughputMinElapsed = cfg.ThroughputMinElapsed
+	DefaultMinThroughputDeltasPerWindow = cfg.MinThroughputDeltasPerWindow
+	DefaultH2ReadIdleTimeout = cfg.H2ReadIdleTimeout
+	DefaultH2PingTimeout = cfg.H2PingTimeout
+	publicDestinationsOnly = cfg.PublicDestinationsOnly
+}
+
+func ParseInt(raw string, fallback int) int {
+	if raw == "" {
 		return fallback
 	}
-	n, err := strconv.Atoi(v)
+	n, err := strconv.Atoi(raw)
 	if err != nil {
 		return fallback
 	}
 	return n
 }
 
-func TimeoutFromEnv(envVar string, fallback time.Duration) time.Duration {
-	return idleTimeoutFromEnv(envVar, fallback)
-}
-
-func idleTimeoutFromEnv(envVar string, fallback time.Duration) time.Duration {
-	v := os.Getenv(envVar)
-	if v == "" {
+func ParseTimeoutSeconds(raw string, fallback time.Duration) time.Duration {
+	if raw == "" {
 		return fallback
 	}
-	n, err := strconv.Atoi(v)
+	n, err := strconv.Atoi(raw)
 	if err != nil || n <= 0 {
 		return fallback
 	}
@@ -78,9 +111,9 @@ func idleTimeoutFromEnv(envVar string, fallback time.Duration) time.Duration {
 
 const DefaultResponseHeaderTimeout = 30 * time.Second
 
-var DefaultH2ReadIdleTimeout = idleTimeoutFromEnv("ROUTER_H2_READ_IDLE_TIMEOUT_SECONDS", 15*time.Second)
+var DefaultH2ReadIdleTimeout = DefaultConfig().H2ReadIdleTimeout
 
-var DefaultH2PingTimeout = idleTimeoutFromEnv("ROUTER_H2_PING_TIMEOUT_SECONDS", 5*time.Second)
+var DefaultH2PingTimeout = DefaultConfig().H2PingTimeout
 
 const h2KeepaliveNumerator, h2KeepaliveDenominator = 2, 3
 

@@ -235,24 +235,56 @@ func TestStartIdleWatchdog_ExpiresAtLastProgressDeadline(t *testing.T) {
 	}
 }
 
-func TestSSEIdleTimeoutFromEnv_DefaultsTo45s(t *testing.T) {
-	t.Setenv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS", "")
-	assert.Equal(t, 45*time.Second, idleTimeoutFromEnv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS", 45*time.Second))
+func TestParseTimeoutSeconds(t *testing.T) {
+	for raw, want := range map[string]time.Duration{
+		"":        45 * time.Second,
+		"10":      10 * time.Second,
+		"garbage": 45 * time.Second,
+		"0":       45 * time.Second,
+		"-5":      45 * time.Second,
+		" 10":     45 * time.Second,
+		"1.5":     45 * time.Second,
+	} {
+		assert.Equal(t, want, ParseTimeoutSeconds(raw, 45*time.Second), "raw=%q", raw)
+	}
 }
 
-func TestSSEIdleTimeoutFromEnv_OverrideRespected(t *testing.T) {
-	t.Setenv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS", "10")
-	assert.Equal(t, 10*time.Second, idleTimeoutFromEnv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS", 45*time.Second))
+func TestDefaultConfigPinsBuiltInTimeouts(t *testing.T) {
+	assert.Equal(t, Config{
+		SSEIdleTimeout:               45 * time.Second,
+		ResponsesSSEIdleTimeout:      90 * time.Second,
+		ResponsesOutputStallTimeout:  240 * time.Second,
+		OutputStallTimeout:           240 * time.Second,
+		ThroughputWindow:             20 * time.Second,
+		ThroughputMinElapsed:         90 * time.Second,
+		MinThroughputDeltasPerWindow: 8,
+		H2ReadIdleTimeout:            15 * time.Second,
+		H2PingTimeout:                5 * time.Second,
+	}, DefaultConfig())
 }
 
-func TestSSEIdleTimeoutFromEnv_BadValueFallsBack(t *testing.T) {
-	t.Setenv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS", "garbage")
-	assert.Equal(t, 45*time.Second, idleTimeoutFromEnv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS", 45*time.Second))
-}
+func TestConfigureReplacesPackageDefaults(t *testing.T) {
+	previous := Config{
+		SSEIdleTimeout: DefaultSSEIdleTimeout, ResponsesSSEIdleTimeout: DefaultResponsesSSEIdleTimeout,
+		ResponsesOutputStallTimeout: DefaultResponsesOutputStallTimeout, OutputStallTimeout: DefaultOutputStallTimeout,
+		ThroughputWindow: DefaultThroughputWindow, ThroughputMinElapsed: DefaultThroughputMinElapsed,
+		MinThroughputDeltasPerWindow: DefaultMinThroughputDeltasPerWindow,
+		H2ReadIdleTimeout:            DefaultH2ReadIdleTimeout, H2PingTimeout: DefaultH2PingTimeout,
+		PublicDestinationsOnly: publicDestinationsOnly,
+	}
+	t.Cleanup(func() { Configure(previous) })
 
-func TestResponsesSSEIdleTimeoutFromEnv_OverrideRespected(t *testing.T) {
-	t.Setenv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", "120")
-	assert.Equal(t, 120*time.Second, idleTimeoutFromEnv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", 90*time.Second))
+	Configure(Config{
+		SSEIdleTimeout: 1 * time.Second, ResponsesSSEIdleTimeout: 2 * time.Second,
+		ResponsesOutputStallTimeout: 3 * time.Second, OutputStallTimeout: 4 * time.Second,
+		ThroughputWindow: 5 * time.Second, ThroughputMinElapsed: 6 * time.Second,
+		MinThroughputDeltasPerWindow: 7, H2ReadIdleTimeout: 8 * time.Second, H2PingTimeout: 9 * time.Second,
+		PublicDestinationsOnly: true,
+	})
+	assert.Equal(t, []any{1 * time.Second, 2 * time.Second, 3 * time.Second, 4 * time.Second, 5 * time.Second, 6 * time.Second, 7, 8 * time.Second, 9 * time.Second, true},
+		[]any{DefaultSSEIdleTimeout, DefaultResponsesSSEIdleTimeout, DefaultResponsesOutputStallTimeout, DefaultOutputStallTimeout,
+			DefaultThroughputWindow, DefaultThroughputMinElapsed, DefaultMinThroughputDeltasPerWindow,
+			DefaultH2ReadIdleTimeout, DefaultH2PingTimeout, publicDestinationsOnly})
 }
 
 func TestNewTransport_ConfiguresHTTP2Keepalives(t *testing.T) {
