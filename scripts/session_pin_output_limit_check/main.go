@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/providers"
@@ -28,6 +29,7 @@ const (
 const hmmHistoryRole = sessionpin.DefaultRole + "_hmm_history"
 
 func main() {
+	logconfig.Configure()
 	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
 	if dsn == "" {
 		slog.Info("ROUTER_TEST_DATABASE_URL unset; skipping session-pin output-limit database check")
