@@ -233,7 +233,7 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 		retryCtx := resolveAndInjectCredentials(subscriptionStatePaidRescueContext(ctx, o.cyberRetryTarget.Model), o.cyberRetryTarget.Provider, o.cyberRetryTarget.Model, r.Header)
 		retryOpts.FastMode = fastModeForAttempt(retryCtx, o.cyberRetryTarget.Model, o.cyberRetryTarget.Provider)
 		retryBindings := o.routing.ResolveBindingsForDispatch(retryCtx, o.cyberRetryTarget)
-		retryMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(o.strategyPorts, ctx, routeRes, cyberRefusalRoutingMarkerFor(routeRes, o.cyberRetryTarget.Model), o.cyberRetryTarget.Model, markerReasonCyberRefusal)), lastFailureDetail(attemptTraceFromContext(ctx)))
+		retryMarker := o.markers.WithFailureDetail(ctx, o.markers.CyberRefusal(ctx, o.cyberRetryTarget.Model))
 		retryAttempt, retryBuildErr := o.buildAttempt(o.cyberRetryTarget, retryOpts, retryMarker, retryCtx)
 		switch {
 		case retryBuildErr != nil:

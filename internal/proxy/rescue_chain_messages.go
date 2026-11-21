@@ -173,7 +173,7 @@ func (m *messagesRescue) redoIfStoppedEarly(ctx context.Context) {
 					redoOpts, redoEffort := switchedAttemptOptions(ctx, opts, target, routeRes.EscalateEffort, s.resolveEffort)
 					redoCtx := m.credentials.ResolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, target.Provider), target.Model), target.Provider, target.Model, r.Header)
 					redoOpts.FastMode = fastModeForAttempt(redoCtx, target.Model, target.Provider)
-					redoMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(m.strategyPorts, ctx, routeRes, siblingRoutingMarkerFor(routeRes, markerReasonEarlyStop, target.Model), target.Model, markerReasonEarlyStop))
+					redoMarker := m.markers.EarlyStop(ctx, target.Model)
 					redoAttempt, buildErr := m.buildAttempt(target, redoOpts, redoMarker, redoCtx)
 					return redoAttempt, m.routing.ResolveBindingsForDispatch(redoCtx, target), redoMarker, redoEffort, redoCtx, buildErr
 				},

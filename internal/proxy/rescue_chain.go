@@ -13,7 +13,6 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/translate"
 )
 
@@ -27,7 +26,7 @@ type rescueServices interface {
 
 type rescueChain struct {
 	rescuePorts
-	strategyPorts    continuity.StrategyPorts
+	markers          dispatch.RescueMarkers
 	seats            seatAdmission
 	clock            auth.Clock
 	usageObserver    *usage.Observer
@@ -133,7 +132,7 @@ func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 		}(),
 		BuildAlternative: func(target router.Decision) (dispatch.UpstreamAttempt, error) {
 			alternativeOpts, _ := switchedAttemptOptions(ctx, c.opts, target, routeRes.EscalateEffort, s.resolveEffort)
-			alternativeMarker := subscriptionTargetMarker(c.strategyPorts, ctx, r.Header, routeRes, c.primaryDecision, target, c.pickedMarker)
+			alternativeMarker := c.markers.SubscriptionTarget(ctx, c.primaryDecision, target, c.pickedMarker)
 			alternativeCtx := c.credentials.ResolveCredentials(ctx, target.Provider, target.Model, r.Header)
 			return c.buildAttempt(target, alternativeOpts, alternativeMarker, alternativeCtx)
 		},
@@ -141,10 +140,10 @@ func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 			overloadedModel := c.decision.Model
 			c.decision = target
 			c.bindings = c.routing.ResolveBindingsForDispatch(ctx, target)
-			c.marker = siblingMarkerFor(c.strategyPorts, ctx, r.Header, routeRes, overloadedModel, target.Model)
+			c.marker = c.markers.Sibling(ctx, overloadedModel, target.Model)
 		},
 		OnSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
-			c.marker = subscriptionTargetMarker(c.strategyPorts, ctx, r.Header, routeRes, c.primaryDecision, target, c.pickedMarker)
+			c.marker = c.markers.SubscriptionTarget(ctx, c.primaryDecision, target, c.pickedMarker)
 			c.decision = target
 			c.bindings = targetBindings
 		},
@@ -211,7 +210,7 @@ func (c *rescueChain) dispatchSibling(ctx context.Context, siblingDecision route
 	siblingCtx := c.credentials.ResolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 	siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 	siblingBindings := c.routing.ResolveBindingsForDispatch(siblingCtx, siblingDecision)
-	siblingMarker := withRescueDetail(siblingMarkerFor(c.strategyPorts, ctx, r.Header, routeRes, c.decision.Model, siblingDecision.Model), lastFailureDetail(attemptTraceFromContext(ctx)))
+	siblingMarker := c.markers.WithFailureDetail(ctx, c.markers.Sibling(ctx, c.decision.Model, siblingDecision.Model))
 	siblingAttempt, siblingBuildErr := c.buildAttempt(siblingDecision, siblingOpts, siblingMarker, siblingCtx)
 	if siblingBuildErr != nil {
 		log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
