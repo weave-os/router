@@ -1,8 +1,11 @@
 package conversation
 
+import "weave-os/router/internal/router/handover"
+
 type Lifecycle struct {
 	noProgress          *NoProgressTracker
 	textRepetitionBreak bool
+	compactionHandover  handover.Summarizer
 }
 
 func NewLifecycle() *Lifecycle {
@@ -22,4 +25,15 @@ func (l *Lifecycle) TextRepetitionBreak() bool {
 
 func (l *Lifecycle) SetTextRepetitionBreak(enabled bool) {
 	l.textRepetitionBreak = enabled
+}
+
+func (l *Lifecycle) CompactionHandoverSummarizer() handover.Summarizer {
+	if l == nil {
+		return nil
+	}
+	return l.compactionHandover
+}
+
+func (l *Lifecycle) SetCompactionHandoverSummarizer(summarizer handover.Summarizer) {
+	l.compactionHandover = summarizer
 }

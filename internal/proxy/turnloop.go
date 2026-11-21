@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -258,13 +259,7 @@ func isPolicyDeadlineErr(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
 }
 
-type handoverOutcome struct {
-	Invoked               bool
-	LatencyMS             int64
-	SummaryTokens         int
-	FallbackToFullHistory bool
-	SummaryUsage          handover.Usage
-}
+type handoverOutcome = conversation.HandoverOutcome
 
 func (s *Service) hasSubAgentOverride() bool {
 	return s.subAgentProvider != "" && s.subAgentModel != ""
@@ -1757,12 +1752,7 @@ func buildPolicyTurnContext(
 	}
 }
 
-func estimateSummaryTokens(s string) int {
-	if s == "" {
-		return 0
-	}
-	return len(s) / 4
-}
+func estimateSummaryTokens(s string) int { return conversation.EstimateSummaryTokens(s) }
 
 func resolveSummarizerCreds(ctx context.Context, provider string, headers http.Header) *Credentials {
 	if provider == "" {
