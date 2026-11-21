@@ -32,7 +32,9 @@ type blindExperimentWriter struct {
 }
 
 func WithBlindExperimentWriter(ctx context.Context, w http.ResponseWriter, body []byte) (http.ResponseWriter, func()) {
-	if _, active := auth.BlindExperimentFrom(ctx); !active {
+	_, blind := auth.BlindExperimentFrom(ctx)
+	_, gateway := requestcontext.UpstreamGatewayFrom(ctx)
+	if !blind && !gateway {
 		return w, func() {}
 	}
 	switch w.(type) {
@@ -40,7 +42,7 @@ func WithBlindExperimentWriter(ctx context.Context, w http.ResponseWriter, body 
 		return w, func() {}
 	}
 	bw := &blindExperimentWriter{ResponseWriter: w}
-	if requested := gjson.GetBytes(body, "model").String(); clientModelIDPattern.MatchString(requested) {
+	if requested := gjson.GetBytes(body, "model").String(); blind && clientModelIDPattern.MatchString(requested) {
 		bw.model = requested
 	}
 	return bw, bw.finish

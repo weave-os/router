@@ -54,4 +54,4 @@ are unaffected and never enter this mode.
   inbound gateway request carrying it is refused with
   `upstream_gateway_loop_detected`. Dispatch also refuses to send any routing
   model (`weave-*`) to an upstream provider, and a model alias cannot name one.
-- **Terminal surfaces.** Routing markers and feedback links are hidden.
+- **Terminal surfaces.** Routing markers, feedback links, `X-Router-*` response headers and `weave_cost` usage fields are hidden. The response `model` stays the concrete served model.
