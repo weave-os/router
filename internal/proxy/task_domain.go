@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/taskdomain"
@@ -129,7 +130,7 @@ func taskDomainInput(ctx context.Context, env *translate.RequestEnvelope, apiKey
 }
 
 func isTaskResumeText(text string) bool {
-	return strings.HasPrefix(text, clientCompactContinuationPrefix) ||
+	return strings.HasPrefix(text, conversation.ClientCompactContinuationPrefix) ||
 		strings.HasPrefix(text, "Another language model started to solve this problem and produced a summary") ||
 		strings.HasPrefix(text, "The conversation history before this point was compacted into the following summary:")
 }
