@@ -18,6 +18,13 @@ type Config struct {
 
 func (c Config) secureCookie() bool { return !c.CookieInsecure }
 
+func (c Config) stickyDecisionTTL() string {
+	if c.StickyDecisionTTL == "" {
+		return "0"
+	}
+	return c.StickyDecisionTTL
+}
+
 func (c Config) deploymentProviderKey(provider string) bool {
 	return c.HasDeploymentProviderKey != nil && c.HasDeploymentProviderKey(provider)
 }
@@ -42,7 +49,7 @@ func ConfigHandler(cfg Config) gin.HandlerFunc {
 			}
 		}
 		c.JSON(http.StatusOK, configResponse{
-			StickyDecisionTTL: cfg.StickyDecisionTTL,
+			StickyDecisionTTL: cfg.stickyDecisionTTL(),
 			OtelEnabled:       cfg.OtelEnabled,
 			EnvProviderKeys:   envKeyed,
 		})
