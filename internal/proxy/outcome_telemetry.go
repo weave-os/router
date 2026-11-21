@@ -6,6 +6,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/tidwall/sjson"
@@ -22,7 +23,7 @@ func latestToolCallCountsJSON(env *translate.RequestEnvelope) []byte {
 	return counts
 }
 
-func applyServedGroupTelemetry(ports continuity.StrategyPorts, ctx context.Context, params *InsertTelemetryParams, routed turnLoopResult, served router.Decision) {
+func applyServedGroupTelemetry(ports continuity.StrategyPorts, ctx context.Context, params *turnrecord.InsertTelemetryParams, routed turnLoopResult, served router.Decision) {
 	group := ""
 	if served.Model == routed.Decision.Model && !isUserForcedReason(routed.Decision.Reason) {
 		group = decisionPolicyGroup(routed.Decision)

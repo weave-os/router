@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 const drillDownSessionsPerPerson = 100
@@ -69,7 +70,7 @@ func MetricsDrillDownHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		if raw := c.Query("models"); raw != "" {
 			models = strings.Split(raw, ",")
 		}
-		rows = slices.DeleteFunc(rows, func(row proxy.TelemetryDrillDownRow) bool {
+		rows = slices.DeleteFunc(rows, func(row turnrecord.TelemetryDrillDownRow) bool {
 			return !drillDownMatches(row, group, c.Query("key"), models, billing, c.Query("routing_state"))
 		})
 		c.JSON(http.StatusOK, dashboardDrillDownResponse{
@@ -79,7 +80,7 @@ func MetricsDrillDownHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-func drillDownMatches(row proxy.TelemetryDrillDownRow, group dashboardMetricGroup, key string, models []string, billing, routingState string) bool {
+func drillDownMatches(row turnrecord.TelemetryDrillDownRow, group dashboardMetricGroup, key string, models []string, billing, routingState string) bool {
 	if len(models) > 0 && !slices.Contains(models, row.DecisionModel) {
 		return false
 	}
@@ -102,7 +103,7 @@ func drillDownMatches(row proxy.TelemetryDrillDownRow, group dashboardMetricGrou
 	return label == nil || *label == key
 }
 
-func drillDownPeople(rows []proxy.TelemetryDrillDownRow) []dashboardDrillDownPerson {
+func drillDownPeople(rows []turnrecord.TelemetryDrillDownRow) []dashboardDrillDownPerson {
 	people := map[string]*dashboardDrillDownPerson{}
 	sessions := map[[2]string]*dashboardDrillDownSession{}
 	var order []string

@@ -4,11 +4,12 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 type turnTelemetry struct {
 	emitter   telemetry.Emitter
-	repo      TelemetryRepository
+	repo      turnrecord.TelemetryRepository
 	turnClock telemetry.SessionTurnClock
 }
 

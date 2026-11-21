@@ -150,7 +150,7 @@ func TestCommandOutcomeRequiresPersistence(t *testing.T) {
 	env := forceCommandEnv(t)
 	for _, command := range []translate.ForceModelResult{{Model: "opus"}, {Clear: true}} {
 		rec := httptest.NewRecorder()
-		err := svc.handleForceModelCommand(context.Background(), rec, env, command, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, [sessionpin.SessionKeyLen]byte{2}, 1)
+		err := (forceModelCommands{svc}).handle(context.Background(), rec, env, command, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, [sessionpin.SessionKeyLen]byte{2}, 1)
 		require.Error(t, err)
 		assert.Empty(t, rec.Header().Get(translate.RouterCommandHeader))
 		assert.Empty(t, rec.Body.String())
@@ -184,7 +184,7 @@ func TestAcknowledgmentWriteFailureDoesNotUndoPin(t *testing.T) {
 	svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	key := [sessionpin.SessionKeyLen]byte{2}
-	err := svc.handleForceModelCommand(context.Background(), &commandWriteFailure{httptest.NewRecorder()}, forceCommandEnv(t), translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, key, 1)
+	err := (forceModelCommands{svc}).handle(context.Background(), &commandWriteFailure{httptest.NewRecorder()}, forceCommandEnv(t), translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, key, 1)
 	require.Error(t, err)
 	pin, found, err := store.Get(context.Background(), key, forceModelSessionRole)
 	require.NoError(t, err)

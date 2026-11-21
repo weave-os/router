@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -122,7 +123,7 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 	assertContextHeaders(t, rec.Header())
 	assert.Equal(t, "1000000", rec.Header().Get(requestcontext.HeaderRouterContextWindow))
 	telemetryRow := tel.firstRow(t)
-	var contextSnapshot proxy.ContextSnapshot
+	var contextSnapshot turnrecord.ContextSnapshot
 	require.NoError(t, json.Unmarshal(telemetryRow.ContextSnapshot, &contextSnapshot))
 	assert.Equal(t, "claude-opus-4-8", contextSnapshot.ServedModel)
 	initialMarker := strings.Index(respBody, "deepseek/deepseek-v4-pro")
