@@ -7,10 +7,10 @@
       "dispatch_attempts": [],
       "response": {},
       "dispatch_error": {
-        "outcome": "error: strategy \"rl\" requested but no router configured: rl: policy router unavailable",
-        "kind": 12,
+        "outcome": "error: strategy \"rl\" requested but no router configured: router: strategy unavailable",
+        "kind": 14,
         "status": 503,
-        "message": "Router unavailable: RL policy router failed and no fallback is configured.",
+        "message": "Router unavailable: selected policy router is not configured.",
         "retry_after": true
       }
     }

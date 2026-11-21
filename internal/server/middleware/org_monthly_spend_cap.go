@@ -39,7 +39,7 @@ func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 
-		subscriptionExempt := proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
+		subscriptionExempt := proxy.RequestHasCustomerFunding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ByokFeeOwed(c.Request.Context()))
 
 		result, err := svc.CheckOrgMonthlySpend(c.Request.Context(), orgID)
 		if err != nil {

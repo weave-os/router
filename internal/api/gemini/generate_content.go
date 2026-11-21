@@ -54,8 +54,8 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 		}
 
 		ctx := requestcontext.WithClientIdentity(c.Request.Context(), proxy.ClientIdentityFromHeaders(c.Request.Header))
-		ctx = proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c))
-		ctx, err = proxy.ResolveRoutingAssignment(ctx, authSvc, middleware.InstallationFrom(c))
+		ctx = auth.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c), requestcontext.CallerFrom(ctx))
+		ctx, err = auth.ResolveRoutingAssignment(ctx, authSvc, middleware.InstallationFrom(c), requestcontext.CallerFrom(ctx))
 		if err != nil {
 			log.Error("Failed to resolve routing assignment", "installation_id", middleware.InstallationFrom(c).ID, "err", err)
 			c.Header("Retry-After", "1")
@@ -146,7 +146,7 @@ func geminiErrorStatus(cls proxy.DispatchErrorClass) string {
 		return "FAILED_PRECONDITION"
 	case proxy.DispatchErrorInvalidRoutingKnobs, proxy.DispatchErrorPlanOverrideRejected:
 		return "INVALID_ARGUMENT"
-	case proxy.DispatchErrorRLPolicyUnavailable, proxy.DispatchErrorHMMUnavailable, proxy.DispatchErrorDecisionModelUnavailable, proxy.DispatchErrorPolicyUnavailable, proxy.DispatchErrorClusterUnavailable, proxy.DispatchErrorPlanUnresolvable:
+	case proxy.DispatchErrorHMMUnavailable, proxy.DispatchErrorDecisionModelUnavailable, proxy.DispatchErrorPolicyUnavailable, proxy.DispatchErrorClusterUnavailable, proxy.DispatchErrorPlanUnresolvable:
 		return "UNAVAILABLE"
 	default:
 		return "UPSTREAM_ERROR"

@@ -71,7 +71,7 @@ func TestDispatchRefusesAnIneligibleDecisionUnderEveryLaneMark(t *testing.T) {
 			svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: anthropic})
 			rec := httptest.NewRecorder()
 			in := plannedInputs(ctx, rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
-			in.initialDecision = router.Decision{Model: catalog.ModelIDClaudeOpus48.String(), Provider: providers.ProviderAnthropic}
+			in.InitialDecision = router.Decision{Model: catalog.ModelIDClaudeOpus48.String(), Provider: providers.ProviderAnthropic}
 
 			_, err := svc.dispatchWithFallback(entitlement.WithProductScope(ctx, entitlement.PlanMax), in)
 
