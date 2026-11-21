@@ -7,13 +7,12 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/hmm"
 )
 
 func (t *Turn) Floor() catalog.Tier {
 	tier := catalog.TierUnknown
 	for _, verdict := range t.verdicts() {
-		tier = max(tier, hmm.EscalationTier(verdict.Floor))
+		tier = max(tier, catalog.EscalationTier(verdict.Floor))
 	}
 	return tier
 }
