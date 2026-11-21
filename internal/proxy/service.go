@@ -3865,7 +3865,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
 	byok := BuildCredentialsMap(externalKeysFromContext(ctx))
-	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst {
+	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst && !billing.ByokFeeUnpayable(ctx) {
 		return context.WithValue(ctx, CredentialsContextKey{}, byok[provider])
 	}
 	routerKeyed := installationIDFromContext(ctx) != (uuid.UUID{})
