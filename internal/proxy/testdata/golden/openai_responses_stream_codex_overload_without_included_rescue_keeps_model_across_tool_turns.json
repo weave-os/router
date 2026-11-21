@@ -683,7 +683,7 @@
         },
         {
           "Diagnosis": {
-            "ErrorClass": "other",
+            "ErrorClass": "funding_refused",
             "FailureOwner": "client"
           },
           "FailureReason": "transport",
