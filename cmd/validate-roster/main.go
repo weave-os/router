@@ -6,10 +6,12 @@ import (
 	"io"
 	"os"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/router/hmm"
 )
 
 func main() {
+	logconfig.Configure()
 	if len(os.Args) != 2 {
 		fmt.Fprintln(os.Stderr, "usage: validate-roster <roster.json>")
 		os.Exit(2)
