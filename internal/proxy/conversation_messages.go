@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"unicode/utf8"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
 )
@@ -57,9 +58,9 @@ func routingTurnInputForRequest(ctx context.Context, env *translate.RequestEnvel
 
 func routingHistoryProfile(ctx context.Context) translate.RoutingHistoryProfile {
 	switch ClientIdentityFrom(ctx).ClientApp {
-	case ClientAppClaudeCode:
+	case requestcontext.ClientAppClaudeCode:
 		return translate.RoutingHistoryClaudeCode
-	case ClientAppOpencode:
+	case requestcontext.ClientAppOpencode:
 		return translate.RoutingHistoryOpenCode
 	default:
 		return translate.RoutingHistoryDefault

@@ -1,6 +1,9 @@
 package credentials
 
-import "weave-os/router/internal/proxy/usage"
+import (
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
+)
 
 type SubscriptionUsage interface {
 	Key(token []byte) usage.CredentialKey
@@ -12,10 +15,11 @@ type ClaudeSubscriptionFacts struct {
 	PickedModelOnOwnPlan       bool
 	OwnOverageBeforePool       bool
 	EnterpriseSubscriptionOnly bool
+	NoPaidFallback             bool
 }
 
 func ClaudeSnapshotUnservable(f ClaudeSubscriptionFacts, snap usage.Snapshot) bool {
-	if f.EnterpriseOnly || f.PickedModelOnOwnPlan || f.OwnOverageBeforePool && snap.OverageInUse || f.EnterpriseSubscriptionOnly {
+	if f.EnterpriseOnly || f.PickedModelOnOwnPlan || (f.OwnOverageBeforePool || f.NoPaidFallback) && snap.OverageInUse || f.EnterpriseSubscriptionOnly {
 		return false
 	}
 	return snap.BillableOrExhausted()
@@ -27,4 +31,14 @@ func ClaudeSubscriptionObservedExhausted(observed SubscriptionUsage, token strin
 	}
 	snap, ok := observed.Snapshot(observed.Key([]byte(token)))
 	return ok && ClaudeSnapshotUnservable(f, snap)
+}
+
+func ClaudePlanFromUsage(plan providers.SubscriptionPlan, observed SubscriptionUsage, token []byte) providers.SubscriptionPlan {
+	if plan != providers.SubscriptionPlanUnknown || len(token) == 0 {
+		return plan
+	}
+	if snap, ok := observed.Snapshot(observed.Key(token)); ok && snap.OverageWithoutIncludedWindows() {
+		return providers.SubscriptionPlanEnterprise
+	}
+	return plan
 }

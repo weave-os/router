@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -94,7 +95,7 @@ func runMiddleware(t *testing.T, repo billing.Repo, threshold int64) (*httptest.
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		// Synthetic auth: pre-stash the installation the way WithAuth would.
 		withInstallation(c, "org_x")
-		middleware.WithBalanceCheck(svc, threshold)(c)
+		middleware.WithBalanceCheck(svc, threshold, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -118,7 +119,7 @@ func runMiddlewareWith(t *testing.T, repo billing.Repo, setInstall func(*gin.Con
 	reached := false
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		setInstall(c)
-		middleware.WithBalanceCheck(svc, 0)(c)
+		middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -185,7 +186,7 @@ func TestWithBalanceCheck_FlagsOrganizationPrepaidAdmission(t *testing.T) {
 			var admitted bool
 			engine.GET("/probe", func(c *gin.Context) {
 				withInstallation(c, "org_x")
-				middleware.WithBalanceCheck(svc, 1_000_000)(c)
+				middleware.WithBalanceCheck(svc, 1_000_000, proxy.RequestHasCustomerFunding)(c)
 				if c.IsAborted() {
 					return
 				}
@@ -211,7 +212,7 @@ func TestWithBalanceCheck_OverrideShortCircuitsAndFlagsContext(t *testing.T) {
 	var hasOverride bool
 	engine.GET("/probe", func(c *gin.Context) {
 		withInstallation(c, "org_internal")
-		middleware.WithBalanceCheck(svc, 1_000_000)(c)
+		middleware.WithBalanceCheck(svc, 1_000_000, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -283,7 +284,7 @@ func TestWithBalanceCheck_SkipsWhenInstallationMissing(t *testing.T) {
 	reached := false
 	engine.GET("/probe", func(c *gin.Context) {
 		// Note: no withInstallation() call.
-		middleware.WithBalanceCheck(svc, 1_000_000)(c)
+		middleware.WithBalanceCheck(svc, 1_000_000, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -354,7 +355,7 @@ func runMiddlewarePrep(t *testing.T, repo billing.Repo, routePath string, prep f
 	hasOverride := false
 	engine.GET(routePath, func(c *gin.Context) {
 		prep(c)
-		middleware.WithBalanceCheck(svc, 0)(c)
+		middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -466,7 +467,7 @@ func TestWithBalanceCheck_SubscriptionOnlyAtDepletedBalance(t *testing.T) {
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		withInstallation(c, "org_sub")
 		c.Request.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
-		middleware.WithBalanceCheck(svc, 0)(c)
+		middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -503,7 +504,7 @@ func TestWithBalanceCheck_DepletedBalanceOwesNoByokFeeAtZeroRate(t *testing.T) {
 			engine.GET("/v1/messages", func(c *gin.Context) {
 				withInstallation(c, "org_sub")
 				c.Request.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
-				middleware.WithBalanceCheck(svc, 0)(c)
+				middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
 				if c.IsAborted() {
 					return
 				}
@@ -533,7 +534,7 @@ func TestWithBalanceCheck_SubscriptionOnlyWhenBalanceRowMissing(t *testing.T) {
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		withInstallation(c, "org_sub")
 		c.Request.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
-		middleware.WithBalanceCheck(svc, 0)(c)
+		middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -590,7 +591,7 @@ func TestWithBalanceCheck_MarksWeaveCreditsDenied(t *testing.T) {
 		var denied bool
 		engine.GET("/probe", func(c *gin.Context) {
 			c.Set("router_installation", &auth.Installation{ID: "00000000-0000-0000-0000-000000000001", ExternalID: "org_x", WeaveCreditInferenceEnabled: allowed})
-			middleware.WithBalanceCheck(svc, 1_000_000)(c)
+			middleware.WithBalanceCheck(svc, 1_000_000, proxy.RequestHasCustomerFunding)(c)
 			denied = billing.WeaveCreditsDeniedFromContext(c.Request.Context())
 			c.Status(http.StatusOK)
 		})
@@ -614,7 +615,7 @@ func TestWithBalanceCheck_CreditsDisabledIgnoresBalance(t *testing.T) {
 			var reached, subOnly, denied, override bool
 			engine.GET("/v1/messages", func(c *gin.Context) {
 				c.Set("router_installation", &auth.Installation{ID: "00000000-0000-0000-0000-000000000001", ExternalID: "org_keys_only"})
-				middleware.WithBalanceCheck(svc, 0)(c)
+				middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
 				if c.IsAborted() {
 					return
 				}
@@ -646,7 +647,7 @@ func runBalanceWithKeys(t *testing.T, feeRate float64, keys []*auth.ExternalAPIK
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		withInstallation(c, "org_keys")
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), credentials.ExternalAPIKeysContextKey{}, keys))
-		middleware.WithBalanceCheck(billing.NewService(&stubBillingRepo{balance: 0}).WithByokFeeRate(feeRate), 0)(c)
+		middleware.WithBalanceCheck(billing.NewService(&stubBillingRepo{balance: 0}).WithByokFeeRate(feeRate), 0, proxy.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}

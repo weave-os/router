@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -39,9 +40,9 @@ func runAgentShadowMiddleware(t *testing.T, installation *auth.Installation, hea
 
 func TestAgentShadowEvaluation_RequiresAuthorizedCompleteTriplet(t *testing.T) {
 	headers := http.Header{}
-	headers.Set(proxy.AgentShadowModelHeader, "claude-opus-4-8")
-	headers.Set(proxy.AgentShadowRolloutHeader, "pilot-1")
-	headers.Set(proxy.AgentShadowStateHeader, "state-1")
+	headers.Set(requestcontext.AgentShadowModelHeader, "claude-opus-4-8")
+	headers.Set(requestcontext.AgentShadowRolloutHeader, "pilot-1")
+	headers.Set(requestcontext.AgentShadowStateHeader, "state-1")
 
 	status, observed := runAgentShadowMiddleware(t, &auth.Installation{PolicyHeaderOverridesEnabled: true}, headers)
 	require.Equal(t, http.StatusOK, status)
@@ -51,7 +52,7 @@ func TestAgentShadowEvaluation_RequiresAuthorizedCompleteTriplet(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, status)
 	assert.False(t, observed)
 
-	headers.Del(proxy.AgentShadowStateHeader)
+	headers.Del(requestcontext.AgentShadowStateHeader)
 	status, observed = runAgentShadowMiddleware(t, &auth.Installation{PolicyHeaderOverridesEnabled: true}, headers)
 	assert.Equal(t, http.StatusBadRequest, status)
 	assert.False(t, observed)
@@ -70,14 +71,14 @@ func TestAgentShadowEvaluation_SkipsCustomerBillingGates(t *testing.T) {
 	engine.Use(middleware.WithAgentShadowEvaluation())
 	// Nil services deliberately prove each billing gate exits on the shadow
 	// context before attempting a customer balance/cap read.
-	engine.Use(middleware.WithBalanceCheck(nil, 0))
-	engine.Use(middleware.WithAPIKeySpendCap(nil))
-	engine.Use(middleware.WithOrgMonthlySpendCap(nil))
+	engine.Use(middleware.WithBalanceCheck(nil, 0, proxy.RequestHasCustomerFunding))
+	engine.Use(middleware.WithAPIKeySpendCap(nil, proxy.RequestHasCustomerFunding))
+	engine.Use(middleware.WithOrgMonthlySpendCap(nil, proxy.RequestHasCustomerFunding))
 	engine.POST("/v1/messages", func(c *gin.Context) { c.Status(http.StatusOK) })
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
-	req.Header.Set(proxy.AgentShadowModelHeader, "claude-opus-4-8")
-	req.Header.Set(proxy.AgentShadowRolloutHeader, "pilot-1")
-	req.Header.Set(proxy.AgentShadowStateHeader, "state-1")
+	req.Header.Set(requestcontext.AgentShadowModelHeader, "claude-opus-4-8")
+	req.Header.Set(requestcontext.AgentShadowRolloutHeader, "pilot-1")
+	req.Header.Set(requestcontext.AgentShadowStateHeader, "state-1")
 	rec := httptest.NewRecorder()
 
 	assert.NotPanics(t, func() { engine.ServeHTTP(rec, req) })

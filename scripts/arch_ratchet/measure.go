@@ -123,7 +123,7 @@ func measureFuncLits(fset *token.FileSet, codeLines map[int]bool, prefix string,
 		}
 		fn := &ast.FuncDecl{Name: ast.NewIdent("func"), Type: lit.Type, Body: lit.Body}
 		funcs = append(funcs, measureFunc(fset, codeLines, funcLitKey(prefix, lit), fn))
-		return false
+		return true
 	})
 	return funcs
 }
@@ -156,7 +156,7 @@ func measurePackageFuncLits(fset *token.FileSet, codeLines map[int]bool, dir str
 				}
 				fn := &ast.FuncDecl{Name: ast.NewIdent(name), Type: lit.Type, Body: lit.Body}
 				funcs = append(funcs, measureFunc(fset, codeLines, funcLitKey(dir+"."+name, lit), fn))
-				return false
+				return true
 			})
 		}
 	}

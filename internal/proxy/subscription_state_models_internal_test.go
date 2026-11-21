@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -208,7 +209,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				if scenario.want == statePaidModel {
 					require.Equal(t, providers.ProviderOpenRouter, *failover.SubscriptionStateWinnerProvider)
 				}
-				require.Equal(t, scenario.want, rec.Header().Get(HeaderRouterModel))
+				require.Equal(t, scenario.want, rec.Header().Get(requestcontext.HeaderRouterModel))
 				require.Contains(t, rec.Body.String(), "answer")
 			}
 			for i, model := range servedModels {
@@ -354,7 +355,7 @@ func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
 					err = svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
 				}
 				require.NoError(t, err)
-				require.Equal(t, scenario.want, rec.Header().Get(HeaderRouterModel))
+				require.Equal(t, scenario.want, rec.Header().Get(requestcontext.HeaderRouterModel))
 				require.Contains(t, rec.Body.String(), "synthetic answer")
 				require.Equal(t, []string{scenario.want}, models, "upstream must receive the selected state-set model")
 				require.NotContains(t, authHeaders, "Bearer expensive-paid-key")
@@ -397,7 +398,7 @@ func TestSubscriptionStateModelsClassifierUsesPaidSet(t *testing.T) {
 
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathMessages, strings.NewReader(body))))
 
-	require.Equal(t, statePaidModel, rec.Header().Get(HeaderRouterModel))
+	require.Equal(t, statePaidModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	require.Equal(t, []string{statePaidModel}, models)
 }
 
@@ -616,7 +617,7 @@ func TestSubscriptionStateModelsCodexNativeAttemptAfterCrossFamilyPick(t *testin
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestToken)
 	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, codexTestAccountID)
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}],"tools":[{"type":"custom","name":"exec"}]}`
 	rec := httptest.NewRecorder()
@@ -636,7 +637,7 @@ func TestSubscriptionStateModelsRevokedCodexLoginFallsBackWithReconnectNotice(t 
 	for _, tc := range []struct {
 		held, stream bool
 		client       string
-	}{{false, true, ClientAppCodex}, {true, true, ClientAppCodex}, {false, false, ClientAppCodex}, {true, true, ClientAppClaudeCode}} {
+	}{{false, true, requestcontext.ClientAppCodex}, {true, true, requestcontext.ClientAppCodex}, {false, false, requestcontext.ClientAppCodex}, {true, true, requestcontext.ClientAppClaudeCode}} {
 		held := tc.held
 		t.Run(fmt.Sprintf("held=%v/stream=%v/%s", tc.held, tc.stream, tc.client), func(t *testing.T) {
 			paidCalls := 0
@@ -680,7 +681,7 @@ func TestSubscriptionStateModelsRevokedCodexLoginFallsBackWithReconnectNotice(t 
 
 			require.NoError(t, err)
 			assert.Equal(t, 1, paidCalls, "the exhausted model set serves a turn the revoked login cannot")
-			if tc.client == ClientAppCodex && tc.stream {
+			if tc.client == requestcontext.ClientAppCodex && tc.stream {
 				assert.Contains(t, rec.Body.String(), "reconnect=codex", "the stream names the recovery")
 			}
 		})
@@ -728,7 +729,7 @@ func TestSubscriptionStateModelsCodexCustomToolAfterCrossFamilyPick(t *testing.T
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestToken)
 	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, codexTestAccountID)
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"list files"}]}],"tools":[{"type":"custom","name":"exec","description":"run a script"}]}`
 	rec := httptest.NewRecorder()
@@ -810,7 +811,7 @@ func TestSubscriptionStateModelsResponsesClientGrid(t *testing.T) {
 					ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
 					ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 					if client != "generic client" {
-						ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+						ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 					}
 					if client == "Codex app on its own plan" {
 						ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestToken)
@@ -837,7 +838,7 @@ func assertResponsesClientGridOutcome(t *testing.T, cell string, err error, mode
 	}
 	require.NoError(t, err)
 	require.Len(t, models, 1, "one attempt serves the turn")
-	require.Equal(t, models[0], rec.Header().Get(HeaderRouterModel))
+	require.Equal(t, models[0], rec.Header().Get(requestcontext.HeaderRouterModel))
 	out := rec.Body.String()
 	assert.Contains(t, out, "synthetic answer")
 	assert.Contains(t, out, `"type":"response.completed"`)

@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -116,7 +117,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 				require.Equal(t, []string{"Bearer alternative-seat", "Bearer alternative-seat"}, bearers)
 				require.Contains(t, models[1], "6")
 				require.True(t, servedOnSubscription(ctx))
-				require.Equal(t, alternative, rec.Header().Get(HeaderRouterModel))
+				require.Equal(t, alternative, rec.Header().Get(requestcontext.HeaderRouterModel))
 				require.Contains(t, rec.Body.String(), alternative)
 				require.Equal(t, "read_file", gjson.GetBytes(sent[1], "tools.0.name").String())
 				require.Equal(t, "medium", gjson.GetBytes(sent[1], "reasoning.effort").String())

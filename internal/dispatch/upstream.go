@@ -19,3 +19,7 @@ func NewUpstream(client providers.Client) Upstream {
 func (u Upstream) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	return u.client.Proxy(ctx, decision, prep, w, r)
 }
+
+func (u Upstream) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
+	return u.client.Passthrough(ctx, prep, w, r)
+}

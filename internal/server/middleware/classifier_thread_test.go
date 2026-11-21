@@ -15,6 +15,7 @@ import (
 
 	"weave-os/router/internal/api/classifier"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/server/middleware"
 )
@@ -56,7 +57,7 @@ func TestClassifierThreadHTTPContract(t *testing.T) {
 		engine.POST(path, middleware.WithClassifierThread(svc, svc.PolicyStrategyAvailable), func(c *gin.Context) {
 			body, err := io.ReadAll(c.Request.Body)
 			require.NoError(t, err)
-			require.Empty(t, c.GetHeader(proxy.ClassifierThreadHeader))
+			require.Empty(t, c.GetHeader(requestcontext.ClassifierThreadHeader))
 			require.NotContains(t, string(body), "weave_classifier_thread")
 			c.JSON(http.StatusOK, gin.H{"strategy": router.StrategyFromContext(c.Request.Context()), "body": json.RawMessage(body)})
 		})
@@ -64,7 +65,7 @@ func TestClassifierThreadHTTPContract(t *testing.T) {
 	request := func(principal context.Context, path, body, header string) *httptest.ResponseRecorder {
 		req := httptest.NewRequestWithContext(principal, http.MethodPost, path, strings.NewReader(body))
 		if header != "" {
-			req.Header.Set(proxy.ClassifierThreadHeader, header)
+			req.Header.Set(requestcontext.ClassifierThreadHeader, header)
 		}
 		rec := httptest.NewRecorder()
 		engine.ServeHTTP(rec, req)
@@ -89,7 +90,7 @@ func TestClassifierThreadHTTPContract(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, request(context.Background(), "/v1/router/threads", start, "").Code)
 	for _, path := range []string{"/v1/messages", "/v1/chat/completions", "/v1/responses", "/v1beta/models/test:generateContent"} {
 		t.Run(path, func(t *testing.T) {
-			denied := request(ctx, path, `{}`, proxy.ClassifierThreadUnavailableToken)
+			denied := request(ctx, path, `{}`, requestcontext.ClassifierThreadUnavailableToken)
 			require.Equal(t, http.StatusBadRequest, denied.Code)
 			require.Contains(t, denied.Body.String(), "classifier_client_unavailable")
 			baseline := request(ctx, path, `{"model":"test","messages":[]}`, "")

@@ -78,7 +78,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			parentCtx = c.Request.Context()
 		}
 
-		clientSessionID := proxy.ClientIdentityFromHeaders(c.Request.Header).SessionID
+		clientSessionID := requestcontext.ClientIdentityFromHeaders(c.Request.Header).SessionID
 		if testPlan != nil {
 			clientSessionID = testPlan.SessionID
 		}
