@@ -2641,11 +2641,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	rescue := &messagesRescue{
 		rescueChain: &rescueChain{
-			rescuePorts: rescuePortsFor(s), strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.usageObserver,
+			rescuePorts: rescuePortsFor(s), markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.usageObserver}, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.usageObserver,
 			r:                r,
 			log:              log,
 			env:              env,
-			routeRes:         routeRes,
+			routeRes:         rescueTurnOf(routeRes),
 			req:              &req,
 			opts:             opts,
 			contentSink:      contentSink,
@@ -4242,11 +4242,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	rescue := &chatRescue{
 		rescueChain: &rescueChain{
-			rescuePorts: rescuePortsFor(s), strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock,
+			rescuePorts: rescuePortsFor(s), markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.usageObserver}, seats: seatAdmissionOf(s), clock: s.clock,
 			r:                r,
 			log:              log,
 			env:              env,
-			routeRes:         routeRes,
+			routeRes:         rescueTurnOf(routeRes),
 			req:              &routeRequest,
 			opts:             opts,
 			contentSink:      contentSink,
