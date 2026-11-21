@@ -19,6 +19,24 @@ type loopBreakPins struct {
 	strategy router.Strategy
 }
 
+func newLoopBreak(
+	s *Service,
+	strategy router.Strategy,
+	installationID uuid.UUID,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	role string,
+	decision router.Decision,
+) conversation.LoopBreak {
+	return conversation.LoopBreak{
+		Pins:             newLoopBreakPins(s, strategy),
+		InstallationID:   installationID,
+		SessionKey:       sessionKey,
+		Role:             role,
+		DecisionModel:    decision.Model,
+		DecisionProvider: decision.Provider,
+	}
+}
+
 func newLoopBreakPins(s *Service, strategy router.Strategy) conversation.LoopBreakPins {
 	if s.pinStore == nil {
 		return nil

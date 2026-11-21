@@ -2504,14 +2504,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		fp := conversation.ComputeNoProgressFingerprint(decision, promptText, feats.MessageCount, conversation.ToolProgressMarker(env))
 		role := roleForTier(catalog.TierFor(feats.Model))
 		if looped, count := s.lifecycle.NoProgress().RecordAndDetect(routeRes.SessionKey, facts.InstallationID, role, fp, s.clock.Now()); looped {
-			return writeLoopStop(ctx, w, env, conversation.LoopBreak{Pins: newLoopBreakPins(s, strategy), InstallationID: facts.InstallationID, SessionKey: routeRes.SessionKey, Role: role, DecisionModel: decision.Model, DecisionProvider: decision.Provider}.NoProgress(ctx, env, count, routeRes.Decision.Reason), feats.Tokens)
+			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, role, decision).NoProgress(ctx, env, count, routeRes.Decision.Reason), feats.Tokens)
 		}
 	}
 
 	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
-			return writeLoopStop(ctx, w, env, conversation.LoopBreak{Pins: newLoopBreakPins(s, strategy), InstallationID: facts.InstallationID, SessionKey: routeRes.SessionKey, Role: role, DecisionModel: decision.Model, DecisionProvider: decision.Provider}.TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
+			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, role, decision).TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
 		}
 	}
 
@@ -4535,7 +4535,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if facts.Client.ClientApp == ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
-			return writeLoopStop(ctx, w, env, conversation.LoopBreak{Pins: newLoopBreakPins(s, strategy), InstallationID: facts.InstallationID, SessionKey: sessionKey, Role: role, DecisionModel: decision.Model, DecisionProvider: decision.Provider}.TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
+			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, sessionKey, role, decision).TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
 		}
 	}
 
