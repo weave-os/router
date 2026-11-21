@@ -1,0 +1,218 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_chat_http",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "auto",
+          "model": "claude-haiku-4-5",
+          "provider": "anthropic",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-haiku-4-5",
+          "outbound_body": {
+            "max_tokens": 8192,
+            "messages": [
+              {
+                "content": "What is in the report?",
+                "role": "user"
+              },
+              {
+                "content": "It has three pages.",
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "Summarize the result in one sentence.",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-haiku-4-5",
+            "stream": false,
+            "system": [
+              {
+                "cache_control": {
+                  "type": "ephemeral"
+                },
+                "text": "Use plain language.",
+                "type": "text"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-chat-completions",
+            "PolicyRevision": "3",
+            "Purpose": "openai_chat_completions",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-haiku-4-5",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-haiku-4-5"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "74",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "200000",
+          "X-Router-Cost-Input-Usd": "0.000012",
+          "X-Router-Cost-Output-Usd": "0.000035",
+          "X-Router-Cost-Usd": "0.000047",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "claude-haiku-4-5",
+          "X-Router-Provider": "anthropic"
+        },
+        "body": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "content": "example response",
+                "role": "assistant"
+              }
+            }
+          ],
+          "id": "msg_up",
+          "model": "claude-haiku-4-5",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 7,
+            "prompt_tokens": 12,
+            "total_tokens": 19
+          }
+        }
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "claude-haiku-4-5",
+            "Provider": "anthropic",
+            "Reason": "golden_route",
+            "Role": "default",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "claude-haiku-4-5",
+            "ServedProvider": "anthropic",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -47,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 47,
+          "OrganizationID": "golden-org",
+          "RouterModel": "claude-haiku-4-5"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000012,
+          "ActualOutputCostUSD": 0.000035,
+          "CaptureMode": "off",
+          "ClientApp": "opencode",
+          "ContextSnapshot": {
+            "context_window": 200000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 74,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "auto",
+            "served_model": "claude-haiku-4-5",
+            "version": 1
+          },
+          "CrossFormat": true,
+          "DecisionModel": "claude-haiku-4-5",
+          "DecisionProvider": "anthropic",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 25,
+          "FinalModelFamily": "claude-haiku",
+          "FreshDecisionModel": "claude-haiku-4-5",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-haiku",
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedModel": "auto",
+          "Role": "default",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SessionID": "ses_golden",
+          "SpanType": "router.upstream",
+          "StopReason": "stop",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "end_turn",
+          "UpstreamStatusCode": 200
+        }
+      ]
+    }
+  ],
+  "scenario": "opencode_chat_claude_developer_parts"
+}

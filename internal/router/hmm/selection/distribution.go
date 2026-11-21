@@ -7,7 +7,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 const defaultDistributionGrid = 21

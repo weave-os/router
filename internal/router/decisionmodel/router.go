@@ -119,7 +119,7 @@ func pickModel(lineup Lineup, session sessionState, callComplexity Choice) strin
 func resolve(req router.Request, model string, lineup Lineup) (router.Decision, error) {
 	for _, honorAutomaticExclusions := range []bool{true, false} {
 		for _, candidate := range []string{model, lineup.Top, lineup.Fast, lineup.LowTaskJudgment} {
-			if _, excluded := req.AutomaticExcludedModels[candidate]; honorAutomaticExclusions && excluded {
+			if _, excluded := req.Candidates.AutomaticExcludedModels[candidate]; honorAutomaticExclusions && excluded {
 				continue
 			}
 			if provider, ok := dispatchProvider(req, candidate); ok {
@@ -131,12 +131,12 @@ func resolve(req router.Request, model string, lineup Lineup) (router.Decision, 
 }
 
 func dispatchProvider(req router.Request, model string) (string, bool) {
-	for _, excluded := range []map[string]struct{}{req.ExcludedModels, req.SafetyExcludedModels, req.ContextWindowExcludedModels, req.UnsignedHistoryExcludedModels} {
+	for _, excluded := range []map[string]struct{}{req.Candidates.ExcludedModels, req.Candidates.SafetyExcludedModels, req.Candidates.ContextWindowExcludedModels, req.Candidates.UnsignedHistoryExcludedModels} {
 		if _, found := excluded[model]; found {
 			return "", false
 		}
 	}
-	if _, allowed := req.AllowedModels[model]; len(req.AllowedModels) > 0 && !allowed {
+	if _, allowed := req.Candidates.AllowedModels[model]; len(req.Candidates.AllowedModels) > 0 && !allowed {
 		return "", false
 	}
 	if _, textOnly := catalog.ImageUnsupportedSet()[model]; req.HasImages && textOnly {

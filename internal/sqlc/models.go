@@ -335,7 +335,7 @@ type RouterLlmEscalationSession struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
-// Cyclic tool-call loop detections: ops signal and (session, looping_model) -> looped training labels
+// ARCHIVED: retired cyclic-loop escalation detections, kept read-only for posterity. Nothing writes here.
 type RouterLoopEscalationEvent struct {
 	ID             uuid.UUID
 	CreatedAt      pgtype.Timestamptz
@@ -517,6 +517,7 @@ type RouterModelRouterInstallation struct {
 	ModelsExcludedWhenSubscriptionInactive []string
 	PickedModelCreditFallbackEnabled       bool
 	WeaveCreditInferenceEnabled            bool
+	PoolSubjectID                          pgtype.UUID
 }
 
 type RouterModelRouterRequestTelemetry struct {
@@ -807,6 +808,8 @@ type RouterModelRouterUser struct {
 	DisplayName *string
 	// Authenticated owner of the personal API key that carried a request with no client-asserted identity. Set only on rows created for such requests (email and claude_account_uuid NULL).
 	CredentialSubjectID pgtype.UUID
+	// Ownerless (team) API key that carried a request with no client-asserted identity. One synthetic user per key, so per-user spend caps still apply to that traffic.
+	UnidentifiedAPIKeyID pgtype.UUID
 }
 
 type RouterModelRouterUserClusterModelList struct {
@@ -826,6 +829,19 @@ type RouterModelRouterUserMonthlySpend struct {
 	Month          pgtype.Date
 	SpentUsdMicros int64
 	UpdatedAt      pgtype.Timestamptz
+}
+
+type RouterModelRouterUserSeatUsage struct {
+	RouterUserID           uuid.UUID
+	Provider               string
+	PrimaryUsedPercent     float64
+	PrimaryWindowMinutes   int64
+	PrimaryResetsAt        pgtype.Timestamptz
+	SecondaryUsedPercent   float64
+	SecondaryWindowMinutes int64
+	SecondaryResetsAt      pgtype.Timestamptz
+	OverageInUse           bool
+	ObservedAt             pgtype.Timestamptz
 }
 
 type RouterModelRouterUserSpendLimit struct {
@@ -1118,7 +1134,7 @@ type RouterSessionTurnClock struct {
 	UpdatedAt           pgtype.Timestamptz
 }
 
-// Shadow-mode spiral (death-march) detections: log-only fire-rate corpus measured on live traffic before escalation is armed
+// ARCHIVED: retired shadow spiral detections, kept read-only for posterity. Nothing writes here.
 type RouterSpiralShadowEvent struct {
 	ID             uuid.UUID
 	CreatedAt      pgtype.Timestamptz
@@ -1144,6 +1160,7 @@ type RouterSpiralShadowEvent struct {
 	StepsSinceProgress int32
 }
 
+// ARCHIVED: retired struggle escalations, kept read-only for posterity. Nothing writes here.
 type RouterStruggleEscalationEvent struct {
 	ID                  uuid.UUID
 	CreatedAt           pgtype.Timestamptz
@@ -1162,6 +1179,7 @@ type RouterStruggleEscalationEvent struct {
 	EvidenceReasons []string
 }
 
+// ARCHIVED: retired shadow struggle-escalation decisions, kept read-only for posterity. Nothing writes here.
 type RouterStruggleShadowEvent struct {
 	ID                  uuid.UUID
 	CreatedAt           pgtype.Timestamptz

@@ -13,7 +13,7 @@ import (
 func TestPortableCodex_WebSearchStaysPortable(t *testing.T) {
 	body := []byte(`{"model":"auto","stream":true,"tools":[{"type":"function","name":"exec_command","parameters":{"type":"object","properties":{}}},{"type":"web_search","external_web_access":true}],"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"find the docs"}]},{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"router docs"}},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Found them."}]}]}`)
 
-	conversion, err := convertPortableCodexResponses(body)
+	conversion, err := convertPortableCodexResponses(body, false)
 	require.NoError(t, err)
 
 	assert.False(t, conversion.Requirements.NativeOnly, "hosted web search must not make the request native-only")
@@ -35,13 +35,13 @@ func TestPortableCodex_ForcedWebSearchStaysNative(t *testing.T) {
 		"required, only tool": `{"model":"auto","tools":[{"type":"web_search_preview"}],"tool_choice":"required","input":"search it"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			conversion, err := convertPortableCodexResponses([]byte(body))
+			conversion, err := convertPortableCodexResponses([]byte(body), false)
 			require.NoError(t, err)
 			assert.True(t, conversion.Requirements.NativeOnly)
 		})
 	}
 
-	conversion, err := convertPortableCodexResponses([]byte(`{"model":"auto","tools":[{"type":"function","name":"exec_command","parameters":{"type":"object","properties":{}}},{"type":"web_search"}],"tool_choice":"required","input":"run it"}`))
+	conversion, err := convertPortableCodexResponses([]byte(`{"model":"auto","tools":[{"type":"function","name":"exec_command","parameters":{"type":"object","properties":{}}},{"type":"web_search"}],"tool_choice":"required","input":"run it"}`), false)
 	require.NoError(t, err)
 	assert.False(t, conversion.Requirements.NativeOnly, "a portable tool can still satisfy required")
 }

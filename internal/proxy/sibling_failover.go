@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	candidatefilter "weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 )
 
@@ -75,7 +76,7 @@ func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, c
 		return nil
 	}
 	available := s.keyedProvidersExcluding(s.excludedProvidersForRequest(ctx))
-	excludedModels := mergeExcludedModels(s.excludedModelsForRequest(ctx), customToolExcludedModels(ctx))
+	excludedModels := candidatefilter.MergeExcludedModels(s.excludedModelsForRequest(ctx), customToolExcludedModels(ctx))
 	var candidateProviders map[string]string
 	if failed.Metadata != nil {
 		candidateProviders = failed.Metadata.CandidateProviders
@@ -167,7 +168,7 @@ func (s *Service) readmissionWalk(
 			readmitExcluded[id] = struct{}{}
 		}
 	}
-	readmitExcluded = mergeExcludedModels(readmitExcluded, s.controlPlaneExcludedModels(ctx))
+	readmitExcluded = candidatefilter.MergeExcludedModels(readmitExcluded, s.controlPlaneExcludedModels(ctx))
 	for model := range s.overloadOpenModels(ctx) {
 		if !slices.Contains(readmit, model) {
 			readmitExcluded[model] = struct{}{}
@@ -288,12 +289,12 @@ func (s *Service) rescueExcludedModels(ctx context.Context) map[string]struct{} 
 	for _, model := range probeDenied {
 		session[model] = struct{}{}
 	}
-	return mergeExcludedModels(session, s.globalAutomaticExcludedModels(ctx))
+	return candidatefilter.MergeExcludedModels(session, s.globalAutomaticExcludedModels(ctx))
 }
 
 func (s *Service) gatewayRescueDecisions(ctx context.Context, failed router.Decision, candidates []string, reason string, gw map[string]struct{}, est, sigSavings, outputReserve int) []router.Decision {
 	custom := s.customBindingsForRequest(ctx)
-	excludedModels := mergeExcludedModels(s.excludedModelsForRequest(ctx), customToolExcludedModels(ctx))
+	excludedModels := candidatefilter.MergeExcludedModels(s.excludedModelsForRequest(ctx), customToolExcludedModels(ctx))
 	automaticExcluded := s.rescueExcludedModels(ctx)
 	providerFor := func(id string) (string, bool) {
 		return gatewayProviderFor(id, custom, gw)

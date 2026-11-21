@@ -1,11 +1,13 @@
 package proxy
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
@@ -76,7 +78,7 @@ func (s *Service) applySessionStrategy(
 	installationID uuid.UUID,
 	preferenceKey [sessionpin.SessionKeyLen]byte,
 ) (context.Context, error) {
-	if _, selected := router.RoutingModelFromContext(ctx); selected {
+	if router.StrategySelectionFromContext(ctx).RoutingModelSelected() {
 		return ctx, nil
 	}
 	if router.StrategyFromContext(ctx) == router.StrategyLLMClassifier {
@@ -114,7 +116,7 @@ func (s *Service) handleBetaCommand(
 	preferenceKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
-	if _, selected := router.RoutingModelFromContext(ctx); selected {
+	if router.StrategySelectionFromContext(ctx).RoutingModelSelected() {
 		return writeBetaCommandResponse(w, env, fmt.Sprintf("Select a router with `wv router set-model %s`, `wv router set-model %s`, `wv router set-model %s`, `wv router set-model %s`, or `wv router set-model %s`, then start a new session.", router.ModelHMM, router.ModelHMMBeta, router.ModelQwen, router.ModelDecision, router.ModelAutomatic), inputTokens)
 	}
 	strategy := cmd.Strategy
@@ -134,7 +136,8 @@ func (s *Service) handleBetaCommand(
 	if s.sessionStrategyStore == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) || clientSessionIDForRequest(ctx, env) == "" {
 		return writeBetaCommandResponse(w, env, unavailableMessage, inputTokens)
 	}
-	previousStrategy := router.StrategyFromContext(ctx)
+	currentStrategy := router.StrategyFromContext(ctx)
+	previousStrategy := currentStrategy
 	previous, found, err := s.sessionStrategyStore.Get(ctx, installationID, preferenceKey)
 	if err != nil {
 		return fmt.Errorf("read session routing strategy before beta toggle: %w", err)
@@ -142,7 +145,7 @@ func (s *Service) handleBetaCommand(
 	if found {
 		previousStrategy = previous.Strategy
 	}
-	if router.StrategyFromContext(ctx) == strategy {
+	if currentStrategy == strategy {
 		return writeBetaCommandResponse(w, env, betaPinnedMessage, inputTokens)
 	}
 
@@ -179,7 +182,8 @@ func (s *Service) handleBetaCommand(
 
 	log := observability.FromContext(ctx)
 	if err := s.invalidateSessionRoutingState(
-		router.WithStrategy(ctx, previousStrategy),
+		ctx,
+		cmp.Or(previousStrategy, currentStrategy),
 		sessionKey,
 	); err != nil {
 		log.Error("post-toggle routing-state cleanup failed", "err", err)
@@ -196,6 +200,7 @@ func (s *Service) handleBetaCommand(
 
 func (s *Service) invalidateSessionRoutingState(
 	ctx context.Context,
+	strategy router.Strategy,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 ) error {
 	if s.pinStore == nil {
@@ -207,14 +212,13 @@ func (s *Service) invalidateSessionRoutingState(
 		roleForTier(catalog.TierMid),
 		roleForTier(catalog.TierHigh),
 	}
-	strategy := router.StrategyFromContext(ctx)
 	seen := make(map[string]struct{}, len(roles)*3)
 	var firstErr error
 	for _, role := range roles {
 		for _, stateRole := range []string{
 			role,
 			hmmHistoryRole(role),
-			commandContinuationRole(role),
+			conversation.CommandContinuationRole(role),
 		} {
 			if _, duplicate := seen[stateRole]; duplicate {
 				continue

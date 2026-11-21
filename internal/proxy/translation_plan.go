@@ -101,7 +101,7 @@ func (s *Service) planTranslation(req router.Request) TranslationPlan {
 	if req.EnabledProviders != nil {
 		plan.EnabledProviders = cloneStringSet(req.EnabledProviders)
 	}
-	plan.ExcludedModels = cloneStringSet(req.ExcludedModels)
+	plan.ExcludedModels = cloneStringSet(req.Candidates.ExcludedModels)
 
 	requirements := req.TranslationRequirements
 	if requirements.IsZero() {
@@ -295,7 +295,7 @@ func (s *Service) applyTranslationPlan(ctx context.Context, req router.Request) 
 		req.EnabledProviders = plan.EnabledProviders
 	}
 	if plan.ExcludedModels != nil {
-		req.ExcludedModels = plan.ExcludedModels
+		req.Candidates.ExcludedModels = plan.ExcludedModels
 	}
 	for _, exclusion := range plan.Exclusions {
 		if metrics := s.translationMetrics; metrics != nil {

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,13 +20,14 @@ const (
 
 type ResponsesConversionOptions struct {
 	PortableCodex bool
+	LossyRescue   bool
 }
 
 func ConvertResponsesToChatCompletionsWithOptions(body []byte, options ResponsesConversionOptions) (ResponsesConversion, error) {
 	if !options.PortableCodex {
 		return ConvertResponsesToChatCompletions(body)
 	}
-	return convertPortableCodexResponses(body)
+	return convertPortableCodexResponses(body, options.LossyRescue)
 }
 
 type responsesToolIdentity struct {
@@ -37,13 +37,17 @@ type responsesToolIdentity struct {
 }
 
 type portableCodexResponsesConverter struct {
-	result          ResponsesConversion
-	toolAliases     map[responsesToolIdentity]string
-	declaredAliases map[string]struct{}
-	tools           []map[string]any
-	agentPath       string
-	routingRoles    map[int]EscalationRole
-	hostedWebSearch bool
+	lossy                   bool
+	result                  ResponsesConversion
+	toolAliases             map[responsesToolIdentity]string
+	declaredAliases         map[string]struct{}
+	tools                   []map[string]any
+	agentPath               string
+	routingRoles            map[int]EscalationRole
+	toolImageRoutingCallIDs map[int]string
+	routingOmitted          map[int]bool
+	pendingStandalone       []map[string]any
+	hostedWebSearch         bool
 }
 
 func codexFeedbackSkillInvocation(input gjson.Result) bool {
@@ -167,13 +171,14 @@ func routerFeedbackCommandFound(text string) bool {
 	return found
 }
 
-func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
+func convertPortableCodexResponses(body []byte, lossy bool) (ResponsesConversion, error) {
 	if err := validateResponsesRequest(body); err != nil {
 		return ResponsesConversion{}, err
 	}
 
 	root := gjson.ParseBytes(body)
 	converter := portableCodexResponsesConverter{
+		lossy: lossy,
 		result: ResponsesConversion{
 			OriginalBody: body,
 			Requirements: router.TranslationRequirements{
@@ -182,10 +187,12 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 			},
 			ToolMappings: make(map[string]ResponsesToolMapping),
 		},
-		toolAliases:     make(map[responsesToolIdentity]string),
-		declaredAliases: make(map[string]struct{}),
-		agentPath:       codexCurrentAgentPath(root.Get("input")),
-		routingRoles:    make(map[int]EscalationRole),
+		toolAliases:             make(map[responsesToolIdentity]string),
+		declaredAliases:         make(map[string]struct{}),
+		agentPath:               codexCurrentAgentPath(root.Get("input")),
+		routingRoles:            make(map[int]EscalationRole),
+		toolImageRoutingCallIDs: make(map[int]string),
+		routingOmitted:          make(map[int]bool),
 	}
 	converter.result.TitleGeneration = requestRootRequestsCodexTitle(root)
 	converter.result.Requirements.Images = root.Get("input").Exists() && containsAnyKey(body, "image_url", "input_image")
@@ -234,18 +241,8 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 		return ResponsesConversion{}, fmt.Errorf("marshal portable Codex chat completions: %w", err)
 	}
 	converter.result.Body = bodyOut
-	if len(converter.routingRoles) > 0 {
-		routingMessages := append([]map[string]any(nil), messages...)
-		for index, role := range converter.routingRoles {
-			index += len(systemMessages)
-			routingMessages[index] = maps.Clone(messages[index])
-			routingMessages[index]["role"] = role
-		}
-		out["messages"] = routingMessages
-		converter.result.RoutingBody, err = json.Marshal(out)
-		if err != nil {
-			return ResponsesConversion{}, fmt.Errorf("marshal Codex routing history: %w", err)
-		}
+	if converter.result.RoutingBody, err = converter.routingBody(out, messages, len(systemMessages)); err != nil {
+		return ResponsesConversion{}, err
 	}
 	if len(converter.result.ToolMappings) == 0 {
 		converter.result.ToolMappings = nil
@@ -294,6 +291,10 @@ func (c *portableCodexResponsesConverter) collectToolArray(tools gjson.Result, n
 		case "web_search", "web_search_preview":
 			c.hostedWebSearch = true
 			c.report("responses_hosted_web_search_dropped", "dropped", toolPath)
+		case "tool_search":
+			if !c.tryDropLossy("responses_unknown_tool_native_only", toolPath) {
+				c.result.Requirements.CustomTools = true
+			}
 		default:
 			c.result.Requirements.CustomTools = true
 			c.markNativeOnly("responses_unknown_tool_native_only", toolPath)
@@ -397,6 +398,7 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 	var toolImageCalls []string
 	toolImages := map[string][]map[string]any{}
 	flushToolImages := func() {
+		defer func() { messages = c.flushStandaloneToolOutputs(messages) }()
 		if len(toolImageCalls) == 0 {
 			return
 		}
@@ -406,6 +408,7 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 			content = append(content, toolImages[callID]...)
 		}
 		messages = append(messages, map[string]any{"role": "user", "content": content})
+		c.toolImageRoutingCallIDs[len(messages)-1] = toolImageCalls[len(toolImageCalls)-1]
 		toolImageCalls = nil
 		clear(toolImages)
 	}
@@ -443,16 +446,9 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 		case "web_search_call":
 			c.report("responses_web_search_call_dropped", "dropped", path)
 		case "function_call_output", "custom_tool_call_output":
-			if message, images, ok := c.convertToolOutput(item, path); ok {
-				messages = append(messages, message)
-				if len(images) > 0 {
-					callID := item.Get("call_id").Str
-					if _, seen := toolImages[callID]; !seen {
-						toolImageCalls = append(toolImageCalls, callID)
-					}
-					toolImages[callID] = append(toolImages[callID], images...)
-				}
-			}
+			toolImageCalls = c.appendToolOutput(&messages, item, path, toolImages, toolImageCalls)
+		case "tool_search_call", "tool_search_output":
+			c.tryDropLossy("responses_unknown_input_native_only", path)
 		default:
 			c.markNativeOnly("responses_unknown_input_native_only", path)
 		}
@@ -562,7 +558,7 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 			textParts = append(textParts, text)
 			hasPlainText = hasPlainText || strings.TrimSpace(text) != ""
 		case "encrypted_content":
-			c.markNativeOnly("responses_agent_message_native_only", partPath)
+			c.tryDropLossy("responses_agent_message_native_only", partPath)
 			encrypted = true
 		default:
 			c.markNativeOnly("responses_agent_message_native_only", partPath)
@@ -570,7 +566,7 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 		}
 	}
 	if !hasPlainText {
-		c.markNativeOnly("responses_agent_message_native_only", path)
+		c.tryDropLossy("responses_agent_message_native_only", path)
 		return nil, false
 	}
 	if encrypted {
@@ -634,8 +630,7 @@ func (c *portableCodexResponsesConverter) appendToolCall(messages *[]map[string]
 func (c *portableCodexResponsesConverter) convertToolOutput(item gjson.Result, path string) (map[string]any, []map[string]any, bool) {
 	callID := item.Get("call_id").Str
 	if callID == "" {
-		c.markNativeOnly("responses_tool_output_native_only", path)
-		return nil, nil, false
+		return c.orphanToolOutput(item, path)
 	}
 	content, images, structured, ok := c.convertToolOutputContent(item.Get("output"), path+".output")
 	if !ok {
@@ -833,26 +828,6 @@ func (c *portableCodexResponsesConverter) ensureToolMapping(name, namespace stri
 	c.toolAliases[identity] = alias
 	c.result.ToolMappings[alias] = mapping
 	return alias
-}
-
-func (c *portableCodexResponsesConverter) report(code, action, path string) {
-	c.result.Report = append(c.result.Report, ResponseTransform{Code: code, Action: action, Path: path})
-}
-
-func (c *portableCodexResponsesConverter) requireNativeForForcedWebSearch(toolChoice gjson.Result) {
-	if !c.hostedWebSearch {
-		return
-	}
-	forcesSearch := strings.HasPrefix(toolChoice.Get("type").Str, "web_search")
-	requiresDroppedTool := toolChoice.Str == "required" && len(c.tools) == 0
-	if forcesSearch || requiresDroppedTool {
-		c.markNativeOnly("responses_forced_web_search_native_only", "tool_choice")
-	}
-}
-
-func (c *portableCodexResponsesConverter) markNativeOnly(code, path string) {
-	c.result.Requirements.NativeOnly = true
-	c.report(code, "preserved", path)
 }
 
 func normalizeResponsesToolNamespace(namespace string) string {

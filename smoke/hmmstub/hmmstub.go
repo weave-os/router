@@ -8,8 +8,8 @@ import (
 
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 const (
@@ -109,6 +109,7 @@ func Handler() http.Handler {
 	}
 	mux.HandleFunc("POST /route", classify)
 	mux.HandleFunc("POST /preview", classify)
+	handleV5(mux)
 	noContent := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
 	mux.HandleFunc("POST /outcome", noContent)
 	mux.HandleFunc("POST /feedback", noContent)

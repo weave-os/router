@@ -15,7 +15,7 @@ repair does not authorize production mutation or establish production recovery.
 | --- | --- | --- |
 | Tool/schema rejection | `internal/translate`, `internal/providers`, `internal/proxy/dispatch_error.go` | Translation unit test, then provider conformance |
 | Retry, fallback, truncated stream | `internal/proxy`, `internal/dispatch`, `internal/sse`, [inference boundary](docs/INFERENCE_BOUNDARY.md) | Dispatch/SSE behavior, stream-commit and cancellation invariants |
-| Wrong model or session pin | `internal/router`, `internal/routingpolicy`, `internal/router/sessionpin`, [Go HMM selection](docs/HMM_GO_SELECTION.md) | Eligibility, policy selection and pin transitions |
+| Wrong model or session pin | `internal/router/candidates`, `internal/routingpolicy/overrides`, `internal/router/continuity`, `internal/router/hmm`, `internal/router/escalation/floor`, `internal/router/sessionpin`, [turn loop](docs/PROXY_TURN_LOOP.md), [Go HMM selection](docs/HMM_GO_SELECTION.md) | Eligibility, precedence, strategy gates and pin transitions |
 | Authentication or charges | `internal/auth`, `internal/credentials`, `internal/billing`, `cmd/router` | Credential isolation, entitlement and exactly-once accounting |
 | Admission or release | `internal/server/middleware`, `internal/policyregistry`, [serving control](docs/SERVING_CONTROL.md) | Admission and immutable identity checks |
 | Client setup or UI | `install/`, `frontend/`, [contributing](CONTRIBUTING.md) | Offline installer tests or frontend checks |

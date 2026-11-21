@@ -142,13 +142,6 @@ func (r *BillingRepo) GetAutopayConfig(ctx context.Context, owner billing.Owner)
 	case billing.OwnerKindOrganization:
 		row, queryErr := q.GetAutopayConfig(ctx, owner.OrganizationID)
 		enabled, threshold, err = row.Enabled, row.ThresholdUsdMicros, queryErr
-	case billing.OwnerKindSubscriber:
-		subscriberID, parseErr := uuid.Parse(owner.SubscriberID)
-		if parseErr != nil {
-			return false, 0, billing.ErrInvalidOwner
-		}
-		row, queryErr := q.GetSubscriberAutopayConfig(ctx, subscriberID)
-		enabled, threshold, err = row.Enabled, row.ThresholdUsdMicros, queryErr
 	default:
 		return false, 0, billing.ErrInvalidOwner
 	}

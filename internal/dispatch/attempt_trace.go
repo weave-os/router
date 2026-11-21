@@ -14,6 +14,7 @@ type AttemptTrace struct {
 	inbound            []byte
 	sent               []byte
 	customerCredential bool
+	subscription       bool
 	baseURL            string
 	deploymentBaseURL  string
 	current            inference.Target
@@ -25,10 +26,12 @@ type AttemptTrace struct {
 }
 
 type TracedAttempt struct {
-	Target    inference.Target
-	BaseURL   string
-	Err       error
-	Diagnosis inference.AttemptDiagnosis
+	Target       inference.Target
+	BaseURL      string
+	Err          error
+	Diagnosis    inference.AttemptDiagnosis
+	At           time.Time
+	Subscription bool
 }
 
 func NewAttemptTrace(inbound []byte, hideRouterDetails bool) *AttemptTrace {
@@ -71,7 +74,7 @@ func (t *AttemptTrace) BeginAttempt(target inference.Target, deploymentBaseURL s
 	if t.firstAttemptAt.IsZero() {
 		t.firstAttemptAt = now
 	}
-	t.sent, t.customerCredential, t.baseURL = nil, false, deploymentBaseURL
+	t.sent, t.customerCredential, t.subscription, t.baseURL = nil, false, false, deploymentBaseURL
 	t.mu.Unlock()
 }
 
@@ -80,6 +83,8 @@ func (t *AttemptTrace) ObserveSent(ctx context.Context, body []byte, customerCre
 	baseURL := requestcontext.EffectiveBaseURL(ctx, t.deploymentBaseURL)
 	t.sent = body
 	t.customerCredential = customerCredential
+	creds := requestcontext.CredentialsFromContext(ctx)
+	t.subscription = creds != nil && creds.OAuth
 	t.baseURL = baseURL
 	t.mu.Unlock()
 }
@@ -88,8 +93,16 @@ func (t *AttemptTrace) Record(attempt Attempt, err error, diagnose func(inbound,
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	diagnosis := diagnose(t.inbound, t.sent, t.customerCredential)
-	t.attempts = append(t.attempts, TracedAttempt{Target: attempt.Target, BaseURL: t.baseURL, Err: err, Diagnosis: diagnosis})
+	t.attempts = append(t.attempts, TracedAttempt{Target: attempt.Target, BaseURL: t.baseURL, Err: err, Diagnosis: diagnosis, At: t.attemptAt, Subscription: t.subscription || t.unsentAfterSubscription(attempt.Target)})
 	return diagnosis
+}
+
+func (t *AttemptTrace) unsentAfterSubscription(target inference.Target) bool {
+	if t.sent != nil || len(t.attempts) == 0 {
+		return false
+	}
+	prior := t.attempts[len(t.attempts)-1]
+	return prior.Subscription && prior.Target.Provider == target.Provider && prior.Target.CatalogID == target.CatalogID
 }
 
 func (t *AttemptTrace) LastFailure() (TracedAttempt, bool) {

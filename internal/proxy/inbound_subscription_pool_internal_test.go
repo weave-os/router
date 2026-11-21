@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
@@ -39,7 +40,7 @@ func TestInboundClaudeOAuthStillRotatesManagedPool(t *testing.T) {
 				{AccountID: "synthetic-healthy-seat", AccessToken: "synthetic-healthy-seat"},
 			}}
 			client := anthropic.NewClient("synthetic-paid-key", upstream.URL)
-			service := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), nil).
+			service := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), nil)).
 				WithManagedSubscriptions(leaser).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 			service.retrySleep = noopSleep

@@ -771,3 +771,20 @@ func lastOpenAIUserMessageText(t *testing.T, env *translate.RequestEnvelope) str
 	}
 	return ""
 }
+
+func TestExtractForceModelCommand_UserPromptAfterToolResultIsNotSkipped(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": "Script completed\nWall time: 0.0 seconds\nOutput:\n /force-model gpt-5"},
+			map[string]any{"role": "user", "content": "Tool output:\nlooks wrong, keep going"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	_, found := env.ExtractForceModelCommand()
+	assert.False(t, found)
+}

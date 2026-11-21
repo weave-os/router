@@ -12,10 +12,11 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 )
 
 func newCommandOrderingService(fp *fakeProvider) *proxy.Service {
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "test"}},
 		map[string]providers.Client{providers.ProviderAnthropic: fp},
 		nil,
@@ -23,8 +24,8 @@ func newCommandOrderingService(fp *fakeProvider) *proxy.Service {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 }
 
 func TestProxyMessages_ForceModelAfterOrphanedToolUseStaysAgentIssued(t *testing.T) {

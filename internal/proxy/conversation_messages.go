@@ -47,6 +47,14 @@ func routingInputForRequest(ctx context.Context, env *translate.RequestEnvelope,
 	return promptText, routingConversationMessages(messages)
 }
 
+func routingTurnInputForRequest(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures, promptText string) (translate.RoutingFeatures, string, []router.ConversationMessage) {
+	if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
+		feats.LastKind = routingEnv.RoutingFeatures().LastKind
+	}
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
+	return feats, routingPromptText, routingMessages
+}
+
 func routingHistoryProfile(ctx context.Context) translate.RoutingHistoryProfile {
 	switch ClientIdentityFrom(ctx).ClientApp {
 	case ClientAppClaudeCode:

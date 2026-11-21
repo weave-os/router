@@ -1,5 +1,5 @@
 {
-  "pricing_version": "catalog-sha256:1edde73593ed3a9e",
+  "pricing_version": "catalog-sha256:acc3d049b30f2284",
   "models": {
     "claude-fable-5": {
       "input_usd_per_million": 10,
@@ -221,6 +221,12 @@
       "input_usd_per_million": 2,
       "output_usd_per_million": 10,
       "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-4-neon": {
+      "input_usd_per_million": 3,
+      "output_usd_per_million": 15,
+      "cache_read_multiplier": 0.05,
       "cache_write_multiplier": 1.25
     },
     "google/gemma-4-26b-a4b-it": {

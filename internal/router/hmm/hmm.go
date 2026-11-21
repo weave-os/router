@@ -1,7 +1,6 @@
 package hmm
 
 import (
-	"errors"
 	"strings"
 
 	"weave-os/router/internal/router"
@@ -9,7 +8,7 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-var ErrHMMUnavailable = errors.New("hmm: policy router unavailable")
+var ErrHMMUnavailable = router.ErrHMMUnavailable
 
 type Candidate = policy.Candidate
 
@@ -22,10 +21,6 @@ type FeedbackReporter = policy.FeedbackReporter
 type Router struct {
 	*policy.SidecarRouter
 	resolver *policy.Resolver
-}
-
-func New(decider Decider, availableProviders map[string]struct{}) *Router {
-	return NewForStrategy(router.StrategyHMM, decider, availableProviders)
 }
 
 func NewForStrategy(strategy router.Strategy, decider Decider, availableProviders map[string]struct{}) *Router {

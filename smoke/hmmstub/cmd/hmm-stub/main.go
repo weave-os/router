@@ -14,6 +14,8 @@ import (
 func main() {
 	listen := flag.String("listen", ":8093", "listen address")
 	releaseDir := flag.String("release-dir", "/release", "directory to bake the stub policy release into")
+	registryDir := flag.String("registry-dir", "/registry", "directory to bake the stub v5 serving registry into")
+	classifierURL := flag.String("classifier-url", "http://hmm-stub:8093", "classifier origin the stub serving registry binds")
 	healthcheck := flag.Bool("healthcheck", false, "probe a running stub's /readyz and exit")
 	flag.Parse()
 
@@ -35,6 +37,14 @@ func main() {
 	}
 	if err := hmmstub.WriteRelease(*releaseDir); err != nil {
 		slog.Error("Bake stub policy release", "err", err)
+		os.Exit(1)
+	}
+	graph, err := hmmstub.NewServingGraph(*classifierURL)
+	if err == nil {
+		err = graph.Write(*registryDir)
+	}
+	if err != nil {
+		slog.Error("Bake stub serving registry", "err", err)
 		os.Exit(1)
 	}
 	server := &http.Server{Addr: *listen, Handler: hmmstub.Handler(), ReadHeaderTimeout: 5 * time.Second}

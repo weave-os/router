@@ -16,7 +16,7 @@ const proxyTracerName = "weave-os/router/internal/proxy"
 
 var proxyFlowTracer = otel.Tracer(proxyTracerName)
 
-func startRoutingSpan(ctx context.Context, req router.Request) (context.Context, trace.Span) {
+func startRoutingSpan(ctx context.Context, strategy router.Strategy, req router.Request) (context.Context, trace.Span) {
 	ctx = observability.WithClientSessionID(ctx, req.ClientSessionID)
 	return proxyFlowTracer.Start(ctx, "router.routing",
 		trace.WithAttributes(
@@ -24,7 +24,7 @@ func startRoutingSpan(ctx context.Context, req router.Request) (context.Context,
 			attribute.String("requested.model", req.RequestedModel),
 			attribute.Int("request.estimated_input_tokens", req.EstimatedInputTokens),
 			attribute.Bool("request.has_tools", req.HasTools),
-			attribute.String("router.strategy", string(router.StrategyFromContext(ctx))),
+			attribute.String("router.strategy", string(strategy)),
 		),
 	)
 }

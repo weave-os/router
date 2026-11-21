@@ -304,7 +304,7 @@ func TestProviderSummarizer_RequestScopeExcludesSummaryModelBeforeIO(t *testing.
 	s := newTestSummarizer(t, fake, "", 200*time.Millisecond)
 
 	scopes := map[string]router.Request{
-		"excluded_model":    {ExcludedModels: map[string]struct{}{policy.HandoverSummaryDefaultModel: {}}},
+		"excluded_model":    {Candidates: router.Candidates{ExcludedModels: map[string]struct{}{policy.HandoverSummaryDefaultModel: {}}}},
 		"provider_disabled": {EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
 	}
 	for name, scope := range scopes {

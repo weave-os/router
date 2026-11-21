@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm/pinstate"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
@@ -70,8 +71,8 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 	if err != nil {
 		return err
 	}
-	store := postgres.NewSessionPinRepo(tx)
-	reader := postgres.NewSessionPinRepo(tx)
+	store := postgres.NewSessionPinRepo(tx, pinstate.Accessor{})
+	reader := postgres.NewSessionPinRepo(tx, pinstate.Accessor{})
 
 	var key [sessionpin.SessionKeyLen]byte
 	digest := sha256.Sum256([]byte(uuid.NewString()))

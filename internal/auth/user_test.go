@@ -14,12 +14,13 @@ import (
 )
 
 type fakeUserRepo struct {
-	mu             sync.Mutex
-	upserts        []auth.UpsertUserParams
-	accountUpserts []auth.UpsertUserByAccountUUIDParams
-	subjectUpserts []auth.UpsertUserByCredentialSubjectParams
-	user           *auth.User
-	err            error
+	mu                  sync.Mutex
+	upserts             []auth.UpsertUserParams
+	accountUpserts      []auth.UpsertUserByAccountUUIDParams
+	subjectUpserts      []auth.UpsertUserByCredentialSubjectParams
+	unidentifiedUpserts []auth.UpsertUserByUnidentifiedKeyParams
+	user                *auth.User
+	err                 error
 }
 
 func (f *fakeUserRepo) UpsertByEmail(ctx context.Context, params auth.UpsertUserParams) (*auth.User, error) {
@@ -46,6 +47,16 @@ func (f *fakeUserRepo) UpsertByCredentialSubject(ctx context.Context, params aut
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.subjectUpserts = append(f.subjectUpserts, params)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.user, nil
+}
+
+func (f *fakeUserRepo) UpsertByUnidentifiedKey(ctx context.Context, params auth.UpsertUserByUnidentifiedKeyParams) (*auth.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unidentifiedUpserts = append(f.unidentifiedUpserts, params)
 	if f.err != nil {
 		return nil, f.err
 	}
