@@ -142,7 +142,7 @@ func TestOverloadBreaker_OpensAndRoutesAround(t *testing.T) {
 	rec := h.turn(t, h.ctx())
 
 	assert.Equal(t, callsWhenOpened, h.primary.calls, "an open circuit keeps the model out of automatic selection")
-	assert.Equal(t, rescuerModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, rescuerModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Equal(t, 3, h.sibling.calls)
 }
 
@@ -169,9 +169,9 @@ func TestOverloadBreaker_HalfOpenProbeClosesOnSuccess(t *testing.T) {
 	h.primary.failWith = nil
 	rec := h.turn(t, h.ctx())
 
-	assert.Equal(t, rescuedPrimaryModel, rec.Header().Get(HeaderRouterModel), "the probe is routed to the recovered model")
+	assert.Equal(t, rescuedPrimaryModel, rec.Header().Get(requestcontext.HeaderRouterModel), "the probe is routed to the recovered model")
 	assert.False(t, h.withdrawn())
-	assert.Equal(t, rescuedPrimaryModel, h.turn(t, h.ctx()).Header().Get(HeaderRouterModel))
+	assert.Equal(t, rescuedPrimaryModel, h.turn(t, h.ctx()).Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // A probe that hits another 529 is rescued as before and reopens the circuit
@@ -184,7 +184,7 @@ func TestOverloadBreaker_FailedProbeReopensWithBackoff(t *testing.T) {
 	h.clock = h.clock.Add(30 * time.Second)
 	rec := h.turn(t, h.ctx())
 
-	assert.Equal(t, rescuerModel, rec.Header().Get(HeaderRouterModel), "the failed probe is still rescued")
+	assert.Equal(t, rescuerModel, rec.Header().Get(requestcontext.HeaderRouterModel), "the failed probe is still rescued")
 	assert.True(t, h.withdrawn())
 	h.clock = h.clock.Add(59 * time.Second)
 	routedBefore := len(h.router.routed)
@@ -203,12 +203,12 @@ func TestOverloadBreaker_UnexercisedProbeIsReleased(t *testing.T) {
 
 	h.router.preferRescuer = true
 	rec := h.turn(t, h.ctx())
-	require.Equal(t, rescuerModel, rec.Header().Get(HeaderRouterModel))
+	require.Equal(t, rescuerModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.True(t, h.withdrawn(), "the slot went back to open")
 
 	h.router.preferRescuer = false
 	h.primary.failWith = nil
-	assert.Equal(t, rescuedPrimaryModel, h.turn(t, h.ctx()).Header().Get(HeaderRouterModel))
+	assert.Equal(t, rescuedPrimaryModel, h.turn(t, h.ctx()).Header().Get(requestcontext.HeaderRouterModel))
 	assert.False(t, h.withdrawn())
 }
 
@@ -403,15 +403,15 @@ func TestOverloadBreaker_OtherOrganizationsMustConfirm(t *testing.T) {
 	h.primary.failWith = nil
 	callsBefore := h.primary.calls
 	rec := h.turn(t, orgCtx(musinsa))
-	assert.Equal(t, rescuedPrimaryModel, rec.Header().Get(HeaderRouterModel), "an unconfirmed organization is still served by the model")
+	assert.Equal(t, rescuedPrimaryModel, rec.Header().Get(requestcontext.HeaderRouterModel), "an unconfirmed organization is still served by the model")
 	assert.Equal(t, callsBefore+1, h.primary.calls)
-	assert.Equal(t, rescuerModel, h.turn(t, h.ctx()).Header().Get(HeaderRouterModel), "the confirmed organization routes around it")
+	assert.Equal(t, rescuerModel, h.turn(t, h.ctx()).Header().Get(requestcontext.HeaderRouterModel), "the confirmed organization routes around it")
 
 	h.primary.failWith = overloaded529()
 	h.turn(t, orgCtx(musinsa))
 	h.turn(t, orgCtx(musinsa))
 	callsConfirmed := h.primary.calls
-	assert.Equal(t, rescuerModel, h.turn(t, orgCtx(musinsa)).Header().Get(HeaderRouterModel))
+	assert.Equal(t, rescuerModel, h.turn(t, orgCtx(musinsa)).Header().Get(requestcontext.HeaderRouterModel))
 	assert.Equal(t, callsConfirmed, h.primary.calls, "once confirmed, Musinsa no longer dispatches the overloaded model")
 }
 
@@ -431,7 +431,7 @@ func TestOverloadBreaker_SharedRecoveryClearsEveryOrganization(t *testing.T) {
 	h.turn(t, orgCtx(musinsa))
 
 	assert.False(t, h.withdrawn())
-	assert.Equal(t, rescuedPrimaryModel, h.turn(t, h.ctx()).Header().Get(HeaderRouterModel))
+	assert.Equal(t, rescuedPrimaryModel, h.turn(t, h.ctx()).Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // A gateway organization's own overloads open a circuit only it sees, and
@@ -481,7 +481,7 @@ func TestOverloadBreaker_GatewayTwoModelRosterStillServes(t *testing.T) {
 	body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic recovery check"}]}`)
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)))
 
-	assert.Equal(t, recoveryOpusModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, recoveryOpusModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Equal(t, 1, sibling.calls)
 }
 

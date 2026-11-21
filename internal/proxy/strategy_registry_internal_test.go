@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
@@ -94,7 +95,7 @@ func TestPolicyStrategyRegistryRoutesFutureStrategyWithoutServiceChanges(t *test
 
 	ctx := context.WithValue(context.Background(), ExternalIDContextKey{}, "org-1")
 	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, RolloutID: "rollout-1"})
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex, RolloutID: "rollout-1"})
 	ctx = context.WithValue(ctx, PolicyTrainingAllowedContextKey{}, true)
 	ctx = context.WithValue(ctx, PolicyDebugEnabledContextKey{}, true)
 	ctx = context.WithValue(ctx, PolicyRoutingIntentContextKey{}, "high")
@@ -109,7 +110,7 @@ func TestPolicyStrategyRegistryRoutesFutureStrategyWithoutServiceChanges(t *test
 	assert.Zero(t, defaultRouter.calls)
 	assert.Equal(t, "org-1", futureRouter.request.OrganizationID)
 	assert.Equal(t, "11111111-1111-1111-1111-111111111111", futureRouter.request.InstallationID)
-	assert.Equal(t, ClientAppCodex, futureRouter.request.ClientApp)
+	assert.Equal(t, requestcontext.ClientAppCodex, futureRouter.request.ClientApp)
 	assert.Equal(t, "rollout-1", futureRouter.request.RolloutID)
 	assert.Equal(t, "full", futureRouter.request.CaptureMode)
 	assert.True(t, futureRouter.request.TrainingAllowed)

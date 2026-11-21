@@ -414,11 +414,11 @@ func TestBypass_NonStreamResponseIncludesCostHeaders(t *testing.T) {
 	pricing, ok := catalog.PriceFor(providers.ProviderAnthropic, feats.Model)
 	require.True(t, ok, "test model must have catalog pricing")
 	want := routerResponseCostFromPricing(pricing, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
-	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
-	assert.Equal(t, strconv.FormatFloat(want.InputUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostInputUSD))
-	assert.Equal(t, strconv.FormatFloat(want.OutputUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostOutputUSD))
-	assert.Equal(t, "0", rec.Header().Get(HeaderRouterCacheReadTokens))
-	assert.Equal(t, "0", rec.Header().Get(HeaderRouterCacheCreationTokens))
+	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(requestcontext.HeaderRouterCostUSD))
+	assert.Equal(t, strconv.FormatFloat(want.InputUSD, 'f', -1, 64), rec.Header().Get(requestcontext.HeaderRouterCostInputUSD))
+	assert.Equal(t, strconv.FormatFloat(want.OutputUSD, 'f', -1, 64), rec.Header().Get(requestcontext.HeaderRouterCostOutputUSD))
+	assert.Equal(t, "0", rec.Header().Get(requestcontext.HeaderRouterCacheReadTokens))
+	assert.Equal(t, "0", rec.Header().Get(requestcontext.HeaderRouterCacheCreationTokens))
 }
 
 // TestBypass_TransportError_ReroutesViaScorer: a raw transport error (connection
