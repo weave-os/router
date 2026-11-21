@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -157,6 +158,11 @@ func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *tel
 	_, _, source := s.credentialKeyParts(ctx)
 	if source != "" {
 		attrs.String("credential.source", source)
+	}
+	if source == credSourceSubscription || source == credSourceSubscriptionOverage {
+		if creds := CredentialsFromContext(ctx); creds != nil && creds.OAuth && creds.SubscriptionPlan == providers.SubscriptionPlanEnterprise {
+			attrs.Bool("subscription.claude_enterprise", true)
+		}
 	}
 	telemetry := InsertTelemetryParams{RequestedModel: requestedModel, DecisionModel: selectedModel}
 	applySubscriptionWinnerTelemetry(ctx, &telemetry)
