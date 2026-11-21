@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestOwnCodexReconnectNudgeShowsOncePerSession(t *testing.T) {
