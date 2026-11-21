@@ -58,11 +58,6 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-type TelemetryEmitter interface {
-	NewRecorder() telemetry.Recorder
-	NewUsageExtractor(http.ResponseWriter, string) (*telemetry.UsageExtractor, http.ResponseWriter)
-}
-
 type Service struct {
 	externalKeyUsage    ExternalKeyUsageRecorder
 	recoveryProbeMu     sync.Mutex
@@ -83,7 +78,7 @@ type Service struct {
 	scopedSearchRequirement      bool
 	searchRequirementDecayTurns  int
 	searchUse                    *searchUseTracker
-	emitter                      TelemetryEmitter
+	emitter                      telemetry.Emitter
 	translationMetrics           telemetry.TranslationMetrics
 	pinStore                     sessionpin.Store
 	escalation                   *floor.Helper
@@ -995,7 +990,7 @@ func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 	return false
 }
 
-func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
+func NewService(r router.Router, providerMap map[string]providers.Client, emitter telemetry.Emitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetryRepo TelemetryRepository) *Service {
 	s := &Service{
 		clients:                        dispatch.NewClients(providerMap),
 		translationCompatibilityMode:   TranslationCompatibilityShadow,
@@ -1011,7 +1006,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		hardPinExplore:                 hardPinExplore,
 		hardPinProvider:                hardPinProvider,
 		hardPinModel:                   hardPinModel,
-		telemetry:                      telemetry,
+		telemetry:                      telemetryRepo,
 		continuityConfig:               continuity.DefaultConfig(),
 		hmmServing:                     hmmServing{hmmConfig: continuity.DefaultAuthoritativeConfig()},
 		cyberRefusalRepin:              true,
