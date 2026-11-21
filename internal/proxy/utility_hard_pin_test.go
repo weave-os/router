@@ -145,5 +145,5 @@ func TestService_UtilityHardPin_NoEligibleProviderIs400(t *testing.T) {
 // legacyExploreCtx selects a non-HMM strategy, the only kind on which the
 // legacy hardPinExplore default still hard-pins sub-agent turns.
 func legacyExploreCtx(ctx context.Context) context.Context {
-	return router.WithStrategy(ctx, router.StrategyRetiredRL)
+	return router.WithStrategy(ctx, router.Strategy("rl"))
 }

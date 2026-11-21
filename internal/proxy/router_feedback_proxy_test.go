@@ -389,10 +389,10 @@ func TestService_RouterFeedbackCommand_ForwardsPolicyFeedback(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
 	svc := newPinSvc(fr, store).
 		WithRouterFeedbackStore(feedback).
-		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRetiredRL, Router: policyFeedback})
+		WithPolicyStrategy(policy.StrategySpec{Strategy: router.Strategy("rl"), Router: policyFeedback})
 
 	installationID := uuid.New().String()
-	ctx := router.WithStrategy(authedCtx(installationID), router.StrategyRetiredRL)
+	ctx := router.WithStrategy(authedCtx(installationID), router.Strategy("rl"))
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httpReq))
@@ -410,7 +410,7 @@ func TestService_RouterFeedbackCommand_ForwardsPolicyFeedback(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-4-6", payload["requested_model"])
 	assert.Equal(t, "claude-haiku-4-5", payload["served_model"])
 	assert.Equal(t, installationID, payload["installation_id"])
-	assert.Equal(t, string(router.StrategyRetiredRL), payload["strategy"])
+	assert.Equal(t, string(router.Strategy("rl")), payload["strategy"])
 	assert.NotContains(t, payload, "training_conversation_delta")
 	assert.NotEmpty(t, payload["feedback_key"])
 	assert.NotEmpty(t, payload["feedback_role"])
@@ -949,7 +949,7 @@ func TestService_RouterFeedbackCommand_SequenceResolvesStrategyRoutesToItsReport
 	ctx := authedCtx(uuid.New().String())
 	svc := newPinSvcWithTelemetry(fr, store, telem).
 		WithRouterFeedbackStore(feedback).
-		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRetiredRL, Router: rlReporter}).
+		WithPolicyStrategy(policy.StrategySpec{Strategy: router.Strategy("rl"), Router: rlReporter}).
 		WithHMMRouter(hmmReporter)
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 

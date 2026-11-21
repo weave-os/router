@@ -12,7 +12,7 @@ func TestIsHMMStrategy(t *testing.T) {
 	assert.True(t, IsHMMStrategy(StrategyHMMEmbedding))
 	assert.True(t, IsHMMStrategy(StrategyHMMBeta))
 	assert.False(t, IsHMMStrategy(Strategy("cluster")))
-	assert.False(t, IsHMMStrategy(StrategyRetiredRL))
+	assert.False(t, IsHMMStrategy(Strategy("rl")))
 }
 
 func TestStrategySelectionCarriesStrategyAndRoutingModelInOneValue(t *testing.T) {

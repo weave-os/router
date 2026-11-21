@@ -239,21 +239,21 @@ func TestMessagesHandler_RoutingUnavailableReturns503WithRetryAfter(t *testing.T
 	assert.Equal(t, "api_error", errObj["type"])
 }
 
-func TestMessagesHandler_RLPolicyUnavailableReturns503(t *testing.T) {
-	// No RL router wired — strategy fails closed rather than falling back to cluster scorer.
+func TestMessagesHandler_UnconfiguredStrategyReturns503(t *testing.T) {
+	// No router wired for the requested strategy — it fails closed rather than falling back.
 	svc := newTestService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-5"}}, "", nil)
 	engine := messagesEngine(svc)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", bytes.NewReader([]byte(validAnthropicBody)))
-	req = req.WithContext(router.WithStrategy(req.Context(), router.StrategyRetiredRL))
+	req = req.WithContext(router.WithStrategy(req.Context(), router.Strategy("rl")))
 	engine.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Equal(t, "1", rec.Header().Get("Retry-After"))
 	errObj := errorEnvelope(t, rec.Body.Bytes())
 	assert.Equal(t, "api_error", errObj["type"])
-	assert.Contains(t, errObj["message"], "RL policy router")
+	assert.Contains(t, errObj["message"], "selected policy router is not configured")
 }
 
 func TestMessagesHandler_ProviderNotConfiguredReturns502(t *testing.T) {
