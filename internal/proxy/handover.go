@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"time"
-	"weave-os/router/internal/billing"
-	"weave-os/router/internal/credentials"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
@@ -342,8 +340,8 @@ func (s *Service) runCompactionHandover(ctx context.Context, env *translate.Requ
 	)
 	if summarizer != nil {
 		sumProvider = summarizer.Provider()
-		sumCreds = summarizerCredsFor(ctx, sumProvider, reqHeaders)
-		nonDepCreds := s.requestUsesNonDeploymentCreds(ctx, reqHeaders)
+		sumCreds = s.credentials.SummarizerCredentials(ctx, sumProvider, reqHeaders)
+		nonDepCreds := s.credentials.RequestUsesNonDeploymentCreds(ctx, reqHeaders)
 		canCallSummarizer = sumCreds != nil || !nonDepCreds
 	}
 
@@ -379,11 +377,4 @@ func (s *Service) runCompactionHandover(ctx context.Context, env *translate.Requ
 		}
 	}
 	return out
-}
-
-func summarizerCredsFor(ctx context.Context, provider string, headers http.Header) *Credentials {
-	if billing.ByokFeeUnpayable(ctx) && BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[provider] != nil {
-		return nil
-	}
-	return resolveSummarizerCreds(ctx, provider, headers)
 }

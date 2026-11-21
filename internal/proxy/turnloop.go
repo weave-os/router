@@ -1071,8 +1071,8 @@ func (s *Service) runTurnLoop(
 			)
 			if s.summarizer != nil {
 				sumProvider = s.summarizer.Provider()
-				sumCreds = summarizerCredsFor(ctx, sumProvider, reqHeaders)
-				nonDepCreds := s.requestUsesNonDeploymentCreds(ctx, reqHeaders)
+				sumCreds = s.credentials.SummarizerCredentials(ctx, sumProvider, reqHeaders)
+				nonDepCreds := s.credentials.RequestUsesNonDeploymentCreds(ctx, reqHeaders)
 				canCallSummarizer = sumCreds != nil || !nonDepCreds
 			}
 			switch {

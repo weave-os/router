@@ -3728,10 +3728,6 @@ func pinAge(p sessionpin.Pin, now time.Time) int64 {
 	return int64(d.Seconds())
 }
 
-func (s *Service) requestUsesNonDeploymentCreds(ctx context.Context, headers http.Header) bool {
-	return s.credentials.UsesNonDeploymentCreds(credentials.ExternalKeysFromContext(ctx), headers)
-}
-
 func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvider string, headers http.Header) map[string]struct{} {
 	subscriptionLanes := make(map[string]struct{}, 2)
 	if subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)) != nil ||
