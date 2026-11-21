@@ -7,7 +7,7 @@ const (
 
 func compactionPays(input SwitchInput, tokens, output int, eviction, moveValue float64) bool {
 	compacted := input.CompactedTokens
-	if compacted <= 0 || 2*compacted > tokens || eviction <= switchCompactMinEvictionUSD {
+	if compacted <= 0 || 2*compacted > tokens || eviction <= input.Tuning.compactMinEvictionUSD() {
 		return false
 	}
 	summary, _ := expectedTurnUSD(

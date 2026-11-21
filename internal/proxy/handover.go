@@ -36,6 +36,11 @@ const handoverInstruction = "Summarize the conversation so far in <= 800 tokens.
 
 const DefaultCompactionMaxTokens = 4000
 
+const compactionInstruction = "Summarize the conversation so far in <= 4000 tokens. " +
+	"Preserve the user's task and every instruction or constraint verbatim, all decisions, file paths, " +
+	"edits already made, commands run with their key results, and what remains to do. " +
+	"Output only the summary text — no preamble, no closing remark."
+
 const DefaultCompactionTimeout = 90 * time.Second
 
 type ProviderSummarizer struct {
@@ -104,11 +109,17 @@ func (s *ProviderSummarizer) Summarize(ctx context.Context, env *translate.Reque
 	if err != nil {
 		return "", handover.Usage{}, err
 	}
-	return s.run(ctx, env, plan, handoverInstruction, s.maxTokens, s.timeout)
+	return s.run(ctx, env, plan, summaryCall{instruction: handoverInstruction, maxTokens: s.maxTokens}, s.timeout)
 }
 
 func (s *ProviderSummarizer) CompactionHandover() handover.Summarizer {
 	return compactionHandoverSummarizer{s}
+}
+
+func (s *ProviderSummarizer) CompactionOn(model string) handover.Summarizer {
+	scoped := *s
+	scoped.compactionModel = model
+	return compactionHandoverSummarizer{&scoped}
 }
 
 type compactionHandoverSummarizer struct{ *ProviderSummarizer }
@@ -125,7 +136,7 @@ func (c compactionHandoverSummarizer) Summarize(ctx context.Context, env *transl
 	if err != nil {
 		return "", handover.Usage{}, err
 	}
-	return c.run(ctx, env, plan, handoverInstruction, c.maxTokens, c.compactionTimeout)
+	return c.run(ctx, env, plan, summaryCall{instruction: compactionInstruction, maxTokens: DefaultCompactionMaxTokens, keepWarmCachePrefix: true}, c.compactionTimeout)
 }
 
 func summarizerRequest(scope router.Request, env *translate.RequestEnvelope) router.Request {
@@ -168,7 +179,13 @@ func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.Resolut
 	return plan, nil
 }
 
-func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnvelope, plan policy.ResolvedPlan, instruction string, maxTokens int, timeout time.Duration) (string, handover.Usage, error) {
+type summaryCall struct {
+	instruction         string
+	maxTokens           int
+	keepWarmCachePrefix bool
+}
+
+func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnvelope, plan policy.ResolvedPlan, call summaryCall, timeout time.Duration) (string, handover.Usage, error) {
 	log := observability.FromContext(ctx)
 	if env == nil {
 		return "", handover.Usage{}, errors.New("handover: nil envelope")
@@ -176,8 +193,8 @@ func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnve
 	if budget := plan.Budget().TimeoutMillis; budget > 0 && time.Duration(budget)*time.Millisecond < timeout {
 		timeout = time.Duration(budget) * time.Millisecond
 	}
-	if budget := plan.Budget().MaxOutputTokens; budget > 0 && budget < maxTokens {
-		maxTokens = budget
+	if budget := plan.Budget().MaxOutputTokens; budget > 0 && budget < call.maxTokens {
+		call.maxTokens = budget
 	}
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -189,7 +206,7 @@ func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnve
 	transport := dispatch.Buffered{
 		Reason: string(plan.Purpose()),
 		Prepare: func(prepareCtx context.Context, attempt dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
-			return prepareSummaryCall(prepareCtx, env, attempt.Target, instruction, maxTokens)
+			return prepareSummaryCall(prepareCtx, env, attempt.Target, call)
 		},
 		Consume: func(_ context.Context, attempt dispatch.Attempt, resp *http.Response) (err error) {
 			text, usage, err = summaryFromResponse(resp, attempt.Target)
@@ -204,8 +221,8 @@ func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnve
 	return text, usage, nil
 }
 
-func prepareSummaryCall(ctx context.Context, env *translate.RequestEnvelope, target inference.Target, instruction string, maxTokens int) (providers.PreparedRequest, *http.Request, error) {
-	body, err := buildSummaryRequestBody(env, target.CatalogID, instruction, maxTokens)
+func prepareSummaryCall(ctx context.Context, env *translate.RequestEnvelope, target inference.Target, call summaryCall) (providers.PreparedRequest, *http.Request, error) {
+	body, err := buildSummaryRequestBody(env, target.CatalogID, call)
 	if err != nil {
 		return providers.PreparedRequest{}, nil, fmt.Errorf("build summary request: %w", err)
 	}
@@ -250,7 +267,7 @@ func extractAnthropicUsage(body []byte) handover.Usage {
 	}
 }
 
-func buildSummaryRequestBody(env *translate.RequestEnvelope, model, instruction string, maxTokens int) ([]byte, error) {
+func buildSummaryRequestBody(env *translate.RequestEnvelope, model string, call summaryCall) ([]byte, error) {
 	prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: model})
 	if err != nil {
 		return nil, fmt.Errorf("prepare anthropic body: %w", err)
@@ -265,18 +282,26 @@ func buildSummaryRequestBody(env *translate.RequestEnvelope, model, instruction 
 	if err != nil {
 		return nil, fmt.Errorf("set stream: %w", err)
 	}
-	body, err = sjson.SetBytes(body, "max_tokens", maxTokens)
+	body, err = sjson.SetBytes(body, "max_tokens", call.maxTokens)
 	if err != nil {
 		return nil, fmt.Errorf("set max_tokens: %w", err)
 	}
 
-	body, err = appendUserInstruction(body, instruction)
+	body, err = appendUserInstruction(body, call.instruction)
 	if err != nil {
 		return nil, fmt.Errorf("append instruction: %w", err)
 	}
 
-	for _, key := range []string{"tools", "tool_choice", "thinking", "context_management", "effort", "output_config", "metadata"} {
+	for _, key := range []string{"tool_choice", "thinking", "context_management", "effort", "output_config", "metadata"} {
 		body, _ = sjson.DeleteBytes(body, key)
+	}
+	if !call.keepWarmCachePrefix || !gjson.GetBytes(body, "tools").IsArray() {
+		body, _ = sjson.DeleteBytes(body, "tools")
+		return body, nil
+	}
+	body, err = sjson.SetRawBytes(body, "tool_choice", []byte(`{"type":"none"}`))
+	if err != nil {
+		return nil, fmt.Errorf("set tool_choice: %w", err)
 	}
 
 	return body, nil

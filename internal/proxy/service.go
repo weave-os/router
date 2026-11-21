@@ -149,6 +149,7 @@ type Service struct {
 	textRepetitionBreakEnabled   bool
 	feedbackStore                RouterFeedbackStore
 	summarizer                   handover.Summarizer
+	switchExperiment             *switchExperiment
 	webSearch                    websearch.Executor
 	compactionHandoverSummarizer handover.Summarizer
 	availableModels              map[string]struct{}

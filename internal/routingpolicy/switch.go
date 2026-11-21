@@ -45,6 +45,33 @@ type SwitchInput struct {
 	UserPrompt            bool
 	ModelCaches           sessionpin.ModelCaches
 	CompactedTokens       int
+	Tuning                SwitchTuning
+}
+
+type SwitchTuning struct {
+	DowngradeHorizonTurns int
+	UpgradeHorizonTurns   int
+	CompactMinEvictionUSD float64
+}
+
+func (t SwitchTuning) horizon(downgrade bool) float64 {
+	if downgrade && t.DowngradeHorizonTurns > 0 {
+		return float64(t.DowngradeHorizonTurns)
+	}
+	if downgrade {
+		return switchDowngradeHorizonTurns
+	}
+	if t.UpgradeHorizonTurns > 0 {
+		return float64(t.UpgradeHorizonTurns)
+	}
+	return switchUpgradeHorizonTurns
+}
+
+func (t SwitchTuning) compactMinEvictionUSD() float64 {
+	if t.CompactMinEvictionUSD > 0 {
+		return t.CompactMinEvictionUSD
+	}
+	return switchCompactMinEvictionUSD
 }
 
 type SwitchVerdict struct {
@@ -91,11 +118,7 @@ func DecideSwitch(input SwitchInput) SwitchVerdict {
 	freshTurn, _ := expectedTurnUSD(input.Fresh, predictCacheOutlook(input.Fresh, freshState, freshKnown, switchTurn(input, tokens, input.FreshTurnsSinceServed)), tokens, output)
 	eviction := (freshTurn - freshWarm) - (currentTurn - currentWarm)
 	downgrade := freshWarm < currentWarm
-	horizon := float64(switchUpgradeHorizonTurns)
-	if downgrade {
-		horizon = switchDowngradeHorizonTurns
-	}
-	moveValue := horizon * math.Abs(currentWarm-freshWarm)
+	moveValue := input.Tuning.horizon(downgrade) * math.Abs(currentWarm-freshWarm)
 	if compactionPays(input, tokens, output, eviction, moveValue) {
 		return SwitchVerdict{Serve: input.Fresh, Switch: true, Compact: true, Reason: SwitchReasonCompactThenSwitch}
 	}

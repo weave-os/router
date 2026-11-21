@@ -1583,6 +1583,9 @@ func (s *Service) runTurnLoop(
 			}
 		}
 	}
+	if routeErr == nil {
+		s.applySwitchExperiment(ctx, env, req, reqHeaders, &res)
+	}
 	return res, routeErr
 }
 

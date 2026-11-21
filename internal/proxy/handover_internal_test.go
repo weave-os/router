@@ -32,6 +32,7 @@ type fakeHandoverProvider struct {
 	calls       int
 	wireModels  []string
 	maxTokens   []int64
+	bodies      []string
 	decisions   []router.Decision
 }
 
@@ -40,6 +41,7 @@ func (f *fakeHandoverProvider) Proxy(ctx context.Context, decision router.Decisi
 	f.decisions = append(f.decisions, decision)
 	f.wireModels = append(f.wireModels, gjson.GetBytes(prep.Body, "model").String())
 	f.maxTokens = append(f.maxTokens, gjson.GetBytes(prep.Body, "max_tokens").Int())
+	f.bodies = append(f.bodies, string(prep.Body))
 	if f.sleep > 0 {
 		select {
 		case <-time.After(f.sleep):
@@ -341,5 +343,38 @@ func TestProviderSummarizer_CompactionHandoverUsesCompactionPolicy(t *testing.T)
 	assert.NotEmpty(t, got)
 	assert.Equal(t, []string{policy.PrecompactionDefaultModel}, fake.wireModels)
 	assert.Equal(t, policy.PrecompactionDefaultModel, usage.Model)
-	assert.Equal(t, int64(DefaultHandoverMaxTokens), fake.maxTokens[0])
+	assert.Equal(t, int64(DefaultCompactionMaxTokens), fake.maxTokens[0])
+	assert.Contains(t, fake.bodies[0], "4000 tokens")
+	assert.NotContains(t, fake.bodies[0], "800 tokens")
+}
+
+const toolConversation = `{
+  "model": "claude-sonnet-4-6",
+  "system": [{"type": "text", "text": "You are a coding agent.", "cache_control": {"type": "ephemeral"}}],
+  "tools": [{"name": "bash", "description": "Run a command.", "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}}}],
+  "messages": [
+    {"role": "user", "content": "Fix the bug."},
+    {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "bash", "input": {"command": "ls"}}]},
+    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "main.py", "cache_control": {"type": "ephemeral"}}]}
+  ]
+}`
+
+// A compaction summary runs on the session's warm model, so it must keep the
+// client's tools ahead of the messages: dropping them changes the cached prefix
+// and rewrites the whole prompt instead of reading it.
+func TestProviderSummarizer_CompactionKeepsCachedPrefix(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(toolConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel)
+
+	_, _, err = s.CompactionHandover().Summarize(context.Background(), env, router.Request{})
+	require.NoError(t, err)
+	body := fake.bodies[0]
+	assert.Equal(t, "bash", gjson.Get(body, "tools.0.name").String())
+	assert.Equal(t, "none", gjson.Get(body, "tool_choice.type").String())
+	assert.Equal(t, "ephemeral", gjson.Get(body, "messages.2.content.0.cache_control.type").String())
 }

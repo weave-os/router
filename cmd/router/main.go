@@ -24,6 +24,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/config"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/entra"
 	"weave-os/router/internal/escalationmodal"
@@ -743,12 +744,14 @@ func main() {
 	}
 	var summarizer handover.Summarizer
 	var compactionHandoverSz handover.Summarizer
+	var threadCompactor proxy.ThreadCompactor
 	if _, ok := providerMap[handoverProviderName]; ok {
 		ps := proxy.NewProviderSummarizer(inferencePlans, inferenceExecutor, handoverProviderName, handoverModel, handoverTimeout).
 			WithCompactionModel(compactionModel).
 			WithCompactionTimeout(compactionTimeout)
 		summarizer = ps
 		compactionHandoverSz = ps.CompactionHandover()
+		threadCompactor = ps
 		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds(), "compaction_timeout_ms", compactionTimeout.Milliseconds())
 	} else {
 		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
@@ -1143,6 +1146,7 @@ func main() {
 		WithRouterFeedbackStore(repo.Telemetry).
 		WithSummarizer(summarizer).
 		WithCompactionHandoverSummarizer(compactionHandoverSz).
+		WithSwitchExperiment(switchExperimentConfigFromEnv(), threadCompactor, conversation.NewMemoryCompactionStore(time.Hour)).
 		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
