@@ -159,11 +159,11 @@
       "removal_phase": "8"
     },
     {
-      "id": "direct_provider_call|internal/proxy/service.go|Service.ProxyOpenAIChatCompletion|weave-os/router/internal/providers.Proxy|1",
+      "id": "direct_provider_call|internal/proxy/chat_attempt.go|buildChatAttempt|weave-os/router/internal/providers.Proxy|1",
       "kind": "direct_provider_call",
-      "file": "internal/proxy/service.go",
-      "line": 6443,
-      "symbol": "Service.ProxyOpenAIChatCompletion",
+      "file": "internal/proxy/chat_attempt.go",
+      "line": 179,
+      "symbol": "buildChatAttempt",
       "detail": "weave-os/router/internal/providers.Proxy",
       "owner": "@steventohme",
       "rationale": "Existing OpenAI-native dispatch remains until Chat Completions and Responses migrate independently.",
@@ -171,11 +171,11 @@
       "removal_phase": "8"
     },
     {
-      "id": "direct_provider_call|internal/proxy/service.go|Service.ProxyOpenAIChatCompletion|weave-os/router/internal/providers.Proxy|2",
+      "id": "direct_provider_call|internal/proxy/chat_attempt.go|buildChatAttempt|weave-os/router/internal/providers.Proxy|2",
       "kind": "direct_provider_call",
-      "file": "internal/proxy/service.go",
-      "line": 6550,
-      "symbol": "Service.ProxyOpenAIChatCompletion",
+      "file": "internal/proxy/chat_attempt.go",
+      "line": 306,
+      "symbol": "buildChatAttempt",
       "detail": "weave-os/router/internal/providers.Proxy",
       "owner": "@steventohme",
       "rationale": "Existing Anthropic translation dispatch remains until the OpenAI public surface migrates through the executor.",
@@ -183,11 +183,11 @@
       "removal_phase": "8"
     },
     {
-      "id": "direct_provider_call|internal/proxy/service.go|Service.ProxyOpenAIChatCompletion|weave-os/router/internal/providers.Proxy|3",
+      "id": "direct_provider_call|internal/proxy/chat_attempt.go|buildChatAttempt|weave-os/router/internal/providers.Proxy|3",
       "kind": "direct_provider_call",
-      "file": "internal/proxy/service.go",
-      "line": 6614,
-      "symbol": "Service.ProxyOpenAIChatCompletion",
+      "file": "internal/proxy/chat_attempt.go",
+      "line": 349,
+      "symbol": "buildChatAttempt",
       "detail": "weave-os/router/internal/providers.Proxy",
       "owner": "@steventohme",
       "rationale": "Existing Gemini translation dispatch remains until the OpenAI public surface migrates through the executor.",
