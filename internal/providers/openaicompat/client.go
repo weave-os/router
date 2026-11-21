@@ -42,7 +42,17 @@ func MiniMaxBaseURL(region string) string {
 	}
 }
 
-var grokResponseHeaderTimeout = httputil.TimeoutFromEnv("ROUTER_GROK_HEADER_TIMEOUT_SECONDS", 90*time.Second)
+const DefaultGrokResponseHeaderTimeout = 90 * time.Second
+
+var grokResponseHeaderTimeout = DefaultGrokResponseHeaderTimeout
+
+type Config struct {
+	GrokResponseHeaderTimeout time.Duration
+}
+
+func Configure(cfg Config) {
+	grokResponseHeaderTimeout = cfg.GrokResponseHeaderTimeout
+}
 
 const BedrockMantleBaseURLTemplate = "https://bedrock-mantle.%s.api.aws/v1"
 
