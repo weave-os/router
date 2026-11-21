@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
@@ -31,7 +32,7 @@ func TestResolveEffort_SourcesAndClamping(t *testing.T) {
 			model:        "gpt-5.6-luna",
 			wantSelected: "low",
 			wantSent:     "low",
-			wantSource:   effortSourceModelPolicy,
+			wantSource:   dispatch.EffortSourceModelPolicy,
 		},
 		{
 			name:  "no arm, no knob, no per-model default",
@@ -43,7 +44,7 @@ func TestResolveEffort_SourcesAndClamping(t *testing.T) {
 			armEffort:    "xhigh",
 			wantSelected: "xhigh",
 			wantSent:     "xhigh",
-			wantSource:   effortSourceArm,
+			wantSource:   dispatch.EffortSourceArm,
 		},
 		{
 			name:         "arm level above the target's menu is sent clamped",
@@ -51,7 +52,7 @@ func TestResolveEffort_SourcesAndClamping(t *testing.T) {
 			armEffort:    "xhigh",
 			wantSelected: "xhigh",
 			wantSent:     "high",
-			wantSource:   effortSourceArm,
+			wantSource:   dispatch.EffortSourceArm,
 			wantMismatch: true,
 		},
 		{
@@ -60,7 +61,7 @@ func TestResolveEffort_SourcesAndClamping(t *testing.T) {
 			armEffort:    "xhigh",
 			wantSelected: "xhigh",
 			wantSent:     "xhigh",
-			wantSource:   effortSourceArm,
+			wantSource:   dispatch.EffortSourceArm,
 		},
 		{
 			name:         "user knob outranks the arm",
@@ -69,7 +70,7 @@ func TestResolveEffort_SourcesAndClamping(t *testing.T) {
 			knob:         "low",
 			wantSelected: "low",
 			wantSent:     "low",
-			wantSource:   effortSourceUser,
+			wantSource:   dispatch.EffortSourceUser,
 			wantMismatch: true,
 		},
 		{
@@ -79,7 +80,7 @@ func TestResolveEffort_SourcesAndClamping(t *testing.T) {
 			escalate:     true,
 			wantSelected: "high",
 			wantSent:     "high",
-			wantSource:   effortSourceEscalation,
+			wantSource:   dispatch.EffortSourceEscalation,
 			wantMismatch: true,
 		},
 		{
@@ -89,7 +90,7 @@ func TestResolveEffort_SourcesAndClamping(t *testing.T) {
 			escalate:     true,
 			wantSelected: "xhigh",
 			wantSent:     "xhigh",
-			wantSource:   effortSourceArm,
+			wantSource:   dispatch.EffortSourceArm,
 		},
 		{
 			name:         "grok escalation never downgrades a richer arm",
@@ -98,7 +99,7 @@ func TestResolveEffort_SourcesAndClamping(t *testing.T) {
 			escalate:     true,
 			wantSelected: "xhigh",
 			wantSent:     "xhigh",
-			wantSource:   effortSourceArm,
+			wantSource:   dispatch.EffortSourceArm,
 		},
 		{
 			name:         "max on an xhigh-ceiling menu serves xhigh",
@@ -106,7 +107,7 @@ func TestResolveEffort_SourcesAndClamping(t *testing.T) {
 			armEffort:    "max",
 			wantSelected: "max",
 			wantSent:     "xhigh",
-			wantSource:   effortSourceArm,
+			wantSource:   dispatch.EffortSourceArm,
 			wantMismatch: true,
 		},
 	} {
@@ -134,11 +135,11 @@ func TestEffortResolution_Apply(t *testing.T) {
 	caps := router.Lookup("gpt-5.5")
 	opts := translate.EmitOptions{Capabilities: caps}
 
-	effortResolutionFor(caps, "xhigh", "xhigh", effortSourceArm).apply(&opts)
+	effortResolutionFor(caps, "xhigh", "xhigh", dispatch.EffortSourceArm).Apply(&opts)
 	assert.Equal(t, "xhigh", opts.ForceEffort)
 	assert.Equal(t, "max", opts.ForceReasoningEffort)
 
-	effortResolution{}.apply(&opts)
+	dispatch.EffortResolution{}.Apply(&opts)
 	assert.Empty(t, opts.ForceEffort)
 	assert.Empty(t, opts.ForceReasoningEffort)
 }

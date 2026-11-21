@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -193,11 +194,11 @@ func TestResolveEffort_KnobWinsOverDecision(t *testing.T) {
 	ctx := router.WithRoutingKnobs(context.Background(), &router.Overrides{ForceEffort: "low"})
 	knobbed := svc.resolveEffort(ctx, decision, caps, false)
 	assert.Equal(t, "low", knobbed.Selected)
-	assert.Equal(t, effortSourceUser, knobbed.Source)
+	assert.Equal(t, dispatch.EffortSourceUser, knobbed.Source)
 
 	arm := svc.resolveEffort(context.Background(), decision, caps, false)
 	assert.Equal(t, "xhigh", arm.Selected)
-	assert.Equal(t, effortSourceArm, arm.Source)
+	assert.Equal(t, dispatch.EffortSourceArm, arm.Source)
 
 	assert.Empty(t, svc.resolveEffort(context.Background(),
 		router.Decision{Provider: decision.Provider, Model: decision.Model}, caps, false).Selected)

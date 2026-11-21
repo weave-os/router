@@ -9,6 +9,7 @@ import (
 	"time"
 	"weave-os/router/internal/billing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -30,9 +31,9 @@ func TestSubscriptionRecoverySlowFailureUsesSecondSeat(t *testing.T) {
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
-		in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
+		in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 		var seats []string
-		in.attempt = func(ctx context.Context, decision router.Decision, client providers.Client) error {
+		in.Attempt = func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			creds := CredentialsFromContext(ctx)
 			if creds != nil && creds.OAuth {
 				seats = append(seats, creds.SubscriptionAccountID)
@@ -59,7 +60,7 @@ func TestSubscriptionRecoveryUnavailablePoolNeverBuysAPI(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
-	in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
+	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 	_, err := svc.dispatchWithFallback(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), in)
 	require.Error(t, err)
 	require.Zero(t, provider.calls)

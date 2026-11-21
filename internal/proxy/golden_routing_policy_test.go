@@ -354,7 +354,7 @@ func routingPolicyEscalationAndClassifierScenarios() []goldenScenario {
 		routingPolicyScenario("classifier_strategy_rejects_utility_turn", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))},
 			routingPolicyRefused(goldenClassifierBody, nil, routingPolicyStrategy(router.StrategyLLMClassifier))),
 		routingPolicyScenario("strategy_without_router_fails_closed", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))},
-			routingPolicyRefused(routingPolicyFirstTurn, nil, routingPolicyStrategy(router.StrategyRL))),
+			routingPolicyRefused(routingPolicyFirstTurn, nil, routingPolicyStrategy(router.Strategy("rl")))),
 		routingPolicyScenario("policy_pin_not_honoured_fails_closed", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))},
 			// Not routingPolicyRefused: this refusal writes its routing_refused row asynchronously, so the trace waits for it.
 			routingPolicyRequest(routingPolicyFirstTurn, routingPolicyAuthorizedPin)),
@@ -424,7 +424,7 @@ func routingPolicyForceModelScenarios() []goldenScenario {
 		routingPolicyScenario("force_model_text_only_dropped_for_image_turn", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyHigh))},
 			goldenRequest{body: routingPolicyFirstTurn, headers: routingPolicyForce(routingPolicyTextOnly)}, goldenRequest{body: routingPolicyImageTurn}),
 		routingPolicyScenario("force_cluster_on_non_hmm_strategy_fails_closed", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))},
-			routingPolicyRefused(routingPolicyFirstTurn, map[string]string{proxy.ForceClusterHeader: "golden-group"}, routingPolicyStrategy(router.StrategyRL))),
+			routingPolicyRefused(routingPolicyFirstTurn, map[string]string{proxy.ForceClusterHeader: "golden-group"}, routingPolicyStrategy(router.Strategy("rl")))),
 		routingPolicyScenario("force_cluster_forwarded_to_policy", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow)), trace: true},
 			goldenRequest{body: routingPolicyFirstTurn, headers: map[string]string{proxy.ForceClusterHeader: "golden-group"}}),
 	}

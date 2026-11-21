@@ -143,7 +143,7 @@ func (s *Service) PreviewAnthropicRoute(ctx context.Context, body []byte, header
 	strategy := router.StrategyFromContext(ctx)
 	registered, ok := s.strategies[strategy]
 	if !ok || registered.router == nil {
-		return policy.PreviewResult{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, defaultStrategyUnavailable(strategy))
+		return policy.PreviewResult{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, router.StrategyUnavailableError(strategy))
 	}
 	previewer, ok := registered.router.(policy.RoutePreviewer)
 	if !ok {

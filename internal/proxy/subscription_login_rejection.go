@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
@@ -59,9 +60,9 @@ func includedLaneVerdict(ctx context.Context) error {
 	return nil
 }
 
-func flushIncludedLaneVerdict(in failoverInputs, err error) error {
-	if !isSubscriptionPoolError(err) && in.flushErr != nil && !in.deferFlushOnExhaustion {
-		in.flushErr(in.w, err)
+func flushIncludedLaneVerdict(in dispatch.FailoverInputs, err error) error {
+	if !isSubscriptionPoolError(err) && in.FlushErr != nil && !in.DeferFlushOnExhaustion {
+		in.FlushErr(in.Writer, err)
 	}
 	return err
 }

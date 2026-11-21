@@ -65,10 +65,12 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	RegisterWithFeatures(engine, authSvc, proxySvc, hmmModels, mode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, Features{})
 }
 
+const deploymentDefaultStrategy = router.StrategyHMMEmbedding
+
 func ParseDefaultStrategy(raw string) (router.Strategy, error) {
 	strategy := router.Strategy(strings.ToLower(strings.TrimSpace(raw)))
 	if strategy == "" {
-		return router.StrategyHMMEmbedding, nil
+		return deploymentDefaultStrategy, nil
 	}
 	if router.IsBetaStrategy(strategy) || strategy == router.StrategyLLMClassifier {
 		return "", fmt.Errorf("ROUTER_DEFAULT_STRATEGY=%q is not a valid deployment default: beta and classifier lanes are opt-in per installation", raw)
@@ -98,7 +100,7 @@ type Features struct {
 
 func (f Features) defaultStrategy() router.Strategy {
 	if f.DefaultStrategy == "" {
-		return router.StrategyHMMEmbedding
+		return deploymentDefaultStrategy
 	}
 	return f.DefaultStrategy
 }
