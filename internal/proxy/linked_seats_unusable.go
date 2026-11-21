@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"weave-os/router/internal/auth"
@@ -40,6 +41,17 @@ func linkedSeatAvailabilityOf(ctx context.Context, pool subscriptions.Provider, 
 		return linkedSeatUnusable
 	}
 	return linkedSeatUsable
+}
+
+func linkedClaudeSeatConnected(ctx context.Context) bool {
+	if !managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
+		return false
+	}
+	candidates, snapshotPresent := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
+	return !snapshotPresent || slices.ContainsFunc(candidates, func(candidate managedSubscriptionCandidate) bool {
+		return candidate.provider == auth.SubscriptionProviderClaude && candidate.enabled &&
+			candidate.state != auth.SubscriptionAccountStateDisabled && candidate.state != auth.SubscriptionAccountStateReconnectRequired
+	})
 }
 
 func linkedSeatsAvailability(ctx context.Context, pool subscriptions.Provider, now time.Time) linkedSeatAvailability {

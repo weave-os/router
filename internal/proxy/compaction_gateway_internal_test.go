@@ -14,6 +14,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -98,7 +99,7 @@ func TestGatewayCompactionUsesScoredModel(t *testing.T) {
 	rec, err := proxyGatewayCompaction(t, svc, ctx)
 
 	require.NoError(t, err)
-	assert.Equal(t, gatewayCompactionOpusModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, gatewayCompactionOpusModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Equal(t, []string{gatewayCompactionOpusModel}, anthropicGateway.models, "the scored model behind the held gateway serves the turn")
 	assert.Empty(t, openAIGateway.models)
 }
@@ -117,7 +118,7 @@ func TestGatewayCompactionFailsOverBeforeCommit(t *testing.T) {
 		assert.Equal(t, gatewayCompactionOpusModel, model)
 	}
 	assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models, "the scorer's next candidate rescues the failed model")
-	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Contains(t, rec.Body.String(), "summary")
 }
 

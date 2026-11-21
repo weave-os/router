@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/subscriptions"
 )
@@ -38,6 +39,9 @@ func (s *Service) withClaudeSubscriptionProfile(ctx context.Context, headers htt
 		return ctx
 	}
 	plan := s.claudePlans.Resolve(ctx, token)
+	if s.usageObserver != nil {
+		plan = credentials.ClaudePlanFromUsage(plan, s.usageObserver, token)
+	}
 	ctx = context.WithValue(ctx, claudeSubscriptionPlanKey{}, plan)
 	if creds != nil {
 		verified := *creds

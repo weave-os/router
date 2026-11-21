@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -158,7 +159,7 @@ func promptTooLongCounts(err error) (tokens, limit int, ok bool) {
 
 func withClientTrimCounts(ctx context.Context, err, primaryErr error) error {
 	var unservable *CompactionUnservableError
-	if ClientIdentityFrom(ctx).ClientApp != ClientAppClaudeCode || !errors.As(err, &unservable) {
+	if ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppClaudeCode || !errors.As(err, &unservable) {
 		return err
 	}
 	for _, cause := range []error{primaryErr, unservable.Cause} {

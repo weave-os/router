@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -75,7 +76,7 @@ func TestGatewayOverflowOnOrdinaryTurnRescuesAcrossGateways(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, []string{gatewayCompactionOpusModel}, anthropicGateway.models, "same-gateway peers share the window that rejected it")
 			assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models)
-			assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(HeaderRouterModel))
+			assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(requestcontext.HeaderRouterModel))
 			assert.Contains(t, rec.Body.String(), "summary")
 			assert.NotContains(t, rec.Body.String(), "prompt is too long")
 		})

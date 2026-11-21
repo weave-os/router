@@ -6,13 +6,12 @@ import (
 	"sort"
 	"strings"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 )
-
-const AllowedModelsHeader = "x-weave-allowed-models"
 
 const AllowlistOverrideReasonPrefix = "allowlist_override:"
 
@@ -28,7 +27,7 @@ type AllowedModelsHeaderError struct {
 }
 
 func (e *AllowedModelsHeaderError) Error() string {
-	return fmt.Sprintf("invalid %s header: %s", AllowedModelsHeader, e.Reason)
+	return fmt.Sprintf("invalid %s header: %s", requestcontext.AllowedModelsHeader, e.Reason)
 }
 
 func ParseAllowedModelsHeader(raw string, installationAllowed []string) (RequestAllowedModels, error) {

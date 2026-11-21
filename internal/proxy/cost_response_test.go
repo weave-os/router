@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
@@ -68,11 +69,11 @@ func TestResponseCostBufferFlushesAfterHeaders(t *testing.T) {
 		CacheCreationTokens: 11,
 	})
 	require.NoError(t, buffer.FlushToClient())
-	require.Equal(t, "0.5", rec.Header().Get(HeaderRouterCostUSD))
-	require.Equal(t, "0.25", rec.Header().Get(HeaderRouterCostInputUSD))
-	require.Equal(t, "0.25", rec.Header().Get(HeaderRouterCostOutputUSD))
-	require.Equal(t, "7", rec.Header().Get(HeaderRouterCacheReadTokens))
-	require.Equal(t, "11", rec.Header().Get(HeaderRouterCacheCreationTokens))
+	require.Equal(t, "0.5", rec.Header().Get(requestcontext.HeaderRouterCostUSD))
+	require.Equal(t, "0.25", rec.Header().Get(requestcontext.HeaderRouterCostInputUSD))
+	require.Equal(t, "0.25", rec.Header().Get(requestcontext.HeaderRouterCostOutputUSD))
+	require.Equal(t, "7", rec.Header().Get(requestcontext.HeaderRouterCacheReadTokens))
+	require.Equal(t, "11", rec.Header().Get(requestcontext.HeaderRouterCacheCreationTokens))
 	require.Equal(t, `{"ok":true}`, rec.Body.String())
 }
 
@@ -92,9 +93,9 @@ func TestRouterResponseCostFromPricingRoundsFloatNoise(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	setRouterCostHeaders(rec.Header(), cost)
-	require.Equal(t, "0.0000495", rec.Header().Get(HeaderRouterCostUSD))
-	require.Equal(t, "0.000009", rec.Header().Get(HeaderRouterCostInputUSD))
-	require.Equal(t, "0.0000405", rec.Header().Get(HeaderRouterCostOutputUSD))
+	require.Equal(t, "0.0000495", rec.Header().Get(requestcontext.HeaderRouterCostUSD))
+	require.Equal(t, "0.000009", rec.Header().Get(requestcontext.HeaderRouterCostInputUSD))
+	require.Equal(t, "0.0000405", rec.Header().Get(requestcontext.HeaderRouterCostOutputUSD))
 }
 
 // An Anthropic stream whose terminal message_delta carries only output tokens,

@@ -34,7 +34,7 @@ func withClaudeSeat(cooldown time.Time) func(*proxy.Service, *goldenHarness) *pr
 
 func goldenClaudeSeatCtx(clientApp string, cooldown time.Time) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: clientApp, SessionID: "golden-seat-session"})
+		ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: clientApp, SessionID: "golden-seat-session"})
 		seat := &auth.SubscriptionAccount{ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}
 		if !cooldown.IsZero() {
 			seat.State, seat.CooldownUntil = auth.SubscriptionAccountStateCooldown, &cooldown
@@ -67,19 +67,19 @@ func goldenSeatRefusalScenario(name, clientApp string, cooldown time.Time, seatS
 
 func TestSeatRefusalsFundCredits(t *testing.T) {
 	t.Parallel()
-	forced := goldenSeatRefusalScenario("forced_client_app_refused_seat_funds_credits", proxy.ClientAppOpencode, time.Time{},
+	forced := goldenSeatRefusalScenario("forced_client_app_refused_seat_funds_credits", requestcontext.ClientAppOpencode, time.Time{},
 		goldenUpstreamError(http.StatusBadRequest, goldenThirdPartyRefusalBody))
-	forced.requests[0].headers = map[string]string{proxy.ForceModelHeader: goldenAnthropicModel}
+	forced.requests[0].headers = map[string]string{requestcontext.ForceModelHeader: goldenAnthropicModel}
 	for _, sc := range []goldenScenario{
-		goldenSeatRefusalScenario("overloaded_seat_funds_credits", proxy.ClientAppClaudeCode, time.Time{},
+		goldenSeatRefusalScenario("overloaded_seat_funds_credits", requestcontext.ClientAppClaudeCode, time.Time{},
 			goldenUpstreamError(http.StatusServiceUnavailable, goldenOverloadedBody)),
-		goldenSeatRefusalScenario("short_seat_throttle_outside_state_lane_funds_credits", proxy.ClientAppClaudeCode, goldenClaudeSeatShortCooldown),
-		goldenSeatRefusalScenario("client_app_refused_seat_funds_credits", proxy.ClientAppOpencode, time.Time{},
+		goldenSeatRefusalScenario("short_seat_throttle_outside_state_lane_funds_credits", requestcontext.ClientAppClaudeCode, goldenClaudeSeatShortCooldown),
+		goldenSeatRefusalScenario("client_app_refused_seat_funds_credits", requestcontext.ClientAppOpencode, time.Time{},
 			goldenUpstreamError(http.StatusBadRequest, goldenThirdPartyRefusalBody)),
 		forced,
-		stateLane(goldenSeatRefusalScenario("overloaded_seat_funds_credits", proxy.ClientAppClaudeCode, time.Time{},
+		stateLane(goldenSeatRefusalScenario("overloaded_seat_funds_credits", requestcontext.ClientAppClaudeCode, time.Time{},
 			goldenUpstreamError(http.StatusServiceUnavailable, goldenOverloadedBody))),
-		stateLane(goldenSeatRefusalScenario("client_app_refused_seat_funds_credits", proxy.ClientAppOpencode, time.Time{},
+		stateLane(goldenSeatRefusalScenario("client_app_refused_seat_funds_credits", requestcontext.ClientAppOpencode, time.Time{},
 			goldenUpstreamError(http.StatusBadRequest, goldenThirdPartyRefusalBody))),
 	} {
 		t.Run(sc.name, func(t *testing.T) {
@@ -92,7 +92,7 @@ func TestSeatRefusalsFundCredits(t *testing.T) {
 
 func TestOverloadedSeatFundsCreditsOnNextTurn(t *testing.T) {
 	t.Parallel()
-	base := goldenSeatRefusalScenario("overloaded_seat_next_turn_funds_credits", proxy.ClientAppClaudeCode, time.Time{},
+	base := goldenSeatRefusalScenario("overloaded_seat_next_turn_funds_credits", requestcontext.ClientAppClaudeCode, time.Time{},
 		goldenUpstreamError(http.StatusServiceUnavailable, goldenOverloadedBody))
 	base.upstreams[providers.ProviderAnthropic] = append(base.upstreams[providers.ProviderAnthropic], anthropicOK(true, "next turn on weave credits"))
 	base.noCandidateErr = fmt.Errorf("hmm_embedding: arm selection: %w", policy.ErrNoEligibleArm)
@@ -128,7 +128,7 @@ func goldenCallerPlanScenario(name string, failure goldenStep) goldenScenario {
 
 func TestTriedUnverifiedPlansFundCredits(t *testing.T) {
 	t.Parallel()
-	enterprise := goldenSeatRefusalScenario("unverified_claude_plan_seat_failure_funds_credits", proxy.ClientAppClaudeCode, time.Time{},
+	enterprise := goldenSeatRefusalScenario("unverified_claude_plan_seat_failure_funds_credits", requestcontext.ClientAppClaudeCode, time.Time{},
 		goldenUpstreamError(http.StatusServiceUnavailable, goldenOverloadedBody))
 	enterprise.noCandidateErr = fmt.Errorf("hmm_embedding: arm selection: %w", policy.ErrNoEligibleArm)
 	configureSeat := enterprise.configure
@@ -138,7 +138,7 @@ func TestTriedUnverifiedPlansFundCredits(t *testing.T) {
 	thirdParty := goldenCallerPlanScenario("caller_plan_third_party_refusal_funds_credits",
 		goldenUpstreamError(http.StatusBadRequest, goldenThirdPartyRefusalBody))
 	thirdParty.requests[0].decorateContext = func(ctx context.Context) context.Context {
-		ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode, SessionID: "golden-seat-session"})
+		ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppOpencode, SessionID: "golden-seat-session"})
 		return proxy.WithManagedSubscriptionUsage(goldenSubscriptionCtx(ctx))
 	}
 	for _, sc := range []goldenScenario{

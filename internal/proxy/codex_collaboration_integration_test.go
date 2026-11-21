@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/translate"
@@ -60,7 +61,7 @@ func TestProxyOpenAIResponses_ForcedOpusPlaintextAgentTask(t *testing.T) {
 		providers.ProviderAnthropic: anthropic.NewClient("test-key", upstream.URL),
 	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5-5", nil), hmm.ServingPorts())
 
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	parentBody := []byte(`{"model":"gpt-6.1-sol","stream":true,"input":"Delegate project test inspection","tools":[{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"spawn_agent","parameters":{"type":"object","properties":{"message":{"type":"string"}}}}]}]}`)
 	parentSink := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, parentBody, parentSink, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
@@ -104,7 +105,7 @@ func TestProxyOpenAIResponses_EncryptedAgentTaskKeepsNativePayload(t *testing.T)
 		providers.ProviderOpenAI: native, providers.ProviderAnthropic: &fakeProvider{},
 	}, nil, nil, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil), hmm.ServingPorts())
 
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	body := []byte(`{"model":"gpt-6.1-sol","input":[{"type":"agent_message","author":"parent","recipient":"child","content":[{"type":"input_text","text":"Message Type: NEW_TASK\nPayload:\n"},{"type":"encrypted_content","encrypted_content":"opaque-task"}]}]}`)
 	sink := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, sink, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))

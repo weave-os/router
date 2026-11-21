@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
@@ -135,7 +136,7 @@ func proxyClassifierWithRefusalRescue(ctx context.Context, proxy classifierProxy
 		}
 		log.Info("classifier refusal re-served on fallback model",
 			"from_model", served.Model, "to_model", target.decision.Model, "refusal_category", category)
-		w.Header().Set(HeaderRouterModel, target.decision.Model)
+		w.Header().Set(requestcontext.HeaderRouterModel, target.decision.Model)
 		return target.decision, fallbackResp.replay(w, nil)
 	}
 	return served, servedResp.replay(w, nil)

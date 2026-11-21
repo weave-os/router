@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
@@ -57,13 +58,13 @@ func TestPostCommandContinuation_UsesTerminalEvidence(t *testing.T) {
 			store.pins[forceModelMapKey(key, pin.Role)] = pin
 			svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil))
 			ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
-			svc.grantPostCommandContinuation(ctx, router.StrategyFromContext(ctx), uuid.New(), key, pin.Role)
-			got, found := svc.consumePostCommandContinuation(ctx, router.StrategyFromContext(ctx), key, pin.Role)
+			postCommandContinuation(svc, router.StrategyFromContext(ctx)).Grant(ctx, uuid.New(), key, pin.Role)
+			got, found := postCommandContinuation(svc, router.StrategyFromContext(ctx)).Consume(ctx, key, pin.Role)
 			assert.Equal(t, !capped, found)
 			if found {
 				assert.Equal(t, outputLimitFirstModel, got.Model)
 			}
-			_, found = svc.consumePostCommandContinuation(ctx, router.StrategyFromContext(ctx), key, pin.Role)
+			_, found = postCommandContinuation(svc, router.StrategyFromContext(ctx)).Consume(ctx, key, pin.Role)
 			assert.False(t, found, "a continuation remains one-shot")
 		})
 	}
@@ -157,7 +158,7 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 					if trueCap && action == 4 {
 						want = outputLimitSecondModel
 					}
-					assert.Equal(t, want, rec.Header().Get(HeaderRouterModel), "action %d", action)
+					assert.Equal(t, want, rec.Header().Get(requestcontext.HeaderRouterModel), "action %d", action)
 					require.Len(t, routes.requests, action+1)
 					if trueCap && action == 4 {
 						assert.Contains(t, routes.requests[action].Candidates.SafetyExcludedModels, outputLimitFirstModel)

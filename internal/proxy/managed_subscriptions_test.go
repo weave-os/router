@@ -23,6 +23,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
@@ -805,7 +806,7 @@ func TestDispatchWithFallbackRotatesManagedTransientErrorOnSameBinding(t *testin
 // An Anthropic seat out of extra usage answers 400, not 429. Rotating keeps the
 // turn on another seat instead of returning the refusal to the client.
 func TestManagedClaudeSeatOutOfExtraUsageRotates(t *testing.T) {
-	for _, clientApp := range []string{"", ClientAppClaudeCode, "custom-agent"} {
+	for _, clientApp := range []string{"", requestcontext.ClientAppClaudeCode, "custom-agent"} {
 		t.Run("client_app="+clientApp, func(t *testing.T) {
 			leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{}}
 			service := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)

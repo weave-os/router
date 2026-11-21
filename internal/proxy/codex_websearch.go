@@ -61,7 +61,7 @@ func (s *Service) serveCodexWebSearch(ctx context.Context, body []byte, model st
 	req := r.Clone(callCtx)
 	req.URL.Path = "/v1/responses"
 	req.Header.Set(routingMarkerHeader, "off")
-	req.Header.Del(ForceModelHeader)
+	req.Header.Del(requestcontext.ForceModelHeader)
 	req.Body = http.NoBody
 	capture := &nativeSearchBuffer{header: make(http.Header), maxCalls: websearch.CallLimit(body), cancel: cancel, calls: make(map[string]struct{})}
 	err = s.ProxyOpenAIResponses(callCtx, converted, capture, req)
@@ -95,7 +95,7 @@ func (s *Service) serveCodexWebSearch(ctx context.Context, body []byte, model st
 		}
 		return true, err
 	}
-	servedModel := capture.header.Get(HeaderRouterModel)
+	servedModel := capture.header.Get(requestcontext.HeaderRouterModel)
 	if servedModel == "" {
 		servedModel = result.Model
 	}
@@ -177,7 +177,7 @@ func (b *nativeSearchBuffer) Write(p []byte) (int, error) {
 }
 
 func copyNativeSearchHeaders(w http.ResponseWriter, headers http.Header) {
-	for _, name := range []string{HeaderRouterDecision, HeaderRouterProvider, HeaderRouterModel, HeaderRouterContextWindow, HeaderRouterContextEstimate, HeaderRouterContextReserve, HeaderRouterContextEstimateKind, HeaderRouterContextVersion, HeaderRouterFallbackFrom, HeaderRouterFallbackAttempt, HeaderRouterCostUSD, HeaderRouterCostInputUSD, HeaderRouterCostOutputUSD, HeaderRouterCacheReadTokens, HeaderRouterCacheCreationTokens, "X-Request-Id", "Retry-After"} {
+	for _, name := range []string{requestcontext.HeaderRouterDecision, requestcontext.HeaderRouterProvider, requestcontext.HeaderRouterModel, requestcontext.HeaderRouterContextWindow, requestcontext.HeaderRouterContextEstimate, requestcontext.HeaderRouterContextReserve, requestcontext.HeaderRouterContextEstimateKind, requestcontext.HeaderRouterContextVersion, requestcontext.HeaderRouterFallbackFrom, requestcontext.HeaderRouterFallbackAttempt, requestcontext.HeaderRouterCostUSD, requestcontext.HeaderRouterCostInputUSD, requestcontext.HeaderRouterCostOutputUSD, requestcontext.HeaderRouterCacheReadTokens, requestcontext.HeaderRouterCacheCreationTokens, "X-Request-Id", "Retry-After"} {
 		if values := headers.Values(name); len(values) > 0 {
 			w.Header()[http.CanonicalHeaderKey(name)] = append([]string(nil), values...)
 		}

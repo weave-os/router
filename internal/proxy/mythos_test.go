@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/google/uuid"
@@ -26,7 +26,7 @@ func TestMythos52ExplicitSelectionDispatchesExactModel(t *testing.T) {
 			}
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
-			req.Header.Set(proxy.ForceModelHeader, "claude-mythos-5.2:xhigh")
+			req.Header.Set(requestcontext.ForceModelHeader, "claude-mythos-5.2:xhigh")
 			err := svc.ProxyMessages(authedCtx(uuid.NewString()), []byte(pinTestBody), rec, req)
 			if denied {
 				var accessErr *providers.UpstreamErrorResponse
@@ -34,7 +34,7 @@ func TestMythos52ExplicitSelectionDispatchesExactModel(t *testing.T) {
 				assert.Equal(t, http.StatusForbidden, accessErr.Status)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, "claude-mythos-5-2", rec.Header().Get(proxy.HeaderRouterModel))
+				assert.Equal(t, "claude-mythos-5-2", rec.Header().Get(requestcontext.HeaderRouterModel))
 			}
 			require.Len(t, upstream.proxyBodies, 1)
 			assert.Equal(t, "claude-mythos-5-2", gjson.GetBytes(upstream.proxyBodies[0], "model").String())
@@ -52,10 +52,10 @@ func TestMythos52ExplicitSelectionWithAdvisor(t *testing.T) {
 			body := []byte(`{"model":"claude-opus-5","max_tokens":20000,"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"advisor_20260301","name":"advisor","model":"` + advisor + `"}]}`)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
-			req.Header.Set(proxy.ForceModelHeader, "claude-mythos-5-2")
+			req.Header.Set(requestcontext.ForceModelHeader, "claude-mythos-5-2")
 			require.NoError(t, svc.ProxyMessages(authedCtx(uuid.NewString()), body, rec, req))
 			require.Len(t, upstream.proxyBodies, 1)
-			assert.Equal(t, "claude-mythos-5-2", rec.Header().Get(proxy.HeaderRouterModel))
+			assert.Equal(t, "claude-mythos-5-2", rec.Header().Get(requestcontext.HeaderRouterModel))
 			assert.Equal(t, "claude-mythos-5-2", gjson.GetBytes(upstream.proxyBodies[0], "model").String())
 			assert.Equal(t, advisor, gjson.GetBytes(upstream.proxyBodies[0], "tools.0.model").String())
 			assert.Zero(t, fresh.routeCalls)

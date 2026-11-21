@@ -116,7 +116,7 @@ func writeSSE(w http.ResponseWriter, body string) {
 
 func (f *earlyStopFixture) serve(t *testing.T, clientApp string) *httptest.ResponseRecorder {
 	t.Helper()
-	ctx := requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), proxy.ClientIdentity{ClientApp: clientApp})
+	ctx := requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), requestcontext.ClientIdentity{ClientApp: clientApp})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, f.svc.ProxyMessages(ctx, []byte(earlyStopToolResultBody), rec, req))
@@ -132,7 +132,7 @@ func (f *earlyStopFixture) callsTo(model string) int {
 func TestProxyMessages_EarlyStopRedo_ReservesStoppedToolResultTurnOnTopTier(t *testing.T) {
 	f := newEarlyStopFixture(t, flags.EarlyStopRedoOn)
 
-	rec := f.serve(t, proxy.ClientAppClaudeCode)
+	rec := f.serve(t, requestcontext.ClientAppClaudeCode)
 
 	assert.Equal(t, 1, f.callsTo(earlyStopLowModel))
 	assert.Equal(t, 1, f.callsTo(earlyStopHighModel), "the stopped turn is re-served once on the top-tier candidate")
@@ -140,17 +140,17 @@ func TestProxyMessages_EarlyStopRedo_ReservesStoppedToolResultTurnOnTopTier(t *t
 	assert.NotContains(t, out, "Next I will fix b and c", "the client never sees the stopped response")
 	assert.Contains(t, out, `"type":"tool_use"`, "the client gets the re-served turn's tool call")
 	assert.Equal(t, 1, strings.Count(out, "event: message_start"), "one assistant message reaches the client")
-	assert.Equal(t, earlyStopHighModel, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, earlyStopHighModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 func TestProxyMessages_EarlyStopRedo_ShadowServesStoppedResponse(t *testing.T) {
 	f := newEarlyStopFixture(t, flags.EarlyStopRedoShadow)
 
-	rec := f.serve(t, proxy.ClientAppClaudeCode)
+	rec := f.serve(t, requestcontext.ClientAppClaudeCode)
 
 	assert.Zero(t, f.callsTo(earlyStopHighModel), "shadow mode never re-serves")
 	assert.Contains(t, rec.Body.String(), "Next I will fix b and c")
-	assert.Equal(t, earlyStopLowModel, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, earlyStopLowModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 func TestProxyMessages_EarlyStopRedo_ToolCallPassesThrough(t *testing.T) {
@@ -159,7 +159,7 @@ func TestProxyMessages_EarlyStopRedo_ToolCallPassesThrough(t *testing.T) {
 		writeSSE(w, anthropicSSE(earlyStopLowModel, []string{textBlock("Running b."), toolUseBlock("1", "toolu_3")}, "tool_use"))
 	}
 
-	rec := f.serve(t, proxy.ClientAppClaudeCode)
+	rec := f.serve(t, requestcontext.ClientAppClaudeCode)
 
 	assert.Zero(t, f.callsTo(earlyStopHighModel), "a turn that calls a tool is served as is")
 	out := rec.Body.String()
@@ -176,7 +176,7 @@ func TestProxyMessages_EarlyStopRedo_FailedRedoServesStoppedResponse(t *testing.
 		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"bad"}}`))
 	}
 
-	rec := f.serve(t, proxy.ClientAppClaudeCode)
+	rec := f.serve(t, requestcontext.ClientAppClaudeCode)
 
 	assert.Equal(t, 1, f.callsTo(earlyStopHighModel))
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -184,13 +184,13 @@ func TestProxyMessages_EarlyStopRedo_FailedRedoServesStoppedResponse(t *testing.
 	assert.Contains(t, out, "Next I will fix b and c", "a failed redo falls back to the stopped response")
 	assert.Contains(t, out, "event: message_stop")
 	assert.NotContains(t, out, "invalid_request_error")
-	assert.Equal(t, earlyStopLowModel, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, earlyStopLowModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 func TestProxyMessages_EarlyStopRedo_OnlyClaudeCode(t *testing.T) {
 	f := newEarlyStopFixture(t, flags.EarlyStopRedoOn)
 
-	rec := f.serve(t, proxy.ClientAppCodex)
+	rec := f.serve(t, requestcontext.ClientAppCodex)
 
 	assert.Zero(t, f.callsTo(earlyStopHighModel))
 	assert.Contains(t, rec.Body.String(), "Next I will fix b and c")
@@ -199,7 +199,7 @@ func TestProxyMessages_EarlyStopRedo_OnlyClaudeCode(t *testing.T) {
 func TestProxyMessages_EarlyStopRedo_OrgOverrideTurnsItOn(t *testing.T) {
 	f := newEarlyStopFixture(t, flags.EarlyStopRedoOff)
 	ctx := flags.WithOverrides(
-		requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode}),
+		requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode}),
 		flags.Overrides{Strings: map[flags.Key]string{flags.KeyEarlyStopRedo: string(flags.EarlyStopRedoOn)}})
 	rec := httptest.NewRecorder()
 	require.NoError(t, f.svc.ProxyMessages(ctx, []byte(earlyStopToolResultBody), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
