@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -16,7 +16,7 @@ import (
 
 type footerFakeStore struct{}
 
-func (footerFakeStore) InsertRouterFeedback(context.Context, conversation.RouterFeedbackEvent) error {
+func (footerFakeStore) InsertRouterFeedback(context.Context, feedback.RouterFeedbackEvent) error {
 	return nil
 }
 

@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -347,7 +347,7 @@ func (s *goldenConversationStore) record(op string, detail any) {
 	s.rec.storeEvents = append(s.rec.storeEvents, goldenPinEvent{Op: op, Detail: goldenValue(detail)})
 }
 
-func (s *goldenConversationStore) InsertRouterFeedback(_ context.Context, p conversation.RouterFeedbackEvent) error {
+func (s *goldenConversationStore) InsertRouterFeedback(_ context.Context, p feedback.RouterFeedbackEvent) error {
 	s.record("router_feedback.insert", p)
 	return nil
 }

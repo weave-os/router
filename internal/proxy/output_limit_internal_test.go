@@ -57,13 +57,13 @@ func TestPostCommandContinuation_UsesTerminalEvidence(t *testing.T) {
 			store.pins[forceModelMapKey(key, pin.Role)] = pin
 			svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil))
 			ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
-			svc.grantPostCommandContinuation(ctx, router.StrategyFromContext(ctx), uuid.New(), key, pin.Role)
-			got, found := svc.consumePostCommandContinuation(ctx, router.StrategyFromContext(ctx), key, pin.Role)
+			postCommandContinuation(svc, router.StrategyFromContext(ctx)).Grant(ctx, uuid.New(), key, pin.Role)
+			got, found := postCommandContinuation(svc, router.StrategyFromContext(ctx)).Consume(ctx, key, pin.Role)
 			assert.Equal(t, !capped, found)
 			if found {
 				assert.Equal(t, outputLimitFirstModel, got.Model)
 			}
-			_, found = svc.consumePostCommandContinuation(ctx, router.StrategyFromContext(ctx), key, pin.Role)
+			_, found = postCommandContinuation(svc, router.StrategyFromContext(ctx)).Consume(ctx, key, pin.Role)
 			assert.False(t, found, "a continuation remains one-shot")
 		})
 	}

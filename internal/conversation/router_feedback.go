@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -18,27 +19,6 @@ import (
 )
 
 const routerFeedbackCommandSpanName = "router.feedback.command"
-
-type RouterFeedbackStore interface {
-	InsertRouterFeedback(ctx context.Context, p RouterFeedbackEvent) error
-}
-
-type RouterFeedbackEvent struct {
-	InstallationID string
-	SessionKey     []byte
-	Role           string
-	RouterUserID   string
-	ClientApp      string
-	SessionID      string
-	RequestedModel string
-	ServedModel    string
-	Rating         string
-	SuggestedLabel string
-	Feedback       string
-	Source         string
-	RequestID      string
-	RouteID        string
-}
 
 const RouterFeedbackSourceUser = "user"
 
@@ -68,7 +48,7 @@ type RequestFeedback struct {
 }
 
 type RequestFeedbackStore interface {
-	UpsertRequestFeedback(ctx context.Context, feedback RequestFeedback) error
+	UpsertRequestFeedback(ctx context.Context, request RequestFeedback) error
 }
 
 type FeedbackReporters interface {
@@ -79,7 +59,7 @@ type FeedbackReporters interface {
 type RouterFeedback struct {
 	Turns         FeedbackTurns
 	ServedModels  FeedbackServedModels
-	Store         RouterFeedbackStore
+	Store         feedback.RouterFeedbackStore
 	Requests      RequestFeedbackStore
 	Reporters     FeedbackReporters
 	Now           func() time.Time
@@ -172,7 +152,7 @@ func (f RouterFeedback) persist(ctx context.Context, rated ratedFeedback) error 
 	if f.Store == nil || rated.InstallationID == uuid.Nil {
 		return nil
 	}
-	event := RouterFeedbackEvent{
+	event := feedback.RouterFeedbackEvent{
 		InstallationID: rated.InstallationID.String(),
 		SessionKey:     rated.SessionKey[:],
 		Role:           rated.Role,

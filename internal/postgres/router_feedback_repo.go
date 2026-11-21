@@ -3,22 +3,21 @@ package postgres
 import (
 	"context"
 
-	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 )
 
-var _ conversation.RouterFeedbackStore = (*TelemetryRepo)(nil)
+var _ feedback.RouterFeedbackStore = (*TelemetryRepo)(nil)
 
-func (r *TelemetryRepo) InsertRouterFeedback(ctx context.Context, p conversation.RouterFeedbackEvent) error {
+func (r *TelemetryRepo) InsertRouterFeedback(ctx context.Context, p feedback.RouterFeedbackEvent) error {
 	id, err := uuid.Parse(p.InstallationID)
 	if err != nil {
 		return err
 	}
-	q := dbbudget.Queries(r.tx)
-	return q.InsertRouterFeedback(ctx, sqlc.InsertRouterFeedbackParams{
+	return dbbudget.Queries(r.tx).InsertRouterFeedback(ctx, sqlc.InsertRouterFeedbackParams{
 		InstallationID: id,
 		SessionKey:     p.SessionKey,
 		Role:           p.Role,

@@ -20,7 +20,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Service) WithRouterFeedbackStore(store conversation.RouterFeedbackStore) *Service {
+func (s *Service) WithRouterFeedbackStore(store feedback.RouterFeedbackStore) *Service {
 	if s.lifecycle == nil {
 		s.lifecycle = &conversation.Lifecycle{}
 	}

@@ -16,9 +16,11 @@ Measurement rules (pinned in `ratchet_test.go`):
   (`foo_test`) are qualified so they cannot reuse the tested package's keys. When a key
   occurs more than once across base and head (build-tag variants in different files),
   each occurrence is qualified with its file so no variant overwrites another.
-- Function literals are measured as their own scope and keyed by a hash of their
-  rendered source, so inserting or editing one literal never re-keys another, and
-  editing a literal's body counts as a move. Package-level `var` and `const` literals
+- Function literals at every depth, including literals nested in other literals, are
+  measured as their own scope and keyed by a hash of their rendered source, so
+  inserting or editing one literal never re-keys another, and editing a literal's body
+  counts as a move. Base and head are measured the same way, so a nested literal that
+  moves with its closure into a named function is covered by its base copy. Package-level `var` and `const` literals
   are keyed `<dir>.<var>.func<hash>`.
 - Nesting counts an `else if` chain as one level. Lines count only lines holding a
   non-comment token.

@@ -55,16 +55,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
-type TelemetryEmitter interface {
-	NewRecorder() telemetry.Recorder
-	NewUsageExtractor(http.ResponseWriter, string) (*telemetry.UsageExtractor, http.ResponseWriter)
-}
-
 type Service struct {
-	externalKeyUsage    ExternalKeyUsageRecorder
+	externalKeyUsage    credentials.ExternalKeyUsageRecorder
 	recoveryProbeMu     sync.Mutex
 	recoveryProbeLeases map[string]localRecoveryProbeLease
 	nextRecoveryProbeID uint64
@@ -83,7 +77,7 @@ type Service struct {
 	scopedSearchRequirement      bool
 	searchRequirementDecayTurns  int
 	searchUse                    *searchUseTracker
-	emitter                      TelemetryEmitter
+	emitter                      telemetry.Emitter
 	translationMetrics           telemetry.TranslationMetrics
 	pinStore                     sessionpin.Store
 	escalation                   *floor.Helper
@@ -994,7 +988,7 @@ func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 	return false
 }
 
-func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
+func NewService(r router.Router, providerMap map[string]providers.Client, emitter telemetry.Emitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetryRepo TelemetryRepository) *Service {
 	s := &Service{
 		clients:                        dispatch.NewClients(providerMap),
 		translationCompatibilityMode:   TranslationCompatibilityShadow,
@@ -1010,7 +1004,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		hardPinExplore:                 hardPinExplore,
 		hardPinProvider:                hardPinProvider,
 		hardPinModel:                   hardPinModel,
-		telemetry:                      telemetry,
+		telemetry:                      telemetryRepo,
 		continuityConfig:               continuity.DefaultConfig(),
 		hmmServing:                     hmmServing{hmmConfig: continuity.DefaultAuthoritativeConfig()},
 		cyberRefusalRepin:              true,
@@ -1913,7 +1907,7 @@ func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http
 
 func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName string, body []byte, w http.ResponseWriter, r *http.Request) error {
 	log := observability.FromContext(ctx)
-	p, err := s.provider(providerName)
+	p, err := s.clients.Upstream(providerName)
 	if err != nil {
 		return err
 	}
@@ -2205,7 +2199,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				if err := s.handleForceModelCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
 					return err
 				}
-				s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 				return nil
 			}
 		}
@@ -2217,7 +2211,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				return err
 			}
 			if !cmd.FromToolResult {
-				s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 				return nil
 			}
 			requestBodyChanged = true
@@ -2228,7 +2222,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if err := s.handleRouterSessionCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 	if !agentShadowMode && env.ExtractRouterModelsCommand() {
@@ -2236,7 +2230,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if err := s.handleRouterModelsCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 	if !agentShadowMode && env.ExtractListModelsCommand() {
@@ -2244,7 +2238,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if err := s.handleListModelsCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 
@@ -2986,73 +2980,24 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if responseBuffer != nil && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
 	}
-	upstreamBuilder := telemetry.NewAttrBuilder(41).
-		String("request_id", facts.RequestID).
-		String("external_id", facts.ExternalID).
-		String("router_user_id", auth.UserIDFrom(ctx)).
-		String("client.device_id", facts.Client.DeviceID).
-		String("client.account_id", facts.Client.AccountID).
-		String("client.session_id", facts.Client.SessionID).
-		String("client.user_agent", facts.Client.UserAgent).
-		String("client.app", facts.Client.TelemetryClientApp()).
-		String("rollout_id", policyRolloutIDFromContext(ctx)).
-		String("requested.model", feats.Model).
-		String("decision.model", decision.Model).
-		String("decision.provider", finalProvider).
-		String("decision.reason", decision.Reason).
-		String("routing.turn_type", string(routeRes.TurnType)).
-		String("upstream.finish_reason", respSummary.UpstreamFinishReason).
-		String("upstream.stop_reason", respSummary.StopReason).
-		Bool("upstream.refusal", refusalObs.refused).
-		String("upstream.refusal_category", refusalObs.category).
-		Int64("usage.input_tokens", int64(in)).
-		Int64("usage.output_tokens", int64(out)).
-		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
-		Int64("usage.cache_read_input_tokens", int64(cacheRead)).
-		Int64("usage.cache_creation_1h_input_tokens", int64(usageMods.CacheCreation1h)).
-		String("usage.speed", string(extractor.Speed())).
-		String("usage.inference_geo", string(extractor.InferenceGeo())).
-		Float64("cost.requested_input_usd", requestedInputCost).
-		Int64("cost.baseline_warm_prefill_tokens", int64(baselineWarmPrefill)).
-		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, reqPricing, usageMods)).
-		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods)).
-		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, actPricing, usageMods)).
-		Bool("cost.subscription_served", s.costNeutralSubscriptionServed(ctx)).
-		Bool("cost.fast_mode", fastServed).
-		Int64("latency.upstream_ms", proxyMs).
-		Int64("latency.total_ms", s.clock.Now().Sub(requestStart).Milliseconds()).
-		Int64("upstream.status_code", int64(upstreamStatus(proxyErr))).
-		Bool("routing.cross_format", crossFormat).
-		String("dispatch.primary_provider", rescue.primaryProvider).
-		String("dispatch.primary_model", rescue.primaryModel).
-		String("dispatch.final_provider", finalProvider).
-		Int64("dispatch.fallback_attempts", int64(winnerIdx)).
-		Bool("dispatch.failover_used", rescue.failoverUsed).
-		Bool("dispatch.failover_attempted", rescue.failoverAttempted).
-		Bool("dispatch.baseline_failover", rescue.baselineFailoverUsed).
-		Bool("dispatch.subscription_failover", rescue.subscriptionFailoverUsed).
-		Bool("dispatch.sibling_failover", rescue.siblingFailoverUsed).
-		Bool("dispatch.early_stop_redo", rescue.earlyStopRedone)
-	if s.effectiveCaptureMode(ctx) == CaptureOff {
-		upstreamBuilder.Int64("request.message_count", int64(feats.MessageCount)).
-			Bool("request.has_tools", feats.HasTools)
-	}
-	applyPlannerAttrs(upstreamBuilder, routeRes)
-	applyRoutingStateAttrs(upstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
-	applyCallerRoutingAttrs(ctx, upstreamBuilder)
-	applyExperimentAttrs(ctx, upstreamBuilder, &routeRes, taskArm, feats.Model, decision.Model)
-	applyEffortAttrs(upstreamBuilder, effortServed)
-	s.applySubscriptionSpanTelemetry(ctx, upstreamBuilder, feats.Model, decision.Model)
-	addTimingAttrs(ctx, upstreamBuilder)
-
-	obs := buildObservationContext(s.strategyPorts, ctx, strategy, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
-	obs.applySpanAttrs(upstreamBuilder)
-
-	telemetry.Record(ctx, telemetry.Span{
-		Name:  "router.upstream",
-		Start: proxyStart,
-		End:   s.clock.Now(),
-		Attrs: upstreamBuilder.Build(),
+	upstreamBuilder, obs := recordUpstreamSpan(ctx, s.clock, upstreamSpan{
+		extendedAttrs: true, taskArm: taskArm, respSummary: respSummary, refusal: refusalObs, fastServed: fastServed, crossFormat: crossFormat,
+		facts: facts, feats: feats, decision: decision, provider: finalProvider, routeRes: &routeRes, sessionKey: sessionKey,
+		extractor: extractor, inputTokens: in, outputTokens: out, cacheCreation: cacheCreation, cacheRead: cacheRead, usageMods: usageMods,
+		requestedInputCost: requestedInputCost, baselineWarmPrefill: baselineWarmPrefill, reqPricing: reqPricing, actPricing: actPricing,
+		subscriptionServed: s.costNeutralSubscriptionServed(ctx), proxyMs: proxyMs, requestStart: requestStart, proxyStart: proxyStart, proxyErr: proxyErr,
+		effortServed: effortServed, captureMode: s.effectiveCaptureMode(ctx), strategyPorts: s.strategyPorts, strategy: strategy,
+		subscriptionAttrs: func(b *telemetry.AttrBuilder) { s.applySubscriptionSpanTelemetry(ctx, b, feats.Model, decision.Model) },
+		dispatch: &upstreamSpanDispatch{
+			primaryProvider: rescue.primaryProvider, primaryModel: rescue.primaryModel, fallbackAttempts: winnerIdx,
+			failoverUsed: rescue.failoverUsed, failoverAttempted: rescue.failoverAttempted,
+			surfaceAttrs: func(b *telemetry.AttrBuilder) {
+				b.Bool("dispatch.baseline_failover", rescue.baselineFailoverUsed).
+					Bool("dispatch.subscription_failover", rescue.subscriptionFailoverUsed).
+					Bool("dispatch.sibling_failover", rescue.siblingFailoverUsed).
+					Bool("dispatch.early_stop_redo", rescue.earlyStopRedone)
+			},
+		},
 	})
 	respBody, respTrunc := capturedResponse(contentCap)
 	if !agentShadowMode {
@@ -3174,14 +3119,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			UnifiedLimitHeaders:      unifiedLimitHeadersJSON(ctx),
 			CodexLimitHeaders:        codexLimitHeadersJSON(ctx),
 		}
-		applyServedGroupTelemetry(s.strategyPorts, ctx, &tel, routeRes, decision)
-		applyPlannerTelemetry(&tel, routeRes)
-		applyEffortTelemetry(&tel, effortServed)
-		applyAuthorityShadowTelemetry(&tel, routeRes)
-		applyBlindExperimentTelemetry(ctx, &tel, &routeRes)
-		applyPolicyPinTelemetry(ctx, &tel, decision.Metadata)
-		applySubscriberTelemetry(ctx, &tel)
-		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &tel, routeRes)
+		applyServedTurnTelemetry(ctx, s.strategyPorts, &tel, routeRes, decision, effortServed)
 		signalTurn := tt == turntype.MainLoop || tt == turntype.ToolResult
 		applyTurnSignalTelemetry(&tel, inboundSpiralSignals, inboundSpiralReasons,
 			inboundSpiralComputed && signalTurn,
@@ -3199,11 +3137,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 	if subscriberTelemetry != nil {
-		if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
-			applySubscriberSettlementTelemetry(subscriberSettlement, subscriberTelemetry)
-		} else {
-			markSubscriberTelemetryUnsettled(subscriberTelemetry)
-		}
+		applyTelemetrySettlement(subscriberTelemetry, turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead), subscriberSettlement)
 		s.fireTelemetry(ctx, *subscriberTelemetry)
 	}
 
@@ -4195,7 +4129,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				if err := s.handleForceModelCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
 					return err
 				}
-				s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 				return nil
 			}
 		}
@@ -4211,7 +4145,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			return err
 		}
 		if synthetic {
-			s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+			postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 			return nil
 		}
 		requestBodyChanged = true
@@ -4221,7 +4155,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if err := s.handleRouterSessionCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 	if env.ExtractRouterModelsCommand() {
@@ -4229,7 +4163,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if err := s.handleRouterModelsCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 	if env.ExtractListModelsCommand() {
@@ -4237,7 +4171,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if err := s.handleListModelsCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 
@@ -4615,348 +4549,36 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	cyberRetryArmed := false
 	preOutputRescueArmed := false
 	cyberRefusalSeen := false
+	attemptDeps := chatAttemptDeps{
+		request:              r,
+		svc:                  s,
+		isResponses:          isResponses,
+		responseSwitch:       &responseSwitch,
+		facts:                facts,
+		responsesNotices:     responsesNotices,
+		responsesPreludeBuf:  responsesPreludeBuf,
+		env:                  env,
+		responseWriter:       w,
+		responsesBody:        responsesBody,
+		log:                  log,
+		fastServed:           &fastServed,
+		routeRes:             &routeRes,
+		makeMarkerSink:       makeMarkerSink,
+		cyberRetryArmed:      &cyberRetryArmed,
+		preOutputRescueArmed: &preOutputRescueArmed,
+		extractor:            &extractor,
+		toolValidator:        toolValidator,
+		responsesWriter:      responsesWriter,
+		preludeBuf:           preludeBuf,
+		sink:                 sink,
+		respSummary:          &respSummary,
+		nativeRespSummary:    &nativeRespSummary,
+		cyberRefusalSeen:     &cyberRefusalSeen,
+		responsesEndpointKey: responsesEndpointKey,
+		crossFormat:          &crossFormat,
+	}
 	buildProviderAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
-		targetNotice := routerNoticeForDecision(withOwnCodexRejectionNudge(ctx, r.Header, s.usageObserver), r.Header, target, targetMarker)
-		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
-		if isResponses {
-			if targetMarker != "" && (!responseSwitch.passthrough() || supportsResponsesTerminalSurfaces(facts.Client.ClientApp)) {
-				_, noticeErr := responsesNotices.prepare(ctx, responsesPreludeBuf, responsesPreludeBuf, translate.FormatOpenAIResponses, env.Stream(), targetNotice)
-				if noticeErr != nil {
-					return nil, fmt.Errorf("emit Responses router notice: %w", noticeErr)
-				}
-			}
-		}
-		switch providers.FamilyFor(target.Provider) {
-		case providers.FamilyOpenAICompat:
-			dispatchOpenAI := func(actx context.Context, d router.Decision, p dispatch.Upstream, surface openAISurface, stripPromptCacheKey bool) error {
-				resetResponsesAttempt(w)
-				var prep providers.PreparedRequest
-				switch surface {
-				case surfaceResponsesNative:
-					outBody, setErr := sjson.SetBytes(responsesBody, "model", d.Model)
-					if setErr != nil {
-						log.Error("Failed to set routed model on Codex Responses body", "err", setErr, "decision_model", d.Model)
-						return fmt.Errorf("set codex model: %w", setErr)
-					}
-					outBody, setErr = translate.ClampResponsesInputCallIDs(outBody)
-					if setErr != nil {
-						return fmt.Errorf("clamp codex call_id: %w", setErr)
-					}
-					nativeOpts := targetOpts
-					nativeOpts.TargetProvider = d.Provider
-					nativeOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-					fastServed = nativeOpts.FastMode
-					outBody, setErr = codexNativeFastMode(outBody, nativeOpts, routeRes.TurnType)
-					if setErr != nil {
-						return fmt.Errorf("set codex service_tier: %w", setErr)
-					}
-					outBody, setErr = codexNativeEffort(outBody, nativeOpts, routeRes.TurnType)
-					if setErr != nil {
-						return fmt.Errorf("set codex reasoning effort: %w", setErr)
-					}
-					prep = providers.PreparedRequest{
-						Body:     outBody,
-						Endpoint: providers.EndpointResponses,
-						Headers:  make(http.Header),
-						Stats: providers.RequestMutationStats{
-							Transformations: responseTransformationsFromContext(actx),
-						},
-					}
-				default:
-					attemptOpts := targetOpts
-					attemptOpts.TargetProvider = d.Provider
-					attemptOpts.StripPromptCacheKey = stripPromptCacheKey
-					attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-					attemptOpts.ReasoningReplayScope = s.reasoningReplayScope(actx, d)
-					fastServed = attemptOpts.FastMode
-					var emitErr error
-					if surface == surfaceResponsesTranslated {
-						prep, emitErr = env.PrepareOpenAIResponses(r.Header, attemptOpts)
-					} else {
-						prep, emitErr = prepareOpenAIForTurn(env, r.Header, attemptOpts, routeRes.TurnType)
-					}
-					if emitErr != nil {
-						log.Error("Failed to emit OpenAI body", "err", emitErr,
-							"decision_provider", d.Provider, "endpoint", prep.Endpoint)
-						return fmt.Errorf("emit body: %w", emitErr)
-					}
-				}
-				noticeSink, noticeErr := makeMarkerSink(reconnectNoticeForAttempt(actx, r.Header, targetNotice))
-				if noticeErr != nil {
-					return fmt.Errorf("emit OpenAI router notice: %w", noticeErr)
-				}
-				refusalGate := newCyberRefusalGate(noticeSink,
-					cyberRetryArmed && d.Provider == providers.ProviderOpenAI)
-				if surface == surfaceResponsesNative && env.Stream() && preOutputRescueArmed {
-					refusalGate.holdPreOutputFailure()
-				}
-				var attemptSink http.ResponseWriter = refusalGate
-				var seedToolCalls *translate.SeedToolCallChatWriter
-				if surface == surfaceChat {
-					if names := env.SeedToolCallNames(prep.ResponseToolNames); len(names) > 0 {
-						seedToolCalls = translate.NewSeedToolCallChatWriter(attemptSink, names)
-						attemptSink = seedToolCalls
-					}
-				}
-				proxyWriter := attemptSink
-				var translator *translate.ResponsesToOpenAIChatWriter
-				var toolNames *translate.ToolNameWriter
-				var nativeTerminal *ingress.ResponsesTerminalObserver
-				switch {
-				case surface == surfaceResponsesTranslated:
-					var usage translate.UsageSink
-					if s.usageRequired() {
-						extractor = telemetry.NewUsageExtractor(d.Provider)
-						usage = extractor
-					}
-					translator = translate.NewResponsesToOpenAIChatWriter(attemptSink, d.Model, usage).
-						WithLogger(log).
-						WithToolValidator(toolValidator)
-					if providers.OutputExcludesReasoning(d.Provider) {
-						translator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
-					}
-					if isResponses {
-						responsesWriter.SetUsageSource(translator.UsageFacts)
-					}
-					if err := translator.Prelude(env.Stream()); err != nil {
-						log.Error("chat/completions prelude failed (Responses upstream)", "err", err)
-					}
-					toolNames = translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
-					proxyWriter = toolNames
-				case surface == surfaceResponsesNative:
-					nativeTerminal = ingress.NewResponsesTerminalObserver(attemptSink)
-					proxyWriter = nativeTerminal
-					if s.usageRequired() {
-						extractor, proxyWriter = s.newUsageExtractor(nativeTerminal, d.Provider)
-					}
-				case s.usageRequired() || isResponses:
-					extractor, proxyWriter = s.newUsageExtractor(attemptSink, d.Provider)
-				}
-				if surface == surfaceChat && isResponses {
-					responsesWriter.SetUsageSource(extractor.UsageFacts)
-				}
-				var chatTerminal *streamTerminalObserver
-				if surface == surfaceChat && !isResponses && env.Stream() {
-					chatTerminal = newStreamTerminalObserver(proxyWriter, nativeStreamOpenAIChat)
-					proxyWriter = chatTerminal
-				}
-				if preludeBuf != nil {
-					preludeBuf.Seal()
-				}
-				err := p.Proxy(actx, d, prep, proxyWriter, r)
-				if nativeTerminal != nil && nativeTerminal.Observed() && errors.Is(err, context.Canceled) {
-					err = nil
-				}
-				if seedToolCalls != nil {
-					err = finalizeAfterProxy(err, seedToolCalls.Finalize)
-					if n := seedToolCalls.ConvertedToolCalls(); n > 0 {
-						log.Warn("Recovered tool calls from Seed text markup",
-							"model", d.Model,
-							"provider", d.Provider,
-							"tool_calls", n)
-					}
-				}
-				if err == nil && chatTerminal != nil {
-					err = chatTerminal.streamErr()
-				}
-				if err != nil && surface != surfaceResponsesNative && env.Stream() && preludeBuf.Committed() {
-					_ = emitOpenAISSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
-				}
-				if translator != nil {
-					err = finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
-					if err == nil {
-						err = translator.UpstreamError()
-					}
-					respSummary = translator.Summary()
-					nativeRespSummary = false
-				} else if nativeTerminal != nil {
-					nativeTerminal.Finalize()
-					if rw, ok := w.(*translate.ResponsesWriter); ok {
-						err = finalizeAfterProxy(err, rw.Finalize)
-					}
-					if err == nil && env.Stream() {
-						err = nativeTerminal.Err()
-					}
-					if isStreamTerminalMissing(err) {
-						refusalGate.Abandon()
-					}
-					if nativeTerminal.Observed() && nativeTerminal.Signals().OutputLimitReached {
-						extractor.RecordOutputLimitReached()
-					}
-					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.Signals().FinishReason}
-					nativeRespSummary = false
-					if nativeTerminal.Observed() && s.ResolveNativeOpenAIResponseSignals(actx) {
-						respSummary.StopReason = nativeTerminal.Signals().FinishReason
-						respSummary.ToolUseBlocks = nativeTerminal.Signals().ToolCalls
-						nativeRespSummary = true
-					}
-				}
-				if releaseErr := refusalGate.finalizeAttempt(err); releaseErr != nil && (err == nil || providers.IsUpstreamCyberPolicyRefusal(releaseErr)) {
-					err = releaseErr
-				}
-				if err != nil && refusalGate.holdFailure && refusalGate.releaseEvent != "" {
-					log.Warn("Held Responses stream released before upstream failure",
-						"model", d.Model,
-						"provider", d.Provider,
-						"release_event", refusalGate.releaseEvent,
-						"release_item_type", refusalGate.releaseItemType,
-						"err", err)
-				}
-				if refusalGate.refused {
-					cyberRefusalSeen = true
-				}
-				if refusalGate.withheld {
-					err = providers.CyberPolicyRefusalError()
-				}
-
-				return err
-			}
-			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
-				surface := responseSwitch.surface(d.Provider, servedOnCodexSubscription(actx))
-				gatewayKey := gatewayResponsesKey(actx, d.Provider)
-				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
-				err := dispatchOpenAI(actx, d, p, surface, stripPCK)
-				if err != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
-					providers.IsUpstreamPromptCacheKeyRejection(err) {
-					s.gatewayCaps.RememberRejectsPromptCacheKey(gatewayKey)
-					stripPCK = true
-					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
-						"model", d.Model,
-						"decision_provider", d.Provider,
-						"request_id", facts.RequestID)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
-					}
-					err = dispatchOpenAI(actx, d, p, surface, true)
-				}
-				if err == nil || surface == surfaceChat ||
-					committed(preludeBuf) || !providers.IsUpstreamResponsesUnsupported(err) ||
-					codexSubscriptionModelRejected(err) {
-					return err
-				}
-				if responseSwitch.fallbackToChat(surface) != nil {
-					return err
-				}
-				s.gatewayCaps.RememberLacksResponses(responsesEndpointKey)
-				log.Warn("OpenAI endpoint rejected the Responses API; retrying on chat/completions",
-					"model", d.Model,
-					"decision_provider", d.Provider,
-					"request_id", facts.RequestID)
-				if preludeBuf != nil {
-					preludeBuf.Discard()
-				}
-				return dispatchOpenAI(actx, d, p, surfaceChat, stripPCK)
-			}, nil
-		case providers.FamilyGemini:
-			crossFormat = true
-			prep, emitErr := env.PrepareGemini(r.Header, targetOpts)
-			if emitErr != nil {
-				log.Error("Failed to translate OpenAI request to Gemini format", "err", emitErr)
-				return nil, fmt.Errorf("translate openai request to gemini: %w", emitErr)
-			}
-			dispatchGemini := func(actx context.Context, d router.Decision, p dispatch.Upstream, pr providers.PreparedRequest) (func(error) error, error) {
-				resetResponsesAttempt(w)
-				var usage translate.UsageSink
-				if s.usageRequired() {
-					extractor = telemetry.NewUsageExtractor(d.Provider)
-					usage = extractor
-				}
-				attemptSink, noticeErr := makeMarkerSink(reconnectNoticeForAttempt(actx, r.Header, targetNotice))
-				if noticeErr != nil {
-					return func(err error) error { return err }, noticeErr
-				}
-				translator := translate.NewGeminiToOpenAISSETranslator(attemptSink, d.Model, usage)
-				if isResponses {
-					responsesWriter.SetUsageSource(translator.UsageFacts)
-				}
-				if preludeBuf != nil {
-					preludeBuf.Seal()
-				}
-				rawErr := p.Proxy(actx, d, pr, translator, r)
-				finalize := func(err error) error {
-					if err != nil && env.Stream() && preludeBuf.Committed() {
-						_ = emitOpenAISSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
-					}
-					return finalizeAfterProxy(err, translator.Finalize)
-				}
-				return finalize, rawErr
-			}
-			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
-				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
-				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
-					return dispatchGemini(actx, d, p, prepared)
-				})
-			}, nil
-		case providers.FamilyAnthropic:
-			crossFormat = true
-			prep, emitErr := env.PrepareAnthropic(r.Header, targetOpts)
-			if emitErr != nil {
-				log.Error("Failed to translate OpenAI request to Anthropic format", "err", emitErr)
-				return nil, fmt.Errorf("translate openai request: %w", emitErr)
-			}
-			dispatchAnthropic := func(actx context.Context, d router.Decision, p dispatch.Upstream, attemptPrep providers.PreparedRequest, fast bool) (func(error) error, error) {
-				resetResponsesAttempt(w)
-				fastServed = fast
-				var usage translate.UsageSink
-				if s.usageRequired() {
-					extractor = telemetry.NewUsageExtractor(providers.ProviderAnthropic)
-					extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(attemptPrep.Body) })
-					usage = extractor
-				}
-				attemptSink, noticeErr := makeMarkerSink(reconnectNoticeForAttempt(actx, r.Header, targetNotice))
-				if noticeErr != nil {
-					return func(err error) error { return err }, noticeErr
-				}
-				translator := translate.NewSSETranslator(attemptSink, d.Model, usage)
-				if isResponses {
-					responsesWriter.SetUsageSource(translator.UsageFacts)
-				}
-				if preludeBuf != nil {
-					preludeBuf.Seal()
-				}
-				toolNames := translate.NewAnthropicToolNameWriter(translator, attemptPrep.ResponseToolNames)
-				rawErr := p.Proxy(actx, d, attemptPrep, toolNames, r)
-				finalize := func(err error) error {
-					if err != nil && env.Stream() && preludeBuf.Committed() {
-						_ = emitOpenAISSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
-					}
-					err = finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
-					respSummary = translator.Summary()
-					nativeRespSummary = false
-					return err
-				}
-				return finalize, rawErr
-			}
-			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
-				attemptOpts := targetOpts
-				attemptOpts.TargetProvider = d.Provider
-				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-				attemptPrep := prep
-				if attemptOpts.FastMode != targetOpts.FastMode {
-					var emitErr error
-					attemptPrep, emitErr = env.PrepareAnthropic(r.Header, attemptOpts)
-					if emitErr != nil {
-						log.Error("Failed to re-translate OpenAI request to Anthropic format for fast-tier change", "err", emitErr)
-						return fmt.Errorf("translate openai request: %w", emitErr)
-					}
-				}
-				finalize, rawErr := dispatchAnthropic(actx, d, p, attemptPrep, attemptOpts.FastMode)
-				rawErr, _ = retryAnthropicStandardSpeed(log, preludeBuf, d, attemptOpts, rawErr, func(standardOpts translate.EmitOptions) (func() error, error) {
-					standardPrep, emitErr := env.PrepareAnthropic(r.Header, standardOpts)
-					if emitErr != nil {
-						return nil, emitErr
-					}
-					return func() error {
-						var standardErr error
-						finalize, standardErr = dispatchAnthropic(actx, d, p, standardPrep, false)
-						return standardErr
-					}, nil
-				})
-				return finalize(rawErr)
-			}, nil
-		default:
-			return nil, fmt.Errorf("%w: %s (no translation path defined)", ErrProviderNotConfigured, target.Provider)
-		}
+		return buildChatAttempt(ctx, attemptDeps, target, targetOpts, targetMarker, fundingCtx)
 	}
 
 	buildAttempt := responseSwitch.wrapBuilder(buildProviderAttempt)
@@ -5049,73 +4671,26 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			nativeRespSummary = true
 		}
 	}
-	openaiUpstreamBuilder := telemetry.NewAttrBuilder(41).
-		String("request_id", facts.RequestID).
-		String("external_id", facts.ExternalID).
-		String("router_user_id", auth.UserIDFrom(ctx)).
-		String("client.device_id", facts.Client.DeviceID).
-		String("client.account_id", facts.Client.AccountID).
-		String("client.session_id", facts.Client.SessionID).
-		String("client.user_agent", facts.Client.UserAgent).
-		String("client.app", facts.Client.TelemetryClientApp()).
-		String("rollout_id", policyRolloutIDFromContext(ctx)).
-		String("requested.model", feats.Model).
-		String("decision.model", decision.Model).
-		String("decision.provider", finalProvider).
-		String("decision.reason", decision.Reason).
-		String("routing.turn_type", string(routeRes.TurnType)).
-		String("upstream.finish_reason", respSummary.UpstreamFinishReason).
-		String("upstream.stop_reason", respSummary.StopReason).
-		Int64("usage.input_tokens", int64(in)).
-		Int64("usage.output_tokens", int64(out)).
-		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
-		Int64("usage.cache_read_input_tokens", int64(cacheRead)).
-		Int64("usage.cache_creation_1h_input_tokens", int64(usageMods.CacheCreation1h)).
-		String("usage.speed", string(extractor.Speed())).
-		String("usage.inference_geo", string(extractor.InferenceGeo())).
-		Float64("cost.requested_input_usd", requestedInputCost).
-		Int64("cost.baseline_warm_prefill_tokens", int64(baselineWarmPrefill)).
-		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, reqPricing, usageMods)).
-		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods)).
-		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, actPricing, usageMods)).
-		Bool("cost.subscription_served", s.costNeutralSubscriptionServed(ctx)).
-		Bool("cost.fast_mode", fastServed).
-		Int64("latency.upstream_ms", proxyMs).
-		Int64("latency.total_ms", s.clock.Now().Sub(requestStart).Milliseconds()).
-		Int64("upstream.status_code", int64(upstreamStatus(proxyErr))).
-		Bool("routing.cross_format", crossFormat).
-		String("dispatch.primary_provider", rescue.primaryProvider).
-		String("dispatch.primary_model", rescue.primaryModel).
-		String("dispatch.final_provider", finalProvider).
-		Int64("dispatch.fallback_attempts", int64(winnerIdx)).
-		Bool("dispatch.failover_used", rescue.failoverUsed).
-		Bool("dispatch.failover_attempted", rescue.failoverAttempted).
-		Bool("dispatch.subscription_failover", rescue.codexFailoverUsed || rescue.claudeFailoverUsed).
-		Bool("dispatch.cyber_refusal_retry", rescue.cyberRetryRan).
-		Bool("dispatch.sibling_failover", rescue.siblingFailoverUsed)
-	if responsesSurface, _ := ctx.Value(responsesSurfaceContextKey{}).(bool); responsesSurface {
-		openaiUpstreamBuilder.String("request.api_surface", string(requestAPISurfaceResponses))
-	}
-	if s.effectiveCaptureMode(ctx) == CaptureOff {
-		openaiUpstreamBuilder.Int64("request.message_count", int64(feats.MessageCount)).
-			Bool("request.has_tools", feats.HasTools)
-	}
-	applyPlannerAttrs(openaiUpstreamBuilder, routeRes)
-	applyRoutingStateAttrs(openaiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
-	applyCallerRoutingAttrs(ctx, openaiUpstreamBuilder)
-	applyExperimentAttrs(ctx, openaiUpstreamBuilder, &routeRes, taskArm, feats.Model, decision.Model)
-	applyEffortAttrs(openaiUpstreamBuilder, effortServed)
-	s.applySubscriptionSpanTelemetry(ctx, openaiUpstreamBuilder, feats.Model, decision.Model)
-	addTimingAttrs(ctx, openaiUpstreamBuilder)
-
-	openaiObs := buildObservationContext(s.strategyPorts, ctx, strategy, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
-	openaiObs.applySpanAttrs(openaiUpstreamBuilder)
-
-	telemetry.Record(ctx, telemetry.Span{
-		Name:  "router.upstream",
-		Start: proxyStart,
-		End:   s.clock.Now(),
-		Attrs: openaiUpstreamBuilder.Build(),
+	openaiUpstreamBuilder, openaiObs := recordUpstreamSpan(ctx, s.clock, upstreamSpan{
+		extendedAttrs: true, taskArm: taskArm, respSummary: respSummary, fastServed: fastServed, crossFormat: crossFormat,
+		facts: facts, feats: feats, decision: decision, provider: finalProvider, routeRes: &routeRes, sessionKey: sessionKey,
+		extractor: extractor, inputTokens: in, outputTokens: out, cacheCreation: cacheCreation, cacheRead: cacheRead, usageMods: usageMods,
+		requestedInputCost: requestedInputCost, baselineWarmPrefill: baselineWarmPrefill, reqPricing: reqPricing, actPricing: actPricing,
+		subscriptionServed: s.costNeutralSubscriptionServed(ctx), proxyMs: proxyMs, requestStart: requestStart, proxyStart: proxyStart, proxyErr: proxyErr,
+		effortServed: effortServed, captureMode: s.effectiveCaptureMode(ctx), strategyPorts: s.strategyPorts, strategy: strategy,
+		subscriptionAttrs: func(b *telemetry.AttrBuilder) { s.applySubscriptionSpanTelemetry(ctx, b, feats.Model, decision.Model) },
+		dispatch: &upstreamSpanDispatch{
+			primaryProvider: rescue.primaryProvider, primaryModel: rescue.primaryModel, fallbackAttempts: winnerIdx,
+			failoverUsed: rescue.failoverUsed, failoverAttempted: rescue.failoverAttempted,
+			surfaceAttrs: func(b *telemetry.AttrBuilder) {
+				b.Bool("dispatch.subscription_failover", rescue.codexFailoverUsed || rescue.claudeFailoverUsed).
+					Bool("dispatch.cyber_refusal_retry", rescue.cyberRetryRan).
+					Bool("dispatch.sibling_failover", rescue.siblingFailoverUsed)
+				if responsesSurface, _ := ctx.Value(responsesSurfaceContextKey{}).(bool); responsesSurface {
+					b.String("request.api_surface", string(requestAPISurfaceResponses))
+				}
+			},
+		},
 	})
 	callLogBase := openaiUpstreamBuilder.Build()
 	emitCallLog := func() {
@@ -5258,19 +4833,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			UnifiedLimitHeaders:      unifiedLimitHeadersJSON(ctx),
 			CodexLimitHeaders:        codexLimitHeadersJSON(ctx),
 		}
-		applyServedGroupTelemetry(s.strategyPorts, ctx, &telOAI, routeRes, decision)
-		applyPlannerTelemetry(&telOAI, routeRes)
-		applyEffortTelemetry(&telOAI, effortServed)
-		applyAuthorityShadowTelemetry(&telOAI, routeRes)
-		applyBlindExperimentTelemetry(ctx, &telOAI, &routeRes)
-		applyPolicyPinTelemetry(ctx, &telOAI, decision.Metadata)
-		applySubscriberTelemetry(ctx, &telOAI)
-		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &telOAI, routeRes)
-		if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
-			applySubscriberSettlementTelemetry(subscriberSettlement, &telOAI)
-		} else {
-			markSubscriberTelemetryUnsettled(&telOAI)
-		}
+		applyServedTurnTelemetry(ctx, s.strategyPorts, &telOAI, routeRes, decision, effortServed)
+		applyTelemetrySettlement(&telOAI, turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead), subscriberSettlement)
 		s.fireTelemetry(ctx, telOAI)
 	}
 

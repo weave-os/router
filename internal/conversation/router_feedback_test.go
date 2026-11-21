@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -18,11 +19,11 @@ import (
 )
 
 type fakeRouterFeedbackStore struct {
-	events []conversation.RouterFeedbackEvent
+	events []feedback.RouterFeedbackEvent
 	err    error
 }
 
-func (f *fakeRouterFeedbackStore) InsertRouterFeedback(_ context.Context, event conversation.RouterFeedbackEvent) error {
+func (f *fakeRouterFeedbackStore) InsertRouterFeedback(_ context.Context, event feedback.RouterFeedbackEvent) error {
 	f.events = append(f.events, event)
 	return f.err
 }
@@ -67,7 +68,7 @@ func feedbackRequest(cmd translate.RouterFeedbackResult) conversation.RouterFeed
 	}
 }
 
-func recorder(store conversation.RouterFeedbackStore) conversation.RouterFeedback {
+func recorder(store feedback.RouterFeedbackStore) conversation.RouterFeedback {
 	return conversation.RouterFeedback{
 		Store:     store,
 		Reporters: noReporters{},
