@@ -21,7 +21,7 @@ type Resolution struct {
 
 func Resolve(facts requestcontext.RequestFacts, provider string, skip Suppression) Resolution {
 	byok := BuildCredentialsMap(facts.ExternalKeys)
-	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst {
+	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst && !facts.ByokFeeUnpayable {
 		return Resolution{Credentials: byok[provider]}
 	}
 	suppressed := provider == providers.ProviderAnthropic && skip.Claude ||

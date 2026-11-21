@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -53,7 +54,7 @@ func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 type ExternalAPIKeysContextKey struct{}
 
 func byokFirst(ctx context.Context, provider string) bool {
-	return credentials.KeyFirst(externalKeysFromContext(ctx), provider)
+	return credentials.KeyFirst(externalKeysFromContext(ctx), provider) && !billing.ByokFeeUnpayable(ctx)
 }
 
 func anthropicBYOKFirst(ctx context.Context) bool {
