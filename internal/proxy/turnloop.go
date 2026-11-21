@@ -1286,22 +1286,6 @@ func buildPolicyTurnContext(
 	}
 }
 
-func resolveSummarizerCreds(ctx context.Context, provider string, headers http.Header) *Credentials {
-	if provider == "" {
-		return nil
-	}
-	if byok := BuildCredentialsMap(externalKeysFromContext(ctx)); byok != nil {
-		if creds, ok := byok[provider]; ok {
-			return creds
-		}
-	}
-	creds := ExtractClientCredentials(provider, headers)
-	if creds != nil && creds.OAuth {
-		return nil
-	}
-	return creds
-}
-
 func sortedEnabledKeys(m map[string]struct{}) []string {
 	if len(m) == 0 {
 		return []string{}

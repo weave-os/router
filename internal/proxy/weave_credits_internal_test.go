@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 
 	"github.com/stretchr/testify/assert"
@@ -16,7 +17,7 @@ import (
 
 func deniedCtxWithKeys(keys ...*auth.ExternalAPIKey) context.Context {
 	ctx := billing.WithWeaveCreditsDenied(context.Background())
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, keys)
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, keys)
 	return withWeaveCreditsFunding(ctx, http.Header{})
 }
 
@@ -31,7 +32,7 @@ func TestWeaveCreditsFunding_FailedKeyIsNotAFundingSource(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, got)
-	assert.False(t, customerFunded(BuildCredentialsMap(externalKeysFromContext(ctx))[providers.ProviderOpenAI]))
+	assert.False(t, customerFunded(credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[providers.ProviderOpenAI]))
 }
 
 func TestWeaveCreditsFunding_AllowedLeavesProvidersAlone(t *testing.T) {

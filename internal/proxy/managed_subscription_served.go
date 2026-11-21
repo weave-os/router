@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
@@ -14,7 +15,7 @@ func (s *Service) markManagedSubscriptionServed(ctx context.Context, credentialC
 	if len(leases) > 0 {
 		lease = leases[0]
 	}
-	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if usage != nil {
 		served, stepped := subscriptionlane.Step(billing.SubscriptionLaneFromContext(ctx), subscriptionlane.SubscriptionServed)
 		usage.Served = stepped && served == subscriptionlane.ServedOnSubscription
@@ -33,7 +34,7 @@ func (s *Service) markManagedSubscriptionServed(ctx context.Context, credentialC
 }
 
 func managedSubscriptionCredentialSource(ctx context.Context) string {
-	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if usage == nil || !usage.Served {
 		return ""
 	}
@@ -41,7 +42,7 @@ func managedSubscriptionCredentialSource(ctx context.Context) string {
 }
 
 func managedSubscriptionServed(ctx context.Context) bool {
-	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	return usage != nil && usage.Served
 }
 
@@ -60,7 +61,7 @@ func (s *Service) subscriptionOverageInUse(ctx context.Context) bool {
 		return usage.PaidAnthropicOverage(
 			usage.AnthropicClaim(claim), headers["anthropic-ratelimit-unified-overage-in-use"])
 	}
-	if managedUsage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); managedUsage != nil && managedUsage.Served {
+	if managedUsage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); managedUsage != nil && managedUsage.Served {
 		return managedUsage.OverageInUse
 	}
 	creds := CredentialsFromContext(ctx)

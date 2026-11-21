@@ -10,12 +10,14 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const slowSubscriptionStream = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-5\",\"content\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":0}}}\n\n" +
@@ -64,7 +66,7 @@ func TestMessagesHandler_LinkedSubscriptionSlowFirstResponseSucceeds(t *testing.
 	engine := messagesEngine(svc)
 	synctest.Test(t, func(t *testing.T) {
 		body := `{"model":"claude-sonnet-4-5","stream":true,"messages":[{"role":"user","content":"synthetic slow turn"}],"max_tokens":4096}`
-		ctx := context.WithValue(proxy.WithManagedSubscriptionUsage(context.Background()), proxy.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-linked-token")
+		ctx := context.WithValue(proxy.WithManagedSubscriptionUsage(context.Background()), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-linked-token")
 		rec := httptest.NewRecorder()
 
 		engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", bytes.NewReader([]byte(body))))

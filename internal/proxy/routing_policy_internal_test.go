@@ -284,7 +284,7 @@ func TestClientSelectedUnknownModelIsNotAttributedToPolicy(t *testing.T) {
 
 func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 	picked := func() context.Context {
-		return auth.WithClientModelPassthrough(context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken))
+		return auth.WithClientModelPassthrough(context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken))
 	}
 	creditFallback := func(ctx context.Context) context.Context {
 		return context.WithValue(ctx, InstallationPickedModelCreditFallbackContextKey{}, true)
@@ -303,7 +303,7 @@ func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 		{name: "a pick the org routed instead is routed traffic", ctx: picked(), provider: providers.ProviderAnthropic},
 		{name: "a passthrough policy keeps own-plan funding under a router_on arm", ctx: auth.WithRoutingPolicy(context.WithValue(picked(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}), auth.RoutingPolicy{Mode: auth.RoutingPolicyPassthrough}), servedAsIs: true, provider: providers.ProviderAnthropic, wantOwn: true, wantPicked: true},
 		{name: "a router_on experiment arm funds the pick like routed traffic", ctx: context.WithValue(picked(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}), servedAsIs: true, provider: providers.ProviderAnthropic},
-		{name: "routed request is untouched", ctx: context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken), servedAsIs: true, provider: providers.ProviderAnthropic},
+		{name: "routed request is untouched", ctx: context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken), servedAsIs: true, provider: providers.ProviderAnthropic},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := withPickedModelFunding(tc.ctx, tc.servedAsIs, tc.provider)
@@ -321,7 +321,7 @@ func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
 		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
 		clock:         func() time.Time { return time.Unix(1_000_000, 0) },
 	}
-	routed := withClaudeCreditFallback(context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken))
+	routed := withClaudeCreditFallback(context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken))
 	picked := withPickedModelFunding(auth.WithClientModelPassthrough(routed), true, providers.ProviderAnthropic)
 	model := catalog.ModelIDClaudeSonnet46.String()
 
@@ -332,14 +332,14 @@ func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
 }
 
 func TestPickedCodexModelMaySpendOwnCredits(t *testing.T) {
-	ctx := auth.WithClientModelPassthrough(context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, "codex-jwt"))
+	ctx := auth.WithClientModelPassthrough(context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "codex-jwt"))
 
 	assert.True(t, requestcontext.SubscriptionExtraUsageFrom(withPickedModelFunding(ctx, true, providers.ProviderOpenAI)))
 	assert.False(t, requestcontext.SubscriptionExtraUsageFrom(withPickedModelFunding(ctx, false, providers.ProviderOpenAI)))
 }
 
 func TestCodexPickFundsOnOwnPlan(t *testing.T) {
-	selected := withCodexSelectedModel(context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, "codex-jwt"), "gpt-6-astra", []byte(`{"reasoning":{"effort":"high"}}`))
+	selected := withCodexSelectedModel(context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "codex-jwt"), "gpt-6-astra", []byte(`{"reasoning":{"effort":"high"}}`))
 	creditFallback := context.WithValue(selected, InstallationPickedModelCreditFallbackContextKey{}, true)
 
 	served := withCodexPickFunding(selected, "gpt-6-astra", providers.ProviderOpenAI)

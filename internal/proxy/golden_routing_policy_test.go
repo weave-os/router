@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -243,7 +244,7 @@ func routingPolicyPreferModels(models ...string) func(context.Context) context.C
 
 func routingPolicyExternalKeys(keys ...*auth.ExternalAPIKey) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, keys)
+		return context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, keys)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -45,7 +46,7 @@ func TestProxyMessages_WeaveCreditsDenied(t *testing.T) {
 				ctx = billing.WithWeaveCreditsDenied(ctx)
 			}
 			if tc.keys != nil {
-				ctx = context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, tc.keys)
+				ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, tc.keys)
 			}
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 			body := []byte(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
