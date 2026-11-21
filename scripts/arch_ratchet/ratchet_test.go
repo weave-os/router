@@ -303,7 +303,11 @@ func newTempGitRepo(t *testing.T) (string, func(args ...string)) {
 func TestTempGitRepoIgnoresInheritedHookGitEnvironment(t *testing.T) {
 	sentinel := t.TempDir()
 	initSentinel := exec.CommandContext(t.Context(), "git", "init", "-q", "-b", "main", sentinel)
-	initSentinel.Env = filteredGitEnv(os.Environ())
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_") {
+			initSentinel.Env = append(initSentinel.Env, kv)
+		}
+	}
 	out, err := initSentinel.CombinedOutput()
 	require.NoError(t, err, string(out))
 	configBefore, err := os.ReadFile(filepath.Join(sentinel, ".git", "config"))
@@ -325,16 +329,6 @@ func TestTempGitRepoIgnoresInheritedHookGitEnvironment(t *testing.T) {
 	assert.Equal(t, string(configBefore), string(configAfter))
 	assert.NoFileExists(t, filepath.Join(sentinel, ".git", "index"))
 	assert.FileExists(t, filepath.Join(root, ".git", "index"))
-}
-
-func filteredGitEnv(env []string) []string {
-	kept := make([]string, 0, len(env))
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, "GIT_") {
-			kept = append(kept, kv)
-		}
-	}
-	return kept
 }
 
 func TestRunComparesWorkingTreeWithMergeBase(t *testing.T) {
