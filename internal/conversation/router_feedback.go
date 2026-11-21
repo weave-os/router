@@ -40,10 +40,7 @@ type RouterFeedbackEvent struct {
 	RouteID        string
 }
 
-const (
-	RouterFeedbackSourceUser = "user"
-	RouterFeedbackSourceAuto = "auto"
-)
+const RouterFeedbackSourceUser = "user"
 
 type FeedbackTurn struct {
 	DecisionModel string

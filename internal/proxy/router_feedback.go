@@ -56,13 +56,12 @@ func (p routerFeedbackPorts) ServedModel(ctx context.Context, strategy router.St
 }
 
 func (p routerFeedbackPorts) UpsertRequestFeedback(ctx context.Context, feedback conversation.RequestFeedback) error {
-	comment := feedback.Comment
 	return p.s.feedbackRepo.Upsert(ctx, UpsertFeedbackParams{
 		InstallationID: feedback.InstallationID,
 		ExternalID:     feedback.ExternalID,
 		RequestID:      feedback.RequestID,
 		Rating:         feedback.Rating,
-		Comment:        &comment,
+		Comment:        &feedback.Comment,
 		Source:         feedback.Source,
 		RouterUserID:   feedback.RouterUserID,
 	})

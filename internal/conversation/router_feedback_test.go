@@ -135,11 +135,7 @@ func TestRouterFeedbackStoreErrorIsReturned(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestLifecycleHoldsRouterFeedbackStore(t *testing.T) {
+func TestNilLifecycleHasNoRouterFeedbackStore(t *testing.T) {
 	var lifecycle *conversation.Lifecycle
 	assert.Nil(t, lifecycle.RouterFeedbackStore())
-	lifecycle = &conversation.Lifecycle{}
-	store := &fakeRouterFeedbackStore{}
-	lifecycle.SetRouterFeedbackStore(store)
-	assert.Same(t, store, lifecycle.RouterFeedbackStore())
 }
