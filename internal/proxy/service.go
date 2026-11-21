@@ -4792,7 +4792,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	preOutputRescueArmed := false
 	cyberRefusalSeen := false
 	attemptDeps := chatAttemptDeps{
-		r:                    r,
+		request:              r,
 		svc:                  s,
 		isResponses:          isResponses,
 		responseSwitch:       &responseSwitch,
@@ -4800,7 +4800,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		responsesNotices:     responsesNotices,
 		responsesPreludeBuf:  responsesPreludeBuf,
 		env:                  env,
-		w:                    w,
+		responseWriter:       w,
 		responsesBody:        responsesBody,
 		log:                  log,
 		fastServed:           &fastServed,

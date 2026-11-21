@@ -20,7 +20,7 @@ import (
 )
 
 type chatAttemptDeps struct {
-	r                    *http.Request
+	request              *http.Request
 	svc                  *Service
 	isResponses          bool
 	responseSwitch       *responseProtocolSwitch
@@ -28,7 +28,7 @@ type chatAttemptDeps struct {
 	responsesNotices     *requestNoticeStream
 	responsesPreludeBuf  *preludeBuffer
 	env                  *translate.RequestEnvelope
-	w                    http.ResponseWriter
+	responseWriter       http.ResponseWriter
 	responsesBody        []byte
 	log                  *slog.Logger
 	fastServed           *bool
@@ -49,7 +49,7 @@ type chatAttemptDeps struct {
 }
 
 func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
-	targetNotice := routerNoticeForDecision(withOwnCodexRejectionNudge(ctx, deps.r.Header, deps.svc.usageObserver), deps.r.Header, target, targetMarker)
+	targetNotice := routerNoticeForDecision(withOwnCodexRejectionNudge(ctx, deps.request.Header, deps.svc.usageObserver), deps.request.Header, target, targetMarker)
 	targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(deps.svc), target.Provider, target.Model, targetNotice)
 	if deps.isResponses {
 		if targetMarker != "" && (!deps.responseSwitch.passthrough() || supportsResponsesTerminalSurfaces(deps.facts.Client.ClientApp)) {
@@ -62,7 +62,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 	switch providers.FamilyFor(target.Provider) {
 	case providers.FamilyOpenAICompat:
 		dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
-			resetResponsesAttempt(deps.w)
+			resetResponsesAttempt(deps.responseWriter)
 			var prep providers.PreparedRequest
 			switch surface {
 			case surfaceResponsesNative:
@@ -104,9 +104,9 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				*deps.fastServed = attemptOpts.FastMode
 				var emitErr error
 				if surface == surfaceResponsesTranslated {
-					prep, emitErr = deps.env.PrepareOpenAIResponses(deps.r.Header, attemptOpts)
+					prep, emitErr = deps.env.PrepareOpenAIResponses(deps.request.Header, attemptOpts)
 				} else {
-					prep, emitErr = prepareOpenAIForTurn(deps.env, deps.r.Header, attemptOpts, deps.routeRes.TurnType)
+					prep, emitErr = prepareOpenAIForTurn(deps.env, deps.request.Header, attemptOpts, deps.routeRes.TurnType)
 				}
 				if emitErr != nil {
 					deps.log.Error("Failed to emit OpenAI body", "err", emitErr,
@@ -114,7 +114,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 					return fmt.Errorf("emit body: %w", emitErr)
 				}
 			}
-			noticeSink, noticeErr := deps.makeMarkerSink(reconnectNoticeForAttempt(actx, deps.r.Header, targetNotice))
+			noticeSink, noticeErr := deps.makeMarkerSink(reconnectNoticeForAttempt(actx, deps.request.Header, targetNotice))
 			if noticeErr != nil {
 				return fmt.Errorf("emit OpenAI router notice: %w", noticeErr)
 			}
@@ -176,7 +176,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			if deps.preludeBuf != nil {
 				deps.preludeBuf.Seal()
 			}
-			err := p.Proxy(actx, d, prep, proxyWriter, deps.r)
+			err := p.Proxy(actx, d, prep, proxyWriter, deps.request)
 			if nativeTerminal != nil && nativeTerminal.Observed() && errors.Is(err, context.Canceled) {
 				err = nil
 			}
@@ -204,7 +204,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				*deps.nativeRespSummary = false
 			} else if nativeTerminal != nil {
 				nativeTerminal.Finalize()
-				if rw, ok := deps.w.(*translate.ResponsesWriter); ok {
+				if rw, ok := deps.responseWriter.(*translate.ResponsesWriter); ok {
 					err = finalizeAfterProxy(err, rw.Finalize)
 				}
 				if err == nil && deps.env.Stream() {
@@ -280,19 +280,19 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 		}, nil
 	case providers.FamilyGemini:
 		*deps.crossFormat = true
-		prep, emitErr := deps.env.PrepareGemini(deps.r.Header, targetOpts)
+		prep, emitErr := deps.env.PrepareGemini(deps.request.Header, targetOpts)
 		if emitErr != nil {
 			deps.log.Error("Failed to translate OpenAI request to Gemini format", "err", emitErr)
 			return nil, fmt.Errorf("translate openai request to gemini: %w", emitErr)
 		}
 		dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (func(error) error, error) {
-			resetResponsesAttempt(deps.w)
+			resetResponsesAttempt(deps.responseWriter)
 			var usage translate.UsageSink
 			if deps.svc.usageRequired() {
 				*deps.extractor = telemetry.NewUsageExtractor(d.Provider)
 				usage = *deps.extractor
 			}
-			attemptSink, noticeErr := deps.makeMarkerSink(reconnectNoticeForAttempt(actx, deps.r.Header, targetNotice))
+			attemptSink, noticeErr := deps.makeMarkerSink(reconnectNoticeForAttempt(actx, deps.request.Header, targetNotice))
 			if noticeErr != nil {
 				return func(err error) error { return err }, noticeErr
 			}
@@ -303,7 +303,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			if deps.preludeBuf != nil {
 				deps.preludeBuf.Seal()
 			}
-			rawErr := p.Proxy(actx, d, pr, translator, deps.r)
+			rawErr := p.Proxy(actx, d, pr, translator, deps.request)
 			finalize := func(err error) error {
 				if err != nil && deps.env.Stream() && deps.preludeBuf.Committed() {
 					_ = emitOpenAISSEErrorEvent(deps.sink, attributeStreamError(actx, d.Provider, err))
@@ -313,20 +313,20 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			return finalize, rawErr
 		}
 		return func(actx context.Context, d router.Decision, p providers.Client) error {
-			retry := geminiToolModeAttempt{log: deps.log, buffer: deps.preludeBuf, env: deps.env, headers: deps.r.Header, opts: targetOpts}
+			retry := geminiToolModeAttempt{log: deps.log, buffer: deps.preludeBuf, env: deps.env, headers: deps.request.Header, opts: targetOpts}
 			return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
 				return dispatchGemini(actx, d, p, prepared)
 			})
 		}, nil
 	case providers.FamilyAnthropic:
 		*deps.crossFormat = true
-		prep, emitErr := deps.env.PrepareAnthropic(deps.r.Header, targetOpts)
+		prep, emitErr := deps.env.PrepareAnthropic(deps.request.Header, targetOpts)
 		if emitErr != nil {
 			deps.log.Error("Failed to translate OpenAI request to Anthropic format", "err", emitErr)
 			return nil, fmt.Errorf("translate openai request: %w", emitErr)
 		}
 		dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, attemptPrep providers.PreparedRequest, fast bool) (func(error) error, error) {
-			resetResponsesAttempt(deps.w)
+			resetResponsesAttempt(deps.responseWriter)
 			*deps.fastServed = fast
 			var usage translate.UsageSink
 			if deps.svc.usageRequired() {
@@ -334,7 +334,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				(*deps.extractor).SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(attemptPrep.Body) })
 				usage = *deps.extractor
 			}
-			attemptSink, noticeErr := deps.makeMarkerSink(reconnectNoticeForAttempt(actx, deps.r.Header, targetNotice))
+			attemptSink, noticeErr := deps.makeMarkerSink(reconnectNoticeForAttempt(actx, deps.request.Header, targetNotice))
 			if noticeErr != nil {
 				return func(err error) error { return err }, noticeErr
 			}
@@ -346,7 +346,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				deps.preludeBuf.Seal()
 			}
 			toolNames := translate.NewAnthropicToolNameWriter(translator, attemptPrep.ResponseToolNames)
-			rawErr := p.Proxy(actx, d, attemptPrep, toolNames, deps.r)
+			rawErr := p.Proxy(actx, d, attemptPrep, toolNames, deps.request)
 			finalize := func(err error) error {
 				if err != nil && deps.env.Stream() && deps.preludeBuf.Committed() {
 					_ = emitOpenAISSEErrorEvent(deps.sink, attributeStreamError(actx, d.Provider, err))
@@ -365,7 +365,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			attemptPrep := prep
 			if attemptOpts.FastMode != targetOpts.FastMode {
 				var emitErr error
-				attemptPrep, emitErr = deps.env.PrepareAnthropic(deps.r.Header, attemptOpts)
+				attemptPrep, emitErr = deps.env.PrepareAnthropic(deps.request.Header, attemptOpts)
 				if emitErr != nil {
 					deps.log.Error("Failed to re-translate OpenAI request to Anthropic format for fast-tier change", "err", emitErr)
 					return fmt.Errorf("translate openai request: %w", emitErr)
@@ -373,7 +373,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			}
 			finalize, rawErr := dispatchAnthropic(actx, d, p, attemptPrep, attemptOpts.FastMode)
 			rawErr, _ = retryAnthropicStandardSpeed(deps.log, deps.preludeBuf, d, attemptOpts, rawErr, func(standardOpts translate.EmitOptions) (func() error, error) {
-				standardPrep, emitErr := deps.env.PrepareAnthropic(deps.r.Header, standardOpts)
+				standardPrep, emitErr := deps.env.PrepareAnthropic(deps.request.Header, standardOpts)
 				if emitErr != nil {
 					return nil, emitErr
 				}
