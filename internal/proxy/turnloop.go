@@ -1068,7 +1068,7 @@ func (s *Service) runTurnLoop(
 			res.Handover, rewritten = conversation.ModelSwitchSummary{
 				Summarizer: s.summarizer,
 				Access:     summarizerAccess{s: s, headers: reqHeaders},
-				Now:        func() time.Time { return s.clock.Now() },
+				Now:        s.clock.Now,
 			}.Run(ctx, env, req, pin.Model, fresh.Model)
 			if rewritten {
 				res.ContextEstimate = env.ContextOverflowTokenEstimate()
