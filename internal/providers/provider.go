@@ -44,6 +44,7 @@ const (
 	ProviderOpenAI           = "openai"
 	ProviderGoogle           = "google"
 	ProviderOpenRouter       = "openrouter"
+	ProviderTrustedRouter    = "trustedrouter"
 	ProviderFireworks        = "fireworks"
 	ProviderDeepInfra        = "deepinfra"
 	ProviderBedrock          = "bedrock"
@@ -68,19 +69,20 @@ const (
 )
 
 var ProviderFamilies = map[string]TranslationFamily{
-	ProviderAnthropic:  FamilyAnthropic,
-	ProviderOpenAI:     FamilyOpenAICompat,
-	ProviderGoogle:     FamilyGemini,
-	ProviderOpenRouter: FamilyOpenAICompat,
-	ProviderFireworks:  FamilyOpenAICompat,
-	ProviderDeepInfra:  FamilyOpenAICompat,
-	ProviderBedrock:    FamilyOpenAICompat,
-	ProviderMakora:     FamilyOpenAICompat,
-	ProviderMiniMax:    FamilyOpenAICompat,
-	ProviderTogether:   FamilyOpenAICompat,
-	ProviderXAI:        FamilyOpenAICompat,
-	ProviderMeta:       FamilyOpenAICompat,
-	ProviderWafer:      FamilyOpenAICompat,
+	ProviderAnthropic:     FamilyAnthropic,
+	ProviderOpenAI:        FamilyOpenAICompat,
+	ProviderGoogle:        FamilyGemini,
+	ProviderOpenRouter:    FamilyOpenAICompat,
+	ProviderTrustedRouter: FamilyOpenAICompat,
+	ProviderFireworks:     FamilyOpenAICompat,
+	ProviderDeepInfra:     FamilyOpenAICompat,
+	ProviderBedrock:       FamilyOpenAICompat,
+	ProviderMakora:        FamilyOpenAICompat,
+	ProviderMiniMax:       FamilyOpenAICompat,
+	ProviderTogether:      FamilyOpenAICompat,
+	ProviderXAI:           FamilyOpenAICompat,
+	ProviderMeta:          FamilyOpenAICompat,
+	ProviderWafer:         FamilyOpenAICompat,
 
 	ProviderWaferAnthropic:   FamilyAnthropic,
 	ProviderAnthropicGateway: FamilyAnthropic,
@@ -136,6 +138,7 @@ var APIKeyEnvVars = map[string]string{
 	ProviderOpenAI:           "OPENAI_API_KEY",
 	ProviderGoogle:           "GOOGLE_API_KEY",
 	ProviderOpenRouter:       "OPENROUTER_API_KEY",
+	ProviderTrustedRouter:    "TRUSTEDROUTER_API_KEY",
 	ProviderFireworks:        "FIREWORKS_API_KEY",
 	ProviderDeepInfra:        "DEEPINFRA_API_KEY",
 	ProviderBedrock:          "AWS_BEARER_TOKEN_BEDROCK",

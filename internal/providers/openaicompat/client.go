@@ -22,6 +22,7 @@ import (
 
 const (
 	DefaultBaseURL       = "https://openrouter.ai/api/v1"
+	TrustedRouterBaseURL = "https://api.trustedrouter.com/v1"
 	FireworksBaseURL     = "https://api.fireworks.ai/inference/v1"
 	DeepInfraBaseURL     = "https://api.deepinfra.com/v1/openai"
 	MakoraBaseURL        = "https://inference.makora.com/v1"
