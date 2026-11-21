@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -174,7 +175,7 @@ func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 	status := http.StatusBadGateway
 	body, _ := sjson.SetBytes([]byte(`{"type":"error","error":{"type":"api_error","message":""}}`), "error.message", attributedStreamFailure(err))
 	switch cls, classified := ClassifyDispatchError(err); {
-	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
+	case classified && cls.Kind == ingress.DispatchErrorContextWindowExceeded:
 		status = cls.Status
 		body = anthropicErrorFrameBody(cls)
 	case errors.As(err, &resp):
@@ -198,7 +199,7 @@ func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 	status := http.StatusBadGateway
 	body, _ := sjson.SetBytes([]byte(`{"error":{"message":"","type":"server_error","code":"upstream_error"}}`), "error.message", attributedStreamFailure(err))
 	switch cls, classified := ClassifyDispatchError(err); {
-	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
+	case classified && cls.Kind == ingress.DispatchErrorContextWindowExceeded:
 		status = cls.Status
 		body = openAIErrorFrameBody(cls)
 	case errors.As(err, &resp):
@@ -217,12 +218,12 @@ func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 	return &providers.UpstreamStatusError{Status: status, Cause: err}
 }
 
-func anthropicErrorFrameBody(cls DispatchErrorClass) []byte {
+func anthropicErrorFrameBody(cls ingress.DispatchErrorClass) []byte {
 	return []byte(fmt.Sprintf(`{"type":"error","error":{"type":%q,"message":%q}}`,
 		errorFrameType(cls), cls.Message))
 }
 
-func openAIErrorFrameBody(cls DispatchErrorClass) []byte {
+func openAIErrorFrameBody(cls ingress.DispatchErrorClass) []byte {
 	code := OpenAIErrorCode(cls.Kind)
 	if code == "" {
 		code = "upstream_error"
@@ -231,7 +232,7 @@ func openAIErrorFrameBody(cls DispatchErrorClass) []byte {
 		cls.Message, errorFrameType(cls), code))
 }
 
-func errorFrameType(cls DispatchErrorClass) string {
+func errorFrameType(cls ingress.DispatchErrorClass) string {
 	if cls.Kind.IsClientError() {
 		return "invalid_request_error"
 	}

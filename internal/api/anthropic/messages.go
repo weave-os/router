@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -65,7 +66,7 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 
 		if err := svc.ProxyMessages(c.Request.Context(), body, c.Writer, c.Request); err != nil {
 			cls, ok := proxy.ClassifyDispatchError(err)
-			if ok && cls.Kind == proxy.DispatchErrorUpstreamStatus {
+			if ok && cls.Kind == ingress.DispatchErrorUpstreamStatus {
 				if c.Writer.Written() {
 					return
 				}
@@ -77,7 +78,7 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 				return
 			}
 			if ok {
-				proxy.LogDispatchErrorClass(log, cls, err)
+				ingress.LogDispatchErrorClass(log, cls, err)
 				if cls.RetryAfter {
 					c.Header("Retry-After", "1")
 				}
@@ -120,7 +121,7 @@ func stashClientIdentity(ctx context.Context, h http.Header, body []byte) contex
 	return requestcontext.WithClientIdentity(ctx, id)
 }
 
-func anthropicErrorType(cls proxy.DispatchErrorClass) string {
+func anthropicErrorType(cls ingress.DispatchErrorClass) string {
 	if cls.Refusal != nil {
 		return cls.Refusal.AnthropicType()
 	}
