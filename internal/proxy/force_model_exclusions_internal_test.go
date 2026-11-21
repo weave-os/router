@@ -56,7 +56,7 @@ func TestForceModelCommand_RejectsSoleProviderExcluded(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(
+	require.NoError(t, (forceModelCommands{svc}).handle(
 		excludedProvidersCtx(providers.ProviderAnthropic), rec, env,
 		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(excludedProvidersCtx(providers.ProviderAnthropic)), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
 
@@ -80,7 +80,7 @@ func TestForceModelCommand_RejectsExcludedModel(t *testing.T) {
 		InstallationExcludedModelsContextKey{}, []string{"claude-opus-5-5"})
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(ctx, rec, env,
+	require.NoError(t, (forceModelCommands{svc}).handle(ctx, rec, env,
 		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
@@ -99,7 +99,7 @@ func TestForceModelCommand_AllowsWhenOneBindingSurvives(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(
+	require.NoError(t, (forceModelCommands{svc}).handle(
 		excludedProvidersCtx(providers.ProviderOpenRouter), rec, env,
 		translate.ForceModelResult{Model: multiBindingModel}, sessionTarget{strategy: router.StrategyFromContext(excludedProvidersCtx(providers.ProviderOpenRouter)), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
 
@@ -120,7 +120,7 @@ func TestForceModelCommand_RejectsWhenEveryBindingExcluded(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(
+	require.NoError(t, (forceModelCommands{svc}).handle(
 		excludedProvidersCtx(providers.ProviderBedrock, providers.ProviderOpenRouter),
 		rec, env, translate.ForceModelResult{Model: multiBindingModel}, sessionTarget{strategy: router.StrategyFromContext(excludedProvidersCtx(providers.ProviderBedrock, providers.ProviderOpenRouter)), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
 
@@ -142,7 +142,7 @@ func TestForceModelCommand_SessionStrikeOutDoesNotReject(t *testing.T) {
 		SessionDisabledProvidersContextKey{}, []string{providers.ProviderAnthropic})
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(ctx, rec, env,
+	require.NoError(t, (forceModelCommands{svc}).handle(ctx, rec, env,
 		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
@@ -285,7 +285,7 @@ func TestForceModelCommand_AllowsWhenAnotherKeyedBindingServes(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(
+	require.NoError(t, (forceModelCommands{svc}).handle(
 		excludedProvidersCtx(providers.ProviderAnthropic), rec, env,
 		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(excludedProvidersCtx(providers.ProviderAnthropic)), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
 
@@ -310,7 +310,7 @@ func TestForceModelCommand_RejectsDeploymentExcludedModel(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env,
+	require.NoError(t, (forceModelCommands{svc}).handle(context.Background(), rec, env,
 		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))

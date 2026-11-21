@@ -98,7 +98,7 @@ func TestAgreementShadowForceUnforceBeforeToolResultBreaksVotes(t *testing.T) {
 		t.Fatalf("fixture did not establish the pre-command vote: %+v", before)
 	}
 	for _, command := range []translate.ForceModelResult{{Model: agreementSol}, {Clear: true}} {
-		if err := svc.handleForceModelCommand(ctx, httptest.NewRecorder(), typedCommandEnv(t, "/fm sol"), command, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: installationID, sessionKey: threadKey}, controlKey, 1); err != nil {
+		if err := (forceModelCommands{svc}).handle(ctx, httptest.NewRecorder(), typedCommandEnv(t, "/fm sol"), command, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: installationID, sessionKey: threadKey}, controlKey, 1); err != nil {
 			t.Fatal(err)
 		}
 		svc.grantPostCommandContinuation(ctx, router.StrategyFromContext(ctx), installationID, threadKey, sessionpin.DefaultRole)
@@ -144,7 +144,7 @@ func TestAgreementShadowRejectedAndFailedCommandsKeepHistory(t *testing.T) {
 			if failed {
 				model = agreementSol
 			}
-			err := svc.handleForceModelCommand(ctx, httptest.NewRecorder(), typedCommandEnv(t, "/fm sol"), translate.ForceModelResult{Model: model}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.MustParse(p.InstallationID), sessionKey: threadKey}, [sessionpin.SessionKeyLen]byte{2}, 1)
+			err := (forceModelCommands{svc}).handle(ctx, httptest.NewRecorder(), typedCommandEnv(t, "/fm sol"), translate.ForceModelResult{Model: model}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.MustParse(p.InstallationID), sessionKey: threadKey}, [sessionpin.SessionKeyLen]byte{2}, 1)
 			if (err != nil) != failed {
 				t.Fatalf("unexpected command result: %v", err)
 			}
