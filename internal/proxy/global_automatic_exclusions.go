@@ -6,17 +6,13 @@ import (
 	"time"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/router/candidates"
 )
 
 const globalAutomaticExclusionTTL = time.Minute
 
-type GlobalAutomaticExclusionStore interface {
-	ListGlobalAutomaticRoutingExclusions(ctx context.Context) (map[string]string, error)
-}
-
 type globalAutomaticExclusionCache struct {
-	store GlobalAutomaticExclusionStore
+	store candidates.GlobalAutomaticExclusionStore
 
 	mu          sync.Mutex
 	byModel     map[string]string
@@ -25,7 +21,7 @@ type globalAutomaticExclusionCache struct {
 	refreshing  bool
 }
 
-func newGlobalAutomaticExclusionCache(store GlobalAutomaticExclusionStore) *globalAutomaticExclusionCache {
+func newGlobalAutomaticExclusionCache(store candidates.GlobalAutomaticExclusionStore) *globalAutomaticExclusionCache {
 	return &globalAutomaticExclusionCache{store: store}
 }
 
@@ -64,27 +60,13 @@ func (c *globalAutomaticExclusionCache) snapshot(ctx context.Context, now func()
 	return byModel
 }
 
-func mergeExcludedModels(hard, automatic map[string]struct{}) map[string]struct{} {
-	if len(automatic) == 0 {
-		return hard
-	}
-	merged := make(map[string]struct{}, len(hard)+len(automatic))
-	for model := range hard {
-		merged[model] = struct{}{}
-	}
-	for model := range automatic {
-		merged[model] = struct{}{}
-	}
-	return merged
-}
-
 func (s *Service) globalAutomaticExcludedModels(ctx context.Context) map[string]struct{} {
 	controlPlane := s.controlPlaneExcludedModels(ctx)
 	overloaded := s.overloadOpenModels(ctx)
 	if len(overloaded) == 0 {
 		return controlPlane
 	}
-	return mergeExcludedModels(overloaded, controlPlane)
+	return candidates.MergeExcludedModels(overloaded, controlPlane)
 }
 
 func (s *Service) controlPlaneExcludedModels(ctx context.Context) map[string]struct{} {
@@ -114,4 +96,4 @@ func (s *Service) globalAutomaticExclusionReason(ctx context.Context, model stri
 	return "", false
 }
 
-func modelSet(ids []string) map[string]struct{} { return routingpolicy.ModelSet(ids) }
+func modelSet(ids []string) map[string]struct{} { return candidates.ModelSet(ids) }

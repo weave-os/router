@@ -4,29 +4,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"net/http"
-	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/handover"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/routingpolicy/overrides"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
@@ -42,30 +44,6 @@ func addToSet(set map[string]struct{}, model string) map[string]struct{} {
 	return out
 }
 
-func mergeSessionStrikes(a, b []string) []string {
-	if len(a) == 0 {
-		return b
-	}
-	if len(b) == 0 {
-		return a
-	}
-	seen := make(map[string]struct{}, len(a)+len(b))
-	out := make([]string, 0, len(a)+len(b))
-	for _, p := range a {
-		if _, ok := seen[p]; !ok {
-			seen[p] = struct{}{}
-			out = append(out, p)
-		}
-	}
-	for _, p := range b {
-		if _, ok := seen[p]; !ok {
-			seen[p] = struct{}{}
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
 func installationIDFromContext(ctx context.Context) uuid.UUID {
 	raw, _ := ctx.Value(InstallationIDContextKey{}).(string)
 	if raw == "" {
@@ -78,10 +56,10 @@ func installationIDFromContext(ctx context.Context) uuid.UUID {
 	return id
 }
 
-func applyPinEvidence(res *turnLoopResult, pin sessionpin.Pin, now time.Time) {
+func applyPinEvidence(ports continuity.StrategyPorts, res *turnLoopResult, pin sessionpin.Pin, now time.Time) {
 	res.PinModel = pin.Model
 	res.PinProvider = pin.Provider
-	res.PinPolicyGroup = pin.PolicyGroup
+	res.PinPolicyGroup = ports.Facts.PinStateOf(pin).PolicyGroup
 	res.PinAgeSec = pinAge(pin, now)
 	if !pin.LastTurnEndedAt.IsZero() {
 		gapMS := now.Sub(pin.LastTurnEndedAt).Milliseconds()
@@ -108,7 +86,7 @@ func plannerInputTokens(env *translate.RequestEnvelope, feats translate.RoutingF
 }
 
 func (s *Service) plannerTokensFor(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures) int {
-	if !plannerConfigFor(ctx, s.planner).CorrectedEconomics {
+	if !plannerConfigFor(ctx, s.continuityConfig.Planner).CorrectedEconomics {
 		return feats.Tokens
 	}
 	return plannerInputTokens(env, feats)
@@ -119,7 +97,6 @@ const policyPinTier = "policy_pin"
 type pinTier string
 
 const (
-	pinTierAuthoritativeUpgradeEvidence         pinTier = "authoritative_upgrade_evidence"
 	pinTierAuthoritativeSlidingThresholdUpgrade pinTier = "authoritative_sliding_threshold_upgrade"
 	pinTierAuthoritativeUpgradeConfidenceLow    pinTier = "authoritative_hmm_upgrade_confidence_low"
 	pinTierAuthoritativeDowngradeConfidenceLow  pinTier = "authoritative_hmm_downgrade_confidence_low"
@@ -132,9 +109,7 @@ type turnLoopResult struct {
 	EscalationShadowMarked bool
 	EscalationScope        [32]byte
 	EscalationOrdinal      int64
-	escalationActivation   [32]byte
-	escalationObservation  translate.EscalationObservation
-	llmEscalation          *llmEscalationTurn
+	escalation             *floor.Turn
 
 	Decision                    router.Decision
 	SessionKey                  [sessionpin.SessionKeyLen]byte
@@ -143,6 +118,7 @@ type turnLoopResult struct {
 	TurnType                    turntype.TurnType
 	StickyHit                   bool
 	HardPinned                  bool
+	UserForced                  bool
 	SessionFirstTurn            bool
 	Purpose                     inference.Purpose
 	Origin                      policy.OverrideSource
@@ -172,7 +148,7 @@ type turnLoopResult struct {
 	TokenizerCalibration        sessionpin.TokenizerCalibration
 	ContextEstimate             int
 	StripThinkingBlocks         bool
-	Handover                    handoverOutcome
+	Handover                    dispatch.HandoverOutcome
 	SuggestionMode              bool
 	PrefixTrimmed               bool
 	EscalateEffort              bool
@@ -258,26 +234,11 @@ func (r turnLoopResult) baselineWarmPrefillTokens(requestStart time.Time, cacheC
 	return min(cacheCreation, max(r.PriorPromptTokens-cacheRead, 0))
 }
 
-func isHMMDecision(dec router.Decision) bool {
-	if dec.Metadata != nil && router.IsHMMStrategy(router.Strategy(dec.Metadata.Strategy)) {
-		return true
-	}
-	return strings.HasPrefix(strings.TrimSpace(dec.Reason), "hmm_policy")
+func isHMMDecision(ports continuity.StrategyPorts, dec router.Decision) bool {
+	return ports.Ownership.IsDecision(dec)
 }
 
-const DefaultHMMUpgradeConfidenceThreshold = 0.50
-
-const DefaultHMMDowngradeHysteresisTurns = 2
-
-const (
-	hmmReasonDowngradeConfidenceLow  = "hmm_downgrade_confidence_low"
-	hmmReasonDowngradeHysteresis     = "hmm_downgrade_hysteresis"
-	nativeWebSearchPassthroughReason = "native_web_search_passthrough"
-)
-
 const policyDeadlineFallbackReason = "policy_deadline_last_known_good"
-
-const policyDeadlineDefaultReason = "policy_deadline_default_model"
 
 const unscorableHMMStickyReason = "hmm_no_user_boundary_sticky"
 
@@ -285,18 +246,10 @@ func isPolicyDeadlineErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	if !errors.Is(err, hmm.ErrHMMUnavailable) {
+	if !errors.Is(err, router.ErrHMMUnavailable) {
 		return false
 	}
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
-}
-
-type handoverOutcome struct {
-	Invoked               bool
-	LatencyMS             int64
-	SummaryTokens         int
-	FallbackToFullHistory bool
-	SummaryUsage          handover.Usage
 }
 
 func (s *Service) hasSubAgentOverride() bool {
@@ -330,7 +283,7 @@ func (r turnLoopResult) rescueOrigin() policy.OverrideSource {
 	return ""
 }
 
-func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bool {
+func (s *Service) isHardPinnedTurn(ctx context.Context, strategy router.Strategy, tt turntype.TurnType) bool {
 	switch tt {
 	case turntype.Probe:
 		return true
@@ -340,7 +293,7 @@ func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bo
 		if s.hasSubAgentOverride() {
 			return true
 		}
-		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.hardPinExplore) && !router.IsHMMStrategy(router.StrategyFromContext(ctx))
+		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.hardPinExplore) && !s.strategyPorts.Ownership.Owns(strategy)
 	default:
 		return false
 	}
@@ -351,21 +304,18 @@ func isUnpinnedScoredTurn(tt turntype.TurnType) bool {
 }
 
 func (s *Service) routeWithoutPin(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	req router.Request,
 	res turnLoopResult,
 	reqHeaders http.Header,
 	forceModelFound bool,
 	forceModelPin sessionpin.Pin,
 ) (turnLoopResult, error) {
-	if forceModelFound && res.TurnType != turntype.Classifier && forcedPinEligible(forceModelPin, req) {
-		res.Decision = pinDecision(forceModelPin)
-		res.Decision.Reason = translate.ReasonUserForceModel
-		res.StickyHit = true
-		res.PinTier = translate.ReasonUserForceModel
+	if forceModelFound && res.TurnType != turntype.Classifier && candidates.ForcedPinEligible(forceModelPin, req) {
+		res.serveForceModelPin(forceModelPin)
 		return res, nil
 	}
-	req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
+	req.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
 	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req, nil, res.TurnType); ok {
 		res.Decision = dec
 		res.UsageBypass = true
@@ -377,7 +327,7 @@ func (s *Service) routeWithoutPin(
 		res.Origin = policy.OverrideSourceDeployment
 		return res, nil
 	}
-	decision, err := s.routeFor(ctx, req)
+	decision, err := s.routeFor(ctx, strategy, req)
 	if err != nil {
 		return res, err
 	}
@@ -402,68 +352,9 @@ func authoritativePolicyTurn(tt turntype.TurnType) bool {
 	return tt == turntype.MainLoop || tt == turntype.ToolResult
 }
 
-func pinServesImages(pin sessionpin.Pin, req router.Request) bool {
-	return !req.HasImages || catalog.AcceptsImages(pin.Model) && catalog.AcceptsImageCount(pin.Model, req.ImageCount, req.EnabledProviders)
-}
-
-func forcedPinServesImages(pin sessionpin.Pin, req router.Request) bool {
-	return !req.HasImages || catalog.AcceptsImages(pin.Model)
-}
-
-func excludingModel(excluded map[string]struct{}, model string) map[string]struct{} {
-	if _, ok := excluded[model]; ok {
-		return excluded
-	}
-	out := make(map[string]struct{}, len(excluded)+1)
-	for k := range excluded {
-		out[k] = struct{}{}
-	}
-	out[model] = struct{}{}
-	return out
-}
-
-func pinEligible(pin sessionpin.Pin, req router.Request) bool {
-	if pin.Model == "" || pin.Provider == "" {
-		return false
-	}
-	if _, excluded := req.ExcludedModels[pin.Model]; excluded {
-		return false
-	}
-	if !pinServesImages(pin, req) {
-		return false
-	}
-	if req.EnabledProviders == nil {
-		return true
-	}
-	_, ok := req.EnabledProviders[pin.Provider]
-	return ok
-}
-
-func automaticPinEligible(pin sessionpin.Pin, req router.Request) bool {
-	return pinEligible(pin, req) && !automaticallyDisabled(req, pin.Model)
-}
-
 func withAutomaticExclusions(req HardPinRequest, automaticExcluded map[string]struct{}) HardPinRequest {
-	req.ExcludedModels = mergeExcludedModels(req.ExcludedModels, automaticExcluded)
+	req.ExcludedModels = candidates.MergeExcludedModels(req.ExcludedModels, automaticExcluded)
 	return req
-}
-
-func forcedPinEligible(pin sessionpin.Pin, req router.Request) bool {
-	req = readmitForcedContextEstimate(req, pin.Model)
-	req = readmitForcedImageLimit(req, pin.Model)
-	return pinEligible(pin, req)
-}
-
-func forcedPinIneligibilityReason(pin sessionpin.Pin, req router.Request) string {
-	if req.EnabledProviders != nil {
-		if _, enabled := req.EnabledProviders[pin.Provider]; !enabled {
-			return "provider_not_enabled"
-		}
-	}
-	if !forcedPinServesImages(pin, req) {
-		return "not_image_capable"
-	}
-	return "excluded"
 }
 
 func policyPinServed(ctx context.Context, res turnLoopResult) error {
@@ -481,14 +372,13 @@ func (s *Service) runTurnLoop(
 	ctx context.Context,
 	env *translate.RequestEnvelope,
 	feats translate.RoutingFeatures,
-	apiKeyID string,
-	installationID uuid.UUID,
+	turnReq turnRequest,
 	subAgentHint string,
 	reqHeaders http.Header,
 	req router.Request,
 ) (res turnLoopResult, routeErr error) {
-	subAgentHint = subAgentHintForRequest(ctx, subAgentHint)
-	shadowStartedAt, sessionPins := s.clock.Now(), routingpolicy.NewSessionPins(s.pinStore, s.clock.Now)
+	strategy, apiKeyID, installationID, subAgentHint := turnReq.Strategy, turnReq.APIKeyID, turnReq.InstallationID, subAgentHintForRequest(ctx, subAgentHint)
+	shadowStartedAt, sessionPins := s.clock.Now(), routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy)
 	defer func() {
 		if routeErr == nil {
 			routeErr = policyPinServed(ctx, res)
@@ -501,7 +391,7 @@ func (s *Service) runTurnLoop(
 			params := InsertTelemetryParams{InstallationID: installationID.String(), RequestID: observability.RequestIDFromContext(ctx),
 				Timestamp: shadowStartedAt, SessionKey: key[:], Role: res.PinRole,
 				TurnType: string(turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx)))), ErrorClass: TurnErrorRoutingRefused}
-			applyAgreementShadowTelemetry(ctx, &params, res)
+			applyAgreementShadowTelemetry(s.strategyPorts, ctx, &params, res)
 			if params.agreementShadow != nil {
 				log := observability.FromContext(ctx)
 				observability.SafeGoContext(ctx, log, 5*time.Second, "agreementShadowRoutingFailure", func(shadowCtx context.Context) {
@@ -526,7 +416,7 @@ func (s *Service) runTurnLoop(
 		req.ForceCluster = ""
 	}
 	ctx = context.WithValue(ctx, translationPlanAppliedContextKey{}, true)
-	req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
+	req.Candidates.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
 	req.ClientApp = ClientIdentityFrom(ctx).ClientApp
 	if transforms, ok := ctx.Value(responsesTransformsContextKey{}).([]translate.ResponseTransform); ok {
 		for _, transform := range transforms {
@@ -560,14 +450,14 @@ func (s *Service) runTurnLoop(
 		ContextEstimate:             env.ContextOverflowTokenEstimate(),
 		TranslationEnabledProviders: req.EnabledProviders,
 		InstallationID:              installationID,
-		Strategy:                    router.StrategyFromContext(ctx),
+		Strategy:                    strategy,
 		TurnType:                    turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))),
 		PinTier:                     "miss",
 		RequestedTier:               catalog.TierFor(feats.Model),
 		StripThinkingBlocks:         stripsThinkingHistory(ctx),
 	}
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
-		s.authoritativePerTurnSelection(ctx)
+		s.authoritativePerTurnSelection(ctx, strategy)
 	if !isolatedSearch {
 		req.TaskDomain = taskDomainInput(ctx, env, apiKeyID, res.TurnType)
 	}
@@ -582,7 +472,7 @@ func (s *Service) runTurnLoop(
 			res.CallerModelPassthrough = true
 			return res, err
 		}
-		return s.routeWithoutPin(ctx, req, res, reqHeaders, false, sessionpin.Pin{})
+		return s.routeWithoutPin(ctx, strategy, req, res, reqHeaders, false, sessionpin.Pin{})
 	}
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey)
 	forceModelPin := sessionpin.Pin{}
@@ -606,22 +496,22 @@ func (s *Service) runTurnLoop(
 		forceModelFound = true
 	}
 	if !forceModelFound {
-		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey, threadSessionKey, turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
+		forceModelPin, forceModelFound, forceModelCleared = routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).Load(ctx, forceModelSessionKey, sessionKeyHex(threadSessionKey), turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
 	}
 	if forcePinBindsNonClassifierTurn(forceModelFound, res.TurnType) {
-		binding, reason := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)
-		if reason != "" {
-			return res, &ForcedModelExcludedError{Model: forceModelPin.Model, Reason: reason}
+		binding, refusal := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)
+		if refusal != nil {
+			return res, refusal
 		}
 		forceModelPin.Provider = binding
-		req.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
+		req.Candidates.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
 	}
 	if !forceModelFound && authoritativePolicyTurn(res.TurnType) {
 		if probe, release, claimed := s.claimOverloadProbe(ctx, req); claimed {
 			ctx = withOverloadProbe(ctx, probe)
 			res.OverloadProbe = &probe
 			res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
-			req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
+			req.Candidates.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
 		}
 	}
 	if !forceModelFound {
@@ -639,7 +529,7 @@ func (s *Service) runTurnLoop(
 		}
 	}
 	if res.Strategy == router.StrategyLLMClassifier {
-		return s.runClassifierTurn(ctx, req, res, threadSessionKey)
+		return s.runClassifierTurn(ctx, strategy, req, res, threadSessionKey)
 	}
 	log.Info("turnloop classified",
 		"turn_type", string(res.TurnType),
@@ -650,13 +540,13 @@ func (s *Service) runTurnLoop(
 
 	automaticProbe := res.TurnType == turntype.Probe && !s.explicitUtilityHardPin &&
 		(req.RequestedModel == "" || req.RequestedModel == automaticProbeModel || router.IsRoutingModel(req.RequestedModel))
-	if _, pinned := router.HonouredPolicyPin(ctx); pinned && (!s.isHardPinnedTurn(ctx, res.TurnType) || automaticProbe) {
+	if _, pinned := router.HonouredPolicyPin(ctx); pinned && (!s.isHardPinnedTurn(ctx, strategy, res.TurnType) || automaticProbe) {
 		if s.pinStore != nil && !isUnpinnedScoredTurn(res.TurnType) && !automaticProbe {
 			res.SessionKey = threadSessionKey
 			_, _, res.SessionFirstTurn = sessionPins.LoadWithStoreState(ctx, res.SessionKey, res.PinRole)
 		}
-		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
-		decision, err := s.routeFor(ctx, req)
+		req.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
+		decision, err := s.routeFor(ctx, strategy, req)
 		if err != nil {
 			return res, err
 		}
@@ -669,17 +559,17 @@ func (s *Service) runTurnLoop(
 
 	sessionForceControlFound := forceModelFound
 
-	hardPinnedTurn := s.isHardPinnedTurn(ctx, res.TurnType)
+	hardPinnedTurn := s.isHardPinnedTurn(ctx, strategy, res.TurnType)
 	if s.pinStore != nil && hardPinnedTurn && !forceModelFound && !forceModelCleared {
 		legacyPin, found := sessionPins.Load(ctx, threadSessionKey, res.PinRole)
 		if found && isUserForcedReason(legacyPin.Reason) {
-			binding, reason := s.forcedModelBinding(ctx, legacyPin.Model, legacyPin.Provider)
-			if reason != "" {
-				return res, &ForcedModelExcludedError{Model: legacyPin.Model, Reason: reason}
+			binding, refusal := s.forcedModelBinding(ctx, legacyPin.Model, legacyPin.Provider)
+			if refusal != nil {
+				return res, refusal
 			}
 			legacyPin.Provider = binding
 			forceModelPin, forceModelFound = legacyPin, true
-			req.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
+			req.Candidates.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
 		}
 	}
 	if _, policyPinned := router.HonouredPolicyPin(ctx); !forceModelFound && !policyPinned {
@@ -700,126 +590,89 @@ func (s *Service) runTurnLoop(
 		}
 		res.Purpose = purpose
 	}
-	if forceModelFound && hardPinnedTurn {
-		if forcedPinEligible(forceModelPin, req) {
-			res.Purpose = utilityPurposes[res.TurnType]
-			threadPin, hmmHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
-			if s.pinStore != nil {
-				threadPin, _ = sessionPins.Load(ctx, threadSessionKey, res.PinRole)
-				hmmHistory = sessionPins.LoadHMMHistory(ctx, threadSessionKey, res.PinRole)
-				forceHistory = s.loadForceModelHistory(ctx, threadSessionKey, res.PinRole)
-			}
-			res.SessionKey = threadSessionKey
-			res.PinModel = forceModelPin.Model
-			res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
-			res.applySwitchHistory(threadPin, hmmHistory, forceHistory)
-			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
-				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
-			res.Decision = pinDecision(forceModelPin)
-			res.Decision.Reason = translate.ReasonUserForceModel
-			res.StickyHit = true
-			res.PinTier = translate.ReasonUserForceModel
-			sessionPins.AnchorForceModelHistory(ctx, installationID, threadSessionKey, res.PinRole, forceModelPin)
-			return res, nil
-		}
-		res.SessionKey = threadSessionKey
-		res.ForcedPinDropped = true
-		res.ForcedPinModel = forceModelPin.Model
-		res.ForcedPinDropReason = forcedPinIneligibilityReason(forceModelPin, req)
-		log.Info("Forced session pin dropped for hard-pinned turn",
-			"pin_model", forceModelPin.Model,
-			"pin_provider", forceModelPin.Provider,
-			"drop_reason", res.ForcedPinDropReason,
-			"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
-			"role", res.PinRole,
-		)
-	}
-
-	if res.TurnType == turntype.Probe && !s.explicitUtilityHardPin {
-		res.SessionKey = [sessionpin.SessionKeyLen]byte{}
-		if automaticProbe {
-			return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
-		}
-		decision, err := s.callerModelPassthroughDecision(ctx, req)
-		if err != nil {
-			return res, err
-		}
-		res.Decision = decision
-		res.CallerModelPassthrough = true
-		res.Origin = policy.OverrideSourceRequest
-		return res, nil
-	}
-
 	if hardPinnedTurn {
-		provider, model := s.hardPinProvider, s.hardPinModel
-		useSubAgentOverride := res.TurnType == turntype.SubAgentDispatch && s.hasSubAgentOverride()
-		if useSubAgentOverride {
-			provider, model = s.subAgentProvider, s.subAgentModel
-		}
-		hardPinReq := HardPinRequest{
-			EnabledProviders: req.EnabledProviders,
-			ExcludedModels:   req.ExcludedModels,
-			CustomBindings:   req.CustomBindings,
-			GatewayProviders: req.GatewayProviders,
-		}
-		switch {
-		case s.hardPinResolver != nil && !useSubAgentOverride:
-			p, m, ok := s.hardPinResolver(withAutomaticExclusions(hardPinReq, req.AutomaticExcludedModels))
-			if !ok {
-				p, m, ok = s.hardPinResolver(hardPinReq)
-				if ok {
-					log.Warn("Hard-pin: automatic-routing exclusions left no candidate; ignoring them for this turn",
-						"turn_type", string(res.TurnType),
-						"hard_pin_model", m,
-						"hard_pin_provider", p,
+		spec, _ := s.InferencePolicyRegistry().Spec(utilityPurposes[res.TurnType])
+		_, err := overrides.Resolve(spec.OverridePrecedence, map[policy.OverrideSource][]overrides.Resolver{
+			policy.OverrideSourceRequest: {
+				func() (bool, error) {
+					if !forceModelFound {
+						return false, nil
+					}
+					if candidates.ForcedPinEligible(forceModelPin, req) {
+						res.Purpose = utilityPurposes[res.TurnType]
+						threadPin, hmmHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
+						if s.pinStore != nil {
+							threadPin, _ = sessionPins.Load(ctx, threadSessionKey, res.PinRole)
+							hmmHistory = sessionPins.LoadHMMHistory(ctx, threadSessionKey, res.PinRole)
+							forceHistory = s.loadForceModelHistory(ctx, threadSessionKey, res.PinRole)
+						}
+						res.SessionKey = threadSessionKey
+						res.PinModel = forceModelPin.Model
+						res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
+						res.applySwitchHistory(threadPin, hmmHistory, forceHistory)
+						res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
+							(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
+						res.serveForceModelPin(forceModelPin)
+						sessionPins.AnchorForceModelHistory(ctx, installationID, threadSessionKey, res.PinRole, forceModelPin)
+						return true, nil
+					}
+					res.SessionKey = threadSessionKey
+					res.ForcedPinDropped = true
+					res.ForcedPinModel = forceModelPin.Model
+					res.ForcedPinDropReason = candidates.ForcedPinIneligibilityReason(forceModelPin, req)
+					log.Info("Forced session pin dropped for hard-pinned turn",
+						"pin_model", forceModelPin.Model,
+						"pin_provider", forceModelPin.Provider,
+						"drop_reason", res.ForcedPinDropReason,
+						"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
+						"role", res.PinRole,
 					)
-				}
-			}
-			if !ok {
-				hardPinErr := router.ErrNoEligibleProvider
-				switch {
-				case s.hardPinBlockedByContextWindow(hardPinReq, req):
-					hardPinErr = policy.ErrContextWindowExceeded
-				case len(req.GatewayProviders) > 0:
-					hardPinErr = policy.ErrGatewayServesNoDeployedModel
-				}
-				log.Warn(
-					"Hard-pin: no eligible provider for request",
-					"turn_type", string(res.TurnType),
-					"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
-					"err", hardPinErr,
-				)
-				return res, fmt.Errorf("hard-pin: no eligible provider for %s: %w", res.TurnType, hardPinErr)
-			}
-			provider, model = p, m
-		default:
-			if req.EnabledProviders != nil {
-				if _, enabled := req.EnabledProviders[provider]; !enabled {
-					return res, fmt.Errorf("hard-pin provider %q is ineligible for %s: %w", provider, res.TurnType, router.ErrNoEligibleProvider)
-				}
-			}
-			if _, excluded := req.ExcludedModels[model]; excluded {
-				return res, fmt.Errorf("hard-pin model %q is ineligible for %s: %w", model, res.TurnType, router.ErrNoEligibleProvider)
-			}
-			if automaticallyDisabled(req, model) {
-				log.Warn("Hard-pin model is disabled for automatic routing; serving it anyway",
-					"turn_type", string(res.TurnType),
-					"hard_pin_model", model,
-					"hard_pin_provider", provider,
-				)
-			}
-		}
-		hardDecision := router.Decision{
-			Provider: provider,
-			Model:    model,
-			Reason:   string(res.TurnType) + "_hard_pin",
-		}
-		res.Decision = hardDecision
-		res.StickyHit = true
-		res.HardPinned = true
-		res.Origin = policy.OverrideSourceDeployment
-		res.PinTier = string(res.TurnType) + "_hard_pin"
-		return res, nil
+					return false, nil
+				},
+				func() (bool, error) {
+					if res.TurnType != turntype.Probe || s.explicitUtilityHardPin {
+						return false, nil
+					}
+					res.SessionKey = [sessionpin.SessionKeyLen]byte{}
+					if automaticProbe {
+						var err error
+						res, err = s.routeWithoutPin(ctx, strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
+						return true, err
+					}
+					decision, err := s.callerModelPassthroughDecision(ctx, req)
+					if err != nil {
+						return true, err
+					}
+					res.Decision = decision
+					res.CallerModelPassthrough = true
+					res.Origin = policy.OverrideSourceRequest
+					return true, nil
+				},
+			},
+			policy.OverrideSourceDeployment: {
+				func() (bool, error) {
+					resolver, provider, model := s.hardPinResolver, s.hardPinProvider, s.hardPinModel
+					if res.TurnType == turntype.SubAgentDispatch && s.hasSubAgentOverride() {
+						resolver, provider, model = nil, s.subAgentProvider, s.subAgentModel
+					}
+					provider, model, err := utilityHardPinTarget(ctx, req, res.TurnType, resolver, provider, model)
+					if err != nil {
+						return true, err
+					}
+					res.Decision = router.Decision{
+						Provider: provider,
+						Model:    model,
+						Reason:   string(res.TurnType) + "_hard_pin",
+					}
+					res.StickyHit = true
+					res.HardPinned = true
+					res.Origin = policy.OverrideSourceDeployment
+					res.PinTier = string(res.TurnType) + "_hard_pin"
+					return true, nil
+				},
+			},
+		})
+		return res, err
 	}
 
 	if !forceModelFound && env.IsNativeWebSearchSubTurn() {
@@ -830,43 +683,26 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 
-		passthroughModel := s.baselineFor(ctx, req.RequestedModel)
-		_, excluded := req.ExcludedModels[passthroughModel]
-		_, safetyExcluded := req.SafetyExcludedModels[passthroughModel]
-		_, allowlisted := req.AllowedModels[passthroughModel]
-		allowed := req.AllowedModels == nil || allowlisted
-		binding, bindingFound := catalog.ResolveBindingWithCustom(
-			passthroughModel,
-			req.EnabledProviders,
-			req.CustomBindings,
-		)
-		if !excluded && !safetyExcluded && allowed && bindingFound && binding.Provider == providers.ProviderAnthropic {
+		if decision, ok := candidates.NativeWebSearchPassthrough(req, s.baselineFor(ctx, req.RequestedModel)); ok {
 			res.SessionKey = threadSessionKey
-			res.Decision = router.Decision{
-				Provider: binding.Provider,
-				Model:    passthroughModel,
-				Reason:   nativeWebSearchPassthroughReason,
-			}
+			res.Decision = decision
 			res.HardPinned = true
-			res.PinTier = nativeWebSearchPassthroughReason
-			log.Info("Native web-search sub-turn passed through to requested model",
-				"model", passthroughModel,
-				"provider", binding.Provider,
-			)
+			res.PinTier = candidates.NativeWebSearchPassthroughReason
+			log.Info("Native web-search sub-turn passed through to requested model", "model", decision.Model, "provider", decision.Provider)
 			return res, nil
 		}
 	}
 
 	if isUnpinnedScoredTurn(res.TurnType) {
-		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+		return s.routeWithoutPin(ctx, strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 	if res.TurnType == turntype.Compaction {
-		return s.routeCompaction(ctx, req, res, reqHeaders, threadSessionKey, installationID, forceModelFound, forceModelPin)
+		return s.routeCompaction(ctx, req, res, reqHeaders, sessionTarget{strategy: strategy, installationID: installationID, sessionKey: threadSessionKey}, forceModelFound, forceModelPin)
 	}
 
 	sessionKey := threadSessionKey
 
-	res.PrefixTrimmed = s.compaction.CheckAndRecord(
+	res.PrefixTrimmed = s.lifecycle.Compaction().CheckAndRecord(
 		sessionKey, installationID, res.PinRole,
 		feats.MessageCount, len(env.AssistantToolCallSignatures()),
 	)
@@ -879,31 +715,28 @@ func (s *Service) runTurnLoop(
 		)
 	}
 
-	if s.pinStore == nil {
-		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+	if routesWithoutSessionPin(s.pinStore, req) {
+		return s.routeWithoutPin(ctx, strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 
 	res.SessionKey = sessionKey
 
 	pin, pinFound, noStoredState := sessionPins.LoadWithStoreState(ctx, res.SessionKey, res.PinRole)
 	res.SessionFirstTurn = noStoredState
-	clearedPinReason := ""
-	if !pinFound && pin.Model == "" && pin.Provider == "" && pin.Reason != "" {
-		clearedPinReason = pin.Reason
-	}
+	clearedPinReason := routingpolicy.ClearedPinReason(pin, pinFound)
 	hmmHistory := sessionPins.LoadHMMHistory(ctx, res.SessionKey, res.PinRole)
 	forceHistory := sessionpin.Pin{}
 	if forceModelFound || forceModelCleared {
 		forceHistory = s.loadForceModelHistory(ctx, res.SessionKey, res.PinRole)
 	}
 	if !forceModelFound && !forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
-		binding, reason := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
-		if reason != "" {
-			return res, &ForcedModelExcludedError{Model: pin.Model, Reason: reason}
+		binding, refusal := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
+		if refusal != nil {
+			return res, refusal
 		}
 		pin.Provider = binding
 		forceModelPin, forceModelFound = pin, true
-		req.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
+		req.Candidates.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
 	}
 	if forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
 		pinFound = false
@@ -912,102 +745,50 @@ func (s *Service) runTurnLoop(
 	commandContinuation := sessionpin.Pin{}
 	commandContinuationFound := false
 	if res.TurnType == turntype.MainLoop {
-		commandContinuation, commandContinuationFound = s.consumePostCommandContinuation(ctx, res.SessionKey, res.PinRole)
+		commandContinuation, commandContinuationFound = s.consumePostCommandContinuation(ctx, strategy, res.SessionKey, res.PinRole)
 	}
 	if pinFound && isUserForcedReason(pin.Reason) {
-		binding, reason := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
-		if reason != "" {
+		binding, refusal := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
+		if refusal != nil {
 			log.Warn("turnloop: forced pin refers to an excluded model",
 				"pin_model", pin.Model,
 				"pin_provider", pin.Provider,
-				"reason", reason,
+				"reason", refusal.Reason,
 			)
-			return res, &ForcedModelExcludedError{Model: pin.Model, Reason: reason}
+			return res, refusal
 		}
 		pin.Provider = binding
 	}
-	disabledProviders := mergeSessionStrikes(pin.DisabledProviders, hmmHistory.DisabledProviders)
 	forcedProvider := ""
 	if forceModelFound {
 		forcedProvider = forceModelPin.Provider
 	} else if pinFound && isUserForcedReason(pin.Reason) {
 		forcedProvider = pin.Provider
 	}
-	if forcedProvider != "" {
-		filtered := make([]string, 0, len(disabledProviders))
-		for _, provider := range disabledProviders {
-			if provider != forcedProvider {
-				filtered = append(filtered, provider)
-			}
-		}
-		disabledProviders = filtered
-	}
-	if len(disabledProviders) > 0 {
+	if disabledProviders := candidates.SessionDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders, forcedProvider); len(disabledProviders) > 0 {
 		res.SessionDisabledProviders = disabledProviders
-		if req.EnabledProviders != nil {
-			filtered := make(map[string]struct{}, len(req.EnabledProviders))
-			for p := range req.EnabledProviders {
-				filtered[p] = struct{}{}
-			}
-			for _, p := range disabledProviders {
-				delete(filtered, p)
-			}
-			req.EnabledProviders = filtered
-		}
+		req.EnabledProviders = candidates.WithoutProviders(req.EnabledProviders, disabledProviders)
 	}
-	demoted := mergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels)
-	if turnStrikes := mergeSessionStrikes(pin.TurnStrikes, hmmHistory.TurnStrikes); len(turnStrikes) > 0 {
-		if routingEndsWithUserPrompt(ctx, env) {
-			s.clearTurnStrikes(ctx, res.SessionKey, res.PinRole)
-		} else {
-			demoted = mergeSessionStrikes(demoted, turnStrikes)
-		}
-	}
+	demoted := sessionDemotedModels(ctx, s, env, &res, pin, hmmHistory)
 	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.ImageCount), req.HasTools)
-	if s.ResolveTransientRateLimit(ctx) && (!forceModelFound || !forcedPinEligible(forceModelPin, req)) {
-		cooldowns := mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns)
-		now := s.clock.Now()
-		cooling := activeDemotionCooldowns(cooldowns, now)
-		if len(cooling) > 0 {
-			res.SessionCooldownModels = readmittableCooldowns(cooling, demoted, req.ImageCount)
-			demoted = mergeSessionStrikes(demoted, cooldownsByExpiry(cooling))
-		}
-		expired := expiredDemotionCooldowns(cooldowns, now)
-		probed := false
-		for _, model := range cooldownsByExpiry(expired) {
-			if slices.Contains(demoted, model) ||
-				modelExcludedForRecoveryProbe(req, model) {
-				continue
-			}
-			if !probed {
-				if release, acquired := s.acquireRecoveryProbe(ctx, res.SessionKey, model); acquired {
-					res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
-					res.CooldownProbes = map[string]time.Time{model: expired[model]}
-					probed = true
-					continue
-				}
-			}
-			demoted = mergeSessionStrikes(demoted, []string{model})
-			res.CooldownProbeDeniedModels = append(res.CooldownProbeDeniedModels, model)
-			req.ExcludedModels = excludingModel(req.ExcludedModels, model)
-			ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, res.CooldownProbeDeniedModels)
-		}
+	if s.ResolveTransientRateLimit(ctx) && (!forceModelFound || !candidates.ForcedPinEligible(forceModelPin, req)) {
+		ctx, demoted = applyDemotionCooldowns(ctx, s, &req, &res, demoted, mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns))
 	}
 	if len(demoted) > 0 {
 		res.SessionDemotedModels = demoted
 		for _, model := range demoted {
-			req.AutomaticExcludedModels = addToSet(req.AutomaticExcludedModels, model)
+			req.Candidates.AutomaticExcludedModels = addToSet(req.Candidates.AutomaticExcludedModels, model)
 		}
 	}
 	res.applySwitchHistory(pin, hmmHistory, forceHistory)
 	req, res.ObservedOverflowModels = s.excludeObservedOverflowModels(ctx, req, res, max(contextWindowOutputReserve, feats.MaxTokens))
-	req.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory, s.clock.Now())
+	req.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory, s.clock.Now())
 	res.EscalateEffort = pinFound && !pin.LastTurnEndedAt.IsZero() &&
 		(pin.LastOutputTokens == 0 || pin.ConsecutiveUpstreamErrors > 0)
 	if pinFound {
 		res.PinTurnCount = pin.TurnCount + 1
 		res.PinFirstPinnedAt = pin.FirstPinnedAt
-		applyPinEvidence(&res, pin, s.clock.Now())
+		applyPinEvidence(s.strategyPorts, &res, pin, s.clock.Now())
 		log.Info("turnloop pin lookup hit",
 			"pin_model", pin.Model,
 			"pin_provider", pin.Provider,
@@ -1023,250 +804,31 @@ func (s *Service) runTurnLoop(
 
 	forcedTierFloor := catalog.TierUnknown
 	if forceModelFound {
-		_, excluded := req.ExcludedModels[forceModelPin.Model]
-		_, providerEnabled := req.EnabledProviders[forceModelPin.Provider]
-		providerEligible := req.EnabledProviders == nil || providerEnabled
-		imageCapable := forcedPinServesImages(forceModelPin, req)
-		if _, estimateOnly := req.ContextWindowExcludedModels[forceModelPin.Model]; excluded && estimateOnly {
-			log.Info("Forced session pin dispatched past the context-window estimate; the provider decides",
-				"pin_model", forceModelPin.Model,
-				"pin_provider", forceModelPin.Provider,
-				"role", res.PinRole,
-			)
-			excluded = false
-		}
-		if _, imageLimitExcluded := req.ImageLimitExcludedModels[forceModelPin.Model]; imageLimitExcluded {
-			log.Info("Forced session pin dispatched past the image-count cap; the provider decides",
-				"pin_model", forceModelPin.Model,
-				"pin_provider", forceModelPin.Provider,
-				"role", res.PinRole,
-			)
-			excluded = false
-		}
-		if !excluded && providerEligible && imageCapable {
-			res.PinModel = forceModelPin.Model
-			res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
-			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
-				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
-			res.Decision = pinDecision(forceModelPin)
-			res.Decision.Reason = translate.ReasonUserForceModel
-			res.StickyHit = true
-			res.PinTier = translate.ReasonUserForceModel
-			sessionPins.AnchorForceModelHistory(ctx, installationID, res.SessionKey, res.PinRole, forceModelPin)
+		served, tierFloor := serveForceModelPin(ctx, &req, &res, forceModelPin, forceHistory, sessionPins, s.clock.Now())
+		if served {
 			return res, nil
 		}
-		res.ForcedPinDropped = true
-		res.ForcedPinDropReason = forcedPinIneligibilityReason(forceModelPin, req)
-		res.ForcedPinModel = forceModelPin.Model
-		log.Info("Forced session pin dropped for this turn",
-			"pin_model", forceModelPin.Model,
-			"pin_provider", forceModelPin.Provider,
-			"drop_reason", res.ForcedPinDropReason,
-			"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
-			"role", res.PinRole,
-		)
-		if excluded || !imageCapable {
-			forcedTierFloor = catalog.TierFor(forceModelPin.Model)
-		}
-		if !imageCapable {
-			req.ExcludedModels = excludingModel(req.ExcludedModels, forceModelPin.Model)
-		}
+		forcedTierFloor = tierFloor
 		if !sessionForceControlFound || isUserForcedReason(pin.Reason) {
 			pinFound = false
 			pin = sessionpin.Pin{}
 		}
 	}
-	if pinFound && (isUserForcedReason(pin.Reason) || pin.Reason == translate.ReasonLoopEscalation) {
-		_, excluded := req.ExcludedModels[pin.Model]
-		_, providerEnabled := req.EnabledProviders[pin.Provider]
-		providerEligible := req.EnabledProviders == nil || providerEnabled
-		imageCapable := pinServesImages(pin, req)
-		autoDisabled := !isUserForcedReason(pin.Reason) && automaticallyDisabled(req, pin.Model)
-		if !excluded && !autoDisabled && providerEligible && imageCapable {
-			decision := pinDecision(pin)
-			decision.Reason = pin.Reason
-			res.PinTier = pin.Reason
-			res.Decision = decision
-			res.StickyHit = true
-			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
+	if pinFound && isUserForcedReason(pin.Reason) {
+		served, tierFloor := serveUserForcedPin(ctx, &req, &res, pin, sessionPins)
+		if served {
 			return res, nil
 		}
-		dropReason := "excluded"
-		switch {
-		case autoDisabled:
-			dropReason = "automatic_routing_disabled"
-		case !providerEligible:
-			dropReason = "provider_not_enabled"
-		case !imageCapable:
-			dropReason = "not_image_capable"
-		}
-		log.Info("Forced session pin dropped for this turn",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-			"pin_reason", pin.Reason,
-			"drop_reason", dropReason,
-			"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
-			"role", res.PinRole,
-		)
-		if isUserForcedReason(pin.Reason) {
-			res.ForcedPinDropped = true
-			res.ForcedPinDropReason = dropReason
-			res.ForcedPinModel = pin.Model
-			if excluded || !imageCapable {
-				forcedTierFloor = catalog.TierFor(pin.Model)
-			}
-		} else if excluded || autoDisabled {
-			evictReason := "escalation_pin_excluded"
-			if autoDisabled {
-				evictReason = "escalation_pin_automatic_routing_disabled"
-			}
-			if err := s.expireSessionPin(ctx, installationID, res.SessionKey, res.PinRole, evictReason); err != nil {
-				log.Error("ineligible escalation pin eviction failed", "err", err, "pin_model", pin.Model, "role", res.PinRole, "evict_reason", evictReason)
-			}
-		}
-		if !imageCapable {
-			req.ExcludedModels = excludingModel(req.ExcludedModels, pin.Model)
-		}
+		forcedTierFloor = tierFloor
 		pinFound = false
 		pin = sessionpin.Pin{}
 	}
 
-	if pinFound && !isUserForcedReason(pin.Reason) && automaticallyDisabled(req, pin.Model) {
-		reason, _ := s.globalAutomaticExclusionReason(ctx, pin.Model)
-		log.Info("Session pin model is disabled for automatic routing; falling through to scorer",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-			"pin_reason", pin.Reason,
-			"disable_reason", reason,
-			"role", res.PinRole,
-		)
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
-
-	if maxedModel := maxedOutServedModel(pin); pinFound && maxedModel != "" {
-		log.Info("Session pin maxed out on previous turn; excluding for this turn",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-			"maxed_model", maxedModel,
-			"last_output_tokens", pin.LastOutputTokens,
-		)
-		excluded := make(map[string]struct{}, len(req.ExcludedModels)+1)
-		for k := range req.ExcludedModels {
-			excluded[k] = struct{}{}
-		}
-		excluded[maxedModel] = struct{}{}
-		req.ExcludedModels = excluded
-		req.SafetyExcludedModels = addToSet(req.SafetyExcludedModels, maxedModel)
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
-	if maxedModel := maxedOutServedModel(hmmHistory); maxedModel != "" {
-		log.Info("HMM history maxed out on previous turn; excluding for this turn",
-			"history_provider", hmmHistory.Provider,
-			"maxed_model", maxedModel,
-			"last_output_tokens", hmmHistory.LastOutputTokens,
-		)
-		excluded := make(map[string]struct{}, len(req.ExcludedModels)+1)
-		for k := range req.ExcludedModels {
-			excluded[k] = struct{}{}
-		}
-		excluded[maxedModel] = struct{}{}
-		req.ExcludedModels = excluded
-		req.SafetyExcludedModels = addToSet(req.SafetyExcludedModels, maxedModel)
-		if pinFound && baseModelOf(pin.Model) == maxedModel {
-			pinFound = false
-			pin = sessionpin.Pin{}
-		}
-	}
-
-	if pinFound && advisorRejectsModel(env, pin.Model) {
-		log.Info("Session pin dropped: the request's advisor tool cannot advise the pinned model",
-			"pin_model", pin.Model,
-			"advisor_model", env.AdvisorToolModel(),
-		)
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
-
-	if pinFound {
-		if _, overCapacity := req.ExcludedModels[pin.Model]; overCapacity {
-			outputReserveForPin := contextWindowOutputReserve
-			if feats.MaxTokens > outputReserveForPin {
-				outputReserveForPin = feats.MaxTokens
-			}
-			pinTokenEstimate := env.ContextOverflowTokenEstimate()
-			if modelStripsAnthropicSignatures(pin.Model) {
-				pinTokenEstimate -= env.SignatureTokenSavings()
-			}
-			if projected, ok := res.TokenizerCalibration.ProjectedPrompt(tokenizerFamilyFor(pin.Provider), res.ContextEstimate); ok && projected > pinTokenEstimate {
-				pinTokenEstimate = projected
-			}
-			needed := pinTokenEstimate + outputReserveForPin
-			modelCW := gatewayContextWindow(cortexGatewayProvidersForRequest(ctx), pin.Model, pin.Provider)
-			if needed > modelCW {
-				log.Info("Session pin excluded by context-window pre-filter; falling through to scorer",
-					"pin_model", pin.Model,
-					"pin_provider", pin.Provider,
-					"token_estimate", pinTokenEstimate,
-					"needed", needed,
-					"model_context_window", modelCW,
-				)
-				pinFound = false
-				pin = sessionpin.Pin{}
-			} else {
-				policyExcluded := s.excludedModelsForRequest(ctx)
-				_, policyExcludes := policyExcluded[pin.Model]
-				if !policyExcludes && !compatibilityExcludesModel(req, pin.Model) {
-					if len(req.ExcludedModels) > 0 {
-						pruned := make(map[string]struct{}, len(req.ExcludedModels)-1)
-						for k := range req.ExcludedModels {
-							if k != pin.Model {
-								pruned[k] = struct{}{}
-							}
-						}
-						req.ExcludedModels = pruned
-					}
-					delete(req.SafetyExcludedModels, pin.Model)
-				}
-				log.Info("Session pin preserved despite context-window pre-filter exclusion",
-					"pin_model", pin.Model,
-					"token_estimate", pinTokenEstimate,
-					"needed", needed,
-					"model_context_window", modelCW,
-				)
-			}
-		}
-	}
-
-	if pinFound && !modelInRequestSubset(ctx, pin.Model) {
-		log.Info("Session pin outside request allowed-models subset; falling through to scorer",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-		)
-		pinFound = false
-	}
-
-	if pinFound && req.EnabledProviders != nil {
-		if _, ok := req.EnabledProviders[pin.Provider]; !ok {
-			log.Info("Session pin provider not in enabled set; falling through to scorer",
-				"pin_model", pin.Model,
-				"pin_provider", pin.Provider,
-			)
-			pinFound = false
-			pin = sessionpin.Pin{}
-		}
-	}
-
-	if pinFound && req.HasImages && (!catalog.AcceptsImages(pin.Model) ||
-		req.ImageCount > 0 && !catalog.AcceptsImageCount(pin.Model, req.ImageCount, req.EnabledProviders)) {
-		log.Info("Session pin is text-only for image-bearing turn; falling through to scorer",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-		)
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
+	reusable := turnPin{pin: pin, found: pinFound}
+	dropPinRuledOutLastTurn(ctx, s, env, &req, &res, &reusable, hmmHistory)
+	screenPinContextWindow(ctx, s, env, feats, &res, &req, &reusable)
+	screenPinForRequest(ctx, req, &reusable)
+	pin, pinFound = reusable.pin, reusable.found
 	if !pinFound {
 		clearPinEvidence(&res)
 	}
@@ -1279,8 +841,8 @@ func (s *Service) runTurnLoop(
 		)
 		commandContinuationFound = false
 	}
-	if commandContinuationFound && automaticPinEligible(commandContinuation, req) {
-		decision := pinDecision(commandContinuation)
+	if commandContinuationFound && candidates.AutomaticPinEligible(commandContinuation, req) {
+		decision := commandContinuation.Decision()
 		res.Decision = decision
 		res.StickyHit = true
 		res.PinTier = "post_command_continuation"
@@ -1307,51 +869,45 @@ func (s *Service) runTurnLoop(
 		return res, nil
 	}
 
-	if pinFound && res.AuthoritativePerTurn && req.ForceCluster == "" &&
-		escalation.Rank(escalation.Group(pin.PolicyGroup)) >= 0 && s.ResolveAuthoritativeUpgradeSlidingThreshold(ctx) {
-		req.SlidingThresholdPinGroup = escalation.Group(pin.PolicyGroup)
+	if s.strategyPorts.Ownership.Owns(strategy) && pinFound && res.AuthoritativePerTurn && req.ForceCluster == "" &&
+		escalation.Rank(escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)) >= 0 && s.ResolveAuthoritativeUpgradeSlidingThreshold(ctx) {
+		req.Session.SlidingThresholdPinGroup = escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)
 	}
 	baselineRequest := req
 	baselineTurn := res
-	escalationTurn := s.beginEscalation(ctx, env, req, &res, apiKeyID)
-	if escalationTurn != nil {
-		req.Escalation = escalationTurn.constraint()
-	}
-	llmTurn := s.beginLLMEscalation(ctx, env, req, &res, apiKeyID)
-	res.llmEscalation = llmTurn
-	if llmTurn != nil && llmTurn.active {
-		req.Escalation = llmTurn.constraint()
-	}
+	escalationTurn := s.escalationHelper().Begin(ctx, s.escalationFacts(ctx, env, res, apiKeyID), req)
+	escalationTurn.Apply(&req)
+	res.escalation = escalationTurn
 	if pinFound {
-		req.PreviousPolicyGroup = escalation.Group(pin.PolicyGroup)
+		req.Session.PreviousPolicyGroup = escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)
 	}
 
 	routeRemaining := func() (turnLoopResult, error) {
+		req.Session.Pin = router.SessionPin{Found: pinFound, Provider: pin.Provider, Model: pin.Model, LastTurnEndedAt: pin.LastTurnEndedAt, LastOutputTokens: pin.LastOutputTokens}
 		holdToolResult := res.AuthoritativePerTurn && req.Escalation == nil &&
-			res.TurnType == turntype.ToolResult && s.ResolveHMMToolResultHold(ctx)
+			res.TurnType == turntype.ToolResult && s.ResolveHMMToolResultHold(ctx, strategy)
 		if holdToolResult {
 			res.AuthoritativePerTurn = false
 		}
-		if req.Escalation == nil && pinFound && automaticPinEligible(pin, req) && req.ConversationMessages != nil &&
-			router.IsHMMStrategy(router.StrategyFromContext(ctx)) &&
+		if req.Escalation == nil && pinFound && candidates.AutomaticPinEligible(pin, req) && req.ConversationMessages != nil &&
+			s.strategyPorts.Ownership.Owns(strategy) &&
 			!hasTextUserBoundary(req.ConversationMessages) {
 			if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
-				decision := pinDecision(pin)
+				decision := pin.Decision()
 				decision.Reason = unscorableHMMStickyReason
 				res.Decision = decision
 				res.StickyHit = true
 				res.PinTier = unscorableHMMStickyReason
 				log.Info("HMM turn has no user text; preserving eligible session pin",
 					"pin_model", pin.Model, "pin_provider", pin.Provider)
-				sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
+				sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pin.Decision())
 				return res, nil
 			}
 		}
-		if req.Escalation == nil && !res.AuthoritativePerTurn &&
-			(!s.ResolveScoreToolResultTurns(ctx) || holdToolResult) &&
-			res.TurnType == turntype.ToolResult &&
-			pinFound {
-			decision := pinDecision(pin)
+		turn := continuity.Turn{IsToolResult: res.TurnType == turntype.ToolResult, Escalated: req.Escalation != nil, AuthoritativePerTurn: res.AuthoritativePerTurn}
+		continuityCfg := continuity.Config{PlannerEnabled: s.ResolvePlannerEnabled(ctx), ScoreToolResultTurns: s.ResolveScoreToolResultTurns(ctx), HoldToolResult: holdToolResult, Planner: s.continuityConfig.Planner}
+		if continuity.ToolResultSticky(req.Session, turn, continuityCfg) {
+			decision := pin.Decision()
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = "postgres_tool_result_sc"
@@ -1359,8 +915,8 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 
-		if req.Escalation == nil && !res.AuthoritativePerTurn && !s.ResolvePlannerEnabled(ctx) && pinFound {
-			decision := pinDecision(pin)
+		if continuity.CanReusePin(req.Session, turn, continuityCfg) {
+			decision := pin.Decision()
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = "postgres"
@@ -1371,10 +927,10 @@ func (s *Service) runTurnLoop(
 		var fresh router.Decision
 		routed := false
 		if forcedTierFloor != catalog.TierUnknown {
-			if constrained, ok := s.restrictToTier(req.ExcludedModels, forcedTierFloor); ok {
+			if constrained, ok := s.restrictToTier(req.Candidates.ExcludedModels, forcedTierFloor); ok {
 				tierReq := req
-				tierReq.ExcludedModels = constrained
-				if dec, derr := s.routeFor(ctx, tierReq); derr == nil {
+				tierReq.Candidates.ExcludedModels = constrained
+				if dec, derr := s.routeFor(ctx, strategy, tierReq); derr == nil {
 					fresh, routed = dec, true
 					log.Info("user-forced model evicted; rerouted to next-best in same tier",
 						"forced_tier", forcedTierFloor.String(),
@@ -1390,41 +946,10 @@ func (s *Service) runTurnLoop(
 			}
 		}
 		if !routed {
-			dec, err := s.routeFor(ctx, req)
+			dec, err := s.routeFor(ctx, strategy, req)
 			if err != nil {
-				if s.policyDeadlineFallback && isPolicyDeadlineErr(err) {
-					if pinFound && pin.Model != "" {
-						decision := pinDecision(pin)
-						decision.Reason = policyDeadlineFallbackReason
-						res.Decision = decision
-						res.StickyHit = true
-						res.PinTier = policyDeadlineFallbackReason
-						res.PolicyFallback = true
-						log.Warn("policy sidecar missed its deadline; serving session pin",
-							"err", err,
-							"pin_model", pin.Model,
-							"pin_provider", pin.Provider,
-							"pin_policy_group", pin.PolicyGroup,
-							"requested_model", req.RequestedModel,
-						)
-						refreshed := decision
-						refreshed.Reason = pin.Reason
-						sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, refreshed)
-						return res, nil
-					}
-					if decision, ok := s.policyDeadlineDefaultDecision(req); ok {
-						res.Decision = decision
-						res.PinTier = policyDeadlineFallbackReason
-						res.PolicyFallback = true
-						log.Warn("policy sidecar missed its deadline; no session pin, serving tier-3 default",
-							"err", err,
-							"default_model", decision.Model,
-							"default_provider", decision.Provider,
-							"requested_model", req.RequestedModel,
-						)
-						sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, decision)
-						return res, nil
-					}
+				if s.policyDeadlineFallback && isPolicyDeadlineErr(err) && servePolicyDeadlineFallback(ctx, s, &res, err, req, sessionPins, pinIfFound(pin, pinFound)) {
+					return res, nil
 				}
 				log.Error("turnloop scorer failed", "err", err, "requested_model", req.RequestedModel)
 				return res, err
@@ -1437,125 +962,29 @@ func (s *Service) runTurnLoop(
 			"fresh_reason", fresh.Reason,
 		)
 		res.Fresh = fresh
-		if escalationRoutingApplied(fresh) {
+		if floor.RoutingApplied(fresh) {
 			res.Decision = fresh
-			res.PinTier = "escalation_xgb"
-			if llmTurn != nil && llmTurn.active {
-				res.PinTier = llmEscalationPinTier
-				if llmTurn.session.Config.EffectiveClassifier() == flags.EscalationClassifierLLM {
-					res.PinTier = qwenEscalationPinTier
-				}
-			}
+			res.PinTier = escalationTurn.PinTier()
 			return res, nil
 		}
 		if res.AuthoritativePerTurn {
-			activePin := sessionpin.Pin{}
-			if pinFound {
-				activePin = pin
-			}
-			plannerTokens := s.plannerTokensFor(ctx, env, feats)
-			res.UpgradeShadow = s.authoritativeUpgradeFor(ctx, req, activePin, fresh, res, plannerTokens)
-			res.AuthorityShadow = s.authorityCacheShadowFor(
-				ctx, req, activePin, hmmHistory, fresh, plannerTokens, prefixBroken,
-			)
-			s.logAuthorityCacheShadow(ctx, res)
-			if res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Reason == upgradeDemotedModel {
-				if pinFound && automaticPinEligible(pin, req) {
-					decision := pinDecision(pin)
-					res.Decision = decision
-					res.StickyHit = true
-					res.PinTier = string(pinTierAuthoritativeExcludedPin)
-					log.Warn("authoritative policy returned an excluded model; keeping session pin",
-						"pin_model", pin.Model,
-						"fresh_model", fresh.Model,
-						"reason", res.UpgradeShadow.Verdict.Reason,
-					)
-					sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
-					return res, nil
-				}
-
-				rerouteReq := req
-				rerouted, rerouteErr := s.routeFor(ctx, rerouteReq)
-				if rerouteErr != nil {
-					return res, rerouteErr
-				}
-				reroutedPin := sessionpin.Pin{Model: rerouted.Model, Provider: rerouted.Provider}
-				available := s.availableModels == nil
-				if s.availableModels != nil {
-					_, available = s.availableModels[rerouted.Model]
-				}
-				if !available || !pinEligible(reroutedPin, rerouteReq) {
-					return res, fmt.Errorf("authoritative policy returned excluded model %q after reroute: %w", rerouted.Model, router.ErrNoEligibleProvider)
-				}
-				res.Fresh = rerouted
-				res.Decision = rerouted
-				res.PinTier = string(pinTierAuthoritativeExcludedReroute)
-				log.Warn("authoritative policy returned an excluded model; serving rerouted decision",
-					"excluded_model", fresh.Model,
-					"rerouted_model", rerouted.Model,
-					"reason", res.UpgradeShadow.Verdict.Reason,
-				)
-				sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, rerouted)
-				return res, nil
-			}
-			slidingServed, slidingProbability := slidingThresholdServes(req, pin, fresh)
-			if slidingServed {
-				log.Info("authoritative sliding threshold serving fresh model",
-					"pin_model", pin.Model,
-					"pin_group", req.SlidingThresholdPinGroup,
-					"fresh_model", fresh.Model,
-					"fresh_group", fresh.Metadata.PolicyGroup,
-					"classified_group", fresh.Metadata.ClassifierPredictedLabel,
-					"probability", slidingProbability,
-				)
-			}
-			if !slidingServed && s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil {
-				res.UpgradeShadow.Applied = true
-				switch res.UpgradeShadow.Verdict.Outcome {
-				case upgradeAllow, upgradeExistingPolicy, upgradeNotApplicable, upgradeExcluded:
-				case upgradeHold:
-					decision := pinDecision(pin)
-					res.Decision = decision
-					res.StickyHit = true
-					res.PinTier = string(pinTierAuthoritativeUpgradeEvidence)
-					votes := *res.UpgradeShadow.Evidence.VoteCount
-					log.Info("turnloop held authoritative upgrade on evidence; keeping session pin",
-						"pin_model", pin.Model,
-						"fresh_model", fresh.Model,
-						"reason", res.UpgradeShadow.Verdict.Reason,
-						"upgrade_votes", votes,
-					)
-					sessionPins.RefreshVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, 0, votes)
-					return res, nil
-				}
-			}
-			evidenceServedFresh := s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Outcome == upgradeAllow
-			verdict := authoritativeGuardsFor(ctx, s, evidenceServedFresh, slidingServed).Judge(pin, pinFound, fresh, plannerTokens)
-			if holdAuthoritativePin(ctx, sessionPins, installationID, &res, pin, fresh, verdict) {
-				return res, nil
-			}
-			res.Decision = fresh
-			res.PinTier = "authoritative_per_turn"
-			if slidingServed {
-				res.PinTier = string(pinTierAuthoritativeSlidingThresholdUpgrade)
-			}
-			sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
-			return res, nil
+			return serveAuthoritativeTurn(ctx, s, &res, authoritativeTurn{env: env, feats: feats, strategy: strategy, req: req, pin: pin, pinFound: pinFound, hmmHistory: hmmHistory, fresh: fresh, prefixBroken: prefixBroken, sessionPins: sessionPins, installationID: installationID})
 		}
-		if isHMMDecision(fresh) {
+		if isHMMDecision(s.strategyPorts, fresh) {
 			activePin := sessionpin.Pin{}
 			if pinFound {
 				activePin = pin
 			}
-			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := hmmCostGatedDecision(ctx, s, routingpolicy.HMMCostGateInput{
+			hmmGateInput := continuity.CostGateInput{
 				Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
 				EstimatedInputTokens: s.plannerTokensFor(ctx, env, feats), PrefixBroken: prefixBroken,
-			})
+			}
+			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := hmmCostGatedDecision(ctx, s, hmmGateInput)
 			res.Decision = hmmDecision
 			res.PlannerDecision = hmmPlannerDecision
-			if heldEffort := effortHysteresisHold(fresh, res.PriorServedModel, hmmDecision.Model, hmmDecision.Effort); heldEffort != "" {
+			if heldEffort := s.strategyPorts.Upgrade.EffortHysteresisHold(fresh, res.PriorServedModel, hmmDecision.Model, hmmDecision.Effort); heldEffort != "" {
 				res.Decision.Effort = heldEffort
-				res.PlannerDecision.Reason = appendEffortHysteresisReason(res.PlannerDecision.Reason)
+				res.PlannerDecision.Reason = s.strategyPorts.Upgrade.AppendEffortHysteresisReason(res.PlannerDecision.Reason)
 				log.Info("HMM effort hysteresis held incumbent",
 					"incumbent", res.PriorServedModel,
 					"challenger_effort", hmmDecision.Effort,
@@ -1565,7 +994,7 @@ func (s *Service) runTurnLoop(
 			if hmmStayModel != "" {
 				res.PinModel = hmmStayModel
 				if hmmPin, ok := hmmStayPin(s, req, activePin, hmmHistory); ok && hmmPin.Model == hmmStayModel {
-					applyPinEvidence(&res, hmmPin, s.clock.Now())
+					applyPinEvidence(s.strategyPorts, &res, hmmPin, s.clock.Now())
 				}
 			}
 			if hmmSticky {
@@ -1574,58 +1003,36 @@ func (s *Service) runTurnLoop(
 				res.StickyRole = hmmHistoryRole(res.PinRole)
 			} else {
 				res.PinTier = "hmm_fresh_unpinned"
-				if hmmPlannerDecision.Outcome == planner.OutcomeStay && hmmPlannerDecision.Reason != "" {
+				if hmmPlannerDecision.Outcome == planner.OutcomeStay && hmmPlannerDecision.Evaluated() {
 					res.PinTier = "hmm_ev_same_" + hmmPlannerDecision.Reason
-				} else if hmmPlannerDecision.Reason != "" && hmmPlannerDecision.Reason != planner.ReasonNoPin {
+				} else if hmmPlannerDecision.EvaluatedAgainstPin() {
 					res.PinTier = "hmm_ev_switch_" + hmmPlannerDecision.Reason
 				}
 			}
+			hmmShadowStayPin, _ := hmmStayPin(s, req, activePin, hmmHistory)
+			logSwitchShadow(ctx, hmmShadowStayPin, hmmGateInput, s.clock.Now(), res)
 			return res, nil
 		}
 
 		if !pinFound && pin.Model != "" && !prefixBroken {
-			pinTier := catalog.TierFor(pin.Model)
-			freshTier := catalog.TierFor(fresh.Model)
-			if pinTier != catalog.TierUnknown && freshTier != catalog.TierUnknown && freshTier <= pinTier {
-				if _, excluded := req.ExcludedModels[pin.Model]; !excluded && !automaticallyDisabled(req, pin.Model) {
-					if _, available := s.availableModels[pin.Model]; available {
-						_, providerOK := req.EnabledProviders[pin.Provider]
-						if req.EnabledProviders == nil || providerOK {
-							if maxedOutServedModel(pin) != "" {
-								log.Info("Expired session pin maxed out on previous turn; skipping re-anchor",
-									"pin_model", pin.Model,
-									"pin_provider", pin.Provider,
-									"last_output_tokens", pin.LastOutputTokens,
-								)
-							} else if req.HasImages && (!catalog.AcceptsImages(pin.Model) ||
-								req.ImageCount > 0 && !catalog.AcceptsImageCount(pin.Model, req.ImageCount, req.EnabledProviders)) {
-								log.Info("Expired session pin is text-only for image-bearing turn; skipping re-anchor",
-									"pin_model", pin.Model,
-									"pin_provider", pin.Provider,
-								)
-							} else {
-								priorDecision := pinDecision(pin)
-								res.Decision = priorDecision
-								res.StickyHit = true
-								res.PinTier = "postgres_reanchor"
-								sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, priorDecision)
-								log.Info("router re-anchored expired session pin",
-									"prior_model", pin.Model,
-									"prior_provider", pin.Provider,
-									"fresh_model", fresh.Model,
-									"fresh_provider", fresh.Provider,
-									"prior_tier", pinTier.String(),
-									"fresh_tier", freshTier.String(),
-								)
-								return res, nil
-							}
-						}
-					}
-				}
+			switch continuity.JudgeReanchor(pin, fresh, req, s.availableModels) {
+			case continuity.ReanchorNone:
+			case continuity.ReanchorSkipMaxedOut:
+				log.Info("Expired session pin maxed out on previous turn; skipping re-anchor", "pin_model", pin.Model, "pin_provider", pin.Provider, "last_output_tokens", pin.LastOutputTokens)
+			case continuity.ReanchorSkipTextOnly:
+				log.Info("Expired session pin is text-only for image-bearing turn; skipping re-anchor", "pin_model", pin.Model, "pin_provider", pin.Provider)
+			case continuity.ReanchorServe:
+				priorDecision := pin.Decision()
+				res.Decision = priorDecision
+				res.StickyHit = true
+				res.PinTier = "postgres_reanchor"
+				sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, priorDecision)
+				log.Info("router re-anchored expired session pin", "prior_model", pin.Model, "prior_provider", pin.Provider, "fresh_model", fresh.Model, "fresh_provider", fresh.Provider, "prior_tier", catalog.TierFor(pin.Model).String(), "fresh_tier", catalog.TierFor(fresh.Model).String())
+				return res, nil
 			}
 		}
 
-		if !s.ResolvePlannerEnabled(ctx) {
+		if !continuityCfg.PlannerEnabled {
 			res.Decision = fresh
 			sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 			return res, nil
@@ -1633,39 +1040,30 @@ func (s *Service) runTurnLoop(
 
 		plannerTokens := s.plannerTokensFor(ctx, env, feats)
 		prefixTokens, prefixKnown := cacheablePrefixTokens(pin, plannerTokens, prefixBroken)
-		plannerIn := planner.Inputs{
-			Pin:                   pin,
-			Fresh:                 fresh,
+		decision := continuity.Plan(req.Session, fresh, continuity.PlanInputs{
 			EstimatedInputTokens:  plannerTokens,
 			CacheablePrefixTokens: prefixTokens,
 			CachePrefixKnown:      prefixKnown,
-			PriorOutputTokens:     pin.LastOutputTokens,
+			PinCacheCold:          pinCacheCold(pin, prefixBroken, s.clock.Now()),
 			AvailableModels:       s.availableModels,
-			PinCacheCold:          pinFound && pinCacheCold(pin, prefixBroken, s.clock.Now()),
-		}
-		if !pinFound {
-			plannerIn.Pin = sessionpin.Pin{}
-		}
-		decision := planner.Decide(plannerIn, plannerConfigFor(ctx, s.planner))
+		}, plannerConfigFor(ctx, s.continuityConfig.Planner))
 		res.PlannerDecision = decision
 
-		if decision.Outcome == planner.OutcomeStay && pinFound {
-			anchor := pinDecision(pin)
-			served := s.bandSwapServed(ctx, res.TurnType, pin, fresh, req.HasImages, req.ImageCount, req.EnabledProviders, req.ExcludedModels)
+		outcome := continuity.Settle(decision, pinFound, prefixBroken)
+		if outcome.Stay {
+			anchor := pin.Decision()
+			served := s.bandSwapServed(ctx, res.TurnType, pin, fresh, req.HasImages, req.ImageCount, req.EnabledProviders, req.Candidates.ExcludedModels)
 			res.Decision = served
 			res.StickyHit = true
-			res.PinTier = "postgres_stay_" + decision.Reason
+			res.PinTier = outcome.PinTier
 			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, anchor)
 			return res, nil
 		}
 
-		if pinFound && prefixBroken {
-			log.Info("Handover summarizer skipped: client history trim already bounded this switch turn",
-				"pin_model", pin.Model,
-				"fresh_model", fresh.Model,
-			)
+		if outcome.Handover == continuity.HandoverSkippedTrimmedHistory {
+			log.Info("Handover summarizer skipped: client history trim already bounded this switch turn", "pin_model", pin.Model, "fresh_model", fresh.Model)
 		}
-		if pinFound && !prefixBroken {
+		if outcome.Handover == continuity.HandoverSummarize {
 			var (
 				sumProvider       string
 				sumCreds          *Credentials
@@ -1673,7 +1071,7 @@ func (s *Service) runTurnLoop(
 			)
 			if s.summarizer != nil {
 				sumProvider = s.summarizer.Provider()
-				sumCreds = resolveSummarizerCreds(ctx, sumProvider, reqHeaders)
+				sumCreds = summarizerCredsFor(ctx, sumProvider, reqHeaders)
 				nonDepCreds := s.requestUsesNonDeploymentCreds(ctx, reqHeaders)
 				canCallSummarizer = sumCreds != nil || !nonDepCreds
 			}
@@ -1714,40 +1112,33 @@ func (s *Service) runTurnLoop(
 		}
 
 		res.Decision = fresh
-		if pinFound {
-			res.PinTier = "switch_" + decision.Reason
+		if outcome.PinTier != "" {
+			res.PinTier = outcome.PinTier
 		}
 		sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 		return res, nil
 	}
 	res, routeErr = routeRemaining()
 	if escalationTurn != nil {
-		if err := s.finishEscalation(ctx, escalationTurn, &res, routeErr); err != nil {
-			log.Warn("Escalation state commit failed; routing without intervention", "err", err, "ordinal", escalationTurn.session.Ordinal)
-			if escalationRoutingApplied(res.Decision) {
-				req = baselineRequest
-				res = baselineTurn
-				res, routeErr = routeRemaining()
-			}
+		committed, rerunBaseline, err := s.escalationHelper().Settle(ctx, escalationTurn, res.Decision, decisionPolicyGroup(res.Decision), routeErr)
+		if rerunBaseline {
+			req, res = baselineRequest, baselineTurn
+			res, routeErr = routeRemaining()
+		} else if err == nil {
+			res.EscalationShadowMarked, res.EscalationScope, res.EscalationOrdinal = committed.ShadowMarked, committed.Scope, committed.Ordinal
 		}
 	}
-	res.llmEscalation = llmTurn
-	if llmTurn != nil && routeErr == nil {
-		if err := s.applyLLMEscalation(ctx, llmTurn, res.Decision); err != nil {
-			log.Warn("LLM escalation application failed", "err", err)
-			if llmTurn.active && escalationRoutingApplied(res.Decision) {
-				req = baselineRequest
-				res = baselineTurn
-				res, routeErr = routeRemaining()
-				res.llmEscalation = llmTurn
-			}
-		}
+	res.escalation = escalationTurn
+	if s.escalationHelper().SettleLLM(ctx, escalationTurn, res.Decision, routeErr) {
+		req, res = baselineRequest, baselineTurn
+		res, routeErr = routeRemaining()
+		res.escalation = escalationTurn
 	}
 	return res, routeErr
 }
 
 func modelExcludedForRecoveryProbe(req router.Request, model string) bool {
-	if _, excluded := req.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
+	if _, excluded := req.Candidates.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
 		return true
 	}
 	if len(req.GatewayProviders) > 0 {
@@ -1773,10 +1164,10 @@ func (s *Service) authorityCacheShadowFor(
 	if !s.ResolveAuthorityCacheShadow(ctx) {
 		return authorityCacheShadow{}
 	}
-	if !isHMMDecision(fresh) {
+	if !isHMMDecision(s.strategyPorts, fresh) {
 		return authorityCacheShadow{}
 	}
-	_, plannerDecision, sticky, stayModel := hmmCostGatedDecision(ctx, s, routingpolicy.HMMCostGateInput{
+	_, plannerDecision, sticky, stayModel := hmmCostGatedDecision(ctx, s, continuity.CostGateInput{
 		Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
 		EstimatedInputTokens: estimatedInputTokens, PrefixBroken: prefixBroken,
 	})
@@ -1785,7 +1176,7 @@ func (s *Service) authorityCacheShadowFor(
 	stayPin, stayPinOK := hmmStayPin(s, req, activePin, hmmHistory)
 	if stayPinOK && stayPin.Model == stayModel {
 		stayProvider = stayPin.Provider
-		stayIdentity = pinDecision(stayPin).ServedIdentity()
+		stayIdentity = stayPin.Decision().ServedIdentity()
 	}
 	freshRosterArmID := ""
 	if fresh.Metadata != nil {
@@ -1796,8 +1187,8 @@ func (s *Service) authorityCacheShadowFor(
 		Decision:   plannerDecision,
 		StayModel:  stayModel,
 		Sticky:     sticky,
-		StayScore:  candidateScoreForWithProvider(fresh, stayIdentity, stayProvider),
-		FreshScore: candidateScoreForWithArm(fresh, fresh.ServedIdentity(), fresh.Provider, freshRosterArmID),
+		StayScore:  candidateScoreForWithProvider(s.strategyPorts, fresh, stayIdentity, stayProvider),
+		FreshScore: candidateScoreForWithArm(s.strategyPorts, fresh, fresh.ServedIdentity(), fresh.Provider, freshRosterArmID),
 	}
 	if stayPinOK && stayPin.Model == stayModel {
 		shadow.StayProvider = stayPin.Provider
@@ -1805,67 +1196,16 @@ func (s *Service) authorityCacheShadowFor(
 	return shadow
 }
 
-func candidateScoreFor(dec router.Decision, servedIdentity string) *float64 {
-	return candidateScoreForWithProvider(dec, servedIdentity, dec.Provider)
+func candidateScoreFor(ports continuity.StrategyPorts, dec router.Decision, servedIdentity string) *float64 {
+	return candidateScoreForWithProvider(ports, dec, servedIdentity, dec.Provider)
 }
 
-func candidateScoreForWithProvider(dec router.Decision, servedIdentity, provider string) *float64 {
-	return candidateScoreForWithArm(dec, servedIdentity, provider, "")
+func candidateScoreForWithProvider(ports continuity.StrategyPorts, dec router.Decision, servedIdentity, provider string) *float64 {
+	return candidateScoreForWithArm(ports, dec, servedIdentity, provider, "")
 }
 
-func candidateScoreForWithArm(dec router.Decision, servedIdentity, provider, rosterArmID string) *float64 {
-	if servedIdentity == "" || dec.Metadata == nil {
-		return nil
-	}
-	if score, ok := dec.Metadata.CandidateScores[baseModelOf(servedIdentity)]; ok {
-		value := float64(score)
-		return &value
-	}
-
-	if rosterArmID != "" {
-		if score, ok := dec.Metadata.ArmScores[rosterArmID]; ok {
-			value := float64(score)
-			return &value
-		}
-	}
-
-	effort, model := stripEffortSuffix(servedIdentity)
-	if model == "" || len(dec.Metadata.ArmScores) == 0 {
-		return nil
-	}
-	armSuffix := ""
-	if effort != "" {
-		armSuffix = ":" + effort
-	}
-	keys := make([]string, 0, 2)
-	if provider != "" {
-		keys = append(keys, provider+"/"+model+armSuffix)
-	}
-	keys = append(keys, model+armSuffix)
-	for _, key := range keys {
-		if score, ok := dec.Metadata.ArmScores[key]; ok {
-			value := float64(score)
-			return &value
-		}
-	}
-
-	var fallback *float64
-	for armID, score := range dec.Metadata.ArmScores {
-		armEffort, armModel := stripEffortSuffix(armID)
-		if armEffort != effort || (armModel != model && !strings.HasSuffix(armModel, "/"+model)) {
-			continue
-		}
-		if armProvider, ok := dec.Metadata.CandidateArmProviders[armID]; ok && provider != "" && armProvider == provider {
-			value := float64(score)
-			return &value
-		}
-		if fallback != nil {
-			return nil
-		}
-		value := float64(score)
-		fallback = &value
-	}
-	return fallback
+func candidateScoreForWithArm(ports continuity.StrategyPorts, dec router.Decision, servedIdentity, provider, rosterArmID string) *float64 {
+	return ports.Facts.CandidateScore(dec, servedIdentity, provider, rosterArmID)
 }
 
 func (s *Service) logAuthorityCacheShadow(ctx context.Context, res turnLoopResult) {
@@ -2026,20 +1366,6 @@ func sortedEnabledKeys(m map[string]struct{}) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-func (s *Service) hardPinBlockedByContextWindow(hardPinReq HardPinRequest, req router.Request) bool {
-	if len(req.ContextWindowExcludedModels) == 0 {
-		return false
-	}
-	nonSizeExcluded := maps.Clone(req.ExcludedModels)
-	maps.DeleteFunc(nonSizeExcluded, func(model string, _ struct{}) bool {
-		_, sized := req.ContextWindowExcludedModels[model]
-		return sized
-	})
-	hardPinReq.ExcludedModels = nonSizeExcluded
-	_, _, ok := s.hardPinResolver(hardPinReq)
-	return ok
 }
 
 func forcePinBindsNonClassifierTurn(found bool, tt turntype.TurnType) bool {

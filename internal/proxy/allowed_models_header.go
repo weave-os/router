@@ -123,7 +123,7 @@ func (s *Service) readmitForcedModel(
 	feats translate.RoutingFeatures,
 	pin sessionpin.Pin,
 ) map[string]struct{} {
-	excluded := req.ExcludedModels
+	excluded := req.Candidates.ExcludedModels
 	bypassesAllowlist := len(s.gatewayProvidersForRequest(ctx)) > 0 && !modelPermittedByAllowlist(ctx, pin.Model)
 	if modelInRequestSubset(ctx, pin.Model) && !bypassesAllowlist {
 		return excluded

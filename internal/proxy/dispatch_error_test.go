@@ -16,7 +16,6 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/policy"
-	"weave-os/router/internal/router/rl"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -208,7 +207,7 @@ func TestClassifyDispatchError_AllowlistEmptiesPoolPrecedesNoEligibleProvider(t 
 }
 
 func TestClassifyDispatchError_RLAndHMMUnavailableRetry(t *testing.T) {
-	for _, err := range []error{rl.ErrPolicyUnavailable, hmm.ErrHMMUnavailable, decisionmodel.ErrUnavailable} {
+	for _, err := range []error{hmm.ErrHMMUnavailable, decisionmodel.ErrUnavailable} {
 		cls, ok := proxy.ClassifyDispatchError(err)
 		require.True(t, ok, "expected %v to be classified", err)
 		assert.Equal(t, http.StatusServiceUnavailable, cls.Status)

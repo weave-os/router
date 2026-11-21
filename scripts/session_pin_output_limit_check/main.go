@@ -9,10 +9,12 @@ import (
 	"os"
 	"time"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm/pinstate"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
@@ -27,6 +29,7 @@ const (
 const hmmHistoryRole = sessionpin.DefaultRole + "_hmm_history"
 
 func main() {
+	logconfig.Configure()
 	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
 	if dsn == "" {
 		slog.Info("ROUTER_TEST_DATABASE_URL unset; skipping session-pin output-limit database check")
@@ -70,8 +73,8 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 	if err != nil {
 		return err
 	}
-	store := postgres.NewSessionPinRepo(tx)
-	reader := postgres.NewSessionPinRepo(tx)
+	store := postgres.NewSessionPinRepo(tx, pinstate.Accessor{})
+	reader := postgres.NewSessionPinRepo(tx, pinstate.Accessor{})
 
 	var key [sessionpin.SessionKeyLen]byte
 	digest := sha256.Sum256([]byte(uuid.NewString()))

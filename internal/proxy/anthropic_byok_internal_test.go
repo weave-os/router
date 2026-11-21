@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
@@ -70,8 +71,8 @@ func TestAnthropicBYOKDispatchIgnoresSubscriptionState(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			buffer := newPreludeBuffer(recorder)
 			in := plannedInputs(t.Context(), recorder, buffer, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
-			in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: model}
-			in.subscriptionStateHeaders = headers
+			in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: model}
+			in.SubscriptionStateHeaders = headers
 			_, err := svc.dispatchWithFallback(ctx, in)
 			if tc.upstreamErr != nil {
 				require.ErrorIs(t, err, tc.upstreamErr)
@@ -131,9 +132,10 @@ func TestAnthropicBYOKHTTPNeverProbesOAuth(t *testing.T) {
 			defer upstream.Close()
 			model := catalog.ModelIDClaudeOpus48.String()
 			leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "synthetic-seat", AccessToken: "sk-ant-oat01-linked"}}}
-			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: model}}, map[string]providers.Client{
+			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: model}}, map[string]providers.Client{
 				providers.ProviderAnthropic: anthropic.NewClient("synthetic-deployment-key", upstream.URL),
-			}, nil, nil, false, "", "", nil).WithManagedSubscriptions(leaser)
+			}, nil, nil, false, "", "", nil)).
+				WithManagedSubscriptions(leaser)
 			ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
 			ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "synthetic-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}})
 			ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})

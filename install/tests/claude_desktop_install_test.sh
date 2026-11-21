@@ -146,6 +146,64 @@ cli_config="$cli_home/.weave-router/desktop-shim/config.json"
 [ "$(jq -r '.router_key' "$cli_config")" = "rk_cli_test" ] || fail "Claude Code's router key not reused"
 cmp -s "$cli_home/.claude/settings.json" "$work/cli-settings.before" || fail "Claude Code settings.json was touched"
 
+# An explicit --base-url that matches the Claude Code install still reuses its key.
+explicit_home="$work/explicit-home"
+mkdir -p "$explicit_home/.claude"
+jq -n '{env: {ANTHROPIC_BASE_URL: "http://127.0.0.1:9/", ANTHROPIC_CUSTOM_HEADERS: "X-Weave-Router-Key: rk_cli_explicit\nX-Weave-User-Email: dev@example.com"}}' >"$explicit_home/.claude/settings.json"
+run env HOME="$explicit_home" bash "$installer" --claude-desktop --non-interactive --base-url http://127.0.0.1:9 --email dev@example.com >/dev/null 2>&1 || fail "install with a matching --base-url did not reuse the Claude Code key"
+explicit_config="$explicit_home/.weave-router/desktop-shim/config.json"
+[ "$(jq -r '.router_key' "$explicit_config")" = "rk_cli_explicit" ] || fail "matching --base-url did not reuse Claude Code's key"
+[ "$(jq -r '.router_base_url' "$explicit_config")" = "http://127.0.0.1:9" ] || fail "matching --base-url changed the endpoint"
+
+# The same works against a parked Claude Code install.
+explicit_parked_home="$work/explicit-parked-home"
+mkdir -p "$explicit_parked_home/.claude"
+jq -n '{env: {ANTHROPIC_BASE_URL: "https://api.anthropic.com"}}' >"$explicit_parked_home/.claude/settings.json"
+jq -n '{env: {ANTHROPIC_BASE_URL: "http://127.0.0.1:9", ANTHROPIC_CUSTOM_HEADERS: "X-Weave-Router-Key: rk_parked_explicit"}}' >"$explicit_parked_home/.claude/.weave-parked.json"
+run env HOME="$explicit_parked_home" bash "$installer" --claude-desktop --non-interactive --base-url http://127.0.0.1:9/ --email dev@example.com >/dev/null 2>&1 || fail "matching --base-url next to a parked install failed"
+[ "$(jq -r '.router_key' "$explicit_parked_home/.weave-router/desktop-shim/config.json")" = "rk_parked_explicit" ] || fail "matching --base-url did not reuse the parked key"
+
+# A matching settings.json without a key falls through to the parked install's key.
+explicit_keyless_home="$work/explicit-keyless-home"
+mkdir -p "$explicit_keyless_home/.claude"
+jq -n '{env: {ANTHROPIC_BASE_URL: "http://127.0.0.1:9"}}' >"$explicit_keyless_home/.claude/settings.json"
+jq -n '{env: {ANTHROPIC_BASE_URL: "http://127.0.0.1:9", ANTHROPIC_CUSTOM_HEADERS: "X-Weave-Router-Key: rk_parked_keyless"}}' >"$explicit_keyless_home/.claude/.weave-parked.json"
+run env HOME="$explicit_keyless_home" bash "$installer" --claude-desktop --non-interactive --base-url http://127.0.0.1:9 --email dev@example.com >/dev/null 2>&1 || fail "matching keyless settings.json stopped the parked key lookup"
+[ "$(jq -r '.router_key' "$explicit_keyless_home/.weave-router/desktop-shim/config.json")" = "rk_parked_keyless" ] || fail "matching keyless settings.json hid the parked key"
+
+# A matching keyless settings.json is not reported as a mismatch because a parked install points elsewhere.
+matched_keyless_home="$work/matched-keyless-home"
+mkdir -p "$matched_keyless_home/.claude"
+jq -n '{env: {ANTHROPIC_BASE_URL: "http://127.0.0.1:9"}}' >"$matched_keyless_home/.claude/settings.json"
+jq -n '{env: {ANTHROPIC_BASE_URL: "https://router-b.example.test", ANTHROPIC_CUSTOM_HEADERS: "X-Weave-Router-Key: rk_parked_elsewhere"}}' >"$matched_keyless_home/.claude/.weave-parked.json"
+if out="$(run env HOME="$matched_keyless_home" bash "$installer" --claude-desktop --non-interactive --base-url http://127.0.0.1:9 --email dev@example.com 2>&1)"; then
+  fail "install reused a parked key from a different endpoint"
+fi
+! grep -Fq "https://router-b.example.test" <<<"$out" || fail "matching keyless settings.json reported as an endpoint mismatch: $out"
+
+# A --base-url naming a different router never receives the Claude Code key;
+# the failure names both endpoints but never prints the key.
+other_home="$work/other-home"
+mkdir -p "$other_home/.claude"
+jq -n '{env: {ANTHROPIC_BASE_URL: "https://router-a.example.test", ANTHROPIC_CUSTOM_HEADERS: "X-Weave-Router-Key: rk_secret_other\nX-Weave-User-Email: dev@example.com"}}' >"$other_home/.claude/settings.json"
+: >"$events"
+if out="$(run env HOME="$other_home" bash "$installer" --claude-desktop --non-interactive --base-url http://127.0.0.1:9 --email dev@example.com 2>&1)"; then
+  fail "install against an unrelated --base-url reused the Claude Code key"
+fi
+[ ! -f "$other_home/.weave-router/desktop-shim/config.json" ] || fail "proxy config written for an unrelated endpoint"
+grep -Fq "https://router-a.example.test" <<<"$out" || fail "endpoint mismatch not explained: $out"
+grep -Fq "Drop --base-url" <<<"$out" || fail "no next step for the endpoint mismatch: $out"
+! grep -Fq "rk_secret_other" <<<"$out" || fail "Claude Code key printed to output"
+! grep -Fq "rk_secret_other" "$events" || fail "Claude Code key sent to an unrelated endpoint"
+
+# --rotate-key still skips the Claude Code key even when the endpoint matches.
+rotate_home="$work/rotate-home"
+mkdir -p "$rotate_home/.claude"
+cp "$explicit_home/.claude/settings.json" "$rotate_home/.claude/settings.json"
+if run env HOME="$rotate_home" bash "$installer" --claude-desktop --non-interactive --rotate-key --base-url http://127.0.0.1:9 --email dev@example.com >/dev/null 2>&1; then
+  fail "--rotate-key reused the Claude Code key"
+fi
+
 # After `off --claude`, the endpoint and key live in the parked sidecar.
 parked_home="$work/parked-home"
 mkdir -p "$parked_home/.claude"

@@ -11,9 +11,9 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -87,7 +87,7 @@ func (s *Service) anthropicRoutingRequest(
 		outputReserve = features.MaxTokens
 	}
 	excluded := s.excludeCodexOAuthOnlyModels(ctx, headers, enabledProviders, s.excludedModelsForRequest(ctx))
-	excluded, _ = routingpolicy.ExcludeContextOverflowModels(
+	excluded, _ = candidates.ExcludeContextOverflowModels(
 		env.ContextOverflowTokenEstimate(),
 		env.SignatureTokenSavings(),
 		outputReserve,
@@ -95,7 +95,7 @@ func (s *Service) anthropicRoutingRequest(
 		excluded,
 		s.availableModels,
 	)
-	excluded, _ = routingpolicy.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
+	excluded, _ = candidates.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
 	excluded, _ = excludeAdvisorOutrankingModels(env, excluded, s.routableUniverse())
 
 	organizationID, _ := ctx.Value(ExternalIDContextKey{}).(string)
@@ -124,8 +124,7 @@ func (s *Service) anthropicRoutingRequest(
 		EnabledProviders:             enabledProviders,
 		CustomBindings:               s.customBindingsForRequest(ctx),
 		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
-		ExcludedModels:               excluded,
-		AllowedModels:                allowedModelsForRequest(ctx),
+		Candidates:                   router.Candidates{ExcludedModels: excluded, AllowedModels: allowedModelsForRequest(ctx)},
 		PreferredModels:              s.preferredModelsForRequest(ctx),
 		RoutingKnobs:                 routingKnobsForRequest(ctx),
 	}, nil
@@ -144,7 +143,7 @@ func (s *Service) PreviewAnthropicRoute(ctx context.Context, body []byte, header
 	strategy := router.StrategyFromContext(ctx)
 	registered, ok := s.strategies[strategy]
 	if !ok || registered.router == nil {
-		return policy.PreviewResult{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, defaultStrategyUnavailable(strategy))
+		return policy.PreviewResult{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, router.StrategyUnavailableError(strategy))
 	}
 	previewer, ok := registered.router.(policy.RoutePreviewer)
 	if !ok {

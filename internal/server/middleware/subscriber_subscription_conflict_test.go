@@ -44,7 +44,7 @@ func TestWithSubscriberAllowance_MaxIgnoresLinkedSubscriptionAndUsesAllowance(t 
 					c.Set("router_api_key", subscriberAPIKey())
 					withInstallation(c, "org_subscription_conflict")
 				})
-				engine.Use(middleware.WithSubscriberAllowance(allowanceSvc, false))
+				engine.Use(middleware.WithSubscriberAllowance(allowanceSvc))
 				engine.Use(middleware.WithBalanceCheck(billing.NewService(organizationBilling), billing.MinBalanceMicros))
 				engine.POST(route.path, func(c *gin.Context) {
 					dispatched = true

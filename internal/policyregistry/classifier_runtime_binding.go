@@ -58,6 +58,17 @@ func classifierRuntimeBindingRelativeName(environment Environment, releaseSHA256
 }
 
 func DecodeClassifierRuntimeBinding(payload []byte, environment Environment, releaseSHA256 string) (ClassifierRuntimeBinding, error) {
+	binding, err := DecodeLocalClassifierRuntimeBinding(payload, environment, releaseSHA256)
+	if err != nil {
+		return ClassifierRuntimeBinding{}, err
+	}
+	if err := binding.validateManagedWorker(environment); err != nil {
+		return ClassifierRuntimeBinding{}, err
+	}
+	return binding, nil
+}
+
+func DecodeLocalClassifierRuntimeBinding(payload []byte, environment Environment, releaseSHA256 string) (ClassifierRuntimeBinding, error) {
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	var binding ClassifierRuntimeBinding
@@ -67,18 +78,17 @@ func DecodeClassifierRuntimeBinding(payload []byte, environment Environment, rel
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return ClassifierRuntimeBinding{}, errors.New("classifier runtime binding contains trailing JSON")
 	}
-	if err := binding.validate(environment, releaseSHA256); err != nil {
+	if err := binding.validateIdentity(environment, releaseSHA256); err != nil {
 		return ClassifierRuntimeBinding{}, err
 	}
 	return binding, nil
 }
 
-func (b ClassifierRuntimeBinding) validate(environment Environment, releaseSHA256 string) error {
+func (b ClassifierRuntimeBinding) validateIdentity(environment Environment, releaseSHA256 string) error {
 	if b.SchemaVersion != ClassifierRuntimeBindingSchemaV1 {
 		return fmt.Errorf("unsupported classifier runtime binding schema %q", b.SchemaVersion)
 	}
-	project, supported := classifierWorkerProjects[environment]
-	if !supported || b.Environment != environment || b.ProjectID != project {
+	if b.Environment != environment {
 		return errors.New("classifier runtime binding names another environment or project")
 	}
 	if !validDigest(releaseSHA256) || b.ReleaseSHA256 != releaseSHA256 {
@@ -90,12 +100,20 @@ func (b ClassifierRuntimeBinding) validate(environment Environment, releaseSHA25
 	if !imageDigestPattern.MatchString(b.ImageDigest) || !validDigest(b.ConfigurationSHA256) {
 		return errors.New("classifier runtime binding image or configuration digest is invalid")
 	}
-	if !canonicalClassifierWorkerOrigin(b.WorkerURL) || !canonicalClassifierWorkerOrigin(b.WorkerAudience) {
-		return errors.New("classifier runtime binding worker URL and audience must be canonical Cloud Run origins of the classifier worker")
-	}
 	var variants map[string]json.RawMessage
 	if len(b.Variants) > 0 && json.Unmarshal(b.Variants, &variants) != nil {
 		return errors.New("classifier runtime binding variants must be an object")
+	}
+	return nil
+}
+
+func (b ClassifierRuntimeBinding) validateManagedWorker(environment Environment) error {
+	project, supported := classifierWorkerProjects[environment]
+	if !supported || b.ProjectID != project {
+		return errors.New("classifier runtime binding names another environment or project")
+	}
+	if !canonicalClassifierWorkerOrigin(b.WorkerURL) || !canonicalClassifierWorkerOrigin(b.WorkerAudience) {
+		return errors.New("classifier runtime binding worker URL and audience must be canonical Cloud Run origins of the classifier worker")
 	}
 	return nil
 }

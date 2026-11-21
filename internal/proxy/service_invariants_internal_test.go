@@ -59,7 +59,7 @@ func (r *cancellationCheckingBillingRepo) DebitInference(ctx context.Context, p 
 
 func TestFireBilling_DebitsAfterClientCancellation(t *testing.T) {
 	repo := &cancellationCheckingBillingRepo{auxBillingRepo: &auxBillingRepo{}}
-	s := &Service{billing: billing.NewService(repo)}
+	s := &Service{hmmServing: hmmPorts(), billing: billing.NewService(repo)}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -92,11 +92,11 @@ func (f *cancellationCheckingPinStore) Upsert(ctx context.Context, p sessionpin.
 
 func TestMaybeRepinOnRefusal_WritesAfterRequestCancellation(t *testing.T) {
 	store := &cancellationCheckingPinStore{repinFakeStore: &repinFakeStore{}}
-	s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	s := &Service{hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 	ctx, cancel := context.WithCancel(repinCtx())
 	cancel()
 
-	s.maybeRepinOnRefusal(ctx, &refusalObserver{refused: true}, [sessionpin.SessionKeyLen]byte{7, 8, 9}, "main_loop",
+	s.maybeRepinOnRefusal(ctx, router.StrategyFromContext(ctx), &refusalObserver{refused: true}, [sessionpin.SessionKeyLen]byte{7, 8, 9}, "main_loop",
 		router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"})
 
 	if len(store.ctxErrs) != 1 {
@@ -131,7 +131,7 @@ func (s *cancellationCheckingRecoveryStore) ClearDemotionCooldown(ctx context.Co
 
 func TestClearRecoveredCooldown_LandsAfterRequestCancellation(t *testing.T) {
 	store := &cancellationCheckingRecoveryStore{}
-	s := &Service{pinStore: store}
+	s := &Service{hmmServing: hmmPorts(), pinStore: store}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	observedUntil := time.Now().Add(-time.Second)
@@ -186,12 +186,12 @@ func TestRefusalObserver_CategoryBeforeOverlapWindowIsKept(t *testing.T) {
 func TestEmitBilling_HandoverSummaryDebitedOnceAlongsideTurn(t *testing.T) {
 	cases := []struct {
 		name     string
-		handover handoverOutcome
+		handover dispatch.HandoverOutcome
 		want     []string
 	}{
-		{"no handover", handoverOutcome{}, []string{auxTestRequestID}},
-		{"summary served", handoverOutcome{Invoked: true, SummaryUsage: auxTestUsage()}, []string{auxTestRequestID, auxTestRequestID + auxSuffixHandoverSummary}},
-		{"fell back to full history", handoverOutcome{Invoked: true, FallbackToFullHistory: true, SummaryUsage: auxTestUsage()}, []string{auxTestRequestID}},
+		{"no handover", dispatch.HandoverOutcome{}, []string{auxTestRequestID}},
+		{"summary served", dispatch.HandoverOutcome{Invoked: true, SummaryUsage: auxTestUsage()}, []string{auxTestRequestID, auxTestRequestID + auxSuffixHandoverSummary}},
+		{"fell back to full history", dispatch.HandoverOutcome{Invoked: true, FallbackToFullHistory: true, SummaryUsage: auxTestUsage()}, []string{auxTestRequestID}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -218,7 +218,7 @@ func TestUsageBypassEngaged_UnsetThresholdDefaultsToNinetyFivePercent(t *testing
 	}{{0.90, true}, {0.96, false}} {
 		obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 		obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: c.used, WindowMinutes: 300}})
-		svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
+		svc := &Service{hmmServing: hmmPorts(), clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
 		ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
 		ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 		_, ok := svc.usageBypassEngaged(ctx, http.Header{}, router.Request{

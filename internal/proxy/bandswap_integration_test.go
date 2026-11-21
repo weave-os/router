@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"testing"
+
 	"weave-os/router/internal/dispatch"
 
 	"weave-os/router/internal/providers"
@@ -12,7 +13,7 @@ import (
 	"weave-os/router/internal/router/turntype"
 )
 
-// orderBandPair must put the stronger-tier model in `large` regardless of which
+// Pin.OrderedBandPair must put the stronger-tier model in `large` regardless of which
 // half of the pin it is stored as.
 func TestOrderBandPair_ByTier(t *testing.T) {
 	want := func(large, small router.Decision, wantLarge, wantSmall string) {
@@ -26,7 +27,7 @@ func TestOrderBandPair_ByTier(t *testing.T) {
 		Provider: "anthropic", Model: "claude-opus-4-7",
 		PairedProvider: "anthropic", PairedModel: "claude-haiku-4-5",
 	}
-	l, s := orderBandPair(anchorLarge)
+	l, s := anchorLarge.OrderedBandPair()
 	want(l, s, "claude-opus-4-7", "claude-haiku-4-5")
 
 	// Same pair, anchor and runner-up swapped -> identical large/small split.
@@ -34,13 +35,13 @@ func TestOrderBandPair_ByTier(t *testing.T) {
 		Provider: "anthropic", Model: "claude-haiku-4-5",
 		PairedProvider: "anthropic", PairedModel: "claude-opus-4-7",
 	}
-	l, s = orderBandPair(anchorSmall)
+	l, s = anchorSmall.OrderedBandPair()
 	want(l, s, "claude-opus-4-7", "claude-haiku-4-5")
 }
 
 // With the swap head disabled the sticky turn must serve the pin's anchor.
 func TestBandSwapServed_DisabledServesAnchor(t *testing.T) {
-	s := &Service{} // bandSwap nil
+	s := &Service{hmmServing: hmmPorts()} // bandSwap nil
 	pin := sessionpin.Pin{
 		Provider: "anthropic", Model: "claude-opus-4-7",
 		PairedProvider: "anthropic", PairedModel: "claude-haiku-4-5", Reason: "cluster",
@@ -53,7 +54,7 @@ func TestBandSwapServed_DisabledServesAnchor(t *testing.T) {
 
 // A pin with no runner-up can never swap, even if the head were enabled.
 func TestBandSwapServed_NoPairServesAnchor(t *testing.T) {
-	s := &Service{}
+	s := &Service{hmmServing: hmmPorts()}
 	pin := sessionpin.Pin{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}
 	got := s.bandSwapServed(context.Background(), turntype.MainLoop, pin, router.Decision{}, false, 0, nil, nil)
 	if got.Model != "claude-opus-4-7" {
@@ -79,7 +80,7 @@ func TestBandSwapServed_UnservableChoiceFallsBackToAnchor(t *testing.T) {
 		t.Fatal("PredictBand not ok for valid-width embedding")
 	}
 
-	// opus is the LARGE-tier member, haiku the SMALL-tier one, so orderBandPair
+	// opus is the LARGE-tier member, haiku the SMALL-tier one, so Pin.OrderedBandPair
 	// is deterministic. Anchor the pin on whichever member the head would NOT
 	// pick, so honoring the head is a real swap away from the anchor.
 	const large, small = "claude-opus-4-7", "claude-haiku-4-5"
@@ -92,7 +93,7 @@ func TestBandSwapServed_UnservableChoiceFallsBackToAnchor(t *testing.T) {
 		anchor, paired = large, small
 	}
 
-	s := &Service{
+	s := &Service{hmmServing: hmmPorts(),
 		bandSwap:        clf,
 		availableModels: map[string]struct{}{large: {}, small: {}},
 		clients:         dispatch.NewClients(map[string]providers.Client{"anthropic": nil}),

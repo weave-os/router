@@ -92,7 +92,7 @@ func fallbackEscalation(req router.Request, input SelectionInput, resolved Resol
 }
 
 func slidingThresholdGroupInput(req router.Request, input SelectionInput) SelectionInput {
-	if req.SlidingThresholdPinGroup == "" || req.ForceCluster != "" || input.ForcedGroup != "" {
+	if req.Session.SlidingThresholdPinGroup == "" || req.ForceCluster != "" || input.ForcedGroup != "" {
 		return input
 	}
 	classified := escalation.Group(input.PredictedLabel)
@@ -100,7 +100,7 @@ func slidingThresholdGroupInput(req router.Request, input SelectionInput) Select
 	if !scored {
 		return input
 	}
-	target, covered := escalation.SlidingThresholdTarget(req.SlidingThresholdPinGroup, classified, probability)
+	target, covered := escalation.SlidingThresholdTarget(req.Session.SlidingThresholdPinGroup, classified, probability)
 	if !covered || target == "" || target == classified {
 		return input
 	}

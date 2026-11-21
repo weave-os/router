@@ -46,15 +46,6 @@ func isUpstreamContextOverflow(err error) bool {
 	return strings.Contains(body, "input token count") && strings.Contains(body, "exceeds the maximum")
 }
 
-func readmitForcedContextEstimate(req router.Request, model string) router.Request {
-	if _, estimateOnly := req.ContextWindowExcludedModels[model]; !estimateOnly {
-		return req
-	}
-	req.ExcludedModels = withoutModels(req.ExcludedModels, []string{model})
-	req.SafetyExcludedModels = withoutModels(req.SafetyExcludedModels, []string{model})
-	return req
-}
-
 func isContextOverflow(err error) bool {
 	return errors.Is(err, policy.ErrContextWindowExceeded) || isUpstreamContextOverflow(err)
 }
@@ -121,10 +112,12 @@ func (s *Service) overflowRescueDecisions(ctx context.Context, failed router.Dec
 		return nil
 	}
 	req := router.Request{
-		CustomBindings:          s.customBindingsForRequest(ctx),
-		GatewayProviders:        gateways,
-		ExcludedModels:          s.excludedModelsForRequest(ctx),
-		AutomaticExcludedModels: s.rescueExcludedModels(ctx),
+		CustomBindings:   s.customBindingsForRequest(ctx),
+		GatewayProviders: gateways,
+		Candidates: router.Candidates{
+			ExcludedModels:          s.excludedModelsForRequest(ctx),
+			AutomaticExcludedModels: s.rescueExcludedModels(ctx),
+		},
 	}
 	rescuers := s.crossGatewayRescuers(ctx, compactionSummarizer{provider: failed.Provider, model: failed.Model}, req)
 	models := make([]string, 0, len(rescuers))

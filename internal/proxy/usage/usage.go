@@ -40,6 +40,12 @@ type Snapshot struct {
 	OverageInUse        bool
 	UnifiedResetAt      time.Time
 	ObservedAt          time.Time
+
+	includedWindowsExpired bool
+}
+
+func (s Snapshot) OverageWithoutIncludedWindows() bool {
+	return s.OverageInUse && !s.includedWindowsExpired && !s.Primary.present() && !s.Secondary.present()
 }
 
 func (s Snapshot) hasData() bool {
@@ -104,6 +110,7 @@ type Observer struct {
 	data map[CredentialKey]Snapshot
 
 	rejected map[CredentialKey]time.Time
+	seats    *seatRecording
 }
 
 func NewObserver(salt []byte, ttl time.Duration, now func() time.Time) *Observer {
@@ -222,6 +229,8 @@ func (o *Observer) Snapshot(key CredentialKey) (Snapshot, bool) {
 	if snap.OverageInUse && snap.UnifiedResetAt.After(snap.ObservedAt) && !snap.UnifiedResetAt.After(now) {
 		snap.OverageInUse = false
 	}
+	snap.includedWindowsExpired = snap.Primary.present() && !snap.Primary.currentAsOf(snap.ObservedAt, now) ||
+		snap.Secondary.present() && !snap.Secondary.currentAsOf(snap.ObservedAt, now)
 	if !snap.Primary.currentAsOf(snap.ObservedAt, now) {
 		snap.Primary = Window{}
 	}

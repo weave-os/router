@@ -408,6 +408,38 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexRepeatedCallI
 	assert.Equal(t, "data:image/png;base64,Qg==", content[2].Get("image_url.url").Str)
 }
 
+// The provider body carries tool-output images as a user message; routing
+// keeps that message a tool result so the turn is not scored as a new prompt.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexToolImagesRouteAsToolResult(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-6.1-sol",
+		"input":[
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"check the layout"}]},
+			{"type":"function_call","call_id":"call_1","name":"view_image","arguments":"{}"},
+			{"type":"function_call_output","call_id":"call_1","output":[{"type":"input_image","image_url":"data:image/png;base64,QQ=="}]}
+		]
+	}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+
+	assert.JSONEq(t, `["user","assistant","tool","user"]`, gjson.GetBytes(converted.Body, "messages.#.role").Raw)
+	assert.JSONEq(t, `["user","assistant","tool","tool"]`, gjson.GetBytes(converted.RoutingBody, "messages.#.role").Raw)
+	assert.Equal(t, "call_1", gjson.GetBytes(converted.RoutingBody, "messages.3.tool_call_id").Str)
+	assert.Equal(t, gjson.GetBytes(converted.Body, "messages.3.content").Raw, gjson.GetBytes(converted.RoutingBody, "messages.3.content").Raw)
+
+	provider, err := translate.ParseOpenAI(converted.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "user_prompt", provider.RoutingFeatures().LastKind)
+	routing, err := translate.ParseOpenAI(converted.RoutingBody)
+	require.NoError(t, err)
+	features := routing.RoutingFeatures()
+	assert.Equal(t, "tool_result", features.LastKind)
+	assert.Equal(t, "check the layout", features.OnlyUserMessageText)
+	assert.Equal(t, 1, features.ImageCount)
+	assert.Zero(t, routing.SanitizeOrphanedToolCalls(), "the routed image message answers a real tool call")
+}
+
 // A pasted screenshot must not pin the whole session to OpenAI: that dropped
 // a /force-model pin to an Anthropic model with provider_not_enabled.
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexUserImageProjected(t *testing.T) {
@@ -695,4 +727,121 @@ func TestConvertResponsesToChatCompletions_LegacyIgnoresCodexModelSwitch(t *test
 	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{})
 	require.NoError(t, err)
 	assert.False(t, converted.CodexModelSwitch)
+}
+
+// Codex sends standalone tool outputs without a call_id for context it injects
+// itself (retained tool output, additional context). A few of them in history
+// must not lock every later turn of the session to the native wire family.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToolOutputProjectsToText(t *testing.T) {
+	t.Parallel()
+	for name, output := range map[string]string{
+		"absent call_id": `{"type":"function_call_output","name":"exec","output":"build finished"}`,
+		"empty call_id":  `{"type":"function_call_output","call_id":"","output":"build finished"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			body := []byte(`{"model":"gpt-6.1-sol","input":[` +
+				`{"type":"message","role":"user","content":[{"type":"input_text","text":"fix it"}]},` +
+				output + `,` +
+				`{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
+
+			converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+			require.NoError(t, err)
+			assert.False(t, converted.Requirements.NativeOnly, "reports: %#v", converted.Report)
+			var contents []string
+			for _, message := range gjson.GetBytes(converted.Body, "messages").Array() {
+				contents = append(contents, message.Get("content").String())
+			}
+			assert.Contains(t, contents, "Tool output:\nbuild finished")
+		})
+	}
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToolImageStaysNative(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-6.1-sol","input":[` +
+		`{"type":"message","role":"user","content":[{"type":"input_text","text":"fix it"}]},` +
+		`{"type":"function_call_output","output":[{"type":"input_image","image_url":"data:image/png;base64,iVBORw0KGgo="}]}]}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.True(t, converted.Requirements.NativeOnly)
+	assertReportCode(t, converted.Report, "responses_tool_output_native_only")
+}
+
+// A standalone output Codex appends after a linked tool result must not turn the
+// continuation into a main-loop turn for routing.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToolOutputKeepsToolResultRouting(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-6.1-sol","input":[` +
+		`{"type":"message","role":"user","content":[{"type":"input_text","text":"fix it"}]},` +
+		`{"type":"function_call","call_id":"call_build","name":"exec","arguments":"{}"},` +
+		`{"type":"function_call_output","call_id":"call_build","output":"exit 0"},` +
+		`{"type":"function_call_output","output":"build finished"}]}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	require.False(t, converted.Requirements.NativeOnly)
+	require.NotEmpty(t, converted.RoutingBody)
+	routing, err := translate.ParseOpenAI(converted.RoutingBody)
+	require.NoError(t, err)
+	assert.Equal(t, "tool_result", routing.RoutingFeatures().LastKind)
+}
+
+// A standalone output Codex appends after a typed model command must not hide the command.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToolOutputKeepsForceModelCommand(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-6.1-sol","input":[` +
+		`{"type":"message","role":"user","content":[{"type":"input_text","text":"/force-model gpt-5"}]},` +
+		`{"type":"function_call_output","output":"build finished"}]}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	require.False(t, converted.Requirements.NativeOnly)
+	env, err := translate.ParseOpenAI(converted.Body)
+	require.NoError(t, err)
+	command, found := env.ExtractForceModelCommand()
+	require.True(t, found)
+	assert.Equal(t, "gpt-5", command.Model)
+}
+
+// Codex treats standalone outputs as context items, like developer messages. They
+// must not rewrite the neighbouring user prompt or tool result, whose text drives
+// session keys, feedback commands and skill history cleanup.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToolOutputLeavesNeighboursUnchanged(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-6.1-sol","input":[` +
+		`{"type":"message","role":"user","content":"fix it"},` +
+		`{"type":"function_call_output","name":"exec","output":"retained context"},` +
+		`{"type":"function_call","call_id":"call_build","name":"exec","arguments":"{}"},` +
+		`{"type":"function_call_output","call_id":"call_build","output":"exit 0"},` +
+		`{"type":"function_call_output","output":"build finished"}]}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	require.False(t, converted.Requirements.NativeOnly)
+	messages := gjson.GetBytes(converted.Body, "messages")
+	assert.Equal(t, "fix it", messages.Get(`#(role=="user").content`).Str)
+	assert.Equal(t, "exit 0", messages.Get(`#(role=="tool").content`).Str)
+	assert.Equal(t, `["Tool output:\nretained context","Tool output:\nbuild finished"]`, messages.Get(`#(role=="system")#.content`).Raw)
+}
+
+// A standalone output between parallel tool results must not split the result batch.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToolOutputFollowsParallelResults(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-6.1-sol","input":[` +
+		`{"type":"message","role":"user","content":"fix it"},` +
+		`{"type":"function_call","call_id":"call_a","name":"exec","arguments":"{}"},` +
+		`{"type":"function_call","call_id":"call_b","name":"exec","arguments":"{}"},` +
+		`{"type":"function_call_output","call_id":"call_a","output":"a done"},` +
+		`{"type":"function_call_output","output":"build finished"},` +
+		`{"type":"function_call_output","call_id":"call_b","output":"b done"}]}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	require.False(t, converted.Requirements.NativeOnly)
+	assert.Equal(t, `["user","assistant","tool","tool","system"]`, gjson.GetBytes(converted.Body, "messages.#.role").Raw)
+	routing, err := translate.ParseOpenAI(converted.RoutingBody)
+	require.NoError(t, err)
+	assert.Equal(t, "tool_result", routing.RoutingFeatures().LastKind)
 }

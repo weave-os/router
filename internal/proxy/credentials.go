@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 )
@@ -44,10 +45,6 @@ func ApplyModelAlias(ctx context.Context, body []byte, model string) []byte {
 	return requestcontext.ApplyModelAlias(ctx, body, model)
 }
 
-func ApplyWIFTokenType(ctx context.Context, upstream *http.Request) {
-	requestcontext.ApplyWIFTokenType(ctx, upstream)
-}
-
 func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 	requestcontext.ApplyIdentityHeader(ctx, upstream)
 }
@@ -61,7 +58,7 @@ func byokFirst(ctx context.Context, provider string) bool {
 			keyFirst = key.FundingPriority == auth.FundingPriorityKeyFirst
 		}
 	}
-	return keyFirst
+	return keyFirst && !billing.ByokFeeUnpayable(ctx)
 }
 
 func anthropicBYOKFirst(ctx context.Context) bool {

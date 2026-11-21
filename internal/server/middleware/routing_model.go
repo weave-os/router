@@ -39,7 +39,9 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 		return false
 	}
 	if model == router.ModelAutomatic {
-		c.Request = c.Request.WithContext(router.WithRoutingModel(c.Request.Context(), model))
+		selection := router.StrategySelectionFromContext(c.Request.Context())
+		selection.RoutingModel = model
+		c.Request = c.Request.WithContext(router.WithStrategySelection(c.Request.Context(), selection))
 		observability.FromGin(c).Debug("Routing model selected", "model", model)
 		return true
 	}
@@ -66,8 +68,7 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 		observability.FromGin(c).Info("Routing model variant is absent; serving the primary classifier", "model", model, "strategy", selectedStrategy, "fallback_strategy", router.PrimaryRoutingStrategy)
 		selectedStrategy = router.PrimaryRoutingStrategy
 	}
-	c.Request = c.Request.WithContext(router.WithStrategy(c.Request.Context(), selectedStrategy))
-	c.Request = c.Request.WithContext(router.WithRoutingModel(c.Request.Context(), model))
+	c.Request = c.Request.WithContext(router.WithStrategySelection(c.Request.Context(), router.StrategySelection{Strategy: selectedStrategy, RoutingModel: model}))
 	observability.FromGin(c).Debug("Routing model selected", "model", model)
 	return true
 }

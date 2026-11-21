@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -100,10 +101,10 @@ func TestService_PreviewAnthropicRouteBuildsServingCandidateContextWithoutDispat
 		SchemaVersion:     policy.SchemaVersionV1,
 		EligibleRosterIDs: []string{"anthropic/claude-opus-4-8", "openai/gpt-5.5"},
 	}}
-	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{
 		providers.ProviderAnthropic: anthropicProvider,
 		providers.ProviderOpenAI:    openAIProvider,
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: previewer}).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderAnthropic: {},
@@ -131,8 +132,8 @@ func TestService_PreviewAnthropicRouteBuildsServingCandidateContextWithoutDispat
 	assert.Equal(t, []string{"Read"}, previewer.previewReq.AvailableTools)
 	assert.Contains(t, previewer.previewReq.EnabledProviders, providers.ProviderAnthropic)
 	assert.Contains(t, previewer.previewReq.EnabledProviders, providers.ProviderOpenAI)
-	assert.Contains(t, previewer.previewReq.ExcludedModels, "gpt-5.5-mini")
-	assert.NotContains(t, previewer.previewReq.ExcludedModels, "gpt-5.4-nano",
+	assert.Contains(t, previewer.previewReq.Candidates.ExcludedModels, "gpt-5.5-mini")
+	assert.NotContains(t, previewer.previewReq.Candidates.ExcludedModels, "gpt-5.4-nano",
 		"a normal non-Codex preview must retain infrastructure OpenAI candidates")
 	assert.Equal(t, []string{"claude-opus-4-8"}, previewer.previewReq.PreferredModels)
 	assert.False(t, previewer.previewReq.TrainingAllowed)
@@ -144,9 +145,9 @@ func TestService_PreviewAnthropicRouteExcludesInfrastructureModelsForOAuthOnlyCo
 	previewer := &fakePreviewRouter{previewResult: policy.PreviewResult{
 		SchemaVersion: policy.SchemaVersionV1,
 	}}
-	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{
 		providers.ProviderOpenAI: &fakeProvider{},
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithByokOnly(true).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: previewer})
 
@@ -160,9 +161,9 @@ func TestService_PreviewAnthropicRouteExcludesInfrastructureModelsForOAuthOnlyCo
 	require.NoError(t, err)
 	require.NotNil(t, previewer.previewReq)
 	assert.Contains(t, previewer.previewReq.EnabledProviders, providers.ProviderOpenAI)
-	assert.Contains(t, previewer.previewReq.ExcludedModels, "gpt-5.4-nano",
+	assert.Contains(t, previewer.previewReq.Candidates.ExcludedModels, "gpt-5.4-nano",
 		"route and HMM previews must not advertise models that Codex OAuth cannot serve")
-	assert.NotContains(t, previewer.previewReq.ExcludedModels, "gpt-5.6-sol")
+	assert.NotContains(t, previewer.previewReq.Candidates.ExcludedModels, "gpt-5.6-sol")
 }
 
 func TestService_AgentShadowEvaluationForcesEphemerallyWithoutServingRouter(t *testing.T) {
@@ -175,9 +176,9 @@ func TestService_AgentShadowEvaluationForcesEphemerallyWithoutServingRouter(t *t
 		_, _ = io.WriteString(w, `{"id":"msg_eval","type":"message","role":"assistant","model":"claude-opus-4-8","content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":3}}`)
 	}}
 	servingRouter := &fakeRouter{err: errors.New("serving router must not run")}
-	svc := proxy.NewService(servingRouter, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(servingRouter, map[string]providers.Client{
 		providers.ProviderAnthropic: provider,
-	}, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry).
+	}, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithAvailableModels(map[string]struct{}{"claude-opus-4-8": {}})
 
@@ -242,10 +243,10 @@ func TestService_AgentShadowEvaluationNeverSubstitutesRequestedBaseline(t *testi
 	anthropicProvider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
 		w.WriteHeader(http.StatusOK)
 	}}
-	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{
 		providers.ProviderAnthropic: anthropicProvider,
 		providers.ProviderOpenAI:    openAIProvider,
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderAnthropic: {},
 			providers.ProviderOpenAI:    {},
@@ -273,9 +274,9 @@ func TestService_AgentShadowEvaluationNeverSubstitutesRequestedBaseline(t *testi
 
 func TestService_AgentShadowEvaluationNeverRetriesSubscriptionOnDeploymentKey(t *testing.T) {
 	provider := &fakeProvider{proxyErr: &providers.UpstreamStatusError{Status: http.StatusTooManyRequests}}
-	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{
 		providers.ProviderAnthropic: provider,
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithAvailableModels(map[string]struct{}{"claude-opus-4-8": {}})
 
@@ -301,10 +302,10 @@ func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testin
 		_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`)
 	}}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.5", Reason: "test"}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderAnthropic: &fakeProvider{},
 		providers.ProviderOpenAI:    provider,
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	body := []byte(`{"model":"gpt-5.5","input":"apply a patch","reasoning":{"effort":"high"},"tools":[{"type":"custom","name":"apply_patch"}]}`)
 	rec := httptest.NewRecorder()
@@ -326,9 +327,10 @@ func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testin
 func TestService_ProxyOpenAIResponses_CodexFeedbackSkillIsSynthetic(t *testing.T) {
 	provider := &fakeProvider{}
 	fr := &fakeRouter{}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderOpenAI: provider,
-	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-terra", nil)
+	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-terra", nil), hmm.ServingPorts())
+
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	body := []byte(`{"model":"gpt-5.6-terra","input":[{"type":"message","role":"user","content":"$rf +"},{"type":"message","role":"user","content":"<skill>\n<name>rf</name>\nrun the feedback skill\n</skill>"},{"type":"custom_tool_call","call_id":"call_skill","name":"exec","input":"..."},{"type":"custom_tool_call_output","call_id":"call_skill","output":[{"type":"input_text","text":"Script completed\nOutput:\n /router-feedback +\n"}]}]}`)
 	rec := httptest.NewRecorder()
@@ -374,9 +376,9 @@ func TestService_ProxyOpenAIResponses_StaysNativeForDirectOpenAI(t *testing.T) {
 				_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 			}}
 			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: tc.model, Reason: "test"}}
-			svc := proxy.NewService(fr, map[string]providers.Client{
+			svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 				providers.ProviderOpenAI: provider,
-			}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+			}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
 			body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium"}` + tc.tools + `}`)
@@ -417,9 +419,9 @@ func TestService_ProxyOpenAIResponses_BroadRolloutOffKeepsNarrowPromotion(t *tes
 				_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 			}}
 			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}}
-			svc := proxy.NewService(fr, map[string]providers.Client{
+			svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 				providers.ProviderOpenAI: provider,
-			}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+			}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
 			ctx = flags.WithOverrides(ctx, flags.Overrides{
@@ -457,9 +459,9 @@ func TestService_ProxyOpenAIResponses_ToolTurnFallsBackWhenEndpointLacksResponse
 		Model:    "gpt-5.6-luna",
 		Reason:   "test",
 	}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderOpenAI: provider,
-	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 	ctx := context.WithValue(
 		context.Background(),
@@ -524,9 +526,9 @@ func TestService_ProxyOpenAIResponses_NativeBadgeForTerminalClientsHonorsSuppres
 				Model:    "gpt-5.6-terra",
 				Reason:   "test",
 			}}
-			svc := proxy.NewService(fr, map[string]providers.Client{
+			svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 				providers.ProviderOpenAI: provider,
-			}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+			}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 			ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
 			ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
@@ -574,10 +576,10 @@ func TestService_ProxyOpenAIResponses_OpenCodeStripsTerminalArtifactsBeforeTrans
 		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 	}}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderTogether, Model: "z-ai/glm-5.1", Reason: "test"}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderTogether:  provider,
 		providers.ProviderFireworks: provider,
-	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
 	body := []byte(`{"model":"auto","input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"` + "\u2063\u2060\u2063\u2060" + `**Weave Router** — gpt-5.6-sol\n\nold answer\n\n_Weave Router feedback:_ /rf + good experience"}]},{"type":"message","role":"user","content":"continue"}]}`)
@@ -603,12 +605,12 @@ func TestService_ProxyOpenAIResponses_TranslatedMarkerOptOutPreservesStream(t *t
 		Model:    "z-ai/glm-5.1",
 		Reason:   "test",
 	}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderTogether: together,
 		providers.ProviderFireworks: &fakeProvider{
 			proxyResponse: together.proxyResponse,
 		},
-	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	body := []byte(`{"model":"gpt-5.6-luna","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"say hello"}]}]}`)
@@ -631,9 +633,9 @@ func TestService_ProxyOpenAIResponses_NativeMarkerOptOutPreservesContentType(t *
 		Model:    "gpt-5.6-sol",
 		Reason:   "test",
 	}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderOpenAI: openAI,
-	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
 	rec := httptest.NewRecorder()
@@ -680,9 +682,9 @@ func TestService_ProxyOpenAIResponses_EmitsRoutingMarkerForCodex(t *testing.T) {
 				Model:    "deepseek/deepseek-v4-pro",
 				Reason:   "test",
 			}}
-			svc := proxy.NewService(fr, map[string]providers.Client{
+			svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 				providers.ProviderOpenRouter: provider,
-			}, nil, nil, false, providers.ProviderOpenRouter, "gpt-5.6-sol", nil)
+			}, nil, nil, false, providers.ProviderOpenRouter, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 			body := []byte(`{"model":"gpt-5.6-luna","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"do the thing"}]}]}`)
@@ -735,9 +737,9 @@ func TestService_CodexRequestRoutesInfrastructureOpenAIModelWithoutOAuth(t *test
 		Model:    "gpt-5.4-nano",
 		Reason:   "hmm:test",
 	}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderOpenAI: provider,
-	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).
+	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 
 	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
@@ -777,9 +779,9 @@ func TestService_CodexForcedModelUsesModelScopedCredential(t *testing.T) {
 				PinnedUntil: time.Now().Add(time.Hour),
 			}
 			fr := &fakeRouter{err: errors.New("forced pin must bypass the scorer")}
-			svc := proxy.NewService(fr, map[string]providers.Client{
+			svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 				providers.ProviderOpenAI: provider,
-			}, nil, store, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).
+			}, nil, store, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts()).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 
 			ctx := authedCtx("11111111-1111-1111-1111-111111111111")
@@ -812,10 +814,10 @@ func TestService_ProxyOpenAIResponses_CodexPassthroughUsesChatForOpenAICompatPro
 		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}`)
 	}}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenRouter, Model: "deepseek/deepseek-chat", Reason: "test"}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderOpenAI:     &fakeProvider{},
 		providers.ProviderOpenRouter: openRouter,
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
 	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
@@ -844,13 +846,13 @@ func TestService_ProxyOpenAIResponses_CodexPortableBridgeKeepsHMMProvidersAndRes
 		Model:    "moonshotai/kimi-k2.7",
 		Reason:   "hmm:test",
 	}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderOpenAI:    &fakeProvider{},
 		providers.ProviderAnthropic: &fakeProvider{},
 		providers.ProviderFireworks: fireworks,
 		providers.ProviderGoogle:    &fakeProvider{},
 		providers.ProviderTogether:  &fakeProvider{},
-	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).
+	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderOpenAI:    {},
 			providers.ProviderAnthropic: {},
@@ -922,7 +924,7 @@ func (f *fakeProvider) Passthrough(ctx context.Context, prep providers.PreparedR
 }
 
 func makeProxyService(decision router.Decision, p map[string]providers.Client) *proxy.Service {
-	return proxy.NewService(&fakeRouter{decision: decision}, p, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	return proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: decision}, p, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithRetrySleep(noRetrySleep)
 }
 
@@ -1121,14 +1123,13 @@ func TestService_ProxyMessages_RoutesOnUserRoleTextOnly(t *testing.T) {
 
 	t.Run("concatenates user-role text and drops everything else", func(t *testing.T) {
 		fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-haiku-4-5"}}
-		svc := proxy.NewService(fr,
+		svc := proxy.WithStrategyPorts(proxy.NewService(fr,
 			map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 			nil,
 			nil,
 			false,
 			providers.ProviderAnthropic, "claude-haiku-4-5",
-			nil,
-		)
+			nil), hmm.ServingPorts())
 
 		rec := httptest.NewRecorder()
 		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -1148,14 +1149,13 @@ func boolPtr(b bool) *bool { return &b }
 func TestService_ProxyMessages_NoPinStoreRunsScorerEveryTurn(t *testing.T) {
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-haiku-4-5"}}
-	svc := proxy.NewService(fr,
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil,
-		nil, // pinStore disabled
+		nil,
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
 	for range 2 {
@@ -1383,7 +1383,7 @@ func TestService_CodexPassthrough_RoutesFreelyWithBothSubs(t *testing.T) {
 		providers.ProviderOpenAI:    &fakeProvider{},
 		providers.ProviderAnthropic: &fakeProvider{proxyResponse: anthropicResp},
 	}
-	svc := proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-4-6", nil).
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-4-6", nil), hmm.ServingPorts()).
 		WithByokOnly(true)
 
 	// Both subscriptions presented on the authenticated request: a Codex sub
@@ -1422,7 +1422,7 @@ func TestService_WithByokOnly_FiltersUnauthedProvidersFromScorer(t *testing.T) {
 
 	t.Run("byok-off keeps every registered provider eligible (selfhost baseline)", func(t *testing.T) {
 		fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}}
-		svc := proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+		svc := proxy.WithStrategyPorts(proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 		rec := httptest.NewRecorder()
 		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -1435,7 +1435,7 @@ func TestService_WithByokOnly_FiltersUnauthedProvidersFromScorer(t *testing.T) {
 
 	t.Run("byok-on with no creds yields empty eligible set", func(t *testing.T) {
 		fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}}
-		svc := proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		svc := proxy.WithStrategyPorts(proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 			WithByokOnly(true)
 
 		rec := httptest.NewRecorder()
@@ -1451,7 +1451,7 @@ func TestService_WithByokOnly_FiltersUnauthedProvidersFromScorer(t *testing.T) {
 		// credential and enables Anthropic, but must not leak into OpenRouter or
 		// other OpenAI-compat upstreams on a different inbound surface.
 		fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}}
-		svc := proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		svc := proxy.WithStrategyPorts(proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 			WithByokOnly(true)
 
 		rec := httptest.NewRecorder()
@@ -1472,7 +1472,7 @@ func TestService_WithByokOnly_FiltersUnauthedProvidersFromScorer(t *testing.T) {
 		// OpenAI-compat upstreams — that cross-provider leak was the 2026-05-13
 		// prod incident (argmax picked OpenRouter, 401'd with no OpenRouter key).
 		fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}}
-		svc := proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		svc := proxy.WithStrategyPorts(proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 			WithByokOnly(true)
 
 		rec := httptest.NewRecorder()
@@ -1496,19 +1496,19 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 
 	t.Run("no override and no installation list → nil", func(t *testing.T) {
 		fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}}
-		svc := proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+		svc := proxy.WithStrategyPorts(proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 		rec := httptest.NewRecorder()
 		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, httpReq))
 
 		require.NotNil(t, fr.capturedReq)
-		assert.Nil(t, fr.capturedReq.ExcludedModels)
+		assert.Nil(t, fr.capturedReq.Candidates.ExcludedModels)
 	})
 
 	t.Run("installation list populates request", func(t *testing.T) {
 		fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}}
-		svc := proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+		svc := proxy.WithStrategyPorts(proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 		ctx := context.WithValue(context.Background(), proxy.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-7", "gpt-5"})
 		rec := httptest.NewRecorder()
@@ -1516,13 +1516,13 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 		require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 		require.NotNil(t, fr.capturedReq)
-		assert.Contains(t, fr.capturedReq.ExcludedModels, "claude-opus-4-7")
-		assert.Contains(t, fr.capturedReq.ExcludedModels, "gpt-5")
+		assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-opus-4-7")
+		assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "gpt-5")
 	})
 
 	t.Run("env override replaces installation list", func(t *testing.T) {
 		fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}}
-		svc := proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		svc := proxy.WithStrategyPorts(proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 			WithExcludedModelsOverride([]string{"gpt-4o"})
 
 		// Installation list says one thing; override says another. Override wins.
@@ -1532,8 +1532,8 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 		require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 		require.NotNil(t, fr.capturedReq)
-		assert.Contains(t, fr.capturedReq.ExcludedModels, "gpt-4o")
-		assert.NotContains(t, fr.capturedReq.ExcludedModels, "claude-opus-4-7")
+		assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "gpt-4o")
+		assert.NotContains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-opus-4-7")
 		assert.True(t, svc.HasExcludedModelsOverride())
 		assert.Equal(t, []string{"gpt-4o"}, svc.ExcludedModelsOverride())
 	})
@@ -1563,9 +1563,9 @@ func TestService_ProxyOpenAIResponses_NativeDispatchAppliesArmEffort(t *testing.
 				Effort:   tc.armEffort,
 				Reason:   "test",
 			}}
-			svc := proxy.NewService(fr, map[string]providers.Client{
+			svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 				providers.ProviderOpenAI: provider,
-			}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+			}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
 			body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium","summary":"auto"}}`)

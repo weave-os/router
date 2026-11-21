@@ -7,12 +7,53 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestPiHandoffAtOrgMonthlySpendCap(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := billing.NewService(&stubBillingRepo{orgMonthLimit: capPtr(0)})
+	for _, tc := range []struct {
+		name       string
+		enrolled   auth.SubscriptionProvider
+		wantStatus int
+	}{
+		{name: "Claude seat", enrolled: auth.SubscriptionProviderClaude, wantStatus: http.StatusOK},
+		{name: "Codex seat", enrolled: auth.SubscriptionProviderCodex, wantStatus: http.StatusPaymentRequired},
+		{name: "no seat", wantStatus: http.StatusPaymentRequired},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine := gin.New()
+			engine.POST("/v1/route/handoff", func(c *gin.Context) {
+				withInstallation(c, "org-test")
+				c.Next()
+			}, middleware.WithOrgMonthlySpendCap(svc), func(c *gin.Context) {
+				reason, ok := billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
+				assert.True(t, ok)
+				assert.Equal(t, billing.SubscriptionOnlySpendCapReached, reason)
+				c.Status(http.StatusOK)
+			})
+			ctx := t.Context()
+			if tc.enrolled != "" {
+				ctx = context.WithValue(ctx, proxy.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{tc.enrolled: {}})
+			}
+			w := httptest.NewRecorder()
+			engine.ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/route/handoff", nil))
+			require.Equal(t, tc.wantStatus, w.Code, w.Body.String())
+			if tc.wantStatus == http.StatusPaymentRequired {
+				assert.Contains(t, w.Body.String(), "org_monthly_spend_limit_reached")
+			}
+		})
+	}
+}
 
 // runOrgMonthlyCap drives WithOrgMonthlySpendCap with a synthetic installation
 // pre-stashed the way WithAuth would. Returns the recorder and a reached flag.
@@ -178,4 +219,40 @@ func TestOrgMonthlySpendCap_ExemptsSubscriberAllowanceCoveredRequest(t *testing.
 	w, reached, _ := runOrgMonthlyCapSub(t, setInstall, "", repo)
 	assert.True(t, reached, "an allowance-covered turn is not gated on the org monthly spend cap")
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestOrgMonthlySpendCap_KeyOnlyCallerAtCap(t *testing.T) {
+	// At a zero fee rate the customer's key funds the turn past a reached cap;
+	// with a fee above zero the organization cannot pay it, so admission refuses.
+	for name, tc := range map[string]struct {
+		feeRate  float64
+		wantCode int
+	}{
+		"zero_fee":    {wantCode: http.StatusOK},
+		"fee_charged": {feeRate: 0.05, wantCode: http.StatusPaymentRequired},
+	} {
+		t.Run(name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			svc := billing.NewService(&stubBillingRepo{orgMonthSpent: 1_000_000, orgMonthLimit: capPtr(1_000_000)}).WithByokFeeRate(tc.feeRate)
+			keys := []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")}}
+			engine := gin.New()
+			var reason billing.SubscriptionOnlyReason
+			engine.GET("/v1/messages", func(c *gin.Context) {
+				withInstallation(c, "org-keys")
+				c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), proxy.ExternalAPIKeysContextKey{}, keys))
+				middleware.WithOrgMonthlySpendCap(svc)(c)
+				if c.IsAborted() {
+					return
+				}
+				reason, _ = billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
+				c.Status(http.StatusOK)
+			})
+			w := httptest.NewRecorder()
+			engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil))
+			assert.Equal(t, tc.wantCode, w.Code)
+			if tc.wantCode == http.StatusOK {
+				assert.Equal(t, billing.SubscriptionOnlySpendCapReached, reason)
+			}
+		})
+	}
 }

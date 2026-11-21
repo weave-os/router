@@ -70,35 +70,12 @@ const (
 )
 
 type Client struct {
-	taskDomain       taskdomain.Resolver
-	baseURL          string
-	classifierClient *Client
-	client           *http.Client
-	timeout          time.Duration
-	attemptTimeout   time.Duration
-}
-
-func NewWithClassifierService(integrationClient, classifierClient *Client) (*Client, error) {
-	if integrationClient == nil || classifierClient == nil {
-		return nil, errors.New("policy client requires integration and classifier clients")
-	}
-	combined := *integrationClient
-	if integrationClient != classifierClient {
-		combined.classifierClient = classifierClient
-	} else {
-		combined.classifierClient = nil
-	}
-	return &combined, nil
-}
-
-func (c *Client) v5ClassifierClient() (*Client, error) {
-	if c == nil {
-		return nil, errors.New("policy client is required")
-	}
-	if c.classifierClient != nil {
-		return c.classifierClient, nil
-	}
-	return c, nil
+	taskDomain           taskdomain.Resolver
+	baseURL              string
+	client               *http.Client
+	timeout              time.Duration
+	attemptTimeout       time.Duration
+	expectedPolicySHA256 string
 }
 
 func validClassifierSHA256(value string) bool {
@@ -180,35 +157,6 @@ type ClassifierCapabilitiesV5 struct {
 	ReportsFeedback       bool                         `json:"-"`
 }
 
-type classifierRequestV5 struct {
-	SchemaVersion         string                     `json:"schema_version"`
-	ClassifierSelectionID string                     `json:"classifier_selection_id"`
-	ClassifierReleaseID   string                     `json:"classifier_release_id"`
-	ClassifierVariantID   policy.ClassifierVariantID `json:"classifier_variant_id"`
-	RequestID             string                     `json:"request_id"`
-	SessionID             string                     `json:"session_id,omitempty"`
-	Harness               string                     `json:"harness"`
-	PromptText            string                     `json:"prompt_text,omitempty"`
-	LatestUserText        string                     `json:"latest_user_text,omitempty"`
-	TurnIndex             int                        `json:"turn_index"`
-	IsSubagent            bool                       `json:"is_subagent"`
-	VisibleTurnIndex      *int                       `json:"visible_turn_index,omitempty"`
-	SessionTurnCount      *int                       `json:"session_turn_count,omitempty"`
-	TurnType              string                     `json:"turn_type,omitempty"`
-	CacheState            string                     `json:"cache_state,omitempty"`
-	PriorOutputTokens     *int                       `json:"prior_output_tokens,omitempty"`
-	SessionEverSwitched   *bool                      `json:"session_ever_switched,omitempty"`
-	HistoryTruncated      *bool                      `json:"history_truncated,omitempty"`
-	ConversationMessages  []routeMessage             `json:"conversation_messages,omitempty"`
-	OmittedUserTurnCount  *int                       `json:"omitted_user_turn_count,omitempty"`
-	AvailableTools        []string                   `json:"available_tools,omitempty"`
-	InvokedTools          []string                   `json:"invoked_tools,omitempty"`
-	Tools                 []routeTool                `json:"tools,omitempty"`
-	EstimatedInputTokens  int                        `json:"estimated_input_tokens"`
-	HasTools              bool                       `json:"has_tools"`
-	HasImages             bool                       `json:"has_images"`
-}
-
 type classifierResponseV5 struct {
 	SchemaVersion            string                     `json:"schema_version"`
 	RequestID                string                     `json:"request_id"`
@@ -227,7 +175,7 @@ type classifierResponseV5 struct {
 	HMMStatePath             []int                      `json:"hmm_state_path"`
 	HMMStateProbabilities    []float64                  `json:"hmm_state_probabilities"`
 	Error                    string                     `json:"error"`
-	Detail                   string                     `json:"detail"`
+	Detail                   json.RawMessage            `json:"detail"`
 }
 
 func (c *Client) ReadClassifierHealth(ctx context.Context) (ClassifierHealth, error) {
@@ -309,19 +257,18 @@ func (c *Client) Capabilities(ctx context.Context) (policy.Capabilities, error) 
 }
 
 func (c *Client) CapabilitiesForClassifierRelease(ctx context.Context, selectionID, releaseID string) (ClassifierCapabilitiesV5, error) {
-	classifierClient, err := c.v5ClassifierClient()
-	if err != nil {
-		return ClassifierCapabilitiesV5{}, err
+	if c == nil {
+		return ClassifierCapabilitiesV5{}, errors.New("policy client is required")
 	}
 	if !validClassifierSHA256(selectionID) || !validClassifierSHA256(releaseID) {
 		return ClassifierCapabilitiesV5{}, errors.New("classifier capabilities require exact selection and release digests")
 	}
-	endpoint := classifierClient.baseURL + "/v5/capabilities?classifier_selection_id=" + selectionID + "&classifier_release_id=" + releaseID
+	endpoint := c.baseURL + "/v5/capabilities?classifier_selection_id=" + selectionID + "&classifier_release_id=" + releaseID
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return ClassifierCapabilitiesV5{}, fmt.Errorf("build v5 classifier capabilities request: %w", err)
 	}
-	resp, err := classifierClient.client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return ClassifierCapabilitiesV5{}, fmt.Errorf("call v5 classifier capabilities endpoint: %w", err)
 	}
@@ -343,14 +290,6 @@ func (c *Client) CapabilitiesForClassifierRelease(ctx context.Context, selection
 		!validClassifierSHA256(capabilities.TaxonomySHA256) || taxonomyDigest(capabilities.ClassOrder) != capabilities.TaxonomySHA256 ||
 		!slices.Contains(capabilities.ClassifierVariants, policy.ClassifierVariantPrimary) {
 		return ClassifierCapabilitiesV5{}, errors.New("v5 classifier capabilities do not match the selected release")
-	}
-	if classifierClient != c {
-		integrationCapabilities, err := c.Capabilities(ctx)
-		if err != nil {
-			return ClassifierCapabilitiesV5{}, fmt.Errorf("read integration sidecar capabilities: %w", err)
-		}
-		capabilities.ReportsOutcomes = integrationCapabilities.ReportsOutcomes
-		capabilities.ReportsFeedback = integrationCapabilities.ReportsFeedback
 	}
 	return capabilities, nil
 }
@@ -533,48 +472,6 @@ type routeToolResult struct {
 	ExitCategory  string `json:"exit_category,omitempty"`
 }
 
-type routeResponse struct {
-	SchemaVersion        string                 `json:"schema_version"`
-	RouteID              string                 `json:"route_id"`
-	SelectedArmID        string                 `json:"selected_arm_id"`
-	SelectedRosterID     string                 `json:"selected_roster_id"`
-	SelectedProvider     string                 `json:"selected_provider"`
-	Model                string                 `json:"model"`
-	Score                float64                `json:"score"`
-	ChosenScore          *float64               `json:"chosen_score"`
-	CandidateScores      map[string]float32     `json:"candidate_scores"`
-	ScoreKind            string                 `json:"score_kind"`
-	ScoreLabel           string                 `json:"score_label"`
-	Reason               string                 `json:"reason"`
-	PolicyState          string                 `json:"policy_state"`
-	StateLabel           string                 `json:"state_label"`
-	PolicyGroup          string                 `json:"policy_group"`
-	Cluster              string                 `json:"cluster"`
-	PolicyLabel          string                 `json:"policy_label"`
-	ComplexityLabel      string                 `json:"complexity_label"`
-	PolicyRouteKey       string                 `json:"policy_route_key"`
-	RoutingBucket        string                 `json:"routing_bucket"`
-	Confidence           *float64               `json:"confidence"`
-	ClassifierConfidence *float64               `json:"classifier_confidence"`
-	Margin               *float64               `json:"margin"`
-	ClassifierMargin     *float64               `json:"classifier_margin"`
-	Propensity           float64                `json:"propensity"`
-	DisplayMarker        string                 `json:"display_marker"`
-	PolicyArtifactID     string                 `json:"policy_artifact_id"`
-	PolicyModelID        string                 `json:"policy_model_id"`
-	PolicyArtifactSHA256 string                 `json:"policy_artifact_sha256"`
-	PolicySHA256         string                 `json:"policy_sha256"`
-	RosterVersion        string                 `json:"roster_version"`
-	DebugRef             string                 `json:"debug_ref"`
-	Debug                map[string]interface{} `json:"debug"`
-	RankedFallback       []policy.PreviewGroup  `json:"ranked_fallback"`
-	ArmScores            map[string]float32     `json:"arm_scores"`
-	PredictedLabel       string                 `json:"predicted_label"`
-	ClassProbabilities   map[string]float64     `json:"class_probabilities"`
-	Timings              *routeTimings          `json:"timings"`
-	Error                string                 `json:"error"`
-}
-
 type classifierResponseV4 struct {
 	SchemaVersion         string                 `json:"schema_version"`
 	RouteID               string                 `json:"route_id"`
@@ -657,6 +554,7 @@ type previewResponse struct {
 	RouteID               string                `json:"route_id"`
 	PolicyArtifactID      string                `json:"policy_artifact_id"`
 	PolicyArtifactSHA256  string                `json:"policy_artifact_sha256"`
+	PolicySHA256          string                `json:"policy_sha256"`
 	RosterSHA256          string                `json:"roster_sha256"`
 	HMMStateID            int                   `json:"hmm_state_id"`
 	HMMStatePath          []int                 `json:"hmm_state_path"`
@@ -673,7 +571,7 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 	if c.taskDomain != nil && query.ExecutionMode == policy.ExecutionModeServing && query.TaskDomain != nil {
 		return c.decideWithTaskDomain(ctx, query)
 	}
-	if query.ClassifierReleaseID != "" || query.ClassifierSelectionID != "" {
+	if c.expectedPolicySHA256 == "" && (query.ClassifierReleaseID != "" || query.ClassifierSelectionID != "") {
 		return c.decideV5(ctx, query)
 	}
 	if query.SchemaVersion == policy.SchemaVersionV5 {
@@ -707,13 +605,9 @@ func (c *Client) classifyV5(ctx context.Context, path string, query policy.Query
 	if err != nil {
 		return classifierResponseV5{}, err
 	}
-	classifierClient, err := c.v5ClassifierClient()
-	if err != nil {
-		return classifierResponseV5{}, err
-	}
 	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	status, payload, err := classifierClient.doPolicyRequest(requestCtx, path, requestBody)
+	status, payload, err := c.doPolicyRequest(requestCtx, path, requestBody)
 	if err != nil {
 		return classifierResponseV5{}, err
 	}
@@ -728,8 +622,8 @@ func (c *Client) classifyV5(ctx context.Context, path string, query policy.Query
 		if wire.Error != "" {
 			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, status, wire.Error)
 		}
-		if wire.Detail != "" {
-			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, status, wire.Detail)
+		if detail := classifierErrorDetail(wire.Detail); detail != "" {
+			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, status, detail)
 		}
 		return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d", path, status)
 	}
@@ -737,52 +631,6 @@ func (c *Client) classifyV5(ctx context.Context, path string, query policy.Query
 		return classifierResponseV5{}, fmt.Errorf("invalid v5 classifier %s response: %w", path, err)
 	}
 	return wire, nil
-}
-
-func marshalClassifierRequestV5(query policy.Query) ([]byte, error) {
-	if query.SchemaVersion != policy.SchemaVersionV5 || !validClassifierSHA256(query.ClassifierReleaseID) ||
-		!validClassifierSHA256(query.ClassifierSelectionID) || !validClassifierVariantID(query.ClassifierVariantID) {
-		return nil, errors.New("v5 classifier request requires API, release, selection, and variant identities")
-	}
-	messageLimits := classifierRouteMessageLimits(query)
-	messages := convertRouteMessages(query.ConversationMessages, messageLimits)
-	turnIndex := turnIndex(messages)
-	var visibleTurnIndex *int
-	var sessionTurnCount *int
-	var sessionEverSwitched *bool
-	var historyTruncated *bool
-	var turnType string
-	var cacheState string
-	var priorOutputTokens *int
-	if query.TurnContext != nil {
-		turnIndex = query.TurnContext.VisibleTurnIndex
-		visibleTurnIndex = pointerTo(query.TurnContext.VisibleTurnIndex)
-		sessionTurnCount = pointerTo(query.TurnContext.SessionTurnCount)
-		sessionEverSwitched = pointerTo(query.TurnContext.SessionEverSwitched)
-		historyTruncated = pointerTo(query.TurnContext.HistoryTruncated || routeMessagesExceedLimits(query.ConversationMessages, messageLimits))
-		turnType = query.TurnContext.TurnType
-		cacheState = query.TurnContext.CacheState
-		priorOutputTokens = query.TurnContext.PriorOutputTokens
-	}
-	var omittedUserTurnCount *int
-	if query.InteractionStateInputs {
-		omittedUserTurnCount = pointerTo(userTextTurnCount(query.ConversationMessages) - routedUserTextTurnCount(messages))
-	}
-	invokedTools := clipRouteValues(invokedToolNames(query.ConversationMessages))
-	return json.Marshal(classifierRequestV5{
-		SchemaVersion: string(policy.SchemaVersionV5), ClassifierSelectionID: query.ClassifierSelectionID,
-		ClassifierReleaseID: query.ClassifierReleaseID, ClassifierVariantID: query.ClassifierVariantID,
-		RequestID: query.RouteID, SessionID: query.ClientSessionID, Harness: policy.HarnessForClientApp(query.ClientApp),
-		PromptText: query.PromptText, LatestUserText: latestUserText(messages), TurnIndex: turnIndex,
-		IsSubagent: turnType == "sub_agent_dispatch", VisibleTurnIndex: visibleTurnIndex,
-		SessionTurnCount: sessionTurnCount, TurnType: turnType, CacheState: cacheState,
-		PriorOutputTokens: priorOutputTokens, SessionEverSwitched: sessionEverSwitched,
-		HistoryTruncated: historyTruncated, ConversationMessages: messages,
-		OmittedUserTurnCount: omittedUserTurnCount,
-		AvailableTools:       clipRouteValues(unionToolNames(query.AvailableTools, invokedTools)),
-		InvokedTools:         invokedTools, Tools: routeTools(query.Tools), EstimatedInputTokens: query.EstimatedInputTokens,
-		HasTools: query.HasTools, HasImages: query.HasImages,
-	})
 }
 
 func validateClassifierResponseV5(query policy.Query, response classifierResponseV5) error {
@@ -846,94 +694,7 @@ func (c *Client) decide(ctx context.Context, query policy.Query) (policy.Result,
 		return policy.Result{}, err
 	}
 
-	var parsed routeResponse
-	if err := json.Unmarshal(payload, &parsed); err != nil {
-		return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", status, err)
-	}
-	if status != http.StatusOK {
-		if err := unknownArtifactErr(query, status); err != nil {
-			return policy.Result{}, err
-		}
-		if parsed.Error != "" {
-			return policy.Result{}, fmt.Errorf("policy sidecar status %d: %s", status, parsed.Error)
-		}
-		return policy.Result{}, fmt.Errorf("policy sidecar status %d", status)
-	}
-	if parsed.SchemaVersion == policy.SchemaVersionV4 {
-		classifier, decodeErr := decodeClassifierResponseV4(payload)
-		if decodeErr != nil {
-			return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", status, decodeErr)
-		}
-		return policy.Result{
-			SchemaVersion:         classifier.SchemaVersion,
-			RouteID:               classifier.RouteID,
-			Score:                 valueOrZero(classifier.ClassifierConfidence),
-			Confidence:            classifier.ClassifierConfidence,
-			Margin:                classifier.ClassifierMargin,
-			PolicyArtifactID:      classifier.ClassifierArtifactID,
-			PolicyArtifactSHA256:  classifier.ClassifierSHA256,
-			DebugRef:              classifier.DebugRef,
-			Debug:                 classifier.Debug,
-			PredictedLabel:        classifier.PredictedLabel,
-			ClassOrder:            classifier.ClassOrder,
-			ClassProbabilities:    classifier.ClassProbabilities,
-			HMMStateID:            classifier.HMMStateID,
-			HMMStatePath:          classifier.HMMStatePath,
-			HMMStateProbabilities: classifier.HMMStateProbabilities,
-			Timings:               decomposeTimings(classifier.Timings),
-			ServingStats:          extractServingStats(classifier.Timings),
-		}, nil
-	}
-	selectedModel := firstNonEmpty(parsed.SelectedRosterID, parsed.Model)
-	switch parsed.SchemaVersion {
-	case policy.SchemaVersionV3:
-		if parsed.SelectedArmID != "" || selectedModel != "" || parsed.SelectedProvider != "" {
-			return policy.Result{}, fmt.Errorf("policy sidecar returned a selected arm or provider on schema %s", policy.SchemaVersionV3)
-		}
-		if len(parsed.RankedFallback) == 0 {
-			return policy.Result{}, fmt.Errorf("policy sidecar returned no ranked fallback on schema %s", policy.SchemaVersionV3)
-		}
-	case "", policy.SchemaVersionV1, policy.SchemaVersionV2:
-		if parsed.SelectedArmID == "" && selectedModel == "" {
-			return policy.Result{}, fmt.Errorf("policy sidecar returned empty arm and model")
-		}
-	default:
-		return policy.Result{}, fmt.Errorf("unsupported policy route schema %q", parsed.SchemaVersion)
-	}
-	score := parsed.Score
-	if parsed.ChosenScore != nil {
-		score = *parsed.ChosenScore
-	}
-	return policy.Result{
-		SchemaVersion:        parsed.SchemaVersion,
-		RouteID:              parsed.RouteID,
-		ArmID:                parsed.SelectedArmID,
-		Model:                selectedModel,
-		Provider:             parsed.SelectedProvider,
-		Score:                score,
-		CandidateScores:      parsed.CandidateScores,
-		ScoreKind:            firstNonEmpty(parsed.ScoreKind, parsed.ScoreLabel),
-		Reason:               parsed.Reason,
-		PolicyState:          firstNonEmpty(parsed.PolicyState, parsed.StateLabel),
-		PolicyGroup:          firstNonEmpty(parsed.PolicyGroup, parsed.Cluster),
-		PolicyLabel:          firstNonEmpty(parsed.PolicyLabel, parsed.ComplexityLabel),
-		PolicyRouteKey:       firstNonEmpty(parsed.PolicyRouteKey, parsed.RoutingBucket),
-		Confidence:           firstFloat(parsed.Confidence, parsed.ClassifierConfidence),
-		Margin:               firstFloat(parsed.Margin, parsed.ClassifierMargin),
-		Propensity:           parsed.Propensity,
-		DisplayMarker:        parsed.DisplayMarker,
-		PolicyArtifactID:     firstNonEmpty(parsed.PolicyArtifactID, parsed.PolicyModelID),
-		PolicyArtifactSHA256: firstNonEmpty(parsed.PolicyArtifactSHA256, parsed.PolicySHA256),
-		RosterVersion:        parsed.RosterVersion,
-		DebugRef:             parsed.DebugRef,
-		Debug:                parsed.Debug,
-		RankedFallback:       parsed.RankedFallback,
-		ArmScores:            parsed.ArmScores,
-		PredictedLabel:       parsed.PredictedLabel,
-		ClassProbabilities:   parsed.ClassProbabilities,
-		Timings:              decomposeTimings(parsed.Timings),
-		ServingStats:         extractServingStats(parsed.Timings),
-	}, nil
+	return decodeRouteResponse(query, status, payload, c.expectedPolicySHA256)
 }
 
 func decodeClassifierResponseV4(payload []byte) (classifierResponseV4, error) {
@@ -963,7 +724,7 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 	if query.ExecutionMode != policy.ExecutionModePreview {
 		return policy.PreviewResult{}, fmt.Errorf("policy preview requires preview execution mode")
 	}
-	if query.ClassifierReleaseID != "" || query.ClassifierSelectionID != "" {
+	if c.expectedPolicySHA256 == "" && (query.ClassifierReleaseID != "" || query.ClassifierSelectionID != "") {
 		return c.previewV5(ctx, query)
 	}
 	if query.SchemaVersion == policy.SchemaVersionV5 {
@@ -979,6 +740,10 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 	if err != nil {
 		return policy.PreviewResult{}, err
 	}
+	return decodePreviewResponse(query, status, payload, c.expectedPolicySHA256)
+}
+
+func decodePreviewResponse(query policy.Query, status int, payload []byte, expectedPolicySHA256 string) (policy.PreviewResult, error) {
 	var parsed previewResponse
 	if err := json.Unmarshal(payload, &parsed); err != nil {
 		return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", status, err)
@@ -991,6 +756,10 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 			return policy.PreviewResult{}, fmt.Errorf("policy preview status %d: %s", status, parsed.Error)
 		}
 		return policy.PreviewResult{}, fmt.Errorf("policy preview status %d", status)
+	}
+	policySHA256 := firstNonEmpty(parsed.PolicyArtifactSHA256, parsed.PolicySHA256)
+	if err := checkPolicyResponsePin(expectedPolicySHA256, policySHA256, parsed.SchemaVersion, parsed.RouteID, query.RouteID); err != nil {
+		return policy.PreviewResult{}, err
 	}
 	if parsed.SchemaVersion == policy.SchemaVersionV4 {
 		classifier, decodeErr := decodeClassifierResponseV4(payload)
@@ -1011,7 +780,7 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 		SchemaVersion:         parsed.SchemaVersion,
 		RouteID:               parsed.RouteID,
 		PolicyArtifactID:      parsed.PolicyArtifactID,
-		PolicyArtifactSHA256:  parsed.PolicyArtifactSHA256,
+		PolicyArtifactSHA256:  policySHA256,
 		RosterSHA256:          parsed.RosterSHA256,
 		HMMStateID:            parsed.HMMStateID,
 		HMMStatePath:          parsed.HMMStatePath,
@@ -1045,7 +814,7 @@ func (c *Client) previewV5(ctx context.Context, query policy.Query) (policy.Prev
 
 func supportedSchema(version string) bool {
 	switch version {
-	case policy.SchemaVersionV1, policy.SchemaVersionV2, policy.SchemaVersionV3, policy.SchemaVersionV4:
+	case policy.SchemaVersionV1, policy.SchemaVersionV4:
 		return true
 	default:
 		return false
@@ -1061,12 +830,8 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 	models := make([]string, 0, len(query.Candidates))
 	providerMap := make(map[string]string, len(query.Candidates))
 	for _, candidate := range query.Candidates {
-		providerKey := candidate.RosterID
-		if schemaVersion == policy.SchemaVersionV2 {
-			providerKey = candidate.ArmID
-		}
-		models = append(models, providerKey)
-		providerMap[providerKey] = candidate.Provider
+		models = append(models, candidate.RosterID)
+		providerMap[candidate.RosterID] = candidate.Provider
 	}
 	routeLimits := classifierRouteMessageLimits(query)
 	messages := convertRouteMessages(query.ConversationMessages, routeLimits)
@@ -1194,15 +959,6 @@ func routeCandidates(candidates []policy.Candidate, schemaVersion string) []rout
 			EffectiveOutputUSDPer1M:   candidate.EffectiveOutputUSDPer1M,
 			EffectiveEstimatedCostUSD: candidate.EffectiveEstimatedCostUSD,
 			Capabilities:              candidate.Capabilities,
-		}
-		if schemaVersion == policy.SchemaVersionV2 {
-			bindingIndex := candidate.BindingIndex
-			wireCandidate.ArmID = candidate.ArmID
-			wireCandidate.BindingIndex = &bindingIndex
-			wireCandidate.Endpoint = candidate.Endpoint
-			wireCandidate.ModelRevision = candidate.ModelRevision
-			wireCandidate.ReasoningConfigurationSHA256 = candidate.ReasoningConfigurationSHA256
-			wireCandidate.ToolConfigurationSHA256 = candidate.ToolConfigurationSHA256
 		}
 		result = append(result, wireCandidate)
 	}
@@ -1747,11 +1503,11 @@ func routeTools(tools []router.ToolDescriptor) []routeTool {
 	seen := make(map[routeTool]struct{}, len(tools))
 	for _, tool := range tools {
 		wireTool := routeTool{
-			Name:           clipRouteText(tool.Name, maxRouteToolCallInputChars),
+			Name:           clipRouteText(firstNonEmpty(tool.Name, tool.Type), maxRouteToolCallInputChars),
 			Type:           clipRouteText(tool.Type, maxRouteToolCallInputChars),
 			ServerExecuted: tool.ServerExecuted,
 		}
-		if wireTool.Name == "" && wireTool.Type == "" {
+		if wireTool.Name == "" {
 			continue
 		}
 		if _, ok := seen[wireTool]; ok {

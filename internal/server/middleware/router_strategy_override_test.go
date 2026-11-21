@@ -69,9 +69,9 @@ func runStrategyOverrideWithAvailability(
 	return observed
 }
 
-func TestRouterStrategyOverride_AppliesRL(t *testing.T) {
+func TestRouterStrategyOverride_IgnoresRetiredRL(t *testing.T) {
 	got := runStrategyOverride(t, overrideEnabledInstallation(), "rl")
-	assert.Equal(t, router.StrategyRL, got, "rl header must select the RL strategy")
+	assert.Equal(t, router.StrategyHMMEmbedding, got, "the retired rl header must not select a strategy")
 }
 
 func TestRouterStrategyOverride_AppliesHMM(t *testing.T) {
@@ -85,8 +85,8 @@ func TestRouterStrategyOverride_AppliesHMMEmbedding(t *testing.T) {
 }
 
 func TestRouterStrategyOverride_CaseInsensitiveAndTrimmed(t *testing.T) {
-	got := runStrategyOverride(t, overrideEnabledInstallation(), "  RL  ")
-	assert.Equal(t, router.StrategyRL, got, "value must be lowercased and trimmed before matching")
+	got := runStrategyOverride(t, overrideEnabledInstallation(), "  HMM  ")
+	assert.Equal(t, router.StrategyHMM, got, "value must be lowercased and trimmed before matching")
 }
 
 func TestRouterStrategyOverride_NoHeaderUsesDeploymentDefault(t *testing.T) {
@@ -133,36 +133,9 @@ func TestRouterStrategyOverride_UsesDeploymentDefaultWithoutInstallationOverride
 	assert.Equal(t, router.StrategyHMM, observed)
 }
 
-func TestRouterStrategyOverride_PersistedClusterFollowsDeploymentDefault(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	engine := gin.New()
-	engine.Use(func(c *gin.Context) {
-		c.Set("router_installation", &auth.Installation{
-			ID: "inst-cluster-holdout", RoutingStrategy: router.Strategy("cluster"),
-		})
-		c.Next()
-	})
-	engine.Use(middleware.WithRouterStrategyDefault(
-		router.StrategyHMM,
-		nil,
-		router.StrategyHMM,
-	))
-	var observed router.Strategy
-	engine.GET("/probe", func(c *gin.Context) {
-		observed = router.StrategyFromContext(c.Request.Context())
-		c.Status(http.StatusOK)
-	})
-
-	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
-	engine.ServeHTTP(httptest.NewRecorder(), request)
-
-	assert.Equal(t, router.StrategyHMM, observed)
-}
-
 func TestNormalizeRouterStrategyDefault(t *testing.T) {
 	assert.Equal(t, router.StrategyHMM, middleware.NormalizeRouterStrategyDefault(router.StrategyHMM, router.StrategyHMM))
 	assert.Empty(t, middleware.NormalizeRouterStrategyDefault(router.Strategy("typo"), router.StrategyHMM))
-	assert.Empty(t, middleware.NormalizeRouterStrategyDefault(router.Strategy("cluster"), router.StrategyHMM))
 	assert.Empty(t,
 		middleware.NormalizeRouterStrategyDefault(router.StrategyHMMBeta, router.StrategyHMMBeta),
 		"beta cannot be activated by a deployment default")
@@ -319,7 +292,7 @@ func probeStrategyOverrideWith(t *testing.T, installation *auth.Installation, ma
 }
 
 func TestRouterStrategyOverride_ManagedServingUnavailablePersistedStrategyFailsClosed(t *testing.T) {
-	installation := &auth.Installation{ID: "inst-managed", RoutingStrategy: router.StrategyRL}
+	installation := &auth.Installation{ID: "inst-managed", RoutingStrategy: router.Strategy("rl")}
 	probe := probeStrategyOverride(t, installation, true, router.StrategyHMMEmbedding, router.StrategyHMMEmbedding)
 
 	assert.Equal(t, http.StatusServiceUnavailable, probe.status)
@@ -353,9 +326,8 @@ func TestRouterStrategyOverride_NonManagedUnavailableStrategyFailsClosed(t *test
 		persisted       router.Strategy
 		defaultStrategy router.Strategy
 	}{
-		{name: "persisted", persisted: router.StrategyRL, defaultStrategy: router.StrategyHMMEmbedding},
+		{name: "persisted", persisted: router.Strategy("rl"), defaultStrategy: router.StrategyHMMEmbedding},
 		{name: "default", persisted: "", defaultStrategy: router.StrategyHMM},
-		{name: "persisted cluster with unregistered default", persisted: router.Strategy("cluster"), defaultStrategy: router.StrategyHMM},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			installation := &auth.Installation{ID: "inst-self-hosted", RoutingStrategy: tc.persisted}

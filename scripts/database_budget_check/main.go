@@ -14,18 +14,21 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/postgres/poolconfig"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm/pinstate"
 	"weave-os/router/internal/router/sessionpin"
 )
 
 const maximumObservedWait = 3 * time.Second
 
 func main() {
+	logconfig.Configure()
 	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
 	if dsn == "" {
 		slog.Error("ROUTER_TEST_DATABASE_URL must name a local disposable migrated database")
@@ -99,7 +102,7 @@ func check(dsn string) (checkErr error) {
 	if _, err := lockConnection.Exec(ctx, "SELECT id FROM router.model_router_installations WHERE id = $1 FOR UPDATE", installation.ID); err != nil {
 		return fmt.Errorf("lock installation fixture: %w", err)
 	}
-	pinStore := postgres.NewSessionPinRepo(pool)
+	pinStore := postgres.NewSessionPinRepo(pool, pinstate.Accessor{})
 	pin := sessionpin.Pin{
 		SessionKey:     sessionKey(),
 		Role:           sessionpin.DefaultRole,

@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/router"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,15 +45,16 @@ func TestForceModelCommand_TypedForms(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.typed, func(t *testing.T) {
 			store := &recordingPinStore{}
-			svc := NewService(nil, nil, nil, store, false,
-				providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+			svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+				providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+
 			env := typedCommandEnv(t, tt.typed+"\nfix the failing test")
 			cmd, found := env.ExtractForceModelCommand()
 			require.True(t, found, "command parsed")
 
 			rec := httptest.NewRecorder()
-			require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd,
-				uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+			require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+				DeriveSessionKey(env, "key-1"), 10))
 
 			require.Len(t, store.upserts, 1, "pin written")
 			assert.Equal(t, tt.wantModel, store.upserts[0].Model)
@@ -67,15 +70,16 @@ func TestForceModelCommand_TypedUnknownKeepsRouting(t *testing.T) {
 	for _, typed := range []string{"/fm opsu", "/fm opus-5-", "/fm gpt-5.6-astra", "/fm opus fix the tests"} {
 		t.Run(typed, func(t *testing.T) {
 			store := &recordingPinStore{}
-			svc := NewService(nil, nil, nil, store, false,
-				providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+			svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+				providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+
 			env := typedCommandEnv(t, typed)
 			cmd, found := env.ExtractForceModelCommand()
 			require.True(t, found, "command parsed")
 
 			rec := httptest.NewRecorder()
-			require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd,
-				uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+			require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+				DeriveSessionKey(env, "key-1"), 10))
 
 			assert.Empty(t, store.upserts, "no pin")
 			assert.Contains(t, rec.Body.String(), "isn't a recognized model")
@@ -85,15 +89,16 @@ func TestForceModelCommand_TypedUnknownKeepsRouting(t *testing.T) {
 
 func TestForceModelCommand_TypoSuggestsWithoutPinning(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+
 	env := typedCommandEnv(t, "/fm opsu")
 	cmd, found := env.ExtractForceModelCommand()
 	require.True(t, found, "command parsed")
 
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd,
-		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+		DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Empty(t, store.upserts, "a suggestion never pins")
 	assert.Contains(t, rec.Body.String(), "isn't a recognized model")

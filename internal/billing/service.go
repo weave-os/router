@@ -42,41 +42,18 @@ const DefaultByokFeeRate = 0.0
 const MinBalanceMicros int64 = 0
 
 type Service struct {
-	repo              Repo
-	autopay           AutopayNotifier
-	byokFeeRate       float64
-	allowances        SubscriberAllowanceSettler
-	prepaid           *PrepaidBooks
-	subscriberPrepaid SubscriberPrepaidAuthorizer
-	delegatedSpend    DelegatedSpendReader
+	repo           Repo
+	autopay        AutopayNotifier
+	byokFeeRate    float64
+	allowances     SubscriberAllowanceSettler
+	prepaid        *PrepaidBooks
+	delegatedSpend DelegatedSpendReader
 }
 
 func NewService(repo Repo) *Service {
 	books := newPrepaidBooks()
 	books.register(OwnerKindOrganization, OrganizationBook(repo))
 	return &Service{repo: repo, byokFeeRate: DefaultByokFeeRate, prepaid: books}
-}
-
-func (s *Service) WithSubscriberPrepaid(book PrepaidBook) *Service {
-	s.prepaid.register(OwnerKindSubscriber, book)
-	if authorizer, ok := book.(SubscriberPrepaidAuthorizer); ok {
-		s.subscriberPrepaid = authorizer
-	}
-	return s
-}
-
-func (s *Service) AuthorizeSubscriberPrepaid(ctx context.Context, request PrepaidAuthorizationRequest) (PrepaidAuthorization, error) {
-	if s.subscriberPrepaid == nil {
-		return PrepaidAuthorization{}, ErrOwnerKindUnsupported
-	}
-	return s.subscriberPrepaid.Authorize(ctx, request)
-}
-
-func (s *Service) FinalizeSubscriberPrepaid(ctx context.Context, actionID string) (int64, error) {
-	if s.subscriberPrepaid == nil {
-		return 0, ErrOwnerKindUnsupported
-	}
-	return s.subscriberPrepaid.Finalize(ctx, actionID)
 }
 
 func (s *Service) PrepaidBalance(ctx context.Context, owner Owner) (int64, error) {
@@ -222,13 +199,6 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 	}
 	coverage, hasCoverage := entitlement.CoverageFromContext(ctx)
 	subscriberCovered := hasCoverage && s.allowances != nil && !p.HasOverride && !p.SubscriptionServed && !p.ByokServed
-	prepaidAuthorization, hasPrepaidAuthorization := PrepaidAuthorizationFromContext(ctx)
-	if hasPrepaidAuthorization {
-		if p.HasOverride || p.SubscriptionServed || p.ByokServed {
-			return s.PrepaidBalance(ctx, prepaidAuthorization.Owner)
-		}
-		return s.settleSubscriberPrepaid(ctx, p, prepaidAuthorization, notional)
-	}
 
 	delta := -notional
 	var fee int64
@@ -237,9 +207,7 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 		delta = 0
 	case p.ByokServed:
 		delta = 0
-		if !unfundedTurn(ctx) {
-			fee = -s.byokFeeMicros(notional)
-		}
+		fee = -s.byokFeeMicros(notional)
 	case subscriberCovered:
 		held, err := s.meterSubscriberAllowance(ctx, p, coverage, notional)
 		if err != nil {
@@ -268,38 +236,6 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 		return balanceAfter, err
 	}
 	s.maybeSignalRecharge(ctx, OrganizationOwner(p.OrganizationID), delta+fee, balanceAfter)
-	return balanceAfter, nil
-}
-
-func (s *Service) settleSubscriberPrepaid(ctx context.Context, p DebitInferenceParams, authorization PrepaidAuthorization, retailMicros int64) (int64, error) {
-	if s.subscriberPrepaid == nil {
-		MarkPrepaidSettlementFailed(ctx)
-		return 0, ErrOwnerKindUnsupported
-	}
-	actionID, ok := NextPrepaidSettlementActionID(ctx, p.RouterRequestID)
-	if !ok {
-		MarkPrepaidSettlementFailed(ctx)
-		return 0, ErrPrepaidAuthorizationNotFound
-	}
-	balanceAfter, err := s.subscriberPrepaid.Settle(ctx, PrepaidSettlement{
-		AuthorizationActionID: authorization.ActionID,
-		ActionID:              actionID,
-		RouterRequestID:       p.RouterRequestID,
-		ServedModel:           p.Model,
-		RetailUsdMicros:       retailMicros,
-		CapacitySource:        entitlement.CapacitySourcePrepaid,
-	})
-	if err != nil {
-		MarkPrepaidSettlementFailed(ctx)
-		observability.FromContext(ctx).Error("Subscriber prepaid settlement failed",
-			"err", err,
-			"subscriber_id", authorization.Owner.SubscriberID,
-			"router_request_id", p.RouterRequestID,
-			"retail_usd_micros", retailMicros,
-		)
-		return balanceAfter, err
-	}
-	s.maybeSignalRecharge(ctx, authorization.Owner, -retailMicros, balanceAfter)
 	return balanceAfter, nil
 }
 
@@ -346,8 +282,6 @@ func (s *Service) maybeSignalRecharge(ctx context.Context, owner Owner, delta, b
 		log := observability.FromContext(ctx).With("owner_kind", owner.Kind)
 		if owner.Kind == OwnerKindOrganization {
 			log = log.With("organization_id", owner.OrganizationID)
-		} else {
-			log = log.With("subscriber_id", owner.SubscriberID)
 		}
 		log.Warn("Autopay crossing check skipped: config read failed", "err", err)
 		return

@@ -1,0 +1,48 @@
+package proxy
+
+import (
+	"context"
+	"time"
+
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/proxy/usage"
+)
+
+func callerLoginServesFirst(ctx context.Context, model string, observer *usage.Observer, models *subscriptionModelAccess, now time.Time) bool {
+	current := CredentialsFromContext(ctx)
+	if current == nil || !current.OAuth {
+		return false
+	}
+	if pickedModelOnOwnPlan(ctx) {
+		return true
+	}
+	token := ownSeatFirstToken(ctx, current, observer)
+	return token != "" && !models.denied([]byte(token), model, now)
+}
+
+func ownSeatFirstToken(ctx context.Context, current *Credentials, observer *usage.Observer) string {
+	if !flags.BoolOr(ctx, flags.KeyOwnSeatFirst, false) {
+		return ""
+	}
+	inbound := string(current.APIKey)
+	if observer == nil {
+		return inbound
+	}
+	key := observer.Key([]byte(inbound))
+	if observer.Rejected(key) {
+		return ""
+	}
+	snapshot, observed := observer.Snapshot(key)
+	if observed && snapshot.BillableOrExhausted() && !ownOverageServesFirst(ctx, snapshot) {
+		return ""
+	}
+	return inbound
+}
+
+func ownOverageServesFirst(ctx context.Context, snapshot usage.Snapshot) bool {
+	return snapshot.OverageInUse && ownOverageBeforePool(ctx)
+}
+
+func ownOverageBeforePool(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyOwnSeatFirst, false) && flags.BoolOr(ctx, flags.KeyOwnOverageBeforePool, false)
+}

@@ -2,10 +2,13 @@ package proxy
 
 import (
 	"context"
+	"net/http"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/translate"
 )
 
 const subscriptionSpendCapWarningMarker = routingMarkerPrefix +
@@ -23,6 +26,11 @@ type subscriptionFundingWarning struct {
 	customerKey bool
 }
 
+func routerNoticeForDecision(ctx context.Context, headers http.Header, decision router.Decision, marker string) translate.RouterNotice {
+	source, _ := managedSubscriptionProviderFromUpstream(decision.Provider, decision.Model)
+	return routerNoticeForRequest(ctx, headers, source, decision.Model, marker)
+}
+
 func fundedByCustomerKey(ctx context.Context, model string) bool {
 	if !servedOnCustomerKey(ctx) {
 		return false
@@ -37,13 +45,14 @@ func (w subscriptionFundingWarning) text() string {
 		if w.customerKey {
 			return subscriptionSpendCapKeyWarningMarker
 		}
-		if w.source == subscriptions.ProviderCodex {
+		switch w.source {
+		case subscriptions.ProviderCodex:
 			return subscriptionSpendCapWarningMarkerCodex
+		case subscriptions.ProviderClaude:
+			return subscriptionSpendCapWarningMarker
 		}
-		return subscriptionSpendCapWarningMarker
-	default:
-		return ""
 	}
+	return ""
 }
 
 var subscriptionFundingWarnings = []subscriptionFundingWarning{

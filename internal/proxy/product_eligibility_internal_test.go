@@ -29,7 +29,7 @@ func maxScopedContext() context.Context {
 }
 
 func TestMaxRequestCarriesTheBoundaryAndHardExclusions(t *testing.T) {
-	svc := &Service{}
+	svc := &Service{hmmServing: hmmPorts()}
 
 	req := svc.withPolicyRequestContext(maxScopedContext(), router.Request{})
 
@@ -37,19 +37,19 @@ func TestMaxRequestCarriesTheBoundaryAndHardExclusions(t *testing.T) {
 	// Desugared into the HARD set, not AutomaticExcludedModels: a router may
 	// drop the soft set to keep a pool non-empty, which would serve exactly
 	// the models Max does not sell.
-	assert.Contains(t, req.ExcludedModels, "claude-opus-4-8")
-	assert.Contains(t, req.ExcludedModels, "muse-spark-1.3")
-	assert.NotContains(t, req.ExcludedModels, "deepseek/deepseek-v4-pro")
-	assert.NotContains(t, req.AutomaticExcludedModels, "claude-opus-4-8")
+	assert.Contains(t, req.Candidates.ExcludedModels, "claude-opus-4-8")
+	assert.Contains(t, req.Candidates.ExcludedModels, "muse-spark-1.3")
+	assert.NotContains(t, req.Candidates.ExcludedModels, "deepseek/deepseek-v4-pro")
+	assert.NotContains(t, req.Candidates.AutomaticExcludedModels, "claude-opus-4-8")
 }
 
 func TestUnsubscribedRequestKeepsUnrestrictedRouting(t *testing.T) {
-	svc := &Service{}
+	svc := &Service{hmmServing: hmmPorts()}
 
 	req := svc.withPolicyRequestContext(context.Background(), router.Request{})
 
 	assert.False(t, req.ProductEligibility.Restricts())
-	assert.Empty(t, req.ExcludedModels)
+	assert.Empty(t, req.Candidates.ExcludedModels)
 }
 
 // A router that reaches a closed-source model anyway — from a pin, a fallback
@@ -102,7 +102,7 @@ func TestFundingCannotWidenMaxEligibility(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			req := svc.withPolicyRequestContext(ctx, router.Request{})
-			assert.Contains(t, req.ExcludedModels, "claude-opus-4-8")
+			assert.Contains(t, req.Candidates.ExcludedModels, "claude-opus-4-8")
 
 			_, err := svc.Route(ctx, router.Request{})
 			require.ErrorIs(t, err, eligibility.ErrModelIneligible)
@@ -120,7 +120,7 @@ func TestDispatchRefusesAnIneligibleDecisionTheTurnLoopMinted(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	in := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
-	in.initialDecision = router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic}
+	in.InitialDecision = router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic}
 
 	_, err := svc.dispatchWithFallback(maxScopedContext(), in)
 
@@ -149,7 +149,7 @@ func TestUsageBypassDisengagesForAnIneligibleModel(t *testing.T) {
 	threshold := 0.80
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
-	svc := &Service{usageObserver: obs}
+	svc := &Service{hmmServing: hmmPorts(), usageObserver: obs}
 	ctx := context.WithValue(maxScopedContext(), AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 
@@ -164,7 +164,7 @@ func TestUsageBypassDisengagesForAnIneligibleModel(t *testing.T) {
 // Agent-shadow evaluation forces a preplanned canonical model and skips the
 // scorer entirely, so it is gated on the boundary directly.
 func TestAgentShadowEvaluationRefusesAnIneligibleModel(t *testing.T) {
-	svc := &Service{}
+	svc := &Service{hmmServing: hmmPorts()}
 	env := bypassAnthropicEnvelope(t)
 
 	_, err := svc.runAgentShadowEvaluationRoute(
@@ -190,7 +190,7 @@ func TestIneligibleModelIsAClassifiedClientError(t *testing.T) {
 // The operator escape hatch replaces the exclusion set wholesale; the
 // product boundary still survives it.
 func TestExcludedModelsOverrideCannotWidenTheBoundary(t *testing.T) {
-	svc := (&Service{}).WithExcludedModelsOverride([]string{"gpt-5.5"})
+	svc := (&Service{hmmServing: hmmPorts()}).WithExcludedModelsOverride([]string{"gpt-5.5"})
 
 	excluded := svc.excludedModelsForRequest(maxScopedContext())
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
@@ -13,20 +15,17 @@ import (
 
 const (
 	routePathMessages        = "/v1/messages"
+	routePathPiHandoff       = "/v1/route/handoff"
 	routePathChatCompletions = "/v1/chat/completions"
 	routePathResponses       = "/v1/responses"
 )
-
-func CodexSubscriptionCoversModel(model string) bool {
-	return requestcontext.CodexSubscriptionCoversModel(model)
-}
 
 func codexSubscriptionCanAttemptModel(model string) bool {
 	return requestcontext.CodexSubscriptionCanAttemptModel(model)
 }
 
 func codexSubscriptionCoversModel(model string) bool {
-	return CodexSubscriptionCoversModel(model)
+	return requestcontext.CodexSubscriptionCoversModel(model)
 }
 
 func (s *Service) WithUsageObserver(obs *usage.Observer) *Service {
@@ -70,6 +69,9 @@ func restrictToSubscriptionProviders(ctx context.Context, headers http.Header, e
 }
 
 func restrictToCustomerFundedProviders(ctx context.Context, headers http.Header, enabled map[string]struct{}) map[string]struct{} {
+	if billing.ByokFeeUnpayable(ctx) {
+		return restrictToSubscriptionProviders(ctx, headers, enabled)
+	}
 	return restrictToProviders(enabled, customerFundedProviders(ctx, headers))
 }
 
@@ -99,13 +101,28 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 	}
 	codex, anthropic := presentSubscriptionTokens(ctx, headers)
 	switch routePath {
-	case routePathMessages:
+	case routePathMessages, routePathPiHandoff:
 		return anthropic != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude)
 	case routePathChatCompletions, routePathResponses:
 		return codex != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex)
 	default:
 		return false
 	}
+}
+
+func RequestHasCustomerFunding(ctx context.Context, headers http.Header, routePath string, byokFeeOwed bool) bool {
+	if RequestPresentsCoveringSubscription(ctx, headers, routePath) {
+		return true
+	}
+	if byokFeeOwed {
+		return false
+	}
+	for provider := range BuildCredentialsMap(externalKeysFromContext(ctx)) {
+		if usableBYOK(ctx, provider) != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) context.Context {
@@ -136,16 +153,12 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) co
 		case credSourceCodexSubscription:
 			if snap, ok := usage.ParseCodexHeaders(h); ok {
 				s.usageObserver.Record(s.subscriptionUsageKey(creds), snap)
-				if creds.SubscriptionAccountID != "" {
-					s.usageObserver.Record(s.usageObserver.Key(creds.APIKey), snap)
-				}
+				recordCallerUsage(callCtx, s.usageObserver, creds, auth.SubscriptionProviderCodex, snap)
 			}
 		case credSourceSubscription:
 			if snap, ok := usage.ParseAnthropicUnifiedHeaders(h); ok {
 				s.usageObserver.Record(s.subscriptionUsageKey(creds), snap)
-				if creds.SubscriptionAccountID != "" {
-					s.usageObserver.Record(s.usageObserver.Key(creds.APIKey), snap)
-				}
+				recordCallerUsage(callCtx, s.usageObserver, creds, auth.SubscriptionProviderClaude, snap)
 			}
 		}
 	}
@@ -197,4 +210,12 @@ func codexLoginSpent(ctx context.Context, observer *usage.Observer, token string
 	}
 	snap, ok := observer.Snapshot(key)
 	return ok && !snap.OverageInUse && snap.Exhausted() && !extraCreditsAllowed
+}
+
+func recordCallerUsage(ctx context.Context, observer *usage.Observer, creds *Credentials, provider auth.SubscriptionProvider, snap usage.Snapshot) {
+	if creds.SubscriptionAccountID != "" {
+		observer.Record(observer.Key(creds.APIKey), snap)
+		return
+	}
+	observer.RecordSeat(ctx, auth.UserIDFrom(ctx), string(provider), snap)
 }

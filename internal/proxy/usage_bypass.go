@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strconv"
 	"time"
 
@@ -14,10 +13,11 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/routingpolicy/overrides"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
@@ -33,21 +33,14 @@ const (
 )
 
 func (s *Service) usageBypassDecision(ctx context.Context, headers http.Header, req router.Request, sessionDemotedModels []string, turnType turntype.TurnType) (router.Decision, bool) {
-	if subscriptionStateModelsEnabled(ctx) || slices.Contains(sessionDemotedModels, req.RequestedModel) {
-		return router.Decision{}, false
-	}
-	if !catalog.PermittedBy(req.ProductEligibility, req.RequestedModel) {
+	if subscriptionStateModelsEnabled(ctx) || !candidates.RequestedModelServable(req, sessionDemotedModels) {
 		return router.Decision{}, false
 	}
 	provider, reason, engaged := s.subscriptionPassthroughEngaged(ctx, headers, req, turnType)
 	if !engaged {
 		return router.Decision{}, false
 	}
-	return router.Decision{
-		Provider: provider,
-		Model:    req.RequestedModel,
-		Reason:   reason,
-	}, true
+	return candidates.RequestedModelDecision(req, provider, reason), true
 }
 
 func (s *Service) subscriptionPassthroughEngaged(ctx context.Context, headers http.Header, req router.Request, turnType turntype.TurnType) (provider, reason string, engaged bool) {
@@ -75,10 +68,6 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if provider == providers.ProviderAnthropic && s.subscriptionModels.denied([]byte(token), req.RequestedModel, s.clock.Now()) {
 		return "", false
 	}
-	threshold := defaultUsageBypassThreshold
-	if cfg.Threshold != nil {
-		threshold = min(1, max(0, *cfg.Threshold))
-	}
 	snap, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
 	if !observed {
 		return provider, true
@@ -90,75 +79,12 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		return provider, true
 	}
-	util := max(snap.Primary.UsedPercent, snap.Secondary.UsedPercent)
-	return provider, util < threshold
+	return provider, overrides.UsageBelowThreshold(cfg.Threshold, max(snap.Primary.UsedPercent, snap.Secondary.UsedPercent))
 }
 
 func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req router.Request) (provider, token string, covered bool) {
-	model := req.RequestedModel
-	m, found := catalog.ByID(model)
-	if !found {
-		return "", "", false
-	}
-	provider = m.PrimaryProvider()
-	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
-	switch provider {
-	case providers.ProviderAnthropic:
-		token = anthroTok
-	case providers.ProviderOpenAI:
-		if !codexSubscriptionCoversModel(model) {
-			return "", "", false
-		}
-		token = codexTok
-	default:
-		return "", "", false
-	}
-	if req.EnabledProviders != nil {
-		if _, enabled := req.EnabledProviders[provider]; !enabled {
-			return "", "", false
-		}
-	}
-	if _, excluded := req.SafetyExcludedModels[model]; excluded {
-		return "", "", false
-	}
-	if req.AllowedModels != nil {
-		if _, allowed := req.AllowedModels[model]; !allowed {
-			return "", "", false
-		}
-	}
-	if token == "" {
-		return "", "", false
-	}
-	return provider, token, true
-}
-
-func (s *Service) claudeSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
-	return ownClaudeLoginRejected(ctx, headers, s.usageObserver) && !pickedModelOnOwnPlan(ctx) || s.anthropicSubscriptionObservedExhausted(ctx, headers)
-}
-
-func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, headers http.Header) bool {
-	if s.usageObserver == nil {
-		return false
-	}
-	_, anthroTok := presentSubscriptionTokens(ctx, headers)
-	if anthroTok == "" {
-		return false
-	}
-	snap, ok := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(anthroTok)))
-	return ok && claudeSnapshotUnservable(ctx, snap)
-}
-
-func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
-	if claudeEnterpriseOnly(ctx) {
-		return false
-	}
-	if pickedModelOnOwnPlan(ctx) {
-		return false
-	}
-	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise {
-		return false
-	}
-	return snap.BillableOrExhausted()
+	codexToken, anthropicToken := presentSubscriptionTokens(ctx, headers)
+	return overrides.SubscriptionCoveredTarget(req, codexToken, anthropicToken)
 }
 
 func (s *Service) anthropicFallbackKeyAvailable(ctx context.Context) bool {
@@ -391,7 +317,7 @@ func (s *Service) bypassToAnthropic(
 	toolNames := translate.NewAnthropicToolNameWriter(passiveRefusal, prep.ResponseToolNames)
 	decision, proxyErr := proxyClassifierWithRefusalRescue(ctx, func(d router.Decision, prep providers.PreparedRequest, out http.ResponseWriter) error {
 		return p.Proxy(ctx, d, prep, out, r)
-	}, decision, prep, newClassifierRefusalRescue(ctx, classifierRescuePolicy{s.ResolveCyberRefusalRetry(ctx), s.ResolveCyberRefusalFallbackModel(ctx)}, turnType, env.Stream(), decision, r.Header, opts), toolNames)
+	}, decision, prep, newClassifierRefusalRescue(ctx, newClassifierRescuePolicy(ctx, s), turnType, decision, env, r.Header, opts), toolNames)
 	proxyErr = finalizeAfterProxy(proxyErr, toolNames.Finalize)
 	if proxyErr == nil && terminal != nil {
 		proxyErr = terminal.streamErr()
@@ -399,7 +325,7 @@ func (s *Service) bypassToAnthropic(
 	finishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
 	ctx = restoreParentSpan(ctx, inferenceParentCtx)
 	var upstreamErr *providers.UpstreamErrorResponse
-	s.recordSubscriptionModelRejection(ctx, decision.Provider, decision.Model, proxyErr)
+	recordSubscriptionModelOutcome(s, ctx, decision.Provider, decision.Model, proxyErr)
 	if proxyErr != nil {
 		preludeBuf.Discard()
 	}
@@ -520,7 +446,7 @@ func (s *Service) bypassToAnthropic(
 		applyBlindExperimentTelemetry(ctx, &telemetryParams, &turnLoopResult{Decision: decision, UsageBypass: true})
 		applyPolicyPinTelemetry(ctx, &telemetryParams, nil)
 		applySubscriberTelemetry(ctx, &telemetryParams)
-		applyAgreementShadowTelemetry(ctx, &telemetryParams, turnLoopResult{UsageBypass: true})
+		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &telemetryParams, turnLoopResult{UsageBypass: true})
 		s.fireTelemetry(ctx, telemetryParams)
 	}
 

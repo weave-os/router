@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -33,7 +34,7 @@ func (r *captureHMMOutcomeReporter) Route(context.Context, router.Request) (rout
 
 func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing.T) {
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
+	s := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
 
 	routeRes := turnLoopResult{
 		StickyHit: true,
@@ -61,7 +62,7 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 		inputTokens  = 90
 		outputTokens = 10
 	)
-	s.reportPolicyOutcome(ctx, routeRes, served, effortResolution{}, providers.ProviderAnthropic, false, 100, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{}, 12, 34, nil, &policyOutcomeResponse{
+	s.reportPolicyOutcome(ctx, routeRes, served, dispatch.EffortResolution{}, providers.ProviderAnthropic, false, 100, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{}, 12, 34, nil, &policyOutcomeResponse{
 		Body: []byte(`{"content":[{"type":"text","text":"done"}]}`),
 	})
 
@@ -101,13 +102,13 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 
 func TestReportPolicyOutcome_OmitsResponseBodyWhenTrainingIsNotAllowed(t *testing.T) {
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
+	s := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
 	routeRes := turnLoopResult{Fresh: router.Decision{
 		Model:    "moonshotai/kimi-k2.7",
 		Metadata: &router.RoutingMetadata{RouteID: "route-1", Strategy: string(router.StrategyHMM)},
 	}}
 
-	s.reportPolicyOutcome(context.Background(), routeRes, routeRes.Fresh, effortResolution{}, providers.ProviderFireworks, false, 1, 1, 1, 0, 0, catalog.UsageModifiers{}, 1, 1, nil, &policyOutcomeResponse{Body: []byte("private response")})
+	s.reportPolicyOutcome(context.Background(), routeRes, routeRes.Fresh, dispatch.EffortResolution{}, providers.ProviderFireworks, false, 1, 1, 1, 0, 0, catalog.UsageModifiers{}, 1, 1, nil, &policyOutcomeResponse{Body: []byte("private response")})
 
 	select {
 	case payload := <-reporter.ch:
@@ -122,7 +123,7 @@ func TestReportPolicyOutcome_OmitsResponseBodyWhenTrainingIsNotAllowed(t *testin
 func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *testing.T) {
 	strategy := router.Strategy("authoritative-outcome-test")
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{}).WithPolicyStrategy(policy.StrategySpec{
+	s := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   reporter,
 	})
@@ -145,7 +146,7 @@ func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *test
 		ctx,
 		turnLoopResult{Fresh: selected, AuthoritativePerTurn: true},
 		served,
-		effortResolution{},
+		dispatch.EffortResolution{},
 		providers.ProviderAnthropic,
 		false,
 		100,
@@ -178,7 +179,7 @@ func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *test
 func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 	strategy := router.Strategy("effort-outcome-test")
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{}).WithPolicyStrategy(policy.StrategySpec{
+	s := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   reporter,
 	})
@@ -192,7 +193,7 @@ func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 		},
 	}
 	ctx := context.WithValue(context.Background(), PolicyTrainingAllowedContextKey{}, true)
-	effort := effortResolutionFor(router.Lookup(decision.Model), decision.Effort, decision.Effort, effortSourceArm)
+	effort := effortResolutionFor(router.Lookup(decision.Model), decision.Effort, decision.Effort, dispatch.EffortSourceArm)
 
 	s.reportPolicyOutcome(
 		ctx,
@@ -209,7 +210,7 @@ func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 		assert.Equal(t, "xhigh", payload["arm_effort"])
 		assert.Equal(t, "xhigh", payload["selected_effort"])
 		assert.Equal(t, "high", payload["sent_effort"])
-		assert.Equal(t, effortSourceArm, payload["effort_source"])
+		assert.Equal(t, dispatch.EffortSourceArm, payload["effort_source"])
 		assert.Equal(t, false, payload["selected_sent_effort_match"])
 		assert.Equal(t, false, payload["training_allowed"])
 		assert.Equal(t, "selected_sent_effort_mismatch", payload["training_exclusion_reason"])

@@ -12,3 +12,7 @@ var ErrAllowlistEmptiesPool = fmt.Errorf("router: model allowlist leaves no elig
 var ErrInvalidRoutingKnobs = errors.New("router: invalid routing knobs")
 
 var ErrRoutingUnavailable = errors.New("router: routing unavailable")
+
+var ErrHMMUnavailable = errors.New("hmm: policy router unavailable")
+
+var ErrDecisionModelUnavailable = errors.New("decision model classifier unavailable")

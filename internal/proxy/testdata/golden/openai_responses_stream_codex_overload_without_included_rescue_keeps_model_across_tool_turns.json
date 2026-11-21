@@ -391,6 +391,7 @@
             "gemini-3.7-flash",
             "gemini-3.8-flash",
             "gemini-4-argon",
+            "gemini-4-neon",
             "google/gemma-4-26b-a4b-it",
             "gpt-4.1",
             "gpt-4.1-mini",
@@ -483,6 +484,7 @@
             "gemini-3.7-flash",
             "gemini-3.8-flash",
             "gemini-4-argon",
+            "gemini-4-neon",
             "google/gemma-4-26b-a4b-it",
             "gpt-4.1",
             "gpt-4.1-mini",
@@ -681,7 +683,7 @@
         },
         {
           "Diagnosis": {
-            "ErrorClass": "other",
+            "ErrorClass": "funding_refused",
             "FailureOwner": "client"
           },
           "FailureReason": "transport",

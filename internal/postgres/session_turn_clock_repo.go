@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/hex"
 
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/sqlc"
+	"weave-os/router/internal/telemetry"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -21,12 +21,12 @@ func NewSessionTurnClockRepo(pool *pgxpool.Pool) *SessionTurnClockRepo {
 	return &SessionTurnClockRepo{pool: pool}
 }
 
-var _ proxy.SessionTurnClock = (*SessionTurnClockRepo)(nil)
+var _ telemetry.SessionTurnClock = (*SessionTurnClockRepo)(nil)
 
-func (r *SessionTurnClockRepo) AdvanceSessionTurnClock(ctx context.Context, advance proxy.SessionTurnClockAdvance) (proxy.SessionTurnClockReading, bool, error) {
+func (r *SessionTurnClockRepo) AdvanceSessionTurnClock(ctx context.Context, advance telemetry.SessionTurnClockAdvance) (telemetry.SessionTurnClockReading, bool, error) {
 	installationID, err := uuid.Parse(advance.InstallationID)
 	if err != nil {
-		return proxy.SessionTurnClockReading{}, false, err
+		return telemetry.SessionTurnClockReading{}, false, err
 	}
 	var row sqlc.AdvanceSessionTurnClockRow
 	err = pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
@@ -45,12 +45,12 @@ func (r *SessionTurnClockRepo) AdvanceSessionTurnClock(ctx context.Context, adva
 		return advanceErr
 	})
 	if err != nil {
-		return proxy.SessionTurnClockReading{}, false, err
+		return telemetry.SessionTurnClockReading{}, false, err
 	}
 	if !row.PreviousResponseEndedAt.Valid || row.PreviousServedModel == nil {
-		return proxy.SessionTurnClockReading{}, false, nil
+		return telemetry.SessionTurnClockReading{}, false, nil
 	}
-	return proxy.SessionTurnClockReading{
+	return telemetry.SessionTurnClockReading{
 		ResponseEndedAt: row.PreviousResponseEndedAt.Time,
 		ServedModel:     *row.PreviousServedModel,
 	}, true, nil

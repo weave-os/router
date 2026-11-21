@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+
 	"weave-os/router/internal/credentials"
 
 	"github.com/stretchr/testify/assert"
@@ -49,13 +50,13 @@ func TestCodexFailover_EligibilityAndSuppression(t *testing.T) {
 	})
 
 	t.Run("no fallback key: not eligible", func(t *testing.T) {
-		s := &Service{} // no deployment OpenAI key, no BYOK
+		s := &Service{hmmServing: hmmPorts()} // no deployment OpenAI key, no BYOK
 		assert.False(t, s.openaiFallbackKeyAvailable(ctx),
 			"without a Weave/BYOK OpenAI key there is nothing to fail over to")
 	})
 
 	t.Run("deployment OpenAI key present: eligible", func(t *testing.T) {
-		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
+		s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
 		assert.True(t, s.openaiFallbackKeyAvailable(ctx),
 			"a deployment OpenAI key is a valid failover target for a spent ChatGPT plan")
 	})
@@ -166,7 +167,7 @@ func TestCodexOAuthCredentialRejected(t *testing.T) {
 func TestCodexReconnectNudgeDistinguishesRejectedCredentialsFromSpentQuota(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {
-			svc := &Service{usageObserver: usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)}
+			svc := &Service{hmmServing: hmmPorts(), usageObserver: usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)}
 			ctx := codexSubscriptionTestCtx()
 			resolved := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, codexCoveredModel, http.Header{})
 			svc.recordCodexCredentialUnusable(ctx, CredentialsFromContext(resolved), &providers.UpstreamErrorResponse{
@@ -189,7 +190,7 @@ func TestCodexReconnectNudgeDistinguishesRejectedCredentialsFromSpentQuota(t *te
 // x-codex-* headers, so without recording it the observer keeps reading the plan
 // as having slack and every later turn re-buys the same rejected round-trip.
 func TestCodexQuotaExhaustion_RecordedForLaterTurns(t *testing.T) {
-	svc := &Service{
+	svc := &Service{hmmServing: hmmPorts(),
 		usageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now),
 		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
 	}
@@ -259,7 +260,7 @@ func TestCodexQuotaExhaustion_SuppressionLastsUntilThePlanResets(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := time.Now()
-			svc := &Service{
+			svc := &Service{hmmServing: hmmPorts(),
 				usageObserver: usage.NewObserver([]byte("test-salt"), time.Minute, func() time.Time { return clock }),
 				credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
 			}
@@ -307,11 +308,11 @@ func (c *codexQuotaClient) Passthrough(context.Context, providers.PreparedReques
 // codexQuotaService wires a Codex-covered OpenAI route whose only client always
 // reports the plan spent, with a deployment OpenAI key so the rescue is viable.
 func codexQuotaService(client providers.Client) *Service {
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}},
 		map[string]providers.Client{providers.ProviderOpenAI: client},
-		nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+		nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	svc.retrySleep = noopSleep
 	return svc
 }
@@ -379,7 +380,7 @@ func TestCodexRescue_FailedRetryWritesNothingIntoACommittedResponsesStream(t *te
 // credential the turn has would leave it unable to dispatch at all, which is
 // strictly worse than letting the subscription answer.
 func TestCodexSubscriptionExhausted_NoFallbackKey(t *testing.T) {
-	svc := &Service{usageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)}
+	svc := &Service{hmmServing: hmmPorts(), usageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)}
 	ctx := codexSubscriptionTestCtx()
 
 	svc.recordCodexQuotaExhaustion(ctx, http.Header{}, &providers.UpstreamErrorResponse{

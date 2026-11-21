@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
-	feedbacktoken "weave-os/router/internal/feedback"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry"
 
@@ -58,10 +59,10 @@ func TestTelemetryPort_LinkFeedbackRecordsAndFlushes(t *testing.T) {
 	recorder := &capturingTelemetryRecorder{}
 	emitter := &capturingTelemetryEmitter{recorder: recorder}
 	comment := "The response was helpful."
-	service := proxy.NewService(nil, nil, emitter, nil, false, "", "", nil).
-		WithFeedback(&fakeFeedbackRepoForSpanTest{}, feedbacktoken.NewSigner("secret", time.Hour), "https://router.example.com")
+	service := proxy.WithStrategyPorts(proxy.NewService(nil, nil, emitter, nil, false, "", "", nil), hmm.ServingPorts()).
+		WithFeedback(&fakeFeedbackRepoForSpanTest{}, feedback.NewSigner("secret", time.Hour), "https://router.example.com")
 
-	err := service.SubmitFeedback(context.Background(), proxy.SubmitFeedbackParams{
+	err := service.SubmitFeedback(context.Background(), feedback.SubmitFeedbackParams{
 		InstallationID: "inst-1",
 		ExternalID:     "org-1",
 		RequestID:      "req-1",
@@ -99,7 +100,7 @@ func TestTelemetryPort_CommandFeedbackRecordsAndFlushes(t *testing.T) {
 	}
 	feedbackStore := &fakeFeedbackStore{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	service := proxy.NewService(
+	service := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		emitter,
@@ -107,8 +108,8 @@ func TestTelemetryPort_CommandFeedbackRecordsAndFlushes(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithRouterFeedbackStore(feedbackStore)
+		nil), hmm.ServingPorts()).
+		WithRouterFeedbackStore(feedbackStore)
 	const body = `{
 		"model":"claude-sonnet-4-6",
 		"max_tokens":1024,

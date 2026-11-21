@@ -16,7 +16,8 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/armid"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -131,7 +132,7 @@ func (s *Service) mintHandoff(claims handoffClaims) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.piHandoffSecret)
 }
 
-func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseWriter, env *translate.RequestEnvelope, req router.Request, route turnLoopResult) error {
+func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.Strategy, w http.ResponseWriter, env *translate.RequestEnvelope, req router.Request, route turnLoopResult) error {
 	if route.UsageBypass || route.HardPinned || isUserForcedReason(route.Decision.Reason) {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
 	}
@@ -156,20 +157,20 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 	if prepared.Complexity == "" && route.Decision.Model == route.PinModel {
 		prepared.Complexity = route.PinPolicyGroup
 	}
-	previousModel, previousEffort := hmm.SplitEffort(route.PriorServedModel)
+	previousModel, previousEffort := armid.SplitEffort(route.PriorServedModel)
 	previousProvider := ""
 	if route.PinModel == previousModel {
 		previousProvider = route.PinProvider
 	}
-	if previousModel != "" && s.pinStore != nil && (router.IsHMMStrategy(route.Strategy) || isHMMTurn(route)) {
-		history := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now).LoadHMMHistory(ctx, route.SessionKey, route.PinRole)
+	if previousModel != "" && s.pinStore != nil && (s.strategyPorts.Ownership.Owns(route.Strategy) || isHMMTurn(s.strategyPorts, route)) {
+		history := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).LoadHMMHistory(ctx, route.SessionKey, route.PinRole)
 		if history.LastServedModel == route.PriorServedModel {
 			previousProvider = history.Provider
 		}
 	}
 	if previousModel != "" && previousProvider != "" && previousModel != route.Decision.Model {
 		claims.Purpose = handoffSummary
-		claims.Route.Decision = pinDecision(sessionpin.Pin{Model: previousModel, Provider: previousProvider, Effort: previousEffort, Reason: "pi_handoff_summary"})
+		claims.Route.Decision = sessionpin.Pin{Model: previousModel, Provider: previousProvider, Effort: previousEffort, Reason: "pi_handoff_summary"}.Decision()
 		claims.Route.Fresh = router.Decision{}
 		claims.Route.HardPinned = true
 		claims.Route.AuthoritativePerTurn = false
@@ -185,16 +186,16 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 	return writePreparedHandoff(w, prepared)
 }
 
-func (s *Service) resumeHandoff(ctx context.Context, env *translate.RequestEnvelope, req router.Request, isSubagent bool) (turnLoopResult, error) {
+func (s *Service) resumeHandoff(ctx context.Context, strategy router.Strategy, env *translate.RequestEnvelope, req router.Request, isSubagent bool) (turnLoopResult, error) {
 	claims := handoffFromContext(ctx)
-	if claims.Route.Strategy != router.StrategyFromContext(ctx) ||
+	if claims.Route.Strategy != strategy ||
 		claims.SessionID != clientSessionIDForRequest(ctx, env) ||
 		claims.RequestedModel != req.RequestedModel {
 		return turnLoopResult{}, ErrHandoffInvalid
 	}
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, claims.Route.SessionKey)
-	_, forced, _ := s.loadForceModelSessionPin(ctx, forceKey, claims.Route.SessionKey, isSubagent)
+	_, forced, _ := routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).Load(ctx, forceKey, sessionKeyHex(claims.Route.SessionKey), isSubagent)
 	if req.ForceModel != "" || forced {
 		return turnLoopResult{}, ErrHandoffInvalid
 	}
@@ -206,10 +207,10 @@ func (s *Service) resumeHandoff(ctx context.Context, env *translate.RequestEnvel
 	if err != nil {
 		return turnLoopResult{}, err
 	}
-	req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
+	req.Candidates.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
 	selected := claims.Route.Decision
 	pin := sessionpin.Pin{Model: selected.Model, Provider: selected.Provider}
-	if !automaticPinEligible(pin, req) {
+	if !candidates.AutomaticPinEligible(pin, req) {
 		return turnLoopResult{}, ErrHandoffInvalid
 	}
 	return claims.Route, nil

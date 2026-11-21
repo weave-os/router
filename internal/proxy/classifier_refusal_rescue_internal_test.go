@@ -36,10 +36,11 @@ func rescueVerdict() string {
 }
 
 type modelScriptedProvider struct {
-	replies map[string]string
-	models  []string
-	bodies  [][]byte
-	betas   []string
+	replies     map[string]string
+	unavailable map[string]bool
+	models      []string
+	bodies      [][]byte
+	betas       []string
 }
 
 func (*modelScriptedProvider) SupportsSubscriptions() bool { return true }
@@ -49,6 +50,9 @@ func (p *modelScriptedProvider) Proxy(_ context.Context, _ router.Decision, prep
 	p.models = append(p.models, model)
 	p.bodies = append(p.bodies, append([]byte(nil), prep.Body...))
 	p.betas = append(p.betas, prep.Headers.Get("anthropic-beta"))
+	if p.unavailable[model] {
+		return &providers.UpstreamErrorResponse{Status: http.StatusNotFound, Body: []byte(`{"type":"error","error":{"type":"not_found_error","message":"model: ` + model + `"}}`)}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.WriteString(w, p.replies[model])
@@ -71,16 +75,25 @@ func runRescueBypassBody(t *testing.T, p *modelScriptedProvider, retry bool, str
 
 func runRescueBypassOn(t *testing.T, p *modelScriptedProvider, retry bool, stream bool, body, fallbackModel string) (*httptest.ResponseRecorder, *bypassCaptureTelemetry) {
 	t.Helper()
-	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p})}
+	svc, sink := rescueService(p, retry, fallbackModel)
+	if stream {
+		body = strings.Replace(body, `"max_tokens":10240,`, `"max_tokens":10240,"stream":true,`, 1)
+	}
+	return runRescueWith(t, svc, body), sink
+}
+
+func rescueService(p *modelScriptedProvider, retry bool, fallbackModel string) (*Service, *bypassCaptureTelemetry) {
+	svc := &Service{hmmServing: hmmPorts(), clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p})}
 	svc.anthropicServerSideFallback = true
 	svc.cyberRefusalRetry = retry
 	svc.cyberRefusalFallbackModel = fallbackModel
 	sink := newBypassCaptureTelemetry()
 	svc.telemetry = sink
+	return svc, sink
+}
 
-	if stream {
-		body = strings.Replace(body, `"max_tokens":10240,`, `"max_tokens":10240,"stream":true,`, 1)
-	}
+func runRescueWith(t *testing.T, svc *Service, body string) *httptest.ResponseRecorder {
+	t.Helper()
 	env, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)
 	rec := httptest.NewRecorder()
@@ -91,7 +104,99 @@ func runRescueBypassOn(t *testing.T, p *modelScriptedProvider, retry bool, strea
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
 
 	require.NoError(t, svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "req-rescue", "ext-rescue", turntype.Classifier, reasonClassifierPassthrough, req, rec))
-	return rec, sink
+	return rec
+}
+
+// Some Claude subscriptions don't serve the reviewer model (Anthropic answers
+// 404 not_found_error "model: claude-sonnet-5"). The re-serve then moves on to
+// the next candidate the subscription can serve instead of returning the
+// refusal.
+func TestBypass_ClassifierRefusal_TriesNextModelWhenSubscriptionLacksReviewer(t *testing.T) {
+	const nextModel = "claude-opus-5-5"
+	p := &modelScriptedProvider{
+		replies:     map[string]string{rescueRefusingModel: rescueRefusal(rescueRefusingModel), nextModel: rescueVerdict()},
+		unavailable: map[string]bool{rescueReviewerModel: true},
+	}
+	svc, sink := rescueService(p, true, rescueReviewerModel)
+	rescueServeOn(t, svc, sink, p, nextModel)
+
+	rec := runRescueWith(t, svc, classifierStage2Body(""))
+
+	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel, nextModel}, p.models)
+	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
+	assert.Equal(t, nextModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, nextModel, rescueTelemetryRow(t, sink).DecisionModel)
+}
+
+// Once a subscription has rejected a candidate, later re-serves skip it.
+func TestBypass_ClassifierRefusal_SkipsModelSubscriptionRejected(t *testing.T) {
+	const nextModel = "claude-opus-5-5"
+	p := &modelScriptedProvider{
+		replies:     map[string]string{rescueRefusingModel: rescueRefusal(rescueRefusingModel), nextModel: rescueVerdict()},
+		unavailable: map[string]bool{rescueReviewerModel: true},
+	}
+	svc, sink := rescueService(p, true, rescueReviewerModel)
+	rescueServeOn(t, svc, sink, p, nextModel)
+	runRescueWith(t, svc, classifierStage2Body(""))
+	p.models = nil
+
+	rec := runRescueWith(t, svc, classifierStage2Body(""))
+
+	assert.Equal(t, []string{rescueRefusingModel, nextModel}, p.models)
+	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
+}
+
+// rescueServeOn serves one classifier check on model for the test
+// subscription, as an earlier turn in the session would.
+func rescueServeOn(t *testing.T, svc *Service, sink *bypassCaptureTelemetry, p *modelScriptedProvider, model string) {
+	t.Helper()
+	body, err := sjson.Set(classifierStage2Body(""), "model", model)
+	require.NoError(t, err)
+	runRescueWith(t, svc, body)
+	rescueTelemetryRow(t, sink)
+	sink.mu.Lock()
+	sink.rows = nil
+	sink.mu.Unlock()
+	p.models = nil
+}
+
+// Rescue candidates come from what this subscription has actually served, so
+// a plan that lacks both default reviewers is still rescued on a model it can
+// run, strongest first.
+func TestBypass_ClassifierRefusal_RescuesOnStrongestModelSubscriptionServed(t *testing.T) {
+	const lowModel, servedModel = "claude-haiku-5-5", "claude-opus-5"
+	p := &modelScriptedProvider{
+		replies: map[string]string{
+			rescueRefusingModel: rescueRefusal(rescueRefusingModel),
+			lowModel:            rescueVerdict(),
+			servedModel:         rescueVerdict(),
+		},
+		unavailable: map[string]bool{rescueReviewerModel: true, "claude-opus-5-5": true},
+	}
+	svc, sink := rescueService(p, true, rescueReviewerModel)
+	rescueServeOn(t, svc, sink, p, lowModel)
+	rescueServeOn(t, svc, sink, p, servedModel)
+
+	rec := runRescueWith(t, svc, classifierStage2Body(""))
+
+	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel, servedModel}, p.models)
+	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
+	assert.Equal(t, servedModel, rec.Header().Get(HeaderRouterModel))
+}
+
+// An Enterprise admin can restrict which models a seat may use, so a model
+// the seat hasn't served would most likely 404 and waste the retry.
+func TestBypass_ClassifierRefusal_DoesNotTryModelsSubscriptionNeverServed(t *testing.T) {
+	p := &modelScriptedProvider{
+		replies:     map[string]string{rescueRefusingModel: rescueRefusal(rescueRefusingModel), "claude-opus-5-5": rescueVerdict()},
+		unavailable: map[string]bool{rescueReviewerModel: true},
+	}
+	svc, _ := rescueService(p, true, rescueReviewerModel)
+
+	rec := runRescueWith(t, svc, classifierStage2Body(""))
+
+	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel}, p.models)
+	assert.JSONEq(t, rescueRefusal(rescueRefusingModel), rec.Body.String())
 }
 
 func rescueTelemetryRow(t *testing.T, sink *bypassCaptureTelemetry) InsertTelemetryParams {
@@ -241,4 +346,35 @@ func TestBypass_ClassifierRefusal_NotReservedWhenDisabledOrStreaming(t *testing.
 			}
 		})
 	}
+}
+
+// A check that turned thinking off is re-served with the reviewer model's own
+// off switch, not the one rewritten for the refusing model.
+func TestBypass_ClassifierRefusal_ReviewerGetsItsOwnThinkingOff(t *testing.T) {
+	p := &modelScriptedProvider{replies: map[string]string{
+		rescueRefusingModel: rescueRefusal(rescueRefusingModel),
+		rescueReviewerModel: rescueVerdict(),
+	}}
+
+	rec, _ := runRescueBypassBody(t, p, true, false, classifierStage2Body(`{"type":"disabled"}`))
+
+	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel}, p.models)
+	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
+	require.Len(t, p.bodies, 2)
+	assert.Equal(t, "between_tools", gjson.GetBytes(p.bodies[0], "thinking.type").String())
+	assert.JSONEq(t, `{"type":"disabled"}`, gjson.GetBytes(p.bodies[1], "thinking").Raw)
+	assert.False(t, gjson.GetBytes(p.bodies[1], "output_config").Exists())
+}
+
+func TestBypass_ClassifierRefusal_DoesNotRetryUndatedIDOfRefusingModel(t *testing.T) {
+	dated := rescueRefusingModel + "-20261101"
+	p := &modelScriptedProvider{replies: map[string]string{dated: rescueRefusal(dated), rescueRefusingModel: rescueVerdict()}}
+	svc, _ := rescueService(p, true, rescueRefusingModel)
+	body, err := sjson.Set(classifierStage2Body(""), "model", dated)
+	require.NoError(t, err)
+
+	rec := runRescueWith(t, svc, body)
+
+	assert.Equal(t, []string{dated}, p.models)
+	assert.JSONEq(t, rescueRefusal(dated), rec.Body.String())
 }

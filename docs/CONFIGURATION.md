@@ -18,6 +18,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
 - [Routing](#routing)
   - [Kill switches and staged behaviors](#kill-switches-and-staged-behaviors)
 - [Per-organization flag overrides](#per-organization-flag-overrides)
+  - [Task-arm experiment](#task-arm-experiment)
 - [Plan-aware subscription routing](#plan-aware-subscription-routing)
 - [Provider and model exclusions](#provider-and-model-exclusions)
 - [Policy sidecars](#policy-sidecars)
@@ -544,9 +545,10 @@ prepaid credits. Once enabled, a BYOK turn debits no inference cost (the
 customer paid their own provider). A platform fee can be charged on top,
 recorded as a separate `byok_fee` ledger row: set `BYOK_FEE_RATE` to a
 fraction of upstream cost (e.g. `0.05` for 5%). The default is `0` — no
-fee, and no `byok_fee` row is written. A BYOK turn served while credits are
-depleted or a spend cap is reached is never charged the fee, so it adds
-nothing to the balance or to any spend cap.
+fee, and no `byok_fee` row is written. A turn the organization cannot pay
+for (credits depleted or a spend cap reached) still serves on the customer's
+own key at a zero rate. With a rate above zero the organization cannot pay
+the fee, so that turn is refused with the usual 402 before the key is called.
 
 ## Postgres
 
@@ -622,7 +624,8 @@ kept out of revision-specific stamping.
 
 | Variable | Read by | Source | Absent or invalid |
 | --- | --- | --- | --- |
-| `ROUTER_SERVING_REGISTRY_URI` | Worker | Terraform and deploy script (worker) | Falls back to `WEAVE_REGISTRY_URI`, then `gs://weave_ml/weave_registry`; set it explicitly. |
+| `ROUTER_SERVING_REGISTRY_URI` | Worker | Terraform and deploy script (worker) | Falls back to `WEAVE_REGISTRY_URI`, then `gs://weave_ml/weave_registry`; set it explicitly. A local path instead serves a read-only serving registry directory, which the local compose stack bakes from `smoke/hmmstub`. A local directory's classifier runtime bindings get the same schema, environment, release, revision and digest checks as GCS, but skip the managed project and https Cloud Run origin checks, because the local stub classifier is a plain-http compose container. |
+| `ROUTER_ALLOW_LOCAL_SERVING_REGISTRY` | Worker | Local compose and smoke only | `true` lets `ROUTER_DEPLOYMENT_MODE=managed` serve from a local `ROUTER_SERVING_REGISTRY_URI` directory and logs a startup warning. Unset, a managed worker refuses a non-`gs://` serving registry. Never set it on a deployed worker. |
 | `ROUTER_SERVING_TARGET` | Worker | Deploy script and Terraform | Boot fails. Must name a known target (`staging`, `prod/stable`, `prod/weave-internal`). |
 | `ROUTER_SERVING_PROJECT` | Worker | Deploy script and Terraform | Boot fails. |
 | `ROUTER_SERVING_REGION` | Worker | Deploy script and Terraform | Boot fails. |
@@ -669,7 +672,7 @@ sweep backstops any lost signal.
 
 | Variable                          | Default                      | Purpose |
 | --------------------------------- | ---------------------------- | ------- |
-| `ROUTER_DEFAULT_STRATEGY`         | `hmm_embedding`              | Strategy used when an installation has no persisted strategy (a persisted `cluster` also follows it). Change only after the policy rollout gate passes. Beta lanes and `llm_classifier` are opt-in per installation and fail boot as a default. The router refuses to boot, and `/readyz` fails, when this strategy has no router configured (e.g. `hmm_embedding` without `ROUTER_POLICY_ENVIRONMENT`); the retired value `cluster` also fails boot. Requests whose persisted or default strategy is unregistered or unavailable get `503 routing_strategy_unavailable`. Managed serving workers (`ROUTER_DEPLOYMENT_MODE=managed` with `ROUTER_SERVING_TARGET`) additionally refuse to boot unless it is set to one of the policy strategies they register (`hmm`, `hmm_embedding`). |
+| `ROUTER_DEFAULT_STRATEGY`         | `hmm_embedding`              | Strategy used when an installation has no persisted strategy. Change only after the policy rollout gate passes. Beta lanes and `llm_classifier` are opt-in per installation and fail boot as a default. The router refuses to boot, and `/readyz` fails, when this strategy has no router configured (e.g. `hmm_embedding` without `ROUTER_POLICY_ENVIRONMENT`); the retired value `cluster` also fails boot. Requests whose persisted or default strategy is unregistered or unavailable get `503 routing_strategy_unavailable`. Managed serving workers (`ROUTER_DEPLOYMENT_MODE=managed` with `ROUTER_SERVING_TARGET`) additionally refuse to boot unless it is set to one of the policy strategies they register (`hmm`, `hmm_embedding`). |
 | `ROUTER_STICKY_DECISION_TTL_MS`   | `0` (disabled)               | Reuse a routing decision per API key for this many ms. |
 | `ROUTER_SESSION_PIN_ENABLED`      | `true`                       | Pin a session to its first-routed model so multi-turn conversations stay coherent. When on, the `session_pin_enabled` flag can turn pinning off per organization or request; when off, the pin store is not built and the flag has no effect. |
 | `ROUTER_HARD_PIN_MODEL`           | *(none)*                     | Force every request to a specific model, bypassing the routing policy. Debugging only. Without this explicit override, titles and probes with auto/empty/`weave-*` routing models are scored independently, while provider/quota probes with concrete models preserve their requested target; none anchors an automatic conversation pin. |
@@ -710,7 +713,11 @@ and keeps the default.
 | -------- | ------- | ------- |
 | `ROUTER_FLAG_OVERRIDES_DISABLED` | `false` | Ignores every per-organization flag override so an incident rollback via env var always wins. |
 | `ROUTER_PLANNER_ENABLED` | `true` | Cache-aware planner that decides whether a mid-session model switch pays for its cache-write cost. |
-| `ROUTER_SWITCH_EV_THRESHOLD_USD` | `proxy.DefaultPlannerThresholdUSD` | Minimum expected saving for a planner switch. Zero and negative values are valid and force aggressive switching. |
+| `ROUTER_SWITCH_EV_THRESHOLD_USD` | `continuity.DefaultPlannerThresholdUSD` | Minimum expected saving for a planner switch. Zero and negative values are valid and force aggressive switching. |
+| `ROUTER_SWITCH_EXPECTED_REMAINING_TURNS` | `continuity.DefaultPlannerExpectedRemainingTurns` | Turns over which the planner amortizes a switch's cache-write cost. |
+| `ROUTER_SWITCH_TIER_UPGRADE_ENABLED` | `continuity.DefaultPlannerTierUpgradeEnabled` | Switches to a fresh pick a tier above the pin even when the EV test says stay. |
+| `ROUTER_SWITCH_CORRECTED_ECONOMICS` | `continuity.DefaultPlannerCorrectedEconomics` | Uses the corrected cache-eviction EV model instead of the legacy one. |
+| `ROUTER_SCORE_TOOL_RESULT_TURNS` | `true` | Scores tool-result turns instead of holding the pin; the `score_tool_result_turns` flag overrides it. |
 | `ROUTER_CYBER_REFUSAL_REPIN` | `true` | On a safety refusal, re-pins the session off the refusing model and re-serves the refused turn on a fallback model. |
 | `ROUTER_SIBLING_FAILOVER` | `true` | Degrades to a same-cluster candidate when every binding of the routed model is exhausted by a transient upstream fault. |
 | `ROUTER_COMMITTED_STREAM_ARM_DEMOTION` | `false` | Session-level demotion of an arm whose stream died after commit. |
@@ -719,16 +726,12 @@ and keeps the default.
 | `ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS` | `true` | Records the stop reason and `tool_use` block count of Anthropic-native turns into telemetry. |
 | `ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS` | `true` | The same extraction for the OpenAI-native chat/completions and `/v1/responses` passthrough surfaces. |
 | `ROUTER_BAND_SWAP` | `false` | Per-turn large-vs-small action-classifier swap; enabling loads the compiled-in head. |
-| `ROUTER_LOOP_ESCALATION_ENABLED` | `true` | Cyclic-loop escalation action. Off detaches the action but keeps detection telemetry. |
-| `ROUTER_LOOP_ESCALATION_HOLDOUT_PCT` | `10` (0-100), 0 allowed | Percentage of detected loops that are recorded but not escalated, giving a self-recovery baseline for rescue-rate claims. |
-| `ROUTER_SPIRAL_SHADOW_ENABLED` | `true` | Log-only spiral detector; the switch sheds its per-turn signal scan. |
-| `ROUTER_STRUGGLE_SHADOW_ENABLED` | `true` | Log-only session struggle detector; the switch sheds its per-turn check. |
 | `ROUTER_TURN_SIGNAL_CAPTURE_ENABLED` | `true` | Per-turn signal snapshot on telemetry rows. Always skipped for opted-out installations. |
 | `ROUTER_TEXT_REPETITION_BREAK_ENABLED` | `true` | Enforcing text-repetition break; turn off if it false-positives on legitimately repeated narration. |
-| `ROUTER_AUTHORITATIVE_DOWNGRADE_GATE` | `false` | Confidence floor for authoritative-per-turn picks that are cheaper than the pin (mirror of the upgrade gate). |
-| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS` | `proxy.DefaultHMMDowngradeHysteresisTurns`, 0 allowed | Consecutive cheaper-than-pin authoritative votes required before a downgrade is served; `0` switches on the first vote. |
-| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS` | `2`, 0 allowed | Threshold every served authoritative downgrade is shadow-scored against; telemetry only, `0` silences it. |
-| `ROUTER_AUTHORITY_CACHE_SHADOW` | `true` | Records the HMM cache gate's counterfactual verdict on authoritative-per-turn turns, which return before that gate runs. |
+| `ROUTER_HMM_DOWNGRADE_GATE` | `false` | Confidence floor for authoritative HMM picks that are cheaper than the pin (mirror of the upgrade gate). |
+| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS` | `hmm.DefaultDowngradeHysteresisTurns`, 0 allowed | Consecutive cheaper-than-pin authoritative HMM votes required before a downgrade is served. Set to `0` to switch on the first vote. |
+| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS` | `2`, 0 allowed | Telemetry threshold for served authoritative HMM downgrades. Set to `0` to disable this shadow. |
+| `ROUTER_HMM_AUTHORITY_CACHE_SHADOW` | `true` | Records the HMM cache gate's counterfactual verdict on authoritative-per-turn turns, which return before that gate runs. |
 | `ROUTER_POLICY_DEADLINE_FALLBACK` | `false` | Serves the session pin, or `ROUTER_POLICY_DEADLINE_DEFAULT_MODEL`, when a policy sidecar misses its deadline or fails in transport. |
 | `ROUTER_POLICY_DEADLINE_DEFAULT_MODEL` | *(none)* | Static fallback for a deadline miss with no pin; empty keeps the 503. |
 | `ROUTER_SUBSCRIBER_ALLOWANCE_ENABLED` | `false` | Enforces and meters individual Max/Boost allowances. Only meaningful with billing wired. |
@@ -748,26 +751,26 @@ Its organization-only `agreement_shadow_epoch` is 0 (off) by default and
 restricted to admitted internal traffic; it never replaces the gates below.
 
 Authoritative HMM turns evaluate a typed evidence policy for expensive fresh
-models. The deployment default is `score`, the `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` floor.
-Set `ROUTER_AUTHORITATIVE_UPGRADE_POLICY=evidence` (or the installation override
-`authoritative_upgrade_policy`) to serve that policy. `off` serves the fresh
-HMM pick without that floor.
+models in shadow; it is logged and never served. The deployment default is
+`score`, the `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` floor. `off` (also the
+installation override `authoritative_upgrade_policy`) serves the fresh HMM pick
+without that floor.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `ROUTER_AUTHORITATIVE_UPGRADE_POLICY` | `score` | `score`, `evidence`, or `off`. Installation override wins. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT` | `0` | Session-sticky share that stays on `score` while evidence is on. 0-100. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_VOTES` | `3` | Consecutive same-group expensive votes required before evidence switches. `0` disables vote hysteresis. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_MARGIN` | unset | Top-1 minus top-2 classifier margin threshold in `[0,1]`. Unset falls back to the score gate for margin-needed cases. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_STALE_AFTER` | unset | Pin-age cutoff as a Go duration. Unset or `0s` disables the stale-pin rule. |
+| `ROUTER_HMM_UPGRADE_POLICY` | `score` | `score` or `off`. Installation override wins. |
+| `ROUTER_HMM_UPGRADE_VOTES` | `3` | Consecutive same-group expensive votes required before the shadow evidence policy would switch. `0` disables vote hysteresis. |
+| `ROUTER_HMM_UPGRADE_SHADOW_MARGIN` | unset | Top-1 minus top-2 classifier margin threshold in `[0,1]`. Unset falls back to the score gate for margin-needed cases. |
+| `ROUTER_HMM_UPGRADE_SHADOW_STALE_AFTER` | unset | Pin-age cutoff as a Go duration. Unset or `0s` disables the stale-pin rule. |
+| (no env var; installation override `switch_decide_shadow`) | `true` | Experiment, expires 2026-12-02. Logs `router.switch_shadow` with what the unified switch rule would serve on HMM cost-gate turns. Observation only. |
 | `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` | `0.50` | Minimum top-class classifier probability (four groups, floor 0.25) for an upgrade to a pricier model than the session pin. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_GATE` | `true` | Confidence-floor kill switch, used when policy is `score` or evidence falls back to existing policy. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD` | `false` | Upgrade by the predicted class's probability, bypassing the confidence floor. From a low/medium pin, maximum at 0.3-0.5 serves high and at >=0.5 maximum; from low, high at 0.3-0.5 serves medium and at >=0.5 high, and medium at >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band, and for other transitions, the gates above decide. Installation override `authoritative_upgrade_sliding_threshold`. |
+| `ROUTER_HMM_UPGRADE_GATE` | `true` | Confidence-floor kill switch, used when policy is `score`. |
+| `ROUTER_HMM_UPGRADE_SLIDING_THRESHOLD` | `false` | Upgrade by the predicted class's probability, bypassing the confidence floor. From a low/medium pin, maximum at 0.3-0.5 serves high and at >=0.5 maximum; from low, high at 0.3-0.5 serves medium and at >=0.5 high, and medium at >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band, and for other transitions, the gates above decide. Installation override `authoritative_upgrade_sliding_threshold`. |
 
-Invalid policy, holdout, margin, or duration values fail startup. Force/hard
+Invalid policy, margin, or duration values fail startup. Force/hard
 pins, utility turns, deadline fallbacks, and active escalation floors still win.
 A content-free `authoritative upgrade evidence` log records mode, applied,
-holdout, outcome, reason, margin, votes, and served model.
+outcome, reason, margin, votes, and served model.
 
 ## Escalation target and tool-result hold
 
@@ -779,9 +782,9 @@ LLM escalation judge skips a checkpoint (`served_escalation_target`) when the
 turn was already served by one of these models.
 
 `hmm_tool_result_hold` is an organization-overridable boolean flag, stored in
-the installation's flag overrides (no environment variable), default `false`. When on, authoritative per-turn selection
-scores only the first call after a user message; that turn's tool-result calls
-reuse the session pin unless escalation constrains the request.
+the installation's flag overrides (no environment variable), default `false`.
+When enabled, authoritative HMM selection reuses the session pin for tool-result
+calls unless escalation constrains the request.
 
 ## Per-organization flag overrides
 
@@ -807,6 +810,83 @@ override, then organization override, then deployment default.
 - Routing code reads a flag through the `Resolve*` helpers in
   `internal/proxy/flag_resolution.go`. Reading the deployment default off
   `proxy.Service` directly silently ignores any organization override.
+
+### Task-arm experiment
+
+An opt-in randomized experiment, off at its defaults, that compares ordinary
+routing against routing capped at one policy cluster on tasks at chosen steps of an agent's work.
+It only reads the turn label some agent setups write as the last line of the
+message that ends a turn: `@cycle <goal> <task> <step> <status> | <reason>`, or
+`@cycle =` when nothing changed since the label before.
+
+| Flag | Default | Effect |
+| ---- | ------- | ------ |
+| `task_arm_experiment_treatment_pct` | `0` | Percent of eligible tasks in the treatment arm (0-100). `0` turns the experiment off. |
+| `task_arm_experiment_steps` | empty | Comma-separated label steps that make a task eligible. Empty makes no task eligible. |
+| `task_arm_experiment_treatment_cluster` | empty | Highest cluster the treatment arm may be routed to: `low`, `medium`, `high` or `maximum`. Empty or any other value turns the experiment off. |
+
+- **Where the step comes from.** The router has no label for the turn it is
+  routing, only the conversation history in the request, read through the same
+  projection the policy classifier gets. It takes the message that closed the
+  turn before the latest user prompt and reads its last line. A user prompt
+  with no text, such as an image on its own, is not visible in that history,
+  so a labelled message after the latest visible prompt is taken as the closing
+  message instead. A repeated label resolves to the label of the turn before
+  it. A previous turn that ended without a valid label makes the turn
+  ineligible rather than falling back to an older label; the one exception is
+  an unlabelled turn that both follows and precedes a text-less prompt, which
+  cannot be told apart from the current turn. History rewritten by compaction,
+  and sub-agent requests, which carry their own history, are ineligible.
+- **Assignment.** The arm is a hash of the installation, the router user,
+  the goal and the task, not of the session, so a task resumed in another
+  session keeps its arm, and every eligible request of a task draws the same
+  arm while the percentage is unchanged. A task the agent renames is a new
+  task. Changing the percentage mid-run reassigns tasks; start a new run
+  instead.
+- **Scope.** Only main-loop and tool-result turns the router decides on an HMM
+  strategy are assigned. A forced model, a forced cluster, caller-model
+  passthrough, a plan with its own serving policy, a handoff and agent shadow
+  evaluation all leave the turn outside the experiment, as do sub-agent,
+  compaction, title and other utility turns. The Gemini surface is not wired.
+- **Ceiling.** Every assigned turn is first routed exactly as without the
+  experiment, session pin included; that is the control decision, recorded in
+  both arms. **Control** turns are served with it. A **treatment** turn is
+  served with it too unless its cluster ranks above the treatment cluster
+  (`low` < `medium` < `high` < `maximum`). Only then is the turn routed a
+  second time inside the treatment cluster, so a turn at or below the ceiling
+  is never moved, up or down. When the treatment cluster cannot serve the
+  request, the control decision serves it; the experiment never fails a
+  request ordinary routing would serve.
+- **Session pin.** The second, capped route neither reads nor writes the
+  session pin, and it excludes the models the session has demoted. The pin a
+  treatment task leaves behind is therefore the one the control decision
+  wrote, and the routing history keeps the cluster control routing chose, so a
+  later control task in the same session starts from the model control
+  routing would have had. What was actually served is still recorded
+  truthfully: the turn's usage, the model that served it (so the next turn
+  sees a model switch and handles thinking blocks accordingly), failure
+  strikes against the capped model, and the outcome of an escalation
+  checkpoint. A refusal on a capped turn can still move the pin, as it would
+  on any turn.
+- **Telemetry.** Assigned turns carry these attributes on the `router.decision`
+  and upstream spans; unassigned turns carry none of them.
+
+  | Attribute | Meaning |
+  | --------- | ------- |
+  | `routing.task_arm_experiment_arm` | `control` or `treatment`. |
+  | `routing.task_arm_experiment_propensity` | Probability the task had of drawing that arm. |
+  | `routing.task_arm_experiment_task_key` | Opaque hash identifying the task; goal and task names are never recorded. |
+  | `routing.task_arm_experiment_step` | The label step that made the turn eligible. |
+  | `routing.task_arm_experiment_control_model` | Model ordinary routing chose for the turn, in both arms. |
+  | `routing.task_arm_experiment_control_cluster` | Cluster of that decision, in both arms. Empty when the decision carries none. |
+  | `routing.task_arm_experiment_ceiling_binds` | Whether the control cluster ranks above the treatment cluster, in both arms. This is what selects the turns the two arms can differ on. |
+  | `routing.task_arm_experiment_treatment_applied` | Whether the turn was routed inside the treatment cluster and the final attempt went to the model that route chose, whether or not that attempt succeeded (the span's status shows the outcome). Always `false` on control turns and on turns the ceiling does not bind. On the upstream span it is `false` when a failover served the turn with another model; the decision span describes the routing decision before dispatch. |
+
+Analyse by assigned arm, not by `treatment_applied`: the fallback and the
+ineligible turns of a task are part of what the treatment does. Select the
+tasks the arms can differ on with `ceiling_binds`, which is measured the same
+way in both arms.
+`treatment_applied` measures how much of the treatment arm was treated.
 
 ## Plan-aware subscription routing
 
@@ -1011,28 +1091,23 @@ and any list configured for that cluster still orders the arm that serves.
 Out-of-process policy routers use the versioned contract in
 [Policy router harness](POLICY_ROUTER_HARNESS.md). The router remains the
 authority for candidate eligibility, provider binding, dispatch, retries,
-privacy context, and telemetry. `ROUTER_HMM_ROSTER_PATH` and the rollback story
-for Go-owned deterministic selection are documented in
+privacy context, and telemetry. Roster loading and the rollback story for
+Go-owned deterministic selection are documented in
 [HMM deterministic selection in Go](HMM_GO_SELECTION.md).
 
 | Variable                           | Default | Purpose |
 | ---------------------------------- | ------- | ------- |
-| `ROUTER_POLICY_SIDECARS`           | *(none)* | JSON object mapping a new strategy ID to its sidecar origin, for example `{"quality-v2":"https://quality-v2.internal"}`. IDs must match `[a-z][a-z0-9_-]{0,63}`. At most 16 may be configured. Built-in strategy IDs (such as `rl`, `hmm`, `hmm_embedding`, and `llm_classifier`) are reserved. |
-| `ROUTER_POLICY_SIDECAR_AUTH`       | *(none)* | JSON object mapping configured generic strategy IDs to `none` or `google-id-token`, for example `{"quality-v2":"google-id-token"}`. Google ID-token mode uses the exact sidecar origin as token audience and fails router startup when application default credentials cannot build the client. |
+| `ROUTER_POLICY_SIDECARS`           | *(none)* | JSON object mapping a strategy ID to its sidecar origin or an object with `origin` and `policy_sha256`. Pinning a digest requires an authoritative `policy_router_v1` sidecar. IDs must match `[a-z][a-z0-9_-]{0,63}`. At most 16 entries are allowed. Built-in IDs are reserved. |
+| `ROUTER_POLICY_SIDECAR_AUTH`       | *(none)* | JSON object mapping configured generic strategy IDs to `none`, `google-id-token`, or `bearer`. Google ID-token mode uses the exact sidecar origin as the token audience and fails startup when application default credentials cannot build the client. |
+| `ROUTER_POLICY_SIDECAR_BEARER_TOKENS` | *(none)* | Secret JSON object mapping each strategy using `bearer` auth to its token. Bearer auth requires HTTPS by default. Set `allow_http_bearer: true` in the endpoint object only for sidecars on a private network, such as the benchmark Docker network. |
 | `ROUTER_POLICY_SIDECAR_TIMEOUT_MS` | `3000`  | Total timeout for each generic policy decision, including transient retries. Also bounds startup capability discovery. |
-| `ROUTER_HMM_SIDECAR_URL`           | *(none)* | Legacy built-in HMM registration. Prefer the generic map for new strategies. |
+| `ROUTER_POLICY_ENVIRONMENT`        | *(none)* | Local-dev only (`make up-hmm`): policy registry environment whose stable lane head the frozen HMM sidecar's v4 release is read from (`WEAVE_REGISTRY_URI`). Managed boot refuses it. TODO: remove once a public v5 classifier package exists. |
+| `ROUTER_POLICY_RELEASE_DIR`        | *(none)* | Local policy release directory, used instead of the registry for local and benchmark runs; sidecar auth defaults to `none`. With neither variable set, HMM strategies return 503. |
+| `ROUTER_HMM_SIDECAR_URL`           | *(none)* | HMM sidecar origin for a `ROUTER_POLICY_RELEASE_DIR` release. |
 | `ROUTER_HMM_SIDECAR_TIMEOUT_MS`    | `3000`  | Total HMM decision timeout. |
 | `ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS` | 60% of the decision timeout | Bounds a single HMM attempt so one stalled sidecar instance cannot spend the whole decision budget before the retries run. Set it equal to `ROUTER_HMM_SIDECAR_TIMEOUT_MS`, or to `0`, to let one attempt use the full budget. |
 | `ROUTER_HMM_SIDECAR_AUTH`          | `none`  | Authentication for the HMM sidecar. Use `google-id-token` for managed Cloud Run; the exact sidecar origin is used as the token audience. |
-| `ROUTER_HMM_ROSTER_PATH`           | *(none; required with `ROUTER_HMM_SIDECAR_URL`)* | Path to a generated declarative roster JSON (`hmm_router_cluster_roster_v6`). The roster is loaded and validated against the model catalog at startup (boot fails on any invalid arm) and drives the router's authoritative deterministic within-cluster arm selection: the sidecar's classifier label/confidence is kept, its arm is not. Explicit force-cluster and per-key cluster overrides still take precedence when they actually constrain the pick; selection fails open to the sidecar's pick when no ranked group holds an eligible arm. Pin-sticky eligibility is neutralized on any Go pick so a session pin cannot veto it. Leaving it unset while an HMM sidecar is configured fails boot. |
-| `ROUTER_HMM_ROSTER_PINNABLE_PATHS` | *(none)* | Comma-separated paths of additional roster JSON files loaded and validated at boot alongside `ROUTER_HMM_ROSTER_PATH`. Every loaded roster is indexed by the sha256 of its file bytes so an `x-weave-policy-pin` may select it; nothing is read from disk on a live request. Only meaningful with `ROUTER_POLICY_PIN_ENABLED=true`. |
 | `ROUTER_POLICY_PIN_ENABLED`        | `false` | Registers the `x-weave-policy-pin: <policy_artifact_sha256>@<roster_sha256>` header on `/v1/messages`, `/v1/chat/completions`, `/v1/route` and `/v1/route/preview`. Off (default) the middleware is not registered, so the header has no effect and the telemetry columns `policy_pin_requested` / `policy_pin_honoured` stay NULL. On, the header value is only parsed for installations with `policy_header_overrides_enabled`: for every other installation the value (valid or not) is never inspected, the response is identical to a request without the header, and telemetry records `requested=true, honoured=false`. For an authorized installation a malformed value is HTTP 400 (`policy_pin_malformed`); a well-formed pin is honoured on policy-scored turns, which are scored fresh by the HMM sidecar with exactly that artifact (`HMM_PACKAGE_REGISTRY`) and select the arm from exactly that roster — session-sticky pins, `/force-model`, usage-bypass, blind-experiment passthrough and planner stays are not consulted. Auto/empty/`weave-*` routing-model probes are independently scored without conversation state, including under an authorized policy pin. Non-scored utility exceptions retain their own path: probes with concrete models preserve the requested target unless explicitly overridden, compaction keeps its safeguard, and explicitly deployment-pinned titles keep their override. These exceptions may succeed with `policy_pin_honoured=false`. On policy-scored turns, if the artifact or roster is not loaded, or any path would serve a model the pinned policy did not pick, the turn fails HTTP 503 with typed reason `policy_pin_unavailable` and the telemetry row is written with `policy_pin_honoured=false` — an authorized pin never yields a 2xx with `policy_pin_honoured=false` on these turns, and the router never falls through to the current artifact or roster. |
-| `ROUTER_HMM_BETA_SIDECAR_URL`      | *(none)* | Second HMM sidecar serving the candidate package that sessions opt into with `/beta`. Unset leaves `/beta` answering "unavailable" and never touches stable routing. `ROUTER_HMM_BETA_SIDECAR_AUTH`, `ROUTER_HMM_BETA_SIDECAR_TIMEOUT_MS`, and `ROUTER_HMM_BETA_SIDECAR_ATTEMPT_TIMEOUT_MS` mirror the stable variables. |
-| `ROUTER_HMM_BETA_ROSTER_PATH`      | *(none; required with `ROUTER_HMM_BETA_SIDECAR_URL`)* | Declarative roster the beta strategy's Go-side selection reads. It must be the roster embedded in the pinned beta package, which may carry a different cluster taxonomy from stable's. Unlike the stable pair, a missing or invalid beta roster disables beta with an error log instead of failing boot, so a broken candidate cannot take stable routing down. |
-| `ROUTER_RL_SIDECAR_URL`            | *(none)* | Legacy built-in RL registration. Prefer the generic map for new strategies. |
-| `ROUTER_RL_SIDECAR_TIMEOUT_MS`     | `3000`  | Total RL decision timeout. |
-| `ROUTER_RL_SIDECAR_MODAL_KEY`      | *(none)* | Optional Modal proxy token id (`Modal-Key`) when the RL sidecar is a Modal ASGI app with `requires_proxy_auth`. |
-| `ROUTER_RL_SIDECAR_MODAL_SECRET`   | *(none)* | Optional Modal proxy token secret (`Modal-Secret`); required when `ROUTER_RL_SIDECAR_MODAL_KEY` is set. |
 
 `GET /capabilities` is queried at router startup. A failed probe does not
 silently remove the strategy: serving stays registered and fails closed if
@@ -1048,9 +1123,9 @@ never falls back to another policy.
 ### Self-hosted frozen HMM sidecar
 
 The repository includes an optional companion container under
-`sidecars/hmm/`. Start it with `make up-hmm`; the normal `make up` and
-`make full-setup` paths serve the stub HMM classifier from `smoke/hmmstub`,
-which lands every turn in one routing group.
+`sidecars/hmm/`. Start it with `make up-hmm` (local dev only); the normal
+`make up` and `make full-setup` paths serve the local-dev-only stub HMM
+classifier from `smoke/hmmstub`, which lands every turn in one routing group.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

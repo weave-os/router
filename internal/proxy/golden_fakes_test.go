@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry"
 )
 
 // goldenEpoch anchors the fake clock; pins and cooldowns compare against it.
@@ -53,10 +54,11 @@ func (c *goldenClock) Sleep(ctx context.Context, d time.Duration) error {
 // goldenStep scripts one upstream response. A step with err and no frames
 // fails before the first byte; frames followed by err cut a committed stream.
 type goldenStep struct {
-	status  int
-	headers map[string]string
-	frames  []string
-	err     error
+	status     int
+	headers    map[string]string
+	frames     []string
+	err        error
+	rejectBody func([]byte) error
 	// cancel cancels the client's request context after frames are written.
 	cancel bool
 	// pause holds the stream open before the last frame, in wall-clock time,
@@ -101,6 +103,11 @@ func (p *goldenProvider) Proxy(ctx context.Context, decision router.Decision, pr
 		return creds.CredentialError
 	}
 	step := p.rec.nextStep(p)
+	if step.rejectBody != nil {
+		if err := step.rejectBody(prep.Body); err != nil {
+			step = goldenStep{err: err}
+		}
+	}
 	if step.status != 0 || len(step.frames) > 0 {
 		for k, v := range step.headers {
 			w.Header().Set(k, v)
@@ -182,12 +189,12 @@ type goldenRouter struct {
 }
 
 func (g *goldenRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
-	excluded := make([]string, 0, len(req.ExcludedModels))
-	for m := range req.ExcludedModels {
+	excluded := make([]string, 0, len(req.Candidates.ExcludedModels))
+	for m := range req.Candidates.ExcludedModels {
 		excluded = append(excluded, m)
 	}
-	automaticExcluded := make([]string, 0, len(req.AutomaticExcludedModels))
-	for m := range req.AutomaticExcludedModels {
+	automaticExcluded := make([]string, 0, len(req.Candidates.AutomaticExcludedModels))
+	for m := range req.Candidates.AutomaticExcludedModels {
 		automaticExcluded = append(automaticExcluded, m)
 	}
 	sort.Strings(excluded)
@@ -210,8 +217,8 @@ func (g *goldenRouter) Route(_ context.Context, req router.Request) (router.Deci
 			providerIneligible = true
 			continue
 		}
-		_, excludedByCaller := req.ExcludedModels[candidate.Model]
-		_, excludedAutomatically := req.AutomaticExcludedModels[candidate.Model]
+		_, excludedByCaller := req.Candidates.ExcludedModels[candidate.Model]
+		_, excludedAutomatically := req.Candidates.AutomaticExcludedModels[candidate.Model]
 		if !excludedByCaller && !excludedAutomatically {
 			d = candidate
 			break
@@ -481,7 +488,7 @@ func (g *goldenTelemetry) InsertRequestTelemetry(_ context.Context, p proxy.Inse
 	return nil
 }
 
-func (g *goldenTelemetry) InsertInferenceAttempt(_ context.Context, p proxy.InsertInferenceAttemptParams) error {
+func (g *goldenTelemetry) InsertInferenceAttempt(_ context.Context, p telemetry.InsertInferenceAttemptParams) error {
 	g.rec.mu.Lock()
 	defer g.rec.mu.Unlock()
 	g.rec.inferenceAttempts = append(g.rec.inferenceAttempts, goldenValue(p.Event))

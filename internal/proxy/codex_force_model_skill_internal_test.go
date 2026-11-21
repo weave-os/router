@@ -20,8 +20,9 @@ import (
 func TestCodexForceModelSkillToolResultIsAnsweredByRouter(t *testing.T) {
 	store := &recordingPinStore{}
 	upstream := &codexTitleProvider{}
-	svc := NewService(&codexTitleRouter{}, map[string]providers.Client{providers.ProviderOpenAI: upstream},
-		nil, store, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil)
+	svc := withHMMPorts(NewService(&codexTitleRouter{}, map[string]providers.Client{providers.ProviderOpenAI: upstream},
+		nil, store, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil))
+
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.New().String())
 	ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "synthetic-api-key")

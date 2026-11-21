@@ -54,7 +54,7 @@ func TestRunCompactionHandover_SummarizerNeverCrossesTenantCredentialBoundary(t 
 			env, err := translate.ParseAnthropic([]byte(sampleConversation))
 			require.NoError(t, err)
 			sz := &credentialRecordingSummarizer{}
-			svc := NewService(nil, nil, nil, nil, false, "", "", nil).WithCompactionHandoverSummarizer(sz)
+			svc := withHMMPorts(NewService(nil, nil, nil, nil, false, "", "", nil)).WithCompactionHandoverSummarizer(sz)
 
 			out := svc.runCompactionHandover(tc.ctx, env, http.Header{}, "compat-model", router.Request{})
 

@@ -3,26 +3,26 @@ package proxy
 import (
 	"testing"
 	"time"
-	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 )
 
 func newHMMStayPinRegressionService() *Service {
-	return NewService(
+	return withHMMPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil))
+
 }
 
 func hmmStayPinRegressionFresh(reason string) router.Decision {
@@ -46,7 +46,7 @@ func TestHMMCostGate_EffortQualifiedHistoryStaysOnWarmCache(t *testing.T) {
 		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: hmmStayPinRegressionFresh("hmm_policy(classifier 'fast')"),
 		EstimatedInputTokens: 100, PrefixBroken: false,
 	})
@@ -69,7 +69,7 @@ func TestHMMCostGate_EffortQualifiedHistoryIsPricedByEVGate(t *testing.T) {
 		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: hmmStayPinRegressionFresh("hmm_policy(classifier 'fast')"),
 		EstimatedInputTokens: 10_000, PrefixBroken: false,
 	})
@@ -91,7 +91,7 @@ func TestHMMCostGate_PhaseChangeStaysWhenEVDoesNotCoverWarmCache(t *testing.T) {
 		PinnedUntil:     time.Now().Add(time.Hour),
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: hmmStayPinRegressionFresh("hmm_policy(classifier 'balanced')"),
 		EstimatedInputTokens: 100, PrefixBroken: false,
 	})
@@ -114,7 +114,7 @@ func TestHMMCostGate_PhaseChangeSwitchRecordsEvictionCost(t *testing.T) {
 		PinnedUntil:     time.Now().Add(time.Hour),
 	}
 
-	decision, plan, sticky, _ := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, _ := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: hmmStayPinRegressionFresh("hmm_policy(classifier 'balanced')"),
 		EstimatedInputTokens: 10_000, PrefixBroken: false,
 	})
@@ -122,7 +122,7 @@ func TestHMMCostGate_PhaseChangeSwitchRecordsEvictionCost(t *testing.T) {
 	assert.False(t, sticky)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, plan.Reason)
+	assert.Equal(t, hmm.ReasonPhaseChange, plan.Reason)
 	assert.Positive(t, plan.EvictionCostUSD, "a warm-cache phase-change switch must record the eviction it pays")
 }
 
@@ -146,7 +146,7 @@ func TestHMMCostGate_PhaseChangeUpgradeFollowsFreshAtLowConfidence(t *testing.T)
 		},
 	}
 
-	decision, plan, sticky, _ := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, _ := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
 		EstimatedInputTokens: 10_000, PrefixBroken: false,
 	})
@@ -154,6 +154,6 @@ func TestHMMCostGate_PhaseChangeUpgradeFollowsFreshAtLowConfidence(t *testing.T)
 	assert.False(t, sticky, "leaving tool execution must not trap the main loop on the cheaper explore model")
 	assert.Equal(t, "claude-opus-4-7", decision.Model)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, plan.Reason)
+	assert.Equal(t, hmm.ReasonPhaseChange, plan.Reason)
 	assert.True(t, plan.ShadowComputed, "the switch still records the planner's cost evidence")
 }

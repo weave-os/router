@@ -20,8 +20,8 @@ import (
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/rosterdata"
 	"weave-os/router/internal/router/taskdomain"
 )
 

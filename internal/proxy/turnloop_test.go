@@ -13,7 +13,9 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -135,7 +137,7 @@ func forwardedMessageCount(t *testing.T, p *fakeProvider) int {
 // so a test can inspect the body forwarded after handover.
 func newPinSvcCapturing(fr *fakeRouter, store *fakePinStore) (*proxy.Service, *fakeProvider) {
 	p := &fakeProvider{}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: p},
 		nil,
@@ -143,8 +145,8 @@ func newPinSvcCapturing(fr *fakeRouter, store *fakePinStore) (*proxy.Service, *f
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	return svc, p
 }
 
@@ -172,7 +174,7 @@ func TestTurnLoop_ToolResultScoringDisabledSkipsScorer(t *testing.T) {
 	// fakeRouter.err makes any Route() call fail; the test passes only
 	// if the orchestrator never touches the scorer.
 	fr := &fakeRouter{err: errors.New("scorer must not be called when tool-result scoring is disabled")}
-	svc := newPinSvc(fr, store).WithScoreToolResultTurns(false)
+	svc := newPinSvc(fr, store).EditContinuityConfig(func(c *continuity.Config) { c.ScoreToolResultTurns = false })
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -382,7 +384,7 @@ func TestTurnLoop_HMMHistoryMaxedOutExcludesServedModelBeforeRouting(t *testing.
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq)
-	assert.Contains(t, fr.capturedReq.ExcludedModels, "claude-sonnet-5",
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-sonnet-5",
 		"HMM history saturation must exclude the prior served model before sidecar routing")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
 	store.mu.Lock()
@@ -421,7 +423,7 @@ func TestTurnLoop_HMMExpiredHistoryMaxedOutStillExcludesServedModel(t *testing.T
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq)
-	assert.Contains(t, fr.capturedReq.ExcludedModels, "claude-sonnet-5",
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-sonnet-5",
 		"a maxed-out model must stay excluded even after the history row's TTL lapses")
 	store.mu.Lock()
 	assertOnlyHMMHistoryUpserts(t, store)
@@ -560,7 +562,7 @@ func TestTurnLoop_ToolResultPinOnExcludedProviderFallsThroughToScorer(t *testing
 		Model:    "claude-haiku-4-5",
 		Reason:   "cluster:v0.2",
 	}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
@@ -571,8 +573,7 @@ func TestTurnLoop_ToolResultPinOnExcludedProviderFallsThroughToScorer(t *testing
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()),
 		proxy.InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
@@ -815,7 +816,7 @@ func TestTurnLoop_PlannerDisabledPreservesFirstDecisionWins(t *testing.T) {
 		PinnedUntil: time.Now().Add(time.Hour),
 	}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Reason: "fresh"}}
-	svc := newPinSvc(fr, store).WithPlannerEnabled(false)
+	svc := newPinSvc(fr, store).EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false })
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -832,15 +833,14 @@ func TestTurnLoop_UsageWritebackPersistsCacheStats(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "fresh"}}
 	provider := &usageProvider{in: 1200, out: 80, cacheIn: 900, cacheOut: 200}
 	// Pin storage and telemetry both require upstream usage capture.
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: provider},
 		nil,
 		store,
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
-		recordingTelemetry{},
-	)
+		recordingTelemetry{}), hmm.ServingPorts())
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -901,10 +901,8 @@ func TestTurnLoop_PrefixTrimPricesPinColdAndSkipsSummarizer(t *testing.T) {
 	store.pin = warmOpusPin()
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
 	sz := &fakeSummarizer{summary: "Prior conversation summary."}
-	svc := newPinSvc(fr, store).WithSummarizer(sz).WithPlanner(planner.EVConfig{
-		ThresholdUSD:           0.001,
-		ExpectedRemainingTurns: 3,
-		ColdPinFollowFresh:     true,
+	svc := newPinSvc(fr, store).WithSummarizer(sz).EditContinuityConfig(func(c *continuity.Config) {
+		c.Planner = planner.EVConfig{ThresholdUSD: 0.00002, ExpectedRemainingTurns: 3}
 	})
 	ctx := authedCtx(uuid.New().String())
 
@@ -913,7 +911,7 @@ func TestTurnLoop_PrefixTrimPricesPinColdAndSkipsSummarizer(t *testing.T) {
 	req1 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, trimSessionTurn(t, 9), rec1, req1))
 	require.Equal(t, "claude-opus-4-7", rec1.Header().Get(proxy.HeaderRouterModel),
-		"warm pin must stay on turn 1 (cold lever must not fire on a warm cache)")
+		"warm pin must stay on turn 1")
 
 	// Turn 2 drops to 3 messages: a full-compaction trim.
 	rec2 := httptest.NewRecorder()
@@ -926,17 +924,15 @@ func TestTurnLoop_PrefixTrimPricesPinColdAndSkipsSummarizer(t *testing.T) {
 }
 
 // With the kill switch off, the trim is detected but the planner keeps
-// pricing the pin warm and stays, even with the cold-pin lever armed.
+// pricing the pin warm and stays.
 func TestTurnLoop_PrefixTrimKillSwitchPreservesWarmStay(t *testing.T) {
 	store := newFakePinStore()
 	store.hasPin = true
 	store.pin = warmOpusPin()
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
 	sz := &fakeSummarizer{summary: "Prior conversation summary."}
-	svc := newPinSvc(fr, store).WithSummarizer(sz).WithPrefixTrimFreeSwitch(false).WithPlanner(planner.EVConfig{
-		ThresholdUSD:           0.001,
-		ExpectedRemainingTurns: 3,
-		ColdPinFollowFresh:     true,
+	svc := newPinSvc(fr, store).WithSummarizer(sz).WithPrefixTrimFreeSwitch(false).EditContinuityConfig(func(c *continuity.Config) {
+		c.Planner = planner.EVConfig{ThresholdUSD: 0.001, ExpectedRemainingTurns: 3}
 	})
 	ctx := authedCtx(uuid.New().String())
 
@@ -1038,7 +1034,7 @@ func TestTurnLoop_MaxedOutPinExcludedFromCandidates(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq, "scorer must run after a maxed-out pin is dropped")
-	assert.Contains(t, fr.capturedReq.ExcludedModels, "moonshotai/kimi-k2.6",
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "moonshotai/kimi-k2.6",
 		"pinned model must be excluded from candidates after a maxed-out turn")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel),
 		"router must serve the fresh decision, not the broken pin")
@@ -1070,9 +1066,9 @@ func TestTurnLoop_MaxedOutExcludesLastServedModelNotAnchor(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq, "scorer must run after a maxed-out pin is dropped")
-	assert.Contains(t, fr.capturedReq.ExcludedModels, "moonshotai/kimi-k2.6",
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "moonshotai/kimi-k2.6",
 		"the model that actually maxed out (LastServedModel) must be excluded")
-	assert.NotContains(t, fr.capturedReq.ExcludedModels, "claude-haiku-4-5",
+	assert.NotContains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-haiku-4-5",
 		"the healthy anchor must not be excluded when the paired model maxed out")
 }
 
@@ -1097,7 +1093,7 @@ func TestTurnLoop_UnconfirmedHighOutputKeepsPin(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq)
-	assert.NotContains(t, fr.capturedReq.ExcludedModels, "claude-haiku-4-5",
+	assert.NotContains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-haiku-4-5",
 		"healthy pin must not be excluded from candidates")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
 }

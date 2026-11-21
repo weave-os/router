@@ -14,6 +14,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -110,7 +111,7 @@ func buildPolicyDeadlineFallbackService(
 	defaultModel string,
 ) *Service {
 	t.Helper()
-	return NewService(
+	return withHMMPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil},
 		nil,
@@ -118,8 +119,8 @@ func buildPolicyDeadlineFallbackService(
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithPolicyDeadlineFallback(fallbackEnabled).
+		nil)).
+		WithPolicyDeadlineFallback(fallbackEnabled).
 		WithPolicyDeadlineDefaultModel(defaultModel).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
@@ -155,9 +156,11 @@ func runPolicyDeadlineFallbackTurnLoop(
 		EstimatedInputTokens: features.Tokens,
 		HasTools:             features.HasTools,
 		ConversationMessages: conversationMessagesForRouting(env),
-		ExcludedModels:       excluded,
+		Candidates: router.Candidates{
+			ExcludedModels: excluded,
+		},
 	}
-	return svc.runTurnLoop(ctx, env, features, "api-key", uuid.New(), "", http.Header{}, req)
+	return svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, req)
 }
 
 // TestTurnLoop_DeadlineFallbackToPin covers T5: with a pin present and the
@@ -240,7 +243,7 @@ func TestTurnLoop_DeadlineFallbackToTierThreeDefault(t *testing.T) {
 	require.NoError(t, err, "a policy deadline miss with a configured tier-3 default must serve, not error")
 	assert.Equal(t, defaultModel, result.Decision.Model)
 	assert.Equal(t, providers.ProviderAnthropic, result.Decision.Provider)
-	assert.Equal(t, policyDeadlineDefaultReason, result.Decision.Reason)
+	assert.Equal(t, candidates.PolicyDeadlineDefaultReason, result.Decision.Reason)
 	assert.False(t, result.StickyHit, "the tier-3 default is a fresh pin, not a sticky reuse")
 	assert.True(t, result.PolicyFallback)
 	assert.Equal(t, policyDeadlineFallbackReason, result.PinTier)

@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -47,7 +48,7 @@ func (s *Service) openRouterOverflowFallbackTarget(ctx context.Context, req rout
 		return router.Decision{}, false
 	}
 	for _, model := range models {
-		if _, allowed := req.AllowedModels[model]; !allowed {
+		if _, allowed := req.Candidates.AllowedModels[model]; !allowed {
 			continue
 		}
 		target := initial
@@ -91,27 +92,27 @@ func (s *Service) subscriptionStateTargetBindings(ctx context.Context, target ro
 	return s.openRouterOverflowBindings(ctx, target)
 }
 
-func (s *Service) withOpenRouterOverflowTarget(ctx context.Context, in failoverInputs) (context.Context, failoverInputs, error) {
-	target := openRouterOverflowTarget(ctx, in.initialDecision)
+func (s *Service) withOpenRouterOverflowTarget(ctx context.Context, in dispatch.FailoverInputs) (context.Context, dispatch.FailoverInputs, error) {
+	target := openRouterOverflowTarget(ctx, in.InitialDecision)
 	bindings := s.openRouterOverflowBindings(ctx, target)
 	if len(bindings) == 0 {
 		return ctx, in, router.ErrAllowlistEmptiesPool
 	}
-	if in.initialDecision.Provider != target.Provider {
-		if in.buildAlternative == nil {
+	if in.InitialDecision.Provider != target.Provider {
+		if in.BuildAlternative == nil {
 			return ctx, in, router.ErrAllowlistEmptiesPool
 		}
-		attempt, err := in.buildAlternative(target)
+		attempt, err := in.BuildAlternative(target)
 		if err != nil {
 			return ctx, in, err
 		}
-		in.attempt = attempt
-		ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.subscriptionStateHeaders)
-		if in.onSubscriptionStateTarget != nil {
-			in.onSubscriptionStateTarget(target, bindings)
+		in.Attempt = attempt
+		ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.SubscriptionStateHeaders)
+		if in.OnSubscriptionStateTarget != nil {
+			in.OnSubscriptionStateTarget(target, bindings)
 		}
 	}
-	in.initialDecision = target
-	in.bindings = bindings
+	in.InitialDecision = target
+	in.Bindings = bindings
 	return ctx, in, nil
 }

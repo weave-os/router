@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/subscriptions"
@@ -37,11 +38,11 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 	baselineOpts.ModelSwitched = baseModelOf(routeRes.PriorServedModel) != m.baselineModel ||
 		routeRes.SessionEverSwitched
 	baselineCtx := subscriptionStatePaidRescueContext(ctx, m.baselineModel)
-	baselineSubExhausted := s.claudeSubscriptionExhausted(ctx, r.Header)
+	baselineSubExhausted := m.credentials.ClaudeSubscriptionExhausted(ctx, r.Header)
 	if baselineSubExhausted {
 		baselineCtx = withSuppressedClaudeSubscription(baselineCtx)
 	}
-	baselineCtx = s.resolveCredentials(baselineCtx, providers.ProviderAnthropic, m.baselineModel, r.Header)
+	baselineCtx = m.credentials.ResolveCredentials(baselineCtx, providers.ProviderAnthropic, m.baselineModel, r.Header)
 	baselineOpts.FastMode = fastModeForAttempt(baselineCtx, m.baselineModel, providers.ProviderAnthropic)
 	baselinePrep, baselineEmitErr := env.PrepareAnthropic(r.Header, baselineOpts)
 	if baselineEmitErr != nil {
@@ -59,8 +60,8 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 			ctx = withSuppressedClaudeSubscription(ctx)
 		}
 		m.effortServed = baselineEffort
-		baselineBindings := s.resolveBindingsForDispatch(baselineCtx, baselineDecision)
-		baselineMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, baselineRoutingMarkerFor(routeRes, m.baselineModel), m.baselineModel, markerReasonBaseline)), lastFailureDetail(attemptTraceFromContext(ctx)))
+		baselineBindings := m.routing.ResolveBindingsForDispatch(baselineCtx, baselineDecision)
+		baselineMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(m.strategyPorts, ctx, routeRes, baselineRoutingMarkerFor(routeRes, m.baselineModel), m.baselineModel, markerReasonBaseline)), lastFailureDetail(attemptTraceFromContext(ctx)))
 		baselineNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, baselineOpts.TargetModel, baselineMarker)
 		baselineNotice = addRoutingFundingSource(baselineCtx, m.seats, providers.ProviderAnthropic, baselineOpts.TargetModel, baselineNotice)
 		baselineAttempt := m.anthropicTierAttemptFor(baselineOpts, baselinePrep, baselineNotice).attempt(m.recordFastServed)
@@ -69,15 +70,15 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 		*m.respSummary = translate.ResponseSummary{}
 		*m.reqStats = providers.RequestMutationStats{}
 		logUpstreamBody(log, routeRes.SessionKey, baselineDecision, feats, baselinePrep.Body)
-		m.winnerIdx, m.proxyErr = s.dispatchWithFallback(baselineCtx, failoverInputs{
-			w:               m.contentSink,
-			buf:             preludeBuf,
-			initialDecision: baselineDecision,
-			bindings:        baselineBindings,
-			attempt:         baselineAttempt,
-			flushErr:        m.flushErrAsAnthropic,
-			purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-			origin:          routeRes.rescueOrigin(),
+		m.winnerIdx, m.proxyErr = s.dispatchWithFallback(baselineCtx, dispatch.FailoverInputs{
+			Writer:          m.contentSink,
+			Prelude:         preludeBuf,
+			InitialDecision: baselineDecision,
+			Bindings:        baselineBindings,
+			Attempt:         baselineAttempt,
+			FlushErr:        m.flushErrAsAnthropic,
+			Purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+			Origin:          routeRes.rescueOrigin(),
 		})
 		m.subscriptionPoolFailure = isSubscriptionPoolError(m.proxyErr)
 		m.decision = baselineDecision
@@ -112,7 +113,7 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 			if !m.rescueArmed {
 				m.flushDeferredErr()
 			}
-		} else if subBindings := s.resolveBindingsForDispatch(subCtx, m.decision); len(subBindings) == 0 {
+		} else if subBindings := m.routing.ResolveBindingsForDispatch(subCtx, m.decision); len(subBindings) == 0 {
 			log.Warn("Subscription failover: no fallback Anthropic binding available; surfacing original error",
 				"model", m.decision.Model,
 				"err", m.proxyErr,
@@ -135,16 +136,16 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 			logUpstreamBody(log, routeRes.SessionKey, m.decision, feats, subPrep.Body)
 			m.subscriptionFailoverAttempted = true
 			subscriptionErr := m.proxyErr
-			m.winnerIdx, m.proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
-				w:                      m.contentSink,
-				buf:                    preludeBuf,
-				initialDecision:        m.decision,
-				bindings:               subBindings,
-				attempt:                subAttempt,
-				flushErr:               m.flushErrAsAnthropic,
-				deferFlushOnExhaustion: m.rescueArmed,
-				purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-				origin:                 routeRes.dispatchOrigin(m.decision),
+			m.winnerIdx, m.proxyErr = s.dispatchWithFallback(subCtx, dispatch.FailoverInputs{
+				Writer:                 m.contentSink,
+				Prelude:                preludeBuf,
+				InitialDecision:        m.decision,
+				Bindings:               subBindings,
+				Attempt:                subAttempt,
+				FlushErr:               m.flushErrAsAnthropic,
+				DeferFlushOnExhaustion: m.rescueArmed,
+				Purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+				Origin:                 routeRes.dispatchOrigin(m.decision),
 			})
 			m.subscriptionPoolFailure = isSubscriptionPoolError(m.proxyErr)
 			m.bindings = subBindings

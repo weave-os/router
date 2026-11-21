@@ -32,7 +32,7 @@ sidecar, and isolated pass-through turns do not invoke it at all.
 
 Turn facts are router-owned as well. `harness`, `latest_user_text`,
 `turn_index`, `is_subagent`, `available_tools`, and `invoked_tools` on the
-`policy_router_v4` request are authoritative: a sidecar consumes them verbatim
+classifier request are authoritative: a sidecar consumes them verbatim
 and must not recompute them from `conversation_messages`, `client_app`, or
 `prompt_text`. `available_tools` is the advertised set unioned with every tool
 already invoked in the full conversation (before any wire truncation);
@@ -197,20 +197,22 @@ The router rejects empty selections, unknown roster IDs, provider mismatches,
 and unsupported schema versions. Rich `debug` data is internal to the sidecar;
 only an opaque `debug_ref` is projected when authorized debug mode is enabled.
 
-### `policy_router_v3`: classifier-only
+### `policy_router_v5`: classifier-only
 
 A strategy whose router owns arm selection (today: the HMM strategies, see
-[HMM_GO_SELECTION.md](HMM_GO_SELECTION.md)) speaks `policy_router_v3` instead.
-A v3 `/route` response classifies and ranks; it does not decide:
+[HMM_GO_SELECTION.md](HMM_GO_SELECTION.md)) calls a classifier instead of a
+decision sidecar. In managed serving that is the `policy_router_v5` classifier
+API (`/v5/classify`, `/v5/preview`; see
+[SERVING_CONTROL.md](SERVING_CONTROL.md#classifier-service-selection-v4-candidate-v3-classifier-api-v5)).
+Its response classifies; it does not decide:
 
-- `selected_roster_id`, `selected_provider` and `model` are `null` — naming an
-  arm is a contract violation, not an extra;
-- `ranked_fallback` is required, and is the only selection input the router
-  reads;
-- `predicted_label` and `class_probabilities` carry the classification.
+- `predicted_label`, `class_order` and `class_probabilities` carry the
+  classification, with the classifier's release and artifact identity;
+- it never names a model, provider, roster ID or ranked fallback; Go ranks the
+  groups and picks the arm from the admitted roster.
 
-There is no dual-support window: such a router rejects a `policy_router_v1` or
-`v2` response, and a missing or arm-less `ranked_fallback` fails the turn with
+There is no dual-support window: such a router rejects a `policy_router_v1`
+decision, and a ranked fallback with no eligible arm fails the turn with
 HTTP 503 rather than serving a sidecar pick.
 
 `POST /outcome` reports `selected_model`, `selected_provider`, `served_model`,
@@ -274,6 +276,13 @@ wire boundary; an artifact with different internal labels translates them
 inside the sidecar. `google-id-token` authentication uses the exact configured
 origin as the token audience and fails router startup when credentials cannot
 build an authenticated client.
+
+Benchmark sidecars use an entry such as
+`{"benchmark-step-down":{"origin":"http://policy:8095","policy_sha256":"<64 lowercase hex characters>"}}`
+on a private benchmark network. Set that strategy's auth mode to `bearer` and
+supply its token through the secret `ROUTER_POLICY_SIDECAR_BEARER_TOKENS` map.
+The router discovers `authoritative_per_turn_selection` at startup and checks
+the response route ID and artifact digest on each selection.
 
 ## Release gates
 

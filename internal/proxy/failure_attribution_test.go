@@ -27,7 +27,7 @@ func attributionService(t *testing.T, sink *recordingAttemptSink, clients map[st
 	t.Helper()
 	executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 	require.NoError(t, err)
-	return (&Service{}).WithInferenceExecutor(executor)
+	return (&Service{hmmServing: hmmPorts()}).WithInferenceExecutor(executor)
 }
 
 func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
@@ -42,7 +42,7 @@ func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
-	in.deferFlushOnExhaustion = true
+	in.DeferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
 
@@ -71,7 +71,7 @@ func TestDispatchPlanned_TranslatedRejectionOfAnUnchangedClientFieldIsClientOwne
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
-	in.deferFlushOnExhaustion = true
+	in.DeferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
 
@@ -91,7 +91,7 @@ func TestDispatchPlanned_UntranslatedRejectionIsProviderOwned(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body)
-	in.deferFlushOnExhaustion = true
+	in.DeferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
 
@@ -155,7 +155,7 @@ func TestDispatchPlanned_ExhaustionNamesOwnerInTerminalMessage(t *testing.T) {
 			rec := httptest.NewRecorder()
 			buf := newPreludeBuffer(rec)
 			in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, body)
-			in.deferFlushOnExhaustion = true
+			in.DeferFlushOnExhaustion = true
 			_, err := s.dispatchWithFallback(ctx, in)
 			require.Error(t, err)
 
@@ -276,4 +276,24 @@ func TestCanceledCommittedStreamIsClientOwned(t *testing.T) {
 	if got := classifyFailureOwner(failureOwnerInput{Err: err}); got != FailureOwnerClient {
 		t.Fatalf("owner = %q, want client", got)
 	}
+}
+
+func TestDispatchPlanned_CredentialRefusalIsNotBlamedOnTranslation(t *testing.T) {
+	inbound := []byte(`{"model":"claude","messages":[{"role":"user","content":"hi"}]}`)
+	translated := []byte(`{"model":"` + plannedTestModel + `","contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	refusal := &providers.UpstreamErrorResponse{Status: 400, Rejection: providers.UpstreamRejection{Kind: providers.UpstreamRejectionCredential}}
+	primary := &fakeClient{name: providers.ProviderGoogle, outcomes: []fakeOutcome{{err: refusal}}}
+	fallback := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("ok")}}}
+	sink := &recordingAttemptSink{}
+	s := attributionService(t, sink, map[string]providers.Client{providers.ProviderGoogle: primary, providers.ProviderOpenRouter: fallback})
+
+	ctx := withAttemptTrace(context.Background(), inbound, http.Header{})
+	rec := httptest.NewRecorder()
+	plannedIn := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
+	plannedIn.DeferFlushOnExhaustion = true
+	_, err := s.dispatchWithFallback(ctx, plannedIn)
+	require.Error(t, err)
+
+	assert.Equal(t, string(FailureOwnerRouter), sink.events[0].Diagnosis.FailureOwner)
+	assert.Equal(t, "Router error: Gemini refused our account credential (400).", TerminalErrorMessage(err))
 }

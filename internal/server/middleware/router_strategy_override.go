@@ -19,7 +19,6 @@ type StrategyAvailability func(router.Strategy) bool
 func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability StrategyAvailability, available ...router.Strategy) gin.HandlerFunc {
 	if len(available) == 0 {
 		available = []router.Strategy{
-			router.StrategyRL,
 			router.StrategyHMM,
 			router.StrategyHMMEmbedding,
 		}
@@ -47,9 +46,6 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 		}
 
 		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(string(installation.RoutingStrategy))))
-		if router.IsRetiredStrategy(strategy) {
-			strategy = ""
-		}
 		identity, managedServing := requestcontext.ServingIdentityFromContext(c.Request.Context())
 		if managedServing && identity.Plan != "" {
 			profile, ok := entitlement.ServingProfileFor(entitlement.Plan(identity.Plan))

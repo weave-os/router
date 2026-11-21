@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -80,13 +81,12 @@ func TestService_ProxyOpenAIResponses_NativeTurnRecordsTerminalFinishReason(t *t
 			upstream := nativeResponsesStream(tc.terminal)
 			provider := &fakeProvider{proxyResponse: upstream}
 			telemetry := newCaptureTelemetry()
-			svc := proxy.NewService(
+			svc := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: router.Decision{
 					Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test",
 				}},
 				map[string]providers.Client{providers.ProviderOpenAI: provider},
-				nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry,
-			)
+				nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts())
 
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
 			rec := httptest.NewRecorder()
@@ -112,13 +112,12 @@ func TestService_ProxyOpenAIResponses_NativeFailedTerminalRecordsNoFinishReason(
 		`data: {"type":"response.failed","sequence_number":2,"response":{"id":"resp_1","status":"failed","model":"gpt-5.6-sol","error":{"code":"server_error","message":"boom"}}}` + "\n\n"
 	provider := &fakeProvider{proxyResponse: nativeResponsesStream(terminal)}
 	telemetry := newCaptureTelemetry()
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{
 			Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test",
 		}},
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry,
-	)
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts())
 
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
 	rec := httptest.NewRecorder()
@@ -135,13 +134,12 @@ func TestService_ProxyOpenAIResponses_NativeClientCancelAfterCompletedIsSuccess(
 		`data: {"type":"response.completed","sequence_number":2,"response":{"id":"resp_1","status":"completed","model":"gpt-5.6-sol","output":[{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":120,"output_tokens":8}}}` + "\n\n"
 	provider := &fakeProvider{proxyResponse: nativeResponsesStream(terminal), proxyErr: context.Canceled}
 	telemetry := newCaptureTelemetry()
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{
 			Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test",
 		}},
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry,
-	)
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts())
 
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
 	rec := httptest.NewRecorder()

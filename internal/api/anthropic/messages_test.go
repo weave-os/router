@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 
 	"github.com/gin-gonic/gin"
@@ -53,6 +54,11 @@ func (r *countingUserRepository) UpsertByAccountUUID(context.Context, auth.Upser
 }
 
 func (r *countingUserRepository) UpsertByCredentialSubject(context.Context, auth.UpsertUserByCredentialSubjectParams) (*auth.User, error) {
+	r.upserts++
+	return &auth.User{ID: "unexpected"}, nil
+}
+
+func (r *countingUserRepository) UpsertByUnidentifiedKey(context.Context, auth.UpsertUserByUnidentifiedKeyParams) (*auth.User, error) {
 	r.upserts++
 	return &auth.User{ID: "unexpected"}, nil
 }
@@ -131,7 +137,7 @@ func newTestService(r router.Router, clientName string, client providers.Client)
 	if clientName != "" && client != nil {
 		providerMap[clientName] = client
 	}
-	return proxy.NewService(r, providerMap, nil, nil, false, "", "", nil)
+	return proxy.WithStrategyPorts(proxy.NewService(r, providerMap, nil, nil, false, "", "", nil), hmm.ServingPorts())
 }
 
 func errorEnvelope(t *testing.T, body []byte) map[string]any {
@@ -233,21 +239,21 @@ func TestMessagesHandler_RoutingUnavailableReturns503WithRetryAfter(t *testing.T
 	assert.Equal(t, "api_error", errObj["type"])
 }
 
-func TestMessagesHandler_RLPolicyUnavailableReturns503(t *testing.T) {
-	// No RL router wired — strategy fails closed rather than falling back to cluster scorer.
+func TestMessagesHandler_UnconfiguredStrategyReturns503(t *testing.T) {
+	// No router wired for the requested strategy — it fails closed rather than falling back.
 	svc := newTestService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-5"}}, "", nil)
 	engine := messagesEngine(svc)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", bytes.NewReader([]byte(validAnthropicBody)))
-	req = req.WithContext(router.WithStrategy(req.Context(), router.StrategyRL))
+	req = req.WithContext(router.WithStrategy(req.Context(), router.Strategy("rl")))
 	engine.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Equal(t, "1", rec.Header().Get("Retry-After"))
 	errObj := errorEnvelope(t, rec.Body.Bytes())
 	assert.Equal(t, "api_error", errObj["type"])
-	assert.Contains(t, errObj["message"], "RL policy router")
+	assert.Contains(t, errObj["message"], "selected policy router is not configured")
 }
 
 func TestMessagesHandler_ProviderNotConfiguredReturns502(t *testing.T) {
@@ -291,11 +297,11 @@ data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","err
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			client := &fakeProviderClient{proxyStatus: http.StatusOK, proxyBody: responsesOverflow, flushProxyBody: true, propagateProxyWriteErr: true}
-			svc := proxy.NewService(
+			svc := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5-mini", Reason: "test"}},
 				map[string]providers.Client{providers.ProviderOpenAI: client},
-				nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil,
-			)
+				nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil), hmm.ServingPorts())
+
 			reqBody := fmt.Sprintf(`{"model":"gpt-5-mini","max_tokens":1024,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`, stream)
 			rec := postMessages(t.Context(), messagesEngine(svc), []byte(reqBody))
 
@@ -613,11 +619,11 @@ func TestMessagesHandler_UnservableCompactionTellsClientNotToRetry(t *testing.T)
 		Status: http.StatusBadRequest,
 		Body:   []byte(`{"message":"prompt is too long: 2100056 tokens \u003e 1000000 maximum"}`),
 	}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-5", Reason: "test"}},
 		map[string]providers.Client{providers.ProviderAnthropic: client},
-		nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-4-5", nil,
-	)
+		nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-4-5", nil), hmm.ServingPorts())
+
 	body := `{"model":"claude-sonnet-4-5","max_tokens":4096,"messages":[{"role":"user","content":"Your task is to create a detailed summary of the conversation so far. Do not call any tools."}]}`
 
 	rec := postMessages(t.Context(), messagesEngine(svc), []byte(body))

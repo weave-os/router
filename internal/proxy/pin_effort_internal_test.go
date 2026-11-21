@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
@@ -22,14 +23,15 @@ import (
 // later turns have no header or command to recover it from.
 func TestForceModelCommand_PersistsEffortOnPin(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env,
-		translate.ForceModelResult{Model: "opus:xhigh"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+		translate.ForceModelResult{Model: "opus:xhigh"}, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+
+		DeriveSessionKey(env, "key-1"), 10))
 
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, "claude-opus-5-5", store.upserts[0].Model)
@@ -41,11 +43,11 @@ func TestForceModelCommand_PersistsEffortOnPin(t *testing.T) {
 // req.ForceModel, so the returned spec must keep the suffix.
 func TestApplyForceModelCommand_ReturnsEffortQualifiedSpec(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	env := forceCommandEnv(t)
-	spec, _, err := svc.applyForceModelCommand(context.Background(),
+	spec, _, err := svc.applyForceModelCommand(context.Background(), router.StrategyFromContext(context.Background()),
 		translate.ForceModelResult{Model: "opus:xhigh", FromToolResult: true},
 		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"))
 	require.NoError(t, err)
@@ -59,8 +61,8 @@ func TestApplyForceModelCommand_ReturnsEffortQualifiedSpec(t *testing.T) {
 
 func TestForceModelHeader_PersistsEffortOnPin(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	env := forceCommandEnv(t)
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
@@ -86,8 +88,8 @@ func TestRunTurnLoop_ForcedPinRehydratesEffort(t *testing.T) {
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(fr, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(fr, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
@@ -97,9 +99,10 @@ func TestRunTurnLoop_ForcedPinRehydratesEffort(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures()
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil, router.Request{
 		RequestedModel: feats.Model,
 	})
+
 	require.NoError(t, err)
 
 	assert.Equal(t, "claude-opus-4-8", res.Decision.Model)
@@ -114,8 +117,8 @@ func TestRunTurnLoop_ForcedPinRehydratesEffort(t *testing.T) {
 func TestRunTurnLoop_RequestForceModelCarriesEffort(t *testing.T) {
 	store := &forcedPinStore{}
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(fr, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(fr, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
@@ -125,10 +128,11 @@ func TestRunTurnLoop_RequestForceModelCarriesEffort(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures()
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil, router.Request{
 		RequestedModel: feats.Model,
 		ForceModel:     "opus:medium",
 	})
+
 	require.NoError(t, err)
 
 	assert.Equal(t, "claude-opus-5-5", res.Decision.Model)
@@ -139,8 +143,8 @@ func TestRunTurnLoop_RequestForceModelCarriesEffort(t *testing.T) {
 // effort — so the refresh must carry the stored level forward.
 func TestRefreshPin_CarriesEffortForward(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	existing := sessionpin.Pin{
 		Provider: providers.ProviderAnthropic,
@@ -148,7 +152,7 @@ func TestRefreshPin_CarriesEffortForward(t *testing.T) {
 		Effort:   "xhigh",
 		Reason:   translate.ReasonUserForceModel,
 	}
-	sessionPins := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now)
+	sessionPins := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyHMMEmbedding)
 	sessionPins.Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{},
 		existing, "default", router.Decision{
 			Provider: existing.Provider, Model: existing.Model, Reason: existing.Reason,
@@ -166,13 +170,13 @@ func TestRefreshPin_CarriesEffortForward(t *testing.T) {
 }
 
 func TestOrderBandPair_AnchoredHalfKeepsEffort(t *testing.T) {
-	large, small := orderBandPair(sessionpin.Pin{
+	large, small := sessionpin.Pin{
 		Provider:       providers.ProviderAnthropic,
 		Model:          "claude-opus-4-7",
 		Effort:         "high",
 		PairedProvider: providers.ProviderAnthropic,
 		PairedModel:    "claude-haiku-4-5",
-	})
+	}.OrderedBandPair()
 	assert.Equal(t, "claude-opus-4-7", large.Model)
 	assert.Equal(t, "high", large.Effort)
 	assert.Empty(t, small.Effort)
@@ -180,19 +184,20 @@ func TestOrderBandPair_AnchoredHalfKeepsEffort(t *testing.T) {
 
 // An explicit per-request knob still outranks whatever the pin carries.
 func TestResolveEffort_KnobWinsOverDecision(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+
 	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Effort: "xhigh"}
 	caps := router.Lookup(decision.Model)
 
 	ctx := router.WithRoutingKnobs(context.Background(), &router.Overrides{ForceEffort: "low"})
 	knobbed := svc.resolveEffort(ctx, decision, caps, false)
 	assert.Equal(t, "low", knobbed.Selected)
-	assert.Equal(t, effortSourceUser, knobbed.Source)
+	assert.Equal(t, dispatch.EffortSourceUser, knobbed.Source)
 
 	arm := svc.resolveEffort(context.Background(), decision, caps, false)
 	assert.Equal(t, "xhigh", arm.Selected)
-	assert.Equal(t, effortSourceArm, arm.Source)
+	assert.Equal(t, dispatch.EffortSourceArm, arm.Source)
 
 	assert.Empty(t, svc.resolveEffort(context.Background(),
 		router.Decision{Provider: decision.Provider, Model: decision.Model}, caps, false).Selected)

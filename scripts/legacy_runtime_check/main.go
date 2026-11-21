@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/server"
@@ -32,6 +33,7 @@ import (
 )
 
 func main() {
+	logconfig.Configure()
 	if err := run(); err != nil {
 		slog.Error("Legacy runtime compatibility failed", "err", err)
 		os.Exit(1)
@@ -87,10 +89,8 @@ func run() error {
 	pubsubpb.RegisterSubscriberServer(pubsub, pubsubFixture{})
 	defer pubsub.Stop()
 	go func() { _ = pubsub.Serve(listener) }()
-	for _, mode := range []server.DeploymentMode{server.DeploymentModeSelfHosted, server.DeploymentModeManaged} {
-		if err := checkWorker(ctx, binary, dsn, listener.Addr().String(), token, policy, mode); err != nil {
-			return fmt.Errorf("%s worker: %w", mode, err)
-		}
+	if err := checkWorker(ctx, binary, dsn, listener.Addr().String(), token, policy, server.DeploymentModeSelfHosted); err != nil {
+		return fmt.Errorf("%s worker: %w", server.DeploymentModeSelfHosted, err)
 	}
 	return nil
 }
@@ -188,11 +188,7 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	}
 	request.Header.Set("X-Weave-Router-Key", token)
 	request.Header.Set("Content-Type", "application/json")
-	wantStatus := http.StatusOK
-	if mode == server.DeploymentModeManaged {
-		wantStatus = http.StatusPaymentRequired
-	}
-	if err := expectResponse(client, request, wantStatus, ""); err != nil {
+	if err := expectResponse(client, request, http.StatusOK, ""); err != nil {
 		return err
 	}
 	slog.Info("Legacy worker started and served authenticated requests without serving dependencies", "mode", mode, "log", logFile.Name())
@@ -216,14 +212,6 @@ func workerEnv(dsn, pubsubAddress string, port int, policy policyFixture, mode s
 		"ROUTER_HMM_SIDECAR_URL=" + policy.classifierURL,
 		"ROUTER_HMM_SIDECAR_AUTH=none",
 		"GIN_MODE=release",
-	}
-	if mode == server.DeploymentModeSelfHosted {
-		env = append(env,
-			"ROUTER_SERVING_REGISTRY_URI=invalid-disabled-registry",
-			"ROUTER_SERVING_CONFIGURATION_URI=invalid-disabled-configuration",
-			"ROUTER_SERVING_CONFIGURATION_GENERATION=invalid-disabled-generation",
-			"ROUTER_SERVING_TARGET=invalid-disabled-target",
-		)
 	}
 	return env
 }

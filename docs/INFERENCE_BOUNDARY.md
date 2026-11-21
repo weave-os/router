@@ -27,7 +27,7 @@ Router PRs [#884](https://github.com/weave-os/router/pull/884) and [#792](https:
 | Agent shadow evaluation | `agent_shadow_evaluation` | auxiliary inference | request-scoped explicit catalog target | Phase 8 |
 | Anthropic `count_tokens` | `count_tokens` | metadata passthrough | named-provider passthrough with local estimate rescue | Phase 5 metadata method |
 | Upstream model listing | `upstream_model_listing` | metadata passthrough | provider adapter list methods | remains non-selection |
-| Policy decision/preview/outcome/feedback | `policy_sidecar_*` | control plane | `internal/policyclient` and legacy `internal/router/rl` HTTP clients | remains non-inference |
+| Policy decision/preview/outcome/feedback | `policy_sidecar_*` | control plane | `internal/policyclient` HTTP client | remains non-inference |
 | Initial-task domain classification | `task_domain_classification` | control plane | `internal/policyclient.TaskDomainClassifier` with bounded `proxy.TaskDomainResolver` orchestration | remains non-inference |
 | Cluster/cache embeddings | `cluster_embedding`, `semantic_cache_embedding` | local support | none in workers: the semantic cache is deleted and the legacy cluster scorer is being removed | purposes stay registered until removed |
 | Native/Cortex web search | `native_web_search` | web-search tool | explicit `websearch.Executor` | remains separate from generic inference |
@@ -42,11 +42,9 @@ These are the complete production `providers.Client.Proxy`/`Passthrough` call si
 | File / symbol | Operation |
 | --- | --- |
 | `internal/proxy/usage_bypass.go` — `Service.bypassToAnthropic` | subscription-token main inference |
-| `internal/proxy/gemini.go` — `Service.ProxyGeminiGenerateContent` | Gemini main inference |
 | `internal/proxy/service.go` — `Service.PassthroughToNamedProvider` | metadata/passthrough |
-| `internal/proxy/service.go` — `Service.anthropicNativeAttempt` | Anthropic main inference |
-| `internal/proxy/service.go` — two calls in `Service.ProxyMessages` | OpenAI-compatible and Gemini translations |
-| `internal/proxy/service.go` — three calls in `Service.ProxyOpenAIChatCompletion` | OpenAI, Anthropic, and Gemini dispatch branches |
+
+Executor attempts do not hold a provider client: `dispatchPlanned` hands each attempt closure a `dispatch.Upstream` wrapping the client the executor selected and guarded for the planned target, and the closure sends through it.
 
 `proxy.Service`, `NewService`, and the two provider-filter helpers in `internal/proxy/translation_plan.go` are the only non-composition-root owners of `map[string]providers.Client`. Phase 5 moves that ownership to `internal/dispatch`.
 
@@ -70,7 +68,6 @@ These clients are explicitly classified so they cannot be mistaken for inference
 | --- | --- |
 | `internal/policyclient/client.go` | policy-sidecar health, capabilities, roster, decision, preview, outcome, and feedback control-plane I/O |
 | `internal/policyclient/task_domain.go` | admitted, digest-pinned task classifier; returns five domain bits, never a provider/model selection |
-| `internal/router/rl/client.go` | legacy policy-sidecar decision I/O |
 | `internal/subscriptions/oauth.go` | subscription OAuth token refresh |
 | `internal/entra/client_credentials.go` | Entra client-credential minting |
 | `internal/observability/otel/emitter.go` | telemetry export |
@@ -79,7 +76,7 @@ The checker flags raw `net/http` calls outside provider adapters when their comp
 
 ## Feature-Owned Target Baseline
 
-The reviewed exception manifest records the current utility hard pin, handover model, compaction default and large-window candidate, loop-escalation target, direct `router.Decision` constructions in proxy, and all direct provider calls. Each entry has an owner, rationale, operation class, and removal phase. These are migration debt, not precedent; baseline additions require an owned manifest diff.
+The reviewed exception manifest records the current utility hard pin, handover model, compaction default and large-window candidate, direct `router.Decision` constructions in proxy, and all direct provider calls. Each entry has an owner, rationale, operation class, and removal phase. These are migration debt, not precedent; baseline additions require an owned manifest diff.
 
 ## Existing Behavior Tests
 

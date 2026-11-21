@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -57,11 +58,11 @@ func newUtilityHardPinSvc(setup utilityHardPinSetup, fr *fakeRouter) *proxy.Serv
 			_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 		}}
 	}
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		fr, clients, nil, newFakePinStore(), true,
 		policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel,
-		nil,
-	).WithByokOnly(setup.byokOnly).WithHardPinResolver(proxy.CatalogUtilityHardPin)
+		nil), hmm.ServingPorts()).
+		WithByokOnly(setup.byokOnly).WithHardPinResolver(proxy.CatalogUtilityHardPin)
 }
 
 // Explore sub-agent hard pins resolve from the catalog against each
@@ -144,5 +145,5 @@ func TestService_UtilityHardPin_NoEligibleProviderIs400(t *testing.T) {
 // legacyExploreCtx selects a non-HMM strategy, the only kind on which the
 // legacy hardPinExplore default still hard-pins sub-agent turns.
 func legacyExploreCtx(ctx context.Context) context.Context {
-	return router.WithStrategy(ctx, router.StrategyRL)
+	return router.WithStrategy(ctx, router.Strategy("rl"))
 }

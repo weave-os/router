@@ -19,18 +19,30 @@ const (
 	CapAssistantPrefill          ModelCapability = "assistant_prefill"
 )
 
-const ModelGemini4Argon = "gemini-4-argon"
+const (
+	ModelGemini4Argon = "gemini-4-argon"
+	ModelGemini4Neon  = "gemini-4-neon"
+)
 
 type ModelSpec struct {
 	capabilities map[ModelCapability]struct{}
 	reasoning    ReasoningCapabilities
 }
 
+type ThinkingOff int
+
+const (
+	ThinkingOffDisabled ThinkingOff = iota
+	ThinkingOffBetweenTools
+	ThinkingOffAdaptiveLowEffort
+)
+
 type ReasoningCapabilities struct {
 	Levels         []string
 	SupportsAuto   bool
 	SupportsBudget bool
 	AlwaysOn       bool
+	ThinkingOff    ThinkingOff
 }
 
 func (s ModelSpec) Supports(cap ModelCapability) bool {
@@ -57,6 +69,7 @@ func (s ModelSpec) Reasoning() ReasoningCapabilities {
 	return ReasoningCapabilities{
 		Levels: levels, SupportsAuto: s.reasoning.SupportsAuto,
 		SupportsBudget: s.reasoning.SupportsBudget, AlwaysOn: s.reasoning.AlwaysOn,
+		ThinkingOff: s.reasoning.ThinkingOff,
 	}
 }
 
@@ -102,10 +115,11 @@ var (
 	anthropicAdaptive                  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext)
 	anthropicAdaptiveXhigh             = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort)
 	anthropicAdaptiveFallback          = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback)
-	anthropicAdaptiveFallbackAutoTools = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly)
+	anthropicAdaptiveFallbackAutoTools = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true, ThinkingOff: ThinkingOffBetweenTools}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly)
 	anthropicExtended                  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking, CapAssistantPrefill)
 
-	anthropicFable51 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly, CapSamplingParamsUnsupported)
+	anthropicFable5  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true, ThinkingOff: ThinkingOffAdaptiveLowEffort}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback)
+	anthropicFable51 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true, ThinkingOff: ThinkingOffAdaptiveLowEffort}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly, CapSamplingParamsUnsupported)
 )
 
 var (
@@ -125,16 +139,17 @@ var minimaxM31Flash = NewSpecWithReasoning(ReasoningCapabilities{Levels: []strin
 
 var googleBase = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true})
 var google3Base = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, AlwaysOn: true})
+var google4Xhigh = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh", "max"}, AlwaysOn: true}, CapXhighEffort)
 
 var openAICompatBase = NewSpec()
 
 var registry = map[string]ModelSpec{
-	"claude-fable-5":    anthropicAdaptiveFallback,
+	"claude-fable-5":    anthropicFable5,
 	"claude-fable-5-1":  anthropicFable51,
 	"claude-fable-5-2":  anthropicFable51,
 	"claude-mythos-5-2": anthropicFable51,
 	"claude-opus-5-5": NewSpecWithReasoning(
-		ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true},
+		ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true, ThinkingOff: ThinkingOffAdaptiveLowEffort},
 		CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback,
 		CapAutoToolChoiceOnly,
 	),
@@ -170,6 +185,7 @@ var registry = map[string]ModelSpec{
 	"gpt-6.2-astra":   openaiAstra,
 	"gpt-6-luna":      openai6,
 	ModelGemini4Argon: google3Base,
+	ModelGemini4Neon:  google4Xhigh,
 
 	"gpt-5.6-sol":      openai56,
 	"gpt-5.6-sol-pro":  openai56,

@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"slices"
 	"testing"
 
 	"weave-os/router/internal/providers"
@@ -530,4 +531,11 @@ func TestPricing_ZeroCacheMultipliersFallBackToDefaults(t *testing.T) {
 	set := Pricing{CacheReadMultiplier: 0.1, CacheWriteMultiplier: 2}
 	assert.InDelta(t, 0.1, set.EffectiveCacheReadMultiplier(), 1e-12)
 	assert.InDelta(t, 2.0, set.EffectiveCacheWriteMultiplier(), 1e-12)
+}
+
+func TestClassifierRescueOrder_StrongestFirstAndSkipsForceOnly(t *testing.T) {
+	got := ClassifierRescueOrder([]string{"claude-haiku-5-5", "claude-fable-5-2", "claude-opus-5-5", "not-a-model", "claude-sonnet-5-5"})
+	if want := []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"}; !slices.Equal(got, want) {
+		t.Fatalf("ClassifierRescueOrder = %v, want %v", got, want)
+	}
 }

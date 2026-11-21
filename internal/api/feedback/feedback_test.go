@@ -11,8 +11,9 @@ import (
 	"time"
 
 	feedbackapi "weave-os/router/internal/api/feedback"
-	token "weave-os/router/internal/feedback"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -20,29 +21,29 @@ import (
 )
 
 type fakeFeedbackRepo struct {
-	ctxResult proxy.FeedbackContext
+	ctxResult feedback.FeedbackContext
 	ctxErr    error
-	upserts   []proxy.UpsertFeedbackParams
+	upserts   []feedback.UpsertFeedbackParams
 }
 
-func (f *fakeFeedbackRepo) Upsert(_ context.Context, p proxy.UpsertFeedbackParams) error {
+func (f *fakeFeedbackRepo) Upsert(_ context.Context, p feedback.UpsertFeedbackParams) error {
 	f.upserts = append(f.upserts, p)
 	return nil
 }
 
-func (f *fakeFeedbackRepo) GetContext(_ context.Context, _, _ string) (proxy.FeedbackContext, error) {
+func (f *fakeFeedbackRepo) GetContext(_ context.Context, _, _ string) (feedback.FeedbackContext, error) {
 	return f.ctxResult, f.ctxErr
 }
 
-func newService(repo proxy.FeedbackRepository, signer *token.Signer) *proxy.Service {
-	return proxy.NewService(nil, nil, nil, nil, false, "", "", nil).
+func newService(repo feedback.FeedbackRepository, signer *feedback.Signer) *proxy.Service {
+	return proxy.WithStrategyPorts(proxy.NewService(nil, nil, nil, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithFeedback(repo, signer, "https://router.example.com")
 }
 
 func TestGetContextHandler_ValidTokenReturnsContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	signer := token.NewSigner("secret", time.Hour)
-	repo := &fakeFeedbackRepo{ctxResult: proxy.FeedbackContext{
+	signer := feedback.NewSigner("secret", time.Hour)
+	repo := &fakeFeedbackRepo{ctxResult: feedback.FeedbackContext{
 		RequestID:      "req-1",
 		ChosenModel:    "claude-haiku-4-5",
 		ChosenProvider: "anthropic",
@@ -70,7 +71,7 @@ func TestGetContextHandler_ValidTokenReturnsContext(t *testing.T) {
 
 func TestGetContextHandler_UnknownRequestStillRenders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	signer := token.NewSigner("secret", time.Hour)
+	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{ctxErr: sql.ErrNoRows}
 	engine := gin.New()
 	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(newService(repo, signer)))
@@ -88,7 +89,7 @@ func TestGetContextHandler_UnknownRequestStillRenders(t *testing.T) {
 
 func TestGetContextHandler_InvalidTokenReturns404(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	signer := token.NewSigner("secret", time.Hour)
+	signer := feedback.NewSigner("secret", time.Hour)
 	engine := gin.New()
 	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(newService(&fakeFeedbackRepo{}, signer)))
 
@@ -100,7 +101,7 @@ func TestGetContextHandler_InvalidTokenReturns404(t *testing.T) {
 
 func TestGetContextHandler_ExpiredTokenReturns410(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	signer := token.NewSigner("secret", time.Nanosecond)
+	signer := feedback.NewSigner("secret", time.Nanosecond)
 	engine := gin.New()
 	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(newService(&fakeFeedbackRepo{}, signer)))
 
@@ -114,7 +115,7 @@ func TestGetContextHandler_ExpiredTokenReturns410(t *testing.T) {
 
 func TestSubmitHandler_ValidSubmissionPersists(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	signer := token.NewSigner("secret", time.Hour)
+	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 	engine := gin.New()
 	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
@@ -138,7 +139,7 @@ func TestSubmitHandler_ValidSubmissionPersists(t *testing.T) {
 
 func TestSubmitHandler_RejectsInvalidRating(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	signer := token.NewSigner("secret", time.Hour)
+	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 	engine := gin.New()
 	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
@@ -154,7 +155,7 @@ func TestSubmitHandler_RejectsInvalidRating(t *testing.T) {
 
 func TestSubmitHandler_RejectsOversizedBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	signer := token.NewSigner("secret", time.Hour)
+	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 	engine := gin.New()
 	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
@@ -170,7 +171,7 @@ func TestSubmitHandler_RejectsOversizedBody(t *testing.T) {
 
 func TestSubmitHandler_BlankCommentIsStoredAsNoComment(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	signer := token.NewSigner("secret", time.Hour)
+	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 	engine := gin.New()
 	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
@@ -187,7 +188,7 @@ func TestSubmitHandler_BlankCommentIsStoredAsNoComment(t *testing.T) {
 
 func TestSubmitHandler_InvalidTokenReturns404(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	signer := token.NewSigner("secret", time.Hour)
+	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 	engine := gin.New()
 	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
@@ -200,7 +201,7 @@ func TestSubmitHandler_InvalidTokenReturns404(t *testing.T) {
 	assert.Empty(t, repo.upserts)
 }
 
-func rateEngine(repo proxy.FeedbackRepository, signer *token.Signer) *gin.Engine {
+func rateEngine(repo feedback.FeedbackRepository, signer *feedback.Signer) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.GET("/v1/feedback/rate", feedbackapi.RateHandler(newService(repo, signer)))
@@ -208,7 +209,7 @@ func rateEngine(repo proxy.FeedbackRepository, signer *token.Signer) *gin.Engine
 }
 
 func TestRateHandler_OneClickUpPersists(t *testing.T) {
-	signer := token.NewSigner("secret", time.Hour)
+	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 	tok := signer.Mint("inst-1", "org-1", "req-1", "user-1")
 
@@ -229,7 +230,7 @@ func TestRateHandler_OneClickUpPersists(t *testing.T) {
 }
 
 func TestRateHandler_OneClickDownPersists(t *testing.T) {
-	signer := token.NewSigner("secret", time.Hour)
+	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 	tok := signer.Mint("inst-1", "org-1", "req-2", "")
 
@@ -242,7 +243,7 @@ func TestRateHandler_OneClickDownPersists(t *testing.T) {
 }
 
 func TestRateHandler_RejectsBadRating(t *testing.T) {
-	signer := token.NewSigner("secret", time.Hour)
+	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 	tok := signer.Mint("inst-1", "org-1", "req-1", "")
 
@@ -254,7 +255,7 @@ func TestRateHandler_RejectsBadRating(t *testing.T) {
 }
 
 func TestRateHandler_InvalidTokenReturns404(t *testing.T) {
-	signer := token.NewSigner("secret", time.Hour)
+	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 
 	rec := httptest.NewRecorder()
@@ -265,7 +266,7 @@ func TestRateHandler_InvalidTokenReturns404(t *testing.T) {
 }
 
 func TestRateHandler_ExpiredTokenReturns410(t *testing.T) {
-	signer := token.NewSigner("secret", time.Nanosecond)
+	signer := feedback.NewSigner("secret", time.Nanosecond)
 	repo := &fakeFeedbackRepo{}
 	tok := signer.Mint("inst-1", "org-1", "req-1", "")
 	time.Sleep(2 * time.Millisecond)

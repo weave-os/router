@@ -22,8 +22,8 @@ func forceableByID(models []forceableModel) map[string]forceableModel {
 // The listing is judged by the same check /force-model applies, so a model the
 // installation's allowlist refuses is listed but marked off.
 func TestForceableModels_MarksModelsTheForceCheckRefuses(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	ctx := context.WithValue(context.Background(),
 		InstallationAllowedModelsContextKey{}, []string{"claude-opus-4-8"})
@@ -31,16 +31,17 @@ func TestForceableModels_MarksModelsTheForceCheckRefuses(t *testing.T) {
 	models := forceableByID(svc.forceableModels(ctx))
 
 	require.Contains(t, models, "claude-opus-4-8")
-	assert.Empty(t, models["claude-opus-4-8"].refusal)
+	assert.Nil(t, models["claude-opus-4-8"].refusal)
 	require.Contains(t, models, "claude-opus-5-5")
-	assert.Contains(t, models["claude-opus-5-5"].refusal, "allowed-model list")
+	require.NotNil(t, models["claude-opus-5-5"].refusal)
+	assert.Contains(t, models["claude-opus-5-5"].refusal.Error(), "allowed-model list")
 }
 
 // Every row is a name /force-model resolves to itself, and each shorthand shown
 // resolves to that row's model.
 func TestForceableModels_ShorthandsResolveToTheirRow(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	models := svc.forceableModels(context.Background())
 	require.NotEmpty(t, models)
@@ -60,7 +61,7 @@ func TestForceableModels_ShorthandsResolveToTheirRow(t *testing.T) {
 func TestListModelsMessage_MarksRefusedRowsAndCountsForceable(t *testing.T) {
 	msg := listModelsMessage([]forceableModel{
 		{id: "claude-opus-5-5", provider: providers.ProviderAnthropic, shorthands: []string{"opus", "claude"}},
-		{id: "gpt-6.1-sol", provider: providers.ProviderOpenAI, refusal: "excluded", shorthands: []string{"sol"}},
+		{id: "gpt-6.1-sol", provider: providers.ProviderOpenAI, refusal: forcedModelExcluded("gpt-6.1-sol", "excluded"), shorthands: []string{"sol"}},
 	}, "$", translate.FormatOpenAI)
 
 	assert.Contains(t, msg, "[x] claude-opus-5-5 (opus, claude)")

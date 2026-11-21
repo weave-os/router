@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm/pinstate"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
@@ -28,7 +29,7 @@ func TestSessionPinRepo_UpdateUsageProviderTracksPinnedModel(t *testing.T) {
 			"DELETE FROM router.model_router_installations WHERE id = $1", installationID)
 	})
 
-	repo := postgres.NewSessionPinRepo(pool)
+	repo := postgres.NewSessionPinRepo(pool, pinstate.Accessor{})
 	tests := []struct {
 		name           string
 		pinnedModel    string

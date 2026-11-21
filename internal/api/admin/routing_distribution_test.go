@@ -10,7 +10,8 @@ import (
 
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/rosterdata"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -23,8 +24,8 @@ type fakeDistributionRoster struct {
 	strategies []router.Strategy
 }
 
-func (f *fakeDistributionRoster) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
-	f.strategies = append(f.strategies, router.StrategyFromContext(ctx))
+func (f *fakeDistributionRoster) DistributionRoster(_ context.Context, strategy router.Strategy) (*rosterdata.Roster, error) {
+	f.strategies = append(f.strategies, strategy)
 	return f.roster, f.err
 }
 
@@ -48,10 +49,10 @@ func twoArmDistributionRoster() *rosterdata.Roster {
 	}
 }
 
-func newDistributionEngine(src admin.DistributionRosterSource) *gin.Engine {
+func newDistributionEngine(src selection.DistributionRosters) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.GET("/v1/router/routing-distribution", admin.RoutingDistributionHandler(src))
+	engine.GET("/v1/router/routing-distribution", admin.RoutingDistributionHandler(selection.DistributionSource{Rosters: src}))
 	return engine
 }
 
@@ -126,7 +127,7 @@ func TestRoutingDistributionHandler_RejectsBadGrid(t *testing.T) {
 func TestRoutingDistributionHandler_RejectsNonHMMStrategy(t *testing.T) {
 	src := &fakeDistributionRoster{roster: twoArmDistributionRoster()}
 	engine := newDistributionEngine(src)
-	for _, strategy := range []router.Strategy{router.Strategy("cluster"), router.StrategyRL, router.StrategyHMMBeta, "unknown"} {
+	for _, strategy := range []router.Strategy{router.Strategy("cluster"), router.Strategy("rl"), router.StrategyHMMBeta, "unknown"} {
 		rec := getDistribution(t.Context(), engine, "?strategy="+string(strategy))
 		assert.Equal(t, http.StatusBadRequest, rec.Code, strategy)
 	}
