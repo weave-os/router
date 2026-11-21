@@ -71,8 +71,8 @@ func TestAnthropicBYOKDispatchIgnoresSubscriptionState(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			buffer := newPreludeBuffer(recorder)
 			in := plannedInputs(t.Context(), recorder, buffer, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
-			in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: model}
-			in.subscriptionStateHeaders = headers
+			in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: model}
+			in.SubscriptionStateHeaders = headers
 			_, err := svc.dispatchWithFallback(ctx, in)
 			if tc.upstreamErr != nil {
 				require.ErrorIs(t, err, tc.upstreamErr)
