@@ -23,15 +23,12 @@ func TestByteIdleWatchdogsFireBeforeTheAWSIdleConnectionReaper(t *testing.T) {
 	assert.Less(t, defaultResponsesSSEIdleBudget, awsIdleConnectionReaper)
 }
 
-func TestIntFromEnvLetsOperatorsDisableCountGuardsWithZero(t *testing.T) {
-	t.Setenv("ROUTER_TEST_COUNT_GUARD", "0")
-	assert.Equal(t, 0, intFromEnv("ROUTER_TEST_COUNT_GUARD", 8))
-	t.Setenv("ROUTER_TEST_COUNT_GUARD", "-1")
-	assert.Equal(t, -1, intFromEnv("ROUTER_TEST_COUNT_GUARD", 8))
-	t.Setenv("ROUTER_TEST_COUNT_GUARD", "eight")
-	assert.Equal(t, 8, intFromEnv("ROUTER_TEST_COUNT_GUARD", 8))
-	t.Setenv("ROUTER_TEST_COUNT_GUARD", "0")
-	assert.Equal(t, 45*time.Second, idleTimeoutFromEnv("ROUTER_TEST_COUNT_GUARD", 45*time.Second))
+func TestParseIntLetsOperatorsDisableCountGuardsWithZero(t *testing.T) {
+	assert.Equal(t, 0, ParseInt("0", 8))
+	assert.Equal(t, -1, ParseInt("-1", 8))
+	assert.Equal(t, 8, ParseInt("eight", 8))
+	assert.Equal(t, 8, ParseInt("", 8))
+	assert.Equal(t, 45*time.Second, ParseTimeoutSeconds("0", 45*time.Second))
 }
 
 func TestLogUpstreamStatusLogsRateLimitsAtWarnAndOtherFailuresAtError(t *testing.T) {
