@@ -93,7 +93,6 @@ type Service struct {
 	sessionStrategyStore         sessionstrategy.Store
 	classifierSessions           *classifierSessions
 	lifecycle                    *conversation.Lifecycle
-	compaction                   *conversation.CompactionTracker
 	prefixTrimFreeSwitch         bool
 	escapeNormalize              bool
 	hardPinExplore               bool
@@ -1001,7 +1000,6 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		lifecycle:                    conversation.NewLifecycle(),
 		searchUse:                    newSearchUseTracker(),
 		searchRequirementDecayTurns:  DefaultSearchRequirementDecayTurns,
-		compaction:                   conversation.NewCompactionTracker(),
 		prefixTrimFreeSwitch:         true,
 		turnSignalCaptureEnabled:     true,
 		ccOrchToolsCrossVendor:       true,
@@ -2075,16 +2073,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	ctx = context.WithValue(ctx, nativeSearchLoggerContextKey{}, observability.FromContext(ctx))
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
-	switch gjson.GetBytes(body, "thread.type").String() {
-	case translate.MessageThreadContinue:
+	body, threadContinued, threadErr := s.ingress.Anthropic.StripMessageThread(body, r.Header)
+	if threadErr != nil {
+		return fmt.Errorf("strip message thread: %w", threadErr)
+	}
+	if threadContinued {
 		observability.FromContext(ctx).Info("Rejecting message-thread continue; client resends full history")
-		return writeMessageThreadUnsupported(w)
-	case translate.MessageThreadCreate:
-		var threadErr error
-		if body, threadErr = sjson.DeleteBytes(body, "thread"); threadErr != nil {
-			return fmt.Errorf("strip message thread: %w", threadErr)
-		}
-		translate.StripMessageThreadsBeta(r.Header)
+		return ingress.WriteMessageThreadUnsupported(w)
 	}
 	ctx, returnErr = withTurnInput(ctx, s, body, r.Header, router.EndpointAnthropicMessages)
 	if returnErr != nil {
@@ -2501,7 +2496,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	if !agentShadowMode && !callerModelPassthroughActive(ctx) {
-		if _, recoveryErr := applyClientCompactionRecovery(ctx, env, clientBudget, tt, req.ConversationMessages); recoveryErr != nil {
+		if _, recoveryErr := conversation.ApplyClientCompactionRecovery(ctx, env, clientBudget, tt, req.ConversationMessages, DefaultCompactionMaxTokens, claudeCodeDefaultWindow); recoveryErr != nil {
 			return recoveryErr
 		}
 	}
@@ -3674,17 +3669,8 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 	})
 }
 
-func pinDecision(p sessionpin.Pin) router.Decision {
-	return router.Decision{
-		Provider: p.Provider,
-		Model:    p.Model,
-		Effort:   p.Effort,
-		Reason:   p.Reason,
-	}
-}
-
 func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, hasImages bool, imageCount int, enabledProviders, excludedModels map[string]struct{}) router.Decision {
-	anchor := pinDecision(pin)
+	anchor := pin.Decision()
 	if s.bandSwap == nil || pin.PairedModel == "" || turnType != turntype.MainLoop {
 		return anchor
 	}
@@ -3695,7 +3681,7 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 	if !ok {
 		return anchor
 	}
-	large, small := orderBandPair(pin)
+	large, small := pin.OrderedBandPair()
 	served := large
 	if band == bandswap.Small {
 		served = small
@@ -3731,30 +3717,6 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 		"paired_model", pin.PairedModel,
 	)
 	return served
-}
-
-func orderBandPair(pin sessionpin.Pin) (large, small router.Decision) {
-	a := pinDecision(pin)
-	b := router.Decision{Provider: pin.PairedProvider, Model: pin.PairedModel, Reason: pin.Reason}
-	ta, tb := catalog.TierFor(a.Model), catalog.TierFor(b.Model)
-	if ta != tb {
-		if ta > tb {
-			return a, b
-		}
-		return b, a
-	}
-	if primaryInputPrice(a.Model) >= primaryInputPrice(b.Model) {
-		return a, b
-	}
-	return b, a
-}
-
-func primaryInputPrice(model string) float64 {
-	pricing, ok := catalog.PrimaryPriceFor(model)
-	if !ok {
-		return 0
-	}
-	return pricing.InputUSDPer1M
 }
 
 func pinAge(p sessionpin.Pin, now time.Time) int64 {
@@ -3862,7 +3824,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
 	byok := BuildCredentialsMap(externalKeysFromContext(ctx))
-	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst {
+	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst && !billing.ByokFeeUnpayable(ctx) {
 		return context.WithValue(ctx, CredentialsContextKey{}, byok[provider])
 	}
 	routerKeyed := installationIDFromContext(ctx) != (uuid.UUID{})

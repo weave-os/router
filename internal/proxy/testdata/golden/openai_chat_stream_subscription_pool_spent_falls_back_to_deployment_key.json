@@ -83,7 +83,7 @@
         },
         {
           "Diagnosis": {
-            "ErrorClass": "other",
+            "ErrorClass": "funding_refused",
             "FailureOwner": "router"
           },
           "FailureReason": "transport",
