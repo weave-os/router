@@ -13,26 +13,31 @@ import (
 var ErrForcedModelExcluded = errors.New("forced model is excluded")
 
 type ForcedModelExcludedError struct {
-	Model  string
-	Reason string
+	Model           string
+	Reason          string
+	CreditsDisabled bool
 }
 
 func (e *ForcedModelExcludedError) Error() string { return e.Reason }
 
 func (e *ForcedModelExcludedError) Unwrap() []error {
-	if e.Reason == forcedModelUnfundedReason {
+	if e.CreditsDisabled {
 		return []error{ErrForcedModelExcluded, ErrWeaveCreditsDisabled}
 	}
 	return []error{ErrForcedModelExcluded}
 }
 
-func (s *Service) forcedModelBinding(ctx context.Context, model, provider string) (binding, reason string) {
+func forcedModelExcluded(model, reason string) *ForcedModelExcludedError {
+	return &ForcedModelExcludedError{Model: model, Reason: reason}
+}
+
+func (s *Service) forcedModelBinding(ctx context.Context, model, provider string) (string, *ForcedModelExcludedError) {
 	gateways := s.gatewayProvidersForRequest(ctx)
 	if len(gateways) == 0 && !modelPermittedByAllowlist(ctx, model) {
-		return "", fmt.Sprintf("%s is not on this organization's allowed-model list", model)
+		return "", forcedModelExcluded(model, fmt.Sprintf("%s is not on this organization's allowed-model list", model))
 	}
 	if _, drop := s.forcePolicyExcludedModels(ctx)[model]; drop {
-		return "", fmt.Sprintf("%s is excluded on this installation", model)
+		return "", forcedModelExcluded(model, fmt.Sprintf("%s is excluded on this installation", model))
 	}
 	if len(gateways) > 0 {
 		return gatewayForcedBinding(model, gateways, s.customBindingsForRequest(ctx))
@@ -45,16 +50,16 @@ func (s *Service) forcedModelBinding(ctx context.Context, model, provider string
 			return !ok
 		})
 		if len(bindings) == 0 {
-			return "", forcedModelUnfundedReason
+			return "", &ForcedModelExcludedError{Model: model, Reason: forcedModelUnfundedReason, CreditsDisabled: true}
 		}
 	}
 	if len(excluded) == 0 {
 		for _, binding := range bindings {
 			if binding == provider {
-				return provider, ""
+				return provider, nil
 			}
 		}
-		return bindings[0], ""
+		return bindings[0], nil
 	}
 	permitted := make([]string, 0, len(bindings))
 	for _, b := range bindings {
@@ -64,22 +69,22 @@ func (s *Service) forcedModelBinding(ctx context.Context, model, provider string
 	}
 	switch {
 	case len(permitted) == 0 && len(bindings) == 1:
-		return "", fmt.Sprintf(
+		return "", forcedModelExcluded(model, fmt.Sprintf(
 			"%s is only served by %s, which is excluded on this installation",
 			model, bindings[0],
-		)
+		))
 	case len(permitted) == 0:
-		return "", fmt.Sprintf(
+		return "", forcedModelExcluded(model, fmt.Sprintf(
 			"every provider serving %s (%s) is excluded on this installation",
 			model, strings.Join(bindings, ", "),
-		)
+		))
 	}
 	for _, b := range permitted {
 		if b == provider {
-			return provider, ""
+			return provider, nil
 		}
 	}
-	return permitted[0], ""
+	return permitted[0], nil
 }
 
 func (s *Service) forcePolicyExcludedModels(ctx context.Context) map[string]struct{} {
@@ -91,14 +96,14 @@ func (s *Service) forcePolicyExcludedModels(ctx context.Context) map[string]stru
 
 func gatewayForcedBinding(
 	model string, gateways map[string]struct{}, custom map[string][]string,
-) (binding, reason string) {
+) (string, *ForcedModelExcludedError) {
 	for _, provider := range custom[model] {
 		if _, ok := gateways[provider]; ok {
-			return provider, ""
+			return provider, nil
 		}
 	}
-	return "", fmt.Sprintf(
-		"%s isn't aliased by any of this installation's gateway keys", model)
+	return "", forcedModelExcluded(model, fmt.Sprintf(
+		"%s isn't aliased by any of this installation's gateway keys", model))
 }
 
 func (s *Service) servableBindings(model, provider string) []string {

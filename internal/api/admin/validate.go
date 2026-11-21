@@ -11,6 +11,7 @@ import (
 type validateResponse struct {
 	Valid        bool                  `json:"valid"`
 	Installation validatedInstallation `json:"installation"`
+	Shared       bool                  `json:"shared"`
 }
 
 type validatedInstallation struct {
@@ -20,6 +21,7 @@ type validatedInstallation struct {
 
 func ValidateHandler(c *gin.Context) {
 	installation := middleware.InstallationFrom(c)
+	key := middleware.APIKeyFrom(c)
 	if installation == nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
 		return
@@ -30,5 +32,6 @@ func ValidateHandler(c *gin.Context) {
 			ID:   installation.ID,
 			Name: installation.Name,
 		},
+		Shared: key == nil || key.CredentialSubjectID == "",
 	})
 }

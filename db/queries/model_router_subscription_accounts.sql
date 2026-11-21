@@ -1,6 +1,9 @@
--- Enrollment updates only the same verified owner. Codex seats are provider
--- users within a workspace; fresh verified enrollment may repair an owned
--- workspace-only legacy row but never adopts another owner or an unassigned row.
+-- Enrollment updates the same verified owner. A server-side provider sign-in
+-- (@allow_reassignment) also reassigns another owner's seat when the seat serves
+-- only this installation, so a seat stored under the wrong member moves to the
+-- member who signs in with it. Client-supplied tokens never move a seat.
+-- Codex seats are provider users within a workspace; fresh verified enrollment
+-- may repair an owned workspace-only legacy row but never adopts an unassigned row.
 -- name: UpsertModelRouterSubscriptionAccountForSubscriber :one
 WITH owned AS (
   SELECT id, subscriber_id
@@ -12,13 +15,22 @@ WITH owned AS (
                 JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
                 WHERE subject.id = @subscriber_id::uuid AND subject.projection_complete AND subject.revoked_at IS NULL
                   AND access.installation_id = @installation_id::uuid AND access.access_enabled AND installation.deleted_at IS NULL)
-    AND subscriber_id = @subscriber_id::uuid
+    AND (subscriber_id = @subscriber_id::uuid
+         OR (@allow_reassignment::boolean
+             AND subscriber_id IS NOT NULL
+             AND (@provider::varchar <> 'codex' OR provider_user_id = @provider_user_id::text)
+             AND EXISTS (SELECT 1 FROM router.model_router_subscription_account_installations AS seat
+                         WHERE seat.subscription_account_id = model_router_subscription_accounts.id
+                           AND seat.installation_id = @installation_id::uuid)
+             AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_account_installations AS seat
+                             WHERE seat.subscription_account_id = model_router_subscription_accounts.id
+                               AND seat.installation_id <> @installation_id::uuid)))
     AND (@provider::varchar <> 'codex' OR (NULLIF(@provider_user_id::text, '') IS NOT NULL AND (provider_user_id = @provider_user_id::text OR provider_user_id IS NULL)))
     AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_accounts AS other
                     WHERE other.provider = @provider::varchar AND other.external_account_id = @external_account_id::varchar
                       AND other.id <> model_router_subscription_accounts.id
                       AND (@provider::varchar <> 'codex' OR other.provider_user_id = @provider_user_id::text))
-  ORDER BY (provider_user_id IS NULL), created_at, id
+  ORDER BY (subscriber_id <> @subscriber_id::uuid), (provider_user_id IS NULL), created_at, id
   LIMIT 1
   FOR UPDATE
 ),
@@ -49,7 +61,7 @@ inserted AS (
   INSERT INTO router.model_router_subscription_accounts (
     subscriber_id, api_key_id, provider, external_account_id, provider_user_id, refresh_token_ciphertext, display_name
   )
-  SELECT @subscriber_id::uuid, @api_key_id::uuid, @provider::varchar,
+  SELECT @subscriber_id::uuid, sqlc.narg('api_key_id')::uuid, @provider::varchar,
          @external_account_id::varchar, NULLIF(@provider_user_id::text, ''), @refresh_token_ciphertext::bytea,
          sqlc.narg('display_name')::text
   WHERE (@provider::varchar <> 'codex' OR NULLIF(@provider_user_id::text, '') IS NOT NULL)
@@ -75,13 +87,15 @@ registered AS (
 SELECT id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
        refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
        FALSE::boolean AS inserted,
-       (SELECT subscriber_id IS NULL FROM owned)::boolean AS adopted
+       (SELECT subscriber_id IS NULL FROM owned)::boolean AS adopted,
+       (SELECT subscriber_id FROM owned)::uuid AS previous_subscriber_id
 FROM adopted
 UNION ALL
 SELECT id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
        refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
        inserted::boolean,
-       FALSE::boolean AS adopted
+       FALSE::boolean AS adopted,
+       NULL::uuid AS previous_subscriber_id
 FROM inserted;
 
 -- Account state is scoped by owner so a router key can never manage another
@@ -424,7 +438,7 @@ WHERE (account.provider <> 'codex' OR account.provider_user_id IS NOT NULL)
        AND EXISTS (
         SELECT 1 FROM router.model_router_subscription_account_installations AS registration
         WHERE registration.installation_id = installation.id AND registration.subscription_account_id = account.id)))
-ORDER BY (account.subscriber_id = sqlc.narg(subscriber_id)::uuid) DESC NULLS LAST, account.created_at, account.id
+ORDER BY account.created_at, account.id
 FOR SHARE OF account;
 
 -- Counts one provider credential rejection inside a rolling window. Strikes
@@ -487,22 +501,29 @@ SELECT updated.credential_rejection_count, updated.credential_first_rejected_at,
  )::boolean AS repeated_disconnect
 FROM updated;
 
--- Browser reconnect has no request key, so it enrolls through the subscriber's
--- newest active personal routing key whose installation access is enabled.
--- name: GetSubscriberEnrollmentKey :one
-SELECT k.id AS api_key_id, k.installation_id
-FROM router.model_router_api_keys AS k
-JOIN router.credential_subjects AS subject ON subject.id = k.credential_subject_id
-JOIN router.credential_subject_installations AS access
-  ON access.subject_id = subject.id AND access.installation_id = k.installation_id
-JOIN router.model_router_installations AS installation ON installation.id = k.installation_id
-WHERE k.credential_subject_id = @subscriber_id::uuid
-  AND k.deleted_at IS NULL
+-- Browser enrollment has no request key. Active installation membership alone
+-- authorizes it; the subscriber's newest live key there, if any, is kept as
+-- attribution.
+-- name: GetSubscriberEnrollmentOwner :one
+SELECT access.installation_id, COALESCE(enrollment_key.id::text, '')::text AS api_key_id
+FROM router.credential_subjects AS subject
+JOIN router.credential_subject_installations AS access ON access.subject_id = subject.id
+JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
+LEFT JOIN LATERAL (
+  SELECT k.id
+  FROM router.model_router_api_keys AS k
+  WHERE k.credential_subject_id = subject.id
+    AND k.installation_id = access.installation_id
+    AND k.deleted_at IS NULL
+  ORDER BY k.created_at DESC, k.id
+  LIMIT 1
+) AS enrollment_key ON TRUE
+WHERE subject.id = @subscriber_id::uuid
   AND installation.deleted_at IS NULL
   AND subject.projection_complete
   AND subject.revoked_at IS NULL
   AND access.access_enabled
-ORDER BY k.created_at DESC, k.id
+ORDER BY (enrollment_key.id IS NULL), access.installation_id
 LIMIT 1;
 
 -- Seats idle past the keep-warm age, in random order so seats that keep failing cannot starve the rest. Cooling-down and mid-refresh seats are skipped.

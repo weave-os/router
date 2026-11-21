@@ -54,7 +54,7 @@ func (s *Service) claimOverloadProbe(ctx context.Context, req router.Request) (b
 		return breaker.Probe{}, nil, false
 	}
 	eligibility := req
-	eligibility.AutomaticExcludedModels = s.controlPlaneExcludedModels(ctx)
+	eligibility.Candidates.AutomaticExcludedModels = s.controlPlaneExcludedModels(ctx)
 	probe, transition, ok := s.overloadBreaker.ClaimProbe(org, func(model string) bool {
 		return !modelExcludedForRecoveryProbe(eligibility, model)
 	})

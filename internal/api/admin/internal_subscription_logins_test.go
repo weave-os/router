@@ -26,6 +26,7 @@ const otherSubscriberID = "9b6f3c4e-2f1a-4d8b-9c7e-5a4b3c2d1e0f"
 type loginAccountRepo struct {
 	internalSubscriptionAccountRepo
 	enrolled          *auth.CreateSubscriptionAccountParams
+	withoutMembership bool
 	withoutRoutingKey bool
 }
 
@@ -35,8 +36,11 @@ const (
 )
 
 func (r *loginAccountRepo) SubscriberEnrollmentOwner(_ context.Context, subscriberID string) (auth.SubscriptionOwner, error) {
+	if r.withoutMembership {
+		return auth.SubscriptionOwner{}, auth.ErrSubscriptionEnrollmentMembershipNotFound
+	}
 	if r.withoutRoutingKey {
-		return auth.SubscriptionOwner{}, auth.ErrSubscriptionEnrollmentKeyNotFound
+		return auth.SubscriptionOwner{SubscriberID: subscriberID, InstallationID: testEnrollmentInstallationID}, nil
 	}
 	return auth.SubscriptionOwner{SubscriberID: subscriberID, APIKeyID: testEnrollmentAPIKeyID, InstallationID: testEnrollmentInstallationID}, nil
 }
@@ -149,15 +153,27 @@ func TestBrowserLoginReportsPendingUntilApproved(t *testing.T) {
 	require.Nil(t, repo.enrolled)
 }
 
-func TestBrowserLoginWithoutRoutingKeyKeepsTheProviderCodeUnspent(t *testing.T) {
-	repo := &loginAccountRepo{withoutRoutingKey: true}
+func TestBrowserLoginWithoutMembershipKeepsTheProviderCodeUnspent(t *testing.T) {
+	repo := &loginAccountRepo{withoutMembership: true}
 	flow := &fakeLoginFlow{}
 	engine := loginTestEngine(t, repo, flow)
 	token := startLogin(t, engine)
 
 	recorder := postLogin(t, engine, "/internal/v1/subscription-logins/"+testSubscriberID+"/complete", map[string]string{"login_token": token, "code": "code#state-1"})
 	require.Equal(t, http.StatusConflict, recorder.Code, recorder.Body.String())
-	require.Contains(t, recorder.Body.String(), "routing_key_required")
+	require.Contains(t, recorder.Body.String(), "installation_membership_required")
 	require.Empty(t, flow.completionAttempts)
 	require.Nil(t, repo.enrolled)
+}
+
+func TestBrowserLoginEnrollsAMemberWithoutARoutingKey(t *testing.T) {
+	repo := &loginAccountRepo{withoutRoutingKey: true}
+	flow := &fakeLoginFlow{}
+	engine := loginTestEngine(t, repo, flow)
+	token := startLogin(t, engine)
+
+	recorder := postLogin(t, engine, "/internal/v1/subscription-logins/"+testSubscriberID+"/complete", map[string]string{"login_token": token, "code": "code#state-1"})
+	require.Equal(t, http.StatusCreated, recorder.Code, recorder.Body.String())
+	require.NotNil(t, repo.enrolled)
+	require.Equal(t, auth.SubscriptionOwner{SubscriberID: testSubscriberID, InstallationID: testEnrollmentInstallationID}, repo.enrolled.Owner)
 }

@@ -33,12 +33,12 @@ func TestPinMatchesEffectiveStrategy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := router.WithStrategy(context.Background(), tt.request)
-			assert.Equal(t, tt.expected, pinMatchesEffectiveStrategy(ctx, sessionpin.Pin{Strategy: tt.stored}))
+			assert.Equal(t, tt.expected, pinMatchesEffectiveStrategy(router.StrategyFromContext(ctx), sessionpin.Pin{Strategy: tt.stored}))
 		})
 	}
 
 	betaContext := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
-	assert.True(t, pinMatchesEffectiveStrategy(betaContext, sessionpin.Pin{
+	assert.True(t, pinMatchesEffectiveStrategy(router.StrategyFromContext(betaContext), sessionpin.Pin{
 		Reason:   translate.ReasonUserForceModel,
 		Strategy: router.StrategyHMMEmbedding,
 	}), "an explicit force must survive routing-strategy changes")

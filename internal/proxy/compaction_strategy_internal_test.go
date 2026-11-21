@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -24,8 +25,8 @@ const compactionStrategyModel = "gpt-6.1-terra"
 
 func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	store := newForceModelMapStore()
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: nil}, nil, store, false,
-		providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil).
+	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: nil}, nil, store, false,
+		providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil)).
 		WithAvailableModels(map[string]struct{}{compactionStrategyModel: {}}).
 		WithHardPinResolver(CatalogUtilityHardPin)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, SessionID: "compaction-strategy-test"})
@@ -42,7 +43,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 		turnCtx := router.WithStrategy(ctx, strategy)
 		decision := router.Decision{Provider: providers.ProviderOpenAI, Model: compactionStrategyModel,
 			Metadata: &router.RoutingMetadata{Strategy: string(strategy)}}
-		svc.writeNewPin(turnCtx, installationID, sessionKey, sessionpin.DefaultRole, decision)
+		routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(turnCtx)).WriteNew(turnCtx, installationID, sessionKey, sessionpin.DefaultRole, decision)
 		svc.recordTurnUsage(turnCtx, turnLoopResult{
 			InstallationID: installationID, SessionKey: sessionKey, PinRole: sessionpin.DefaultRole,
 			Strategy: strategy, Decision: decision,
@@ -61,14 +62,17 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 			legacyExcluded[entry.Model] = struct{}{}
 		}
 	}
-	turn, err := svc.runTurnLoop(ctx, env, features, "test-key", installationID, "", nil, router.Request{
+	turn, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "test-key", installationID), "", nil, router.Request{
 		RequestedModel:   string(router.ModelHMM),
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
-		ExcludedModels:   legacyExcluded,
+		Candidates: router.Candidates{
+			ExcludedModels: legacyExcluded,
+		},
 		TranslationRequirements: router.TranslationRequirements{
 			SourceFormat: router.WireFormatOpenAI, Endpoint: router.EndpointOpenAIResponses, NativeOnly: true,
 		},
 	})
+
 	if err != nil {
 		class, _ := ClassifyDispatchError(err)
 		t.Logf("compaction rejected: HTTP %d: %s", class.Status, class.Message)
@@ -81,9 +85,10 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	assert.Equal(t, compactionStrategyModel, turn.Decision.Model)
 	assert.Equal(t, policy.OverrideSourceSession, turn.Origin)
 
-	_, active := svc.loadPin(ctx, sessionKey, sessionpin.DefaultRole)
+	sessionPins := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(ctx))
+	_, active := sessionPins.Load(ctx, sessionKey, sessionpin.DefaultRole)
 	assert.False(t, active, "ordinary routing must still reject another strategy's pin")
-	assert.Empty(t, svc.loadHMMHistory(ctx, sessionKey, sessionpin.DefaultRole).LastServedModel)
+	assert.Empty(t, sessionPins.LoadHMMHistory(ctx, sessionKey, sessionpin.DefaultRole).LastServedModel)
 }
 
 func TestCodexCompactionDispatchAcrossStrategies(t *testing.T) {
@@ -93,8 +98,8 @@ func TestCodexCompactionDispatchAcrossStrategies(t *testing.T) {
 			Strategy: router.StrategyHMMEmbedding, LastTurnEndedAt: time.Now(),
 		},
 	}}
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: untypedResponsesStreamProvider{}},
-		nil, store, false, providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil).
+	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: untypedResponsesStreamProvider{}},
+		nil, store, false, providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil)).
 		WithHardPinResolver(func(HardPinRequest) (string, string, bool) { return "", "", false })
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
 	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
@@ -118,8 +123,8 @@ func TestCompactionCrossStrategyHistoryHonorsEligibility(t *testing.T) {
 		available map[string]struct{}
 	}{
 		{name: "provider disabled", req: router.Request{EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}},
-		{name: "model excluded", req: router.Request{ExcludedModels: map[string]struct{}{compactionStrategyModel: {}}}},
-		{name: "model automatically disabled", req: router.Request{AutomaticExcludedModels: map[string]struct{}{compactionStrategyModel: {}}}},
+		{name: "model excluded", req: router.Request{Candidates: router.Candidates{ExcludedModels: map[string]struct{}{compactionStrategyModel: {}}}}},
+		{name: "model automatically disabled", req: router.Request{Candidates: router.Candidates{AutomaticExcludedModels: map[string]struct{}{compactionStrategyModel: {}}}}},
 		{name: "model unavailable", available: map[string]struct{}{policy.PrecompactionDefaultModel: {}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

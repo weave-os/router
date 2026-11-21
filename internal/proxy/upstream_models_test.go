@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,7 +43,7 @@ func (nonListerClient) Passthrough(context.Context, providers.PreparedRequest, h
 }
 
 func upstreamModelsService(providerMap map[string]providers.Client) *proxy.Service {
-	return proxy.NewService(nil, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	return proxy.WithStrategyPorts(proxy.NewService(nil, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 }
 
 func TestListUpstreamModels_PassesCredentialsToLister(t *testing.T) {

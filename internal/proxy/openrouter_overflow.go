@@ -47,7 +47,7 @@ func (s *Service) openRouterOverflowFallbackTarget(ctx context.Context, req rout
 		return router.Decision{}, false
 	}
 	for _, model := range models {
-		if _, allowed := req.AllowedModels[model]; !allowed {
+		if _, allowed := req.Candidates.AllowedModels[model]; !allowed {
 			continue
 		}
 		target := initial

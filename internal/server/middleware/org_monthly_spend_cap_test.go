@@ -15,7 +15,45 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestPiHandoffAtOrgMonthlySpendCap(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := billing.NewService(&stubBillingRepo{orgMonthLimit: capPtr(0)})
+	for _, tc := range []struct {
+		name       string
+		enrolled   auth.SubscriptionProvider
+		wantStatus int
+	}{
+		{name: "Claude seat", enrolled: auth.SubscriptionProviderClaude, wantStatus: http.StatusOK},
+		{name: "Codex seat", enrolled: auth.SubscriptionProviderCodex, wantStatus: http.StatusPaymentRequired},
+		{name: "no seat", wantStatus: http.StatusPaymentRequired},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine := gin.New()
+			engine.POST("/v1/route/handoff", func(c *gin.Context) {
+				withInstallation(c, "org-test")
+				c.Next()
+			}, middleware.WithOrgMonthlySpendCap(svc), func(c *gin.Context) {
+				reason, ok := billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
+				assert.True(t, ok)
+				assert.Equal(t, billing.SubscriptionOnlySpendCapReached, reason)
+				c.Status(http.StatusOK)
+			})
+			ctx := t.Context()
+			if tc.enrolled != "" {
+				ctx = context.WithValue(ctx, proxy.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{tc.enrolled: {}})
+			}
+			w := httptest.NewRecorder()
+			engine.ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/route/handoff", nil))
+			require.Equal(t, tc.wantStatus, w.Code, w.Body.String())
+			if tc.wantStatus == http.StatusPaymentRequired {
+				assert.Contains(t, w.Body.String(), "org_monthly_spend_limit_reached")
+			}
+		})
+	}
+}
 
 // runOrgMonthlyCap drives WithOrgMonthlySpendCap with a synthetic installation
 // pre-stashed the way WithAuth would. Returns the recorder and a reached flag.

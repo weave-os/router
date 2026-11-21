@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -41,15 +42,15 @@ func newOpenCodeTurnSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}`)
 	}
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{proxyResponse: anthropicResp},
 			providers.ProviderOpenAI:    &fakeProvider{proxyResponse: responsesResp},
 		},
 		nil, store, false,
-		providers.ProviderOpenAI, openCodeHardPinModel, nil,
-	)
+		providers.ProviderOpenAI, openCodeHardPinModel, nil), hmm.ServingPorts())
+
 }
 
 const openCodeParentSession = "ses_opencode_parent"

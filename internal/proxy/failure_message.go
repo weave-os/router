@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	upstreamCallFailedMessage = "Upstream call failed."
-	cortexDisplayName         = "Cortex"
+	upstreamCallFailedMessage        = "Upstream call failed."
+	subscriptionPoolThrottledMessage = "All enrolled subscription accounts are rate-limited. Retry shortly."
+	cortexDisplayName                = "Cortex"
 )
 
 var providerDisplayNames = map[string]string{
@@ -86,6 +87,9 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	if providers.IsUpstreamCyberPolicyRefusal(a.Err) {
 		return failureWording{"declined the request", "declined the request"}
 	}
+	if limit, ok := codexUsageLimitOf(a); ok {
+		return limit.wording()
+	}
 	if errors.Is(a.Err, ErrSubscriptionPoolExhausted) && (status == http.StatusUnauthorized || status == http.StatusForbidden) {
 		return failureWording{"rejected the subscription login", "subscription login rejected"}
 	}
@@ -127,6 +131,9 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	if isUpstreamContextOverflow(a.Err) {
 		return failureWording{"found the conversation too long for its context window", withStatus("context window exceeded")}
 	}
+	if providers.IsUpstreamCredentialRefusal(a.Err) {
+		return failureWording{"refused our account credential", withStatus("refused our account credential")}
+	}
 	if status >= 400 && status < 500 {
 		if a.Diagnosis.BodyTranslated && attemptOwner(a) == FailureOwnerRouter {
 			return failureWording{"rejected our translated request", withStatus("rejected our translated request")}
@@ -141,7 +148,7 @@ func rescueDetailLine(a dispatch.TracedAttempt) string {
 	if owner == "" || owner == FailureOwnerUnknown {
 		return ""
 	}
-	if isUpstreamContextOverflow(a.Err) {
+	if _, limited := codexUsageLimitOf(a); limited || isUpstreamContextOverflow(a.Err) {
 		return translate.RescueDetailPrefix + attemptProviderName(a) + " " + failureWordingFor(a).badge + "\n\n"
 	}
 	return translate.RescueDetailPrefix + attemptProviderName(a) + " " + failureWordingFor(a).badge + " (" + string(owner) + " issue)\n\n"
@@ -182,6 +189,21 @@ func attributeTerminalError(trace *dispatch.AttemptTrace, err error) error {
 	return attributeAttempt(last, trace.RetriesOf(last), err)
 }
 
+func attributeCodexUsageLimitAbort(trace *dispatch.AttemptTrace, err error) error {
+	if err == nil || trace == nil || trace.HideDetails() {
+		return err
+	}
+	last, ok := trace.LastFailure()
+	if !ok {
+		return err
+	}
+	last.Err = err
+	if _, limited := codexUsageLimitOf(last); !limited {
+		return err
+	}
+	return attributeAttempt(last, trace.RetriesOf(last), err)
+}
+
 func attributeStreamError(ctx context.Context, provider string, err error) error {
 	trace := attemptTraceFromContext(ctx)
 	if err == nil || trace.HideDetails() {
@@ -211,11 +233,14 @@ func attributeAttempt(a dispatch.TracedAttempt, retries int, err error) error {
 }
 
 func attributionPrefix(a dispatch.TracedAttempt, retries int) string {
-	if attemptOwner(a) == FailureOwnerRouter {
+	limit, limited := codexUsageLimitOf(a)
+	if attemptOwner(a) == FailureOwnerRouter && !limited {
 		return ""
 	}
 	var outcome string
 	switch status := upstreamStatus(a.Err); {
+	case limited:
+		outcome = limit.badge()
 	case status == http.StatusTooManyRequests:
 		outcome = "returned 429 (rate limited)"
 	case status == providerOverloadedStatus:
@@ -251,6 +276,12 @@ func terminalMessageFor(a dispatch.TracedAttempt) string {
 }
 
 func attributedTerminalMessage(a dispatch.TracedAttempt, prefix string) string {
+	if limit, ok := codexUsageLimitOf(a); ok && prefix != "" {
+		if msg := upstreamErrorText(limit.upstream); msg != "" {
+			return prefix + ": " + msg
+		}
+		return prefix + "."
+	}
 	wording := failureWordingFor(a).terminal
 	provider := attemptProviderName(a)
 	switch attemptOwner(a) {
@@ -302,6 +333,9 @@ func TerminalErrorMessage(err error) string {
 	var attributed attributedError
 	if errors.As(err, &attributed) && attributed.message != "" {
 		return attributed.message
+	}
+	if errors.Is(err, ErrSubscriptionPoolThrottled) {
+		return subscriptionPoolThrottledMessage
 	}
 	return upstreamCallFailedMessage
 }

@@ -37,19 +37,21 @@ func runDemotionTurnLoop(t *testing.T, svc *Service, ctx context.Context) turnLo
 	res, err := svc.runTurnLoop(
 		ctx,
 		env,
-		features,
-		"api-key",
-		uuid.New(),
+		features, testTurnRequest(
+			ctx, "api-key", uuid.New()),
+
 		"",
 		http.Header{},
 		router.Request{
-			RequestedModel:       features.Model,
-			ExcludedModels:       svc.excludedModelsForRequest(ctx),
+			RequestedModel: features.Model,
+			Candidates: router.Candidates{
+				ExcludedModels: svc.excludedModelsForRequest(ctx),
+			},
 			EstimatedInputTokens: features.Tokens,
 			HasTools:             features.HasTools,
 			ConversationMessages: conversationMessagesForRouting(env),
-		},
-	)
+		})
+
 	require.NoError(t, err)
 	return res
 }
@@ -79,8 +81,8 @@ func TestTurnLoopExcludesDemotedModelUnderAuthoritativePolicy(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "arm-demotion-authoritative-test_policy",
 	}}
-	svc := NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   policyRouter,
@@ -94,7 +96,7 @@ func TestTurnLoopExcludesDemotedModelUnderAuthoritativePolicy(t *testing.T) {
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	require.Len(t, policyRouter.requests, 1)
-	assert.Contains(t, policyRouter.requests[0].AutomaticExcludedModels, demotedPinModel,
+	assert.Contains(t, policyRouter.requests[0].Candidates.AutomaticExcludedModels, demotedPinModel,
 		"the demoted arm must be withdrawn from the authoritative pick")
 }
 
@@ -109,15 +111,15 @@ func TestTurnLoopDropsDemotedPinOnScorerPath(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := NewService(scorer, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	assert.False(t, res.StickyHit, "a demoted pin must not be reused")
 	require.Len(t, scorer.requests, 1)
-	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
+	assert.Contains(t, scorer.requests[0].Candidates.AutomaticExcludedModels, demotedPinModel)
 }
 
 // HMM stickiness is recorded on the _hmm_history row, so a demotion written
@@ -132,14 +134,14 @@ func TestTurnLoopHonoursDemotionRecordedOnHMMHistory(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := NewService(scorer, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	require.Len(t, scorer.requests, 1)
-	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
+	assert.Contains(t, scorer.requests[0].Candidates.AutomaticExcludedModels, demotedPinModel)
 }
 
 // /force-model is the escape hatch: an automatic strike-out must not silently
@@ -153,8 +155,8 @@ func TestTurnLoopKeepsForcedModelDespiteDemotion(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := NewService(scorer, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
 

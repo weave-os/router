@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/translate"
 )
 
@@ -39,8 +40,8 @@ func TestGeminiToolModeRecoveryAcrossOpenAIFormats(t *testing.T) {
 					return err
 				},
 			}}
-			svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: model}},
-				map[string]providers.Client{providers.ProviderGoogle: client}, nil, nil, false, providers.ProviderGoogle, model, nil).
+			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: model}},
+				map[string]providers.Client{providers.ProviderGoogle: client}, nil, nil, false, providers.ProviderGoogle, model, nil), hmm.ServingPorts()).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderGoogle: {}})
 			rec := httptest.NewRecorder()
 			body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic task"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}}]}`

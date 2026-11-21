@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -23,7 +24,7 @@ func TestSubscriptionStatePoolOverloadHoldsSessionOffModel(t *testing.T) {
 	overloaded := fakeOutcome{err: &providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: []byte(`{"error":{"message":"Our servers are currently overloaded. Please try again later.","type":"server_error"}}`)}}
 	codex := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{overloaded, overloaded, overloaded}}
 	claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("first answer")}, {writeBytes: []byte("second answer")}}}
-	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex}, nil, nil, false, "", "", nil).
+	svc := withHMMPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex}, nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true, subscriptions.ProviderCodex: true}})
 	now := time.Date(2026, 11, 4, 6, 41, 0, 0, time.UTC)
 	svc.clock = func() time.Time { return now }
@@ -35,7 +36,7 @@ func TestSubscriptionStatePoolOverloadHoldsSessionOffModel(t *testing.T) {
 		ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel, stateClaudeModel})
 		ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 		ctx = withTurnFailures(ctx)
-		req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})}
+		req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})}
 		rec := httptest.NewRecorder()
 		buffer := newPreludeBuffer(rec)
 		var winner router.Decision
@@ -70,7 +71,7 @@ func TestSubscriptionStatePoolOverloadHoldsSessionOffModel(t *testing.T) {
 }
 
 func TestSessionHoldCoversSiblingModelsOnThePool(t *testing.T) {
-	svc := &Service{clock: time.Now}
+	svc := &Service{hmmServing: hmmPorts(), clock: time.Now}
 	ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
 	svc.markSubscriptionPoolUnavailable(ctx, subscriptions.ProviderCodex)
 	svc.holdSessionOffSubscriptionPool(ctx, providers.ProviderOpenAI, stateCodexModel)

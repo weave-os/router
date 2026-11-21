@@ -23,18 +23,17 @@ const (
 type AuthoritativeUpgradePolicy string
 
 const (
-	AuthoritativeUpgradePolicyScore    AuthoritativeUpgradePolicy = "score"
-	AuthoritativeUpgradePolicyEvidence AuthoritativeUpgradePolicy = "evidence"
-	AuthoritativeUpgradePolicyOff      AuthoritativeUpgradePolicy = "off"
+	AuthoritativeUpgradePolicyScore AuthoritativeUpgradePolicy = "score"
+	AuthoritativeUpgradePolicyOff   AuthoritativeUpgradePolicy = "off"
 )
 
 func ParseAuthoritativeUpgradePolicy(raw string) (AuthoritativeUpgradePolicy, error) {
 	policy := AuthoritativeUpgradePolicy(raw)
 	switch policy {
-	case AuthoritativeUpgradePolicyScore, AuthoritativeUpgradePolicyEvidence, AuthoritativeUpgradePolicyOff:
+	case AuthoritativeUpgradePolicyScore, AuthoritativeUpgradePolicyOff:
 		return policy, nil
 	default:
-		return "", fmt.Errorf("authoritative upgrade policy must be score, evidence, or off, got %q", raw)
+		return "", fmt.Errorf("authoritative upgrade policy must be score or off, got %q", raw)
 	}
 }
 
@@ -65,11 +64,7 @@ const (
 	KeyEscalationXGBoostShadowEnabled       Key = "escalation_xgb_shadow_enabled"
 	KeyEscalationXGBoostShadowMarkerEnabled Key = "escalation_xgb_shadow_marker_enabled"
 	KeyEscalationXGBoostEpoch               Key = "escalation_xgb_epoch"
-	KeyStruggleShadowEnabled                Key = "struggle_shadow_enabled"
-	KeySpiralShadowEnabled                  Key = "spiral_shadow_enabled"
 	KeyTurnSignalCapture                    Key = "turn_signal_capture_enabled"
-	KeyLoopEscalationEnabled                Key = "loop_escalation_enabled"
-	KeyLoopEscalationHoldoutPct             Key = "loop_escalation_holdout_pct"
 	KeyTextRepetitionBreak                  Key = "text_repetition_break_enabled"
 	KeyPlannerEnabled                       Key = "planner_enabled"
 	KeyScoreToolResultTurns                 Key = "score_tool_result_turns"
@@ -77,15 +72,17 @@ const (
 	KeyPrefixTrimFreeSwitch                 Key = "prefix_trim_free_switch"
 	KeyAuthoritativeUpgradeGate             Key = "authoritative_upgrade_gate"
 	KeyAuthoritativeUpgradePolicy           Key = "authoritative_upgrade_policy"
-	KeyAuthoritativeUpgradeHoldoutPct       Key = "authoritative_upgrade_holdout_pct"
 	KeyAuthoritativeUpgradeVotes            Key = "authoritative_upgrade_votes"
 	KeyAuthoritativeDowngradeGate           Key = "authoritative_downgrade_gate"
 	KeyAuthoritativeUpgradeSlidingThreshold Key = "authoritative_upgrade_sliding_threshold"
 	KeyHMMDowngradeHysteresisTurns          Key = "hmm_downgrade_hysteresis_turns"
 	KeyHMMDowngradeHysteresisShadowTurns    Key = "hmm_downgrade_hysteresis_shadow_turns"
+	KeySwitchDecideShadow                   Key = "switch_decide_shadow"
 	KeyAuthorityCacheShadow                 Key = "authority_cache_shadow"
 	KeyAgreementShadowEpoch                 Key = "agreement_shadow_epoch"
 	KeySiblingFailover                      Key = "sibling_failover"
+	KeyOwnSeatFirst                         Key = "own_seat_first"
+	KeyOwnOverageBeforePool                 Key = "own_overage_before_pool"
 	KeyEffortEscalation                     Key = "effort_escalation"
 	KeyCyberRefusalRepin                    Key = "cyber_refusal_repin"
 	KeyCyberRefusalRetry                    Key = "cyber_refusal_retry"
@@ -93,12 +90,13 @@ const (
 	KeyAnthropicServerFallback              Key = "anthropic_server_side_fallback"
 	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
 	KeySessionPinEnabled                    Key = "session_pin_enabled"
-	KeyHMMSameTierPin                       Key = "hmm_same_tier_pin"
 	KeyHardPinExplore                       Key = "hard_pin_explore"
+	KeyTaskArmExperimentTreatmentPct        Key = "task_arm_experiment_treatment_pct"
+	KeyTaskArmExperimentSteps               Key = "task_arm_experiment_steps"
+	KeyTaskArmExperimentTreatmentCluster    Key = "task_arm_experiment_treatment_cluster"
 	KeyCCOrchToolsCrossVendor               Key = "cc_orch_tools_crossvendor"
 	KeyEscapeNormalize                      Key = "deepseek_escape_normalize"
 	KeyPlannerTierUpgrade                   Key = "planner_tier_upgrade_enabled"
-	KeyPlannerColdPinFollowFresh            Key = "planner_cold_pin_follow_fresh"
 	KeyPlannerCorrectedEconomics            Key = "planner_corrected_economics"
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeyCCTaskToolsCrossVendor               Key = "cc_task_tools_crossvendor"
@@ -117,24 +115,6 @@ const (
 	KeyNativeOpenAIResponseSignals          Key = "native_openai_response_signals"
 	KeyPlanUserClusterLists                 Key = "plan_user_cluster_lists"
 )
-
-const (
-	retiredKeyStruggleEscalationEnabled Key = "struggle_escalation_enabled"
-	retiredKeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
-	retiredKeyStruggleEvidenceArming    Key = "struggle_evidence_arming"
-	retiredKeySubscriberPaidFallback    Key = "subscriber_paid_fallback_enabled"
-	retiredKeySubscriptionPoolQuota     Key = "subscription_pool_quota_aware_selection_enabled"
-	retiredKeyEmbedOnlyUserMessage      Key = "embed_only_user_message"
-)
-
-var retiredOverrideKeys = map[Key]struct{}{
-	retiredKeyStruggleEscalationEnabled: {},
-	retiredKeyStruggleEscalationHoldout: {},
-	retiredKeyStruggleEvidenceArming:    {},
-	retiredKeySubscriberPaidFallback:    {},
-	retiredKeySubscriptionPoolQuota:     {},
-	retiredKeyEmbedOnlyUserMessage:      {},
-}
 
 type Definition struct {
 	Key            Key
@@ -213,7 +193,7 @@ func ValidateOverrides(o Overrides) error {
 		if err := check(key, KindInt); err != nil {
 			return err
 		}
-		if key == KeyLoopEscalationHoldoutPct || key == KeyAuthoritativeUpgradeHoldoutPct {
+		if key == KeyTaskArmExperimentTreatmentPct {
 			if value < 0 || value > 100 {
 				return fmt.Errorf("%w: %q must be between 0 and 100, got %d", ErrInvalidValue, key, value)
 			}
@@ -239,9 +219,9 @@ func ValidateOverrides(o Overrides) error {
 		}
 		if key == KeyAuthoritativeUpgradePolicy {
 			switch AuthoritativeUpgradePolicy(value) {
-			case AuthoritativeUpgradePolicyScore, AuthoritativeUpgradePolicyEvidence, AuthoritativeUpgradePolicyOff:
+			case AuthoritativeUpgradePolicyScore, AuthoritativeUpgradePolicyOff:
 			default:
-				return fmt.Errorf("%w: %q must be score, evidence, or off, got %q", ErrInvalidValue, key, value)
+				return fmt.Errorf("%w: %q must be score or off, got %q", ErrInvalidValue, key, value)
 			}
 		}
 	}
@@ -309,9 +289,6 @@ func DecodeOverrides(raw []byte) (o Overrides, err error) {
 		key := Key(name)
 		def, ok := definitions[key]
 		if !ok {
-			if _, retired := retiredOverrideKeys[key]; retired {
-				continue
-			}
 			return Overrides{}, fmt.Errorf("flags: unknown flag %q", name)
 		}
 		if !def.OrgOverridable {
@@ -421,17 +398,6 @@ func IntOr(ctx context.Context, key Key, deploymentDefault int) (value int) {
 		return deploymentDefault
 	}
 	if v, found := o.Ints[key]; found {
-		return v
-	}
-	return deploymentDefault
-}
-
-func FloatOr(ctx context.Context, key Key, deploymentDefault float64) (value float64) {
-	o, ok := OverridesFromContext(ctx)
-	if !ok {
-		return deploymentDefault
-	}
-	if v, found := o.Floats[key]; found {
 		return v
 	}
 	return deploymentDefault

@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 )
 
 // codexNotifyTurnBody is a Codex code-mode history where an exec script
@@ -40,10 +41,10 @@ func TestProxyOpenAIResponses_CodexDuplicateToolOutputsReachAnthropicOnce(t *tes
 		_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-5","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
 	}}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5", Reason: "test"}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderAnthropic: anthropic,
 		providers.ProviderOpenAI:    &fakeProvider{},
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5", nil)
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5", nil), hmm.ServingPorts())
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -70,9 +71,9 @@ func TestProxyOpenAIResponses_CodexDuplicateToolOutputsStayVerbatimOnNativeOpenA
 		_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`)
 	}}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test"}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderOpenAI: openai,
-	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -97,9 +98,9 @@ func TestProxyMessages_DuplicateToolResultsReachAnthropicOnce(t *testing.T) {
 		_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-5","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
 	}}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5", Reason: "test"}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderAnthropic: anthropic,
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5", nil)
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5", nil), hmm.ServingPorts())
 
 	body := []byte(`{"model":"claude-opus-5","max_tokens":512,"messages":[` +
 		`{"role":"user","content":"poll the build"},` +

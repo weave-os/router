@@ -56,7 +56,7 @@ case "$url" in
     ;;
   */v1/subscriptions/accounts)
     if [ -n "${FAKE_ENROLLMENT_STATUS:-}" ]; then
-      printf '%s' '{"error":"invalid_key"}' >"$out"
+      printf '{"error":"%s"}' "${FAKE_ENROLLMENT_ERROR:-invalid_key}" >"$out"
       [ "$want_status" = "true" ] && printf '%s' "$FAKE_ENROLLMENT_STATUS"
       exit 0
     fi
@@ -74,8 +74,13 @@ case "$url" in
 esac
 FAKE_CURL
 chmod +x "$work/bin/curl"
-printf '#!/usr/bin/env bash\nexit 0\n' >"$work/bin/open"
+export FAKE_BROWSER_LOG="$work/browser.log"
+cat >"$work/bin/open" <<'FAKE_OPEN'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >>"$FAKE_BROWSER_LOG"
+FAKE_OPEN
 chmod +x "$work/bin/open"
+cp "$work/bin/open" "$work/bin/xdg-open"
 
 common_env=(HOME="$work/home" XDG_CACHE_HOME="$work/home/.cache" PATH="$work/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_secret" NO_COLOR=1)
 
@@ -147,6 +152,50 @@ for validation_status in 403 503; do
     exit 1
   fi
 done
+
+for provider in claude codex; do
+  : >"$FAKE_CURL_LOG"
+  if shared_output="$(env "${common_env[@]}" FAKE_VALIDATION_BODY='{"valid":true,"shared":true}' \
+      bash "$installer" login "$provider" --base-url https://router.example.test --non-interactive --quiet 2>&1)"; then
+    echo "$provider login continued on a shared team key" >&2
+    exit 1
+  fi
+  grep -Fq 'shared team key' <<<"$shared_output"
+  grep -Fq 'only through a personal key' <<<"$shared_output"
+  if grep -Eq 'oauth|deviceauth|subscriptions/accounts' "$FAKE_CURL_LOG"; then
+    echo "$provider login started authorization on a shared team key" >&2
+    exit 1
+  fi
+done
+
+for provider in claude codex; do
+  : >"$FAKE_CURL_LOG"
+  : >"$FAKE_BROWSER_LOG"
+  hosted_output="$(env "${common_env[@]}" FAKE_VALIDATION_BODY='{"valid":true,"shared":true}' \
+    bash "$installer" login "$provider" --base-url https://router.weaveos.com --non-interactive --quiet 2>&1)" || {
+    echo "hosted $provider login did not hand off to the browser" >&2
+    exit 1
+  }
+  grep -Fq "https://app.weaveos.com/home/router/settings/subscriptions?reconnect=$provider" <<<"$hosted_output"
+  grep -Fxq "https://app.weaveos.com/home/router/settings/subscriptions?reconnect=$provider" "$FAKE_BROWSER_LOG"
+  if grep -Eq 'oauth|deviceauth|subscriptions/accounts' "$FAKE_CURL_LOG"; then
+    echo "hosted $provider login enrolled through the router key" >&2
+    exit 1
+  fi
+done
+
+if listing_output="$(env "${common_env[@]}" FAKE_ENROLLMENT_STATUS=403 FAKE_ENROLLMENT_ERROR=personal_identity_required \
+    bash "$installer" accounts list --base-url https://router.example.test --non-interactive --quiet 2>&1)"; then
+  echo 'accounts list exited zero after the router refused a shared key' >&2
+  exit 1
+fi
+grep -Fq 'shared team key' <<<"$listing_output"
+if hosted_listing_output="$(env "${common_env[@]}" FAKE_ENROLLMENT_STATUS=403 FAKE_ENROLLMENT_ERROR=personal_identity_required \
+    bash "$installer" accounts list --base-url https://router.weaveos.com --non-interactive --quiet 2>&1)"; then
+  echo 'hosted accounts list exited zero after the router refused a shared key' >&2
+  exit 1
+fi
+grep -Fq 'https://app.weaveos.com/home/router/settings/subscriptions' <<<"$hosted_listing_output"
 
 env "${common_env[@]}" bash "$installer" login codex --base-url https://router.example.test --non-interactive --quiet \
   | grep -Fq 'Codex subscription enrolled.'

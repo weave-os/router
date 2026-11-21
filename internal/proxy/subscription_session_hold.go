@@ -43,13 +43,17 @@ func (s *Service) holdSessionOffSubscriptionPool(ctx context.Context, provider, 
 	observability.FromContext(ctx).Info("Session held off subscription pool after capacity failure", "pool", pool, "hold", subscriptionSessionHold)
 }
 
-func (h *subscriptionSessionHolds) withUnservedHoldsReleased(ctx context.Context) context.Context {
+func (h *subscriptionSessionHolds) withUnservedHoldsReleased(ctx context.Context, enabledProviders map[string]struct{}) context.Context {
 	owner := sessionHoldOwner(ctx)
 	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if owner == "" || state == nil {
 		return ctx
 	}
 	for pool := range state.UnavailableProviders {
+		if !otherSubscriptionPoolEnabled(pool, enabledProviders) {
+			observability.FromContext(ctx).Info("Session hold kept; the turn could not use another included subscription pool", "pool", pool)
+			continue
+		}
 		if h.cache().Remove(owner + "\x00" + string(pool)) {
 			observability.FromContext(ctx).Info("Session hold released; no included subscription pool served the turn", "pool", pool)
 		}
@@ -83,6 +87,18 @@ func modelOnHeldPool(model string, held func(subscriptions.Provider) bool) bool 
 	}
 	for _, binding := range entry.Providers {
 		if pool, compatible := managedSubscriptionProviderFromUpstream(binding.Provider, model); compatible && held(pool) {
+			return true
+		}
+	}
+	return false
+}
+
+func otherSubscriptionPoolEnabled(pool subscriptions.Provider, enabledProviders map[string]struct{}) bool {
+	if enabledProviders == nil {
+		return true
+	}
+	for provider := range enabledProviders {
+		if other, ok := subscriptions.PoolForUpstream(provider); ok && other != pool {
 			return true
 		}
 	}

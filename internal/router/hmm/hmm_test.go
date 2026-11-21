@@ -162,7 +162,7 @@ func TestRouterFailsClosedOnReturnedProviderMismatch(t *testing.T) {
 
 func TestRouterDoesNotOfferOpenRouterFallbackCandidates(t *testing.T) {
 	decider := &fakeDecider{res: Result{Model: "minimax/minimax-m3"}}
-	r := New(
+	r := NewForStrategy(router.StrategyHMM,
 		decider,
 		map[string]struct{}{providers.ProviderOpenRouter: {}},
 	)
@@ -190,7 +190,7 @@ func TestCatalogRoutingTargetsResolveCurrentHMMRosterArmsToProviders(t *testing.
 		providers.ProviderTogether:   {},
 		providers.ProviderXAI:        {},
 	}
-	r := New(&fakeDecider{}, available)
+	r := NewForStrategy(router.StrategyHMM, &fakeDecider{}, available)
 
 	candidates := r.resolver.Resolve(router.Request{}).Candidates
 
@@ -246,7 +246,7 @@ func TestRosterIDForMapsBareMuseSparkToMetaRosterSlug(t *testing.T) {
 	assert.Equal(t, "meta/muse-spark-1.3", rosterIDFor(muse))
 	assert.Equal(t, "muse-spark-1.3", CatalogIDForRoster("meta/muse-spark-1.3"))
 
-	got := DeployedModelsForRosterIDs([]string{"meta/muse-spark-1.3", "meta/muse-spark-1.3:xhigh"})
+	got := DeployedEntriesSkippingUnknownArms([]string{"meta/muse-spark-1.3", "meta/muse-spark-1.3:xhigh"})
 	require.Len(t, got, 1)
 	assert.Equal(t, "muse-spark-1.3", got[0].Model)
 	assert.Equal(t, providers.ProviderMeta, got[0].Provider)
@@ -257,7 +257,7 @@ func TestRouterOffersAndSelectsTerraWithoutLegacyDeployedSet(t *testing.T) {
 		Model:    "openai/gpt-5.6-terra",
 		Provider: providers.ProviderOpenAI,
 	}}
-	r := New(decider, map[string]struct{}{providers.ProviderOpenAI: {}})
+	r := NewForStrategy(router.StrategyHMM, decider, map[string]struct{}{providers.ProviderOpenAI: {}})
 
 	decision, err := r.Route(context.Background(), router.Request{PromptText: "solve this"})
 
@@ -275,7 +275,7 @@ func TestRouterOffersAndSelectsHMMOnlyGPT56ProTargets(t *testing.T) {
 				Model:    rosterID,
 				Provider: providers.ProviderOpenAI,
 			}}
-			r := New(decider, map[string]struct{}{providers.ProviderOpenAI: {}})
+			r := NewForStrategy(router.StrategyHMM, decider, map[string]struct{}{providers.ProviderOpenAI: {}})
 
 			decision, err := r.Route(context.Background(), router.Request{PromptText: "solve this"})
 
@@ -288,7 +288,7 @@ func TestRouterOffersAndSelectsHMMOnlyGPT56ProTargets(t *testing.T) {
 }
 
 func TestRouterDoesNotOfferTerraWithoutRegisteredOpenAIProvider(t *testing.T) {
-	r := New(&fakeDecider{}, map[string]struct{}{providers.ProviderAnthropic: {}})
+	r := NewForStrategy(router.StrategyHMM, &fakeDecider{}, map[string]struct{}{providers.ProviderAnthropic: {}})
 
 	candidates := r.resolver.Resolve(router.Request{}).Candidates
 

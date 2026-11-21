@@ -94,6 +94,7 @@ type CreateSubscriptionAccountParams struct {
 	DisplayName            string
 	RefreshToken           []byte
 	InstallationExternalID string
+	VerifiedSignIn         bool
 }
 
 type VerifiedCodexEnrollment struct {
@@ -108,13 +109,14 @@ type CodexEnrollmentVerifier interface {
 type SubscriptionUpsertKind string
 
 const (
-	SubscriptionUpsertUpdated  SubscriptionUpsertKind = "updated"
-	SubscriptionUpsertInserted SubscriptionUpsertKind = "inserted"
-	SubscriptionUpsertAdopted  SubscriptionUpsertKind = "adopted"
+	SubscriptionUpsertUpdated    SubscriptionUpsertKind = "updated"
+	SubscriptionUpsertInserted   SubscriptionUpsertKind = "inserted"
+	SubscriptionUpsertAdopted    SubscriptionUpsertKind = "adopted"
+	SubscriptionUpsertReassigned SubscriptionUpsertKind = "reassigned"
 )
 
 func (k SubscriptionUpsertKind) FirstConnected() bool {
-	return k == SubscriptionUpsertInserted || k == SubscriptionUpsertAdopted
+	return k == SubscriptionUpsertInserted || k == SubscriptionUpsertAdopted || k == SubscriptionUpsertReassigned
 }
 
 type SubscriptionAccountRepository interface {
@@ -131,7 +133,7 @@ type SubscriptionEnrollmentOwnerResolver interface {
 	SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error)
 }
 
-var ErrSubscriptionEnrollmentKeyNotFound = errors.New("subscriber has no active routing key")
+var ErrSubscriptionEnrollmentMembershipNotFound = errors.New("subscriber is not an active installation member")
 
 func (s *Service) SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error) {
 	resolver, ok := s.subscriptionAccounts.(SubscriptionEnrollmentOwnerResolver)
@@ -186,6 +188,7 @@ func (s *Service) AddSubscriptionAccount(ctx context.Context, params CreateSubsc
 		ProviderUserID:    params.ProviderUserID,
 		DisplayName:       normalizeSubscriptionAccountDisplayName(params.DisplayName),
 		RefreshToken:      ciphertext,
+		VerifiedSignIn:    params.VerifiedSignIn,
 	})
 	if err != nil {
 		return nil, err

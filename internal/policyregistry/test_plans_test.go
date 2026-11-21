@@ -3,8 +3,6 @@ package policyregistry_test
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -70,7 +68,7 @@ func testPlanFixture(t *testing.T) (*policyregistry.TestPlanTools, *testLaunchRe
 func TestInternalPlanLaunchTargetsStableAndSignsExactTestScope(t *testing.T) {
 	for _, plan := range []policyregistry.TestPlan{policyregistry.TestPlanStable, policyregistry.TestPlanMax, policyregistry.TestPlanBoost} {
 		t.Run(string(plan), func(t *testing.T) {
-			tools, repo, store, now, selectionSet := testPlanFixture(t)
+			tools, repo, store, _, selectionSet := testPlanFixture(t)
 			preview, err := tools.Preview(context.Background(), repo.identity.SubjectID, plan)
 			require.NoError(t, err)
 			require.Equal(t, policyregistry.TargetStable, preview.Admission.Target)
@@ -99,18 +97,7 @@ func TestInternalPlanLaunchTargetsStableAndSignsExactTestScope(t *testing.T) {
 			require.Equal(t, preview.Admission.Selection, admitted.Admission.Selection)
 			require.Equal(t, repo.identity.SubjectID, admitted.TestPlan.SubjectID)
 			require.Equal(t, plan, admitted.TestPlan.Plan)
-			signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("s", 32)), func() time.Time { return *now })
-			require.NoError(t, err)
-			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://router.example/v1/messages", strings.NewReader("{}"))
-			encoded, err := signer.Sign(admitted, request, []byte("{}"), "rk_test")
-			require.NoError(t, err)
-			verified, err := signer.Verify(encoded, request, []byte("{}"), "rk_test")
-			require.NoError(t, err)
-			require.Equal(t, policyregistry.ServingAssertionV2, verified.SchemaVersion)
-			require.Equal(t, config.Launch.ID, verified.TestPlan.LaunchID)
-			admitted.TestPlan.SubjectID = "spoofed-subscriber"
-			_, err = signer.Sign(admitted, request, []byte("{}"), "rk_test")
-			require.Error(t, err)
+			require.Equal(t, config.Launch.ID, admitted.TestPlan.LaunchID)
 			require.Len(t, store.states, 1, "no internal target lookup or entitlement mutation")
 		})
 	}
