@@ -626,7 +626,7 @@
         },
         {
           "Diagnosis": {
-            "ErrorClass": "other",
+            "ErrorClass": "funding_refused",
             "FailureOwner": "client"
           },
           "FailureReason": "transport",
@@ -869,7 +869,7 @@
           "DecisionProvider": "anthropic",
           "DecisionReason": "golden_route",
           "EmbedInput": "only_user_message",
-          "ErrorClass": "other",
+          "ErrorClass": "funding_refused",
           "EstimatedInputTokens": 8,
           "FailoverAttempted": true,
           "FailoverUsed": true,
