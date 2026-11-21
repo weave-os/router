@@ -3718,15 +3718,6 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 	})
 }
 
-func pinDecision(p sessionpin.Pin) router.Decision {
-	return router.Decision{
-		Provider: p.Provider,
-		Model:    p.Model,
-		Effort:   p.Effort,
-		Reason:   p.Reason,
-	}
-}
-
 func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, hasImages bool, imageCount int, enabledProviders, excludedModels map[string]struct{}) router.Decision {
 	anchor := pin.Decision()
 	if s.bandSwap == nil || pin.PairedModel == "" || turnType != turntype.MainLoop {
