@@ -15,8 +15,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/config"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -112,7 +112,7 @@ func executeWarmup(ctx context.Context, client *http.Client, origin, credential 
 }
 
 func main() {
-	config.ConfigureLogging()
+	logconfig.Configure()
 	execute := flag.Bool("execute", false, "send live inference for every catalog model (incurs provider costs)")
 	origin := flag.String("origin", "", "worker fleet origin")
 	flag.Parse()

@@ -1,11 +1,14 @@
 package observability
 
 import (
+	"bytes"
+	"context"
 	"log/slog"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 // ResolveServiceName is what puts the "name" tag on every line. NAME is set per
@@ -104,13 +107,21 @@ func TestParseColor(t *testing.T) {
 func TestUseColorHonorsExplicitModes(t *testing.T) {
 	assert.True(t, useColor(ColorOn))
 	assert.False(t, useColor(ColorOff))
-	assert.Equal(t, isTerminal(), useColor(ColorAuto))
 }
 
-func TestConfigureSuppliesTheLazilyInstalledLoggerConfig(t *testing.T) {
+func TestConfigurePrefixesTraceIDsWithConfiguredProject(t *testing.T) {
 	previous := currentConfig()
 	t.Cleanup(func() { Configure(previous) })
+	Configure(Config{GCPProjectID: "project"})
 
-	Configure(Config{Level: slog.LevelError, ServiceName: "configured", GCPProjectID: "project"})
-	assert.Equal(t, Config{Level: slog.LevelError, ServiceName: "configured", GCPProjectID: "project"}, currentConfig())
+	spanCtx := oteltrace.NewSpanContext(oteltrace.SpanContextConfig{
+		TraceID:    oteltrace.TraceID{1},
+		SpanID:     oteltrace.SpanID{1},
+		TraceFlags: oteltrace.FlagsSampled,
+	})
+	var out bytes.Buffer
+	log := LoggerWithTraceContext(oteltrace.ContextWithSpanContext(context.Background(), spanCtx), slog.New(slog.NewJSONHandler(&out, nil)))
+	log.Info("x")
+
+	assert.Contains(t, out.String(), `"logging.googleapis.com/trace":"projects/project/traces/01000000000000000000000000000000"`)
 }

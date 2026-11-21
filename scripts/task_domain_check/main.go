@@ -15,13 +15,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
-	"weave-os/router/internal/config"
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/router/taskdomain"
 )
 
 func main() {
-	config.ConfigureLogging()
+	logconfig.Configure()
 	if err := check(os.Getenv("ROUTER_TEST_DATABASE_URL")); err != nil {
 		slog.Error("Task profile database check failed", "err", err)
 		os.Exit(1)

@@ -219,8 +219,9 @@ func useColor(mode ColorMode) bool {
 		return true
 	case ColorOff:
 		return false
+	default:
+		return isTerminal()
 	}
-	return isTerminal()
 }
 
 func isTerminal() bool {

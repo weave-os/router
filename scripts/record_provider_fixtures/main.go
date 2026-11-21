@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"weave-os/router/internal/config"
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -52,7 +52,7 @@ var cases = []recordCase{
 const weatherTool = `[{"name":"get_weather","description":"Get the weather","input_schema":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}]`
 
 func main() {
-	config.ConfigureLogging()
+	logconfig.Configure()
 	if os.Getenv("RECORD") != "1" {
 		fmt.Println("Refusing to hit live providers without RECORD=1 (see file header for usage)")
 		return

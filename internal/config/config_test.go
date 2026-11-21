@@ -1,13 +1,9 @@
 package config_test
 
 import (
-	"os"
 	"testing"
 
-	"log/slog"
-
 	"weave-os/router/internal/config"
-	"weave-os/router/internal/observability"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,47 +52,4 @@ func TestTranslationCompatibilityMode(t *testing.T) {
 	t.Setenv("ROUTER_TRANSLATION_COMPATIBILITY_MODE", "invalid")
 	_, err = config.TranslationCompatibilityMode()
 	require.Error(t, err)
-}
-
-func TestLoggingDefaultsWhenUnset(t *testing.T) {
-	for _, name := range []string{"LOG_LEVEL", "NAME", "OTEL_SERVICE_NAME", "LOG_FORMAT", "LOG_COLOR", "GCP_PROJECT_ID"} {
-		t.Setenv(name, "")
-	}
-	unsetEnv(t, "NO_COLOR")
-
-	assert.Equal(t, observability.Config{
-		Level:       slog.LevelInfo,
-		ServiceName: "router",
-		Color:       observability.ColorAuto,
-	}, config.Logging())
-}
-
-func TestLoggingParsesEnv(t *testing.T) {
-	t.Setenv("LOG_LEVEL", " Warning ")
-	t.Setenv("NAME", "  ")
-	t.Setenv("OTEL_SERVICE_NAME", " svc ")
-	t.Setenv("LOG_FORMAT", "COLOR")
-	t.Setenv("LOG_COLOR", "")
-	t.Setenv("NO_COLOR", "")
-	t.Setenv("GCP_PROJECT_ID", " project ")
-
-	assert.Equal(t, observability.Config{
-		Level:        slog.LevelWarn,
-		ServiceName:  "svc",
-		Format:       "tint",
-		Color:        observability.ColorOff,
-		GCPProjectID: "project",
-	}, config.Logging())
-}
-
-func TestLoggingExplicitColorOverridesNoColor(t *testing.T) {
-	t.Setenv("LOG_COLOR", "yes")
-	t.Setenv("NO_COLOR", "1")
-	assert.Equal(t, observability.ColorOn, config.Logging().Color)
-}
-
-func unsetEnv(t *testing.T, name string) {
-	t.Helper()
-	t.Setenv(name, "")
-	require.NoError(t, os.Unsetenv(name))
 }

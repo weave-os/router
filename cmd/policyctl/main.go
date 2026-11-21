@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"os"
 
-	"weave-os/router/internal/config"
+	"weave-os/router/cmd/logconfig"
 )
 
 func main() {
-	config.ConfigureLogging()
+	logconfig.Configure()
 	if err := run(context.Background(), os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

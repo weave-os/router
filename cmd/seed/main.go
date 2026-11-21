@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/config"
 
@@ -20,8 +21,11 @@ const (
 	baseURL      = "http://localhost:8080"
 )
 
+func init() {
+	logconfig.Configure()
+}
+
 func main() {
-	config.ConfigureLogging()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
