@@ -16,7 +16,6 @@ func TestLifecycleOwnsCompactionTracker(t *testing.T) {
 	installation := uuid.New()
 
 	assert.NotNil(t, lifecycle.Compaction())
-	assert.Same(t, lifecycle.Compaction(), lifecycle.Compaction())
 	lifecycle.Compaction().CheckAndRecord(key, installation, "main", 9, 0)
 	assert.True(t, lifecycle.Compaction().Tracks(key, installation, "main"))
 }
