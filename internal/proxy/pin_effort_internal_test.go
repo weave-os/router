@@ -170,13 +170,13 @@ func TestRefreshPin_CarriesEffortForward(t *testing.T) {
 }
 
 func TestOrderBandPair_AnchoredHalfKeepsEffort(t *testing.T) {
-	large, small := orderBandPair(sessionpin.Pin{
+	large, small := sessionpin.Pin{
 		Provider:       providers.ProviderAnthropic,
 		Model:          "claude-opus-4-7",
 		Effort:         "high",
 		PairedProvider: providers.ProviderAnthropic,
 		PairedModel:    "claude-haiku-4-5",
-	})
+	}.OrderedBandPair()
 	assert.Equal(t, "claude-opus-4-7", large.Model)
 	assert.Equal(t, "high", large.Effort)
 	assert.Empty(t, small.Effort)
