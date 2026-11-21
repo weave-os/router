@@ -504,12 +504,11 @@ func limitHeaders(raw []byte) (map[string]string, error) {
 
 func (r *TelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryBucket, error) {
 	q := dbbudget.Queries(r.tx)
-	window := newTelemetryWindowAll(from, to)
 	return pickGranularity(granularity,
 		windowAllQuery(q.GetTelemetryTimeseriesWeeklyAll, telemetryBucketFromWeeklyAllRow),
 		windowAllQuery(q.GetTelemetryTimeseriesDailyAll, telemetryBucketFromDailyAllRow),
 		windowAllQuery(q.GetTelemetryTimeseriesHourlyAll, telemetryBucketFromHourlyAllRow),
-	)(ctx, window)
+	)(ctx, newTelemetryWindowAll(from, to))
 }
 
 func (r *TelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryModelBucket, error) {
@@ -527,12 +526,11 @@ func (r *TelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installa
 
 func (r *TelemetryRepo) GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryModelBucket, error) {
 	q := dbbudget.Queries(r.tx)
-	window := newTelemetryWindowAll(from, to)
 	return pickGranularity(granularity,
 		windowAllQuery(q.GetTelemetryModelBreakdownWeeklyAll, modelBucketFromWeeklyAllRow),
 		windowAllQuery(q.GetTelemetryModelBreakdownDailyAll, modelBucketFromDailyAllRow),
 		windowAllQuery(q.GetTelemetryModelBreakdownHourlyAll, modelBucketFromHourlyAllRow),
-	)(ctx, window)
+	)(ctx, newTelemetryWindowAll(from, to))
 }
 
 type telemetryWindow struct {

@@ -148,7 +148,7 @@ func TestTelemetryModelBreakdownGranularityAgainstPostgres(t *testing.T) {
 	}
 	modelB := proxy.TelemetryModelBucket{DecisionModel: "model-b", RequestCount: 1, TotalTokens: 60, ActualCostUSD: 0.1}
 	modelC := proxy.TelemetryModelBucket{DecisionModel: "model-c", RequestCount: 1, TotalTokens: 10, ActualCostUSD: 0.4}
-	at := func(bucket proxy.TelemetryModelBucket, when time.Time) proxy.TelemetryModelBucket {
+	withBucket := func(bucket proxy.TelemetryModelBucket, when time.Time) proxy.TelemetryModelBucket {
 		bucket.Bucket = when
 		return bucket
 	}
@@ -159,18 +159,18 @@ func TestTelemetryModelBreakdownGranularityAgainstPostgres(t *testing.T) {
 	for _, tc := range []modelCase{
 		{
 			granularity: "week",
-			scoped:      []proxy.TelemetryModelBucket{modelA(granularityAt(1, 0, 0), 2, 135, 0.32), at(modelB, granularityAt(1, 0, 0)), modelA(granularityAt(8, 0, 0), 1, 2, 1)},
-			all:         []proxy.TelemetryModelBucket{modelA(granularityAt(1, 0, 0), 2, 135, 0.32), at(modelB, granularityAt(1, 0, 0)), at(modelC, granularityAt(1, 0, 0)), modelA(granularityAt(8, 0, 0), 1, 2, 1)},
+			scoped:      []proxy.TelemetryModelBucket{modelA(granularityAt(1, 0, 0), 2, 135, 0.32), withBucket(modelB, granularityAt(1, 0, 0)), modelA(granularityAt(8, 0, 0), 1, 2, 1)},
+			all:         []proxy.TelemetryModelBucket{modelA(granularityAt(1, 0, 0), 2, 135, 0.32), withBucket(modelB, granularityAt(1, 0, 0)), withBucket(modelC, granularityAt(1, 0, 0)), modelA(granularityAt(8, 0, 0), 1, 2, 1)},
 		},
 		{
 			granularity: "day",
-			scoped:      []proxy.TelemetryModelBucket{modelA(granularityAt(2, 0, 0), 1, 120, 0.3), at(modelB, granularityAt(2, 0, 0)), modelA(granularityAt(4, 0, 0), 1, 15, 0.02), modelA(granularityAt(9, 0, 0), 1, 2, 1)},
-			all:         []proxy.TelemetryModelBucket{modelA(granularityAt(2, 0, 0), 1, 120, 0.3), at(modelB, granularityAt(2, 0, 0)), at(modelC, granularityAt(2, 0, 0)), modelA(granularityAt(4, 0, 0), 1, 15, 0.02), modelA(granularityAt(9, 0, 0), 1, 2, 1)},
+			scoped:      []proxy.TelemetryModelBucket{modelA(granularityAt(2, 0, 0), 1, 120, 0.3), withBucket(modelB, granularityAt(2, 0, 0)), modelA(granularityAt(4, 0, 0), 1, 15, 0.02), modelA(granularityAt(9, 0, 0), 1, 2, 1)},
+			all:         []proxy.TelemetryModelBucket{modelA(granularityAt(2, 0, 0), 1, 120, 0.3), withBucket(modelB, granularityAt(2, 0, 0)), withBucket(modelC, granularityAt(2, 0, 0)), modelA(granularityAt(4, 0, 0), 1, 15, 0.02), modelA(granularityAt(9, 0, 0), 1, 2, 1)},
 		},
 		{
 			granularity: "hour",
-			scoped:      []proxy.TelemetryModelBucket{modelA(granularityAt(2, 10, 0), 1, 120, 0.3), at(modelB, granularityAt(2, 10, 0)), modelA(granularityAt(4, 8, 0), 1, 15, 0.02), modelA(granularityAt(9, 12, 0), 1, 2, 1)},
-			all:         []proxy.TelemetryModelBucket{modelA(granularityAt(2, 10, 0), 1, 120, 0.3), at(modelB, granularityAt(2, 10, 0)), at(modelC, granularityAt(2, 11, 0)), modelA(granularityAt(4, 8, 0), 1, 15, 0.02), modelA(granularityAt(9, 12, 0), 1, 2, 1)},
+			scoped:      []proxy.TelemetryModelBucket{modelA(granularityAt(2, 10, 0), 1, 120, 0.3), withBucket(modelB, granularityAt(2, 10, 0)), modelA(granularityAt(4, 8, 0), 1, 15, 0.02), modelA(granularityAt(9, 12, 0), 1, 2, 1)},
+			all:         []proxy.TelemetryModelBucket{modelA(granularityAt(2, 10, 0), 1, 120, 0.3), withBucket(modelB, granularityAt(2, 10, 0)), withBucket(modelC, granularityAt(2, 11, 0)), modelA(granularityAt(4, 8, 0), 1, 15, 0.02), modelA(granularityAt(9, 12, 0), 1, 2, 1)},
 		},
 	} {
 		for _, granularity := range granularityRequests(tc.granularity) {
