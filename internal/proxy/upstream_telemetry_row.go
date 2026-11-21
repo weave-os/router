@@ -3,11 +3,12 @@ package proxy
 import (
 	"context"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
 )
 
-func applyServedTurnTelemetry(ctx context.Context, ports continuity.StrategyPorts, tel *InsertTelemetryParams, routeRes turnLoopResult, decision router.Decision, effortServed effortResolution) {
+func applyServedTurnTelemetry(ctx context.Context, ports continuity.StrategyPorts, tel *InsertTelemetryParams, routeRes turnLoopResult, decision router.Decision, effortServed dispatch.EffortResolution) {
 	applyServedGroupTelemetry(ports, ctx, tel, routeRes, decision)
 	applyPlannerTelemetry(tel, routeRes)
 	applyEffortTelemetry(tel, effortServed)
