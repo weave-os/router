@@ -122,7 +122,6 @@ type Service struct {
 	bandSwap                       *bandswap.Classifier
 
 	turnSignalCaptureEnabled bool
-	feedbackStore            feedback.RouterFeedbackStore
 	summarizer               handover.Summarizer
 	webSearch                websearch.Executor
 	availableModels          map[string]struct{}
@@ -1255,11 +1254,6 @@ func (s *Service) WithTurnSignalCapture(enabled bool) *Service {
 	return s
 }
 
-func (s *Service) WithRouterFeedbackStore(store feedback.RouterFeedbackStore) *Service {
-	s.feedbackStore = store
-	return s
-}
-
 func (s *Service) WithContentCapture(mode ContentCaptureMode, maxBytes int, redactor Redactor) *Service {
 	s.captureMode = mode
 	if maxBytes > 0 {
@@ -2164,7 +2158,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode {
 		if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
 			log.Info("ProxyMessages router-feedback command")
-			if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, feats.Tokens, !cmd.FromToolResult); err != nil {
+			if err := (routerFeedbackCommand{w: w, env: env, cmd: cmd, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, inputTokens: feats.Tokens, synthetic: !cmd.FromToolResult}).handle(ctx, s); err != nil {
 				return err
 			}
 			if !cmd.FromToolResult {
@@ -3849,7 +3843,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		log.Info("ProxyOpenAIChatCompletion router-feedback command")
 		skillFeedback := codexSkillTurnFrom(ctx) == translate.CodexSkillTurnFeedback
 		synthetic := !cmd.FromToolResult || skillFeedback
-		if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, feats.Tokens, synthetic); err != nil {
+		if err := (routerFeedbackCommand{w: w, env: env, cmd: cmd, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, inputTokens: feats.Tokens, synthetic: synthetic}).handle(ctx, s); err != nil {
 			return err
 		}
 		if synthetic {
