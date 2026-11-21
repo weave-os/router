@@ -118,10 +118,6 @@ func (s *Service) ResolveRateLimitCooldown(ctx context.Context) time.Duration {
 	return s.throttling.RateLimit.Cooldown(ctx)
 }
 
-func (s *Service) ResolveProviderOverloaded(ctx context.Context) bool {
-	return s.throttling.Overload.Enabled(ctx)
-}
-
 func (s *Service) ResolveNativeAnthropicResponseSignals(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyNativeAnthropicResponseSignals, s.nativeAnthropicResponseSignals)
 }
