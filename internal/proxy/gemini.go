@@ -142,40 +142,25 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
 		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
 	}
-	routeStart := s.clock.Now()
-	routeCtx, routeSpan := startRoutingSpan(ctx, strategy, routeRequest)
-	routeRes, err := s.runTurnLoop(routeCtx, env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
+	routeRes, routeMs, err := routeTurn(ctx, s, s.clock, log, routeTurnRequest{
+		Request:        routeRequest,
+		Started:        s.clock.Now(),
+		Failure:        routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy},
+		FailureMessage: "Routing failed for Gemini request",
+		IsUserPrompt:   inboundUserPrompt,
+	}, func(routeCtx context.Context) (turnLoopResult, error) {
+		return s.runTurnLoop(routeCtx, env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
+	})
 	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
 		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseGemini)
 	}()
-	finishRoutingSpan(routeSpan, routeRes.Decision, err)
-	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
 	if err != nil {
-		log.Error("Routing failed for Gemini request", "err", err, "route_ms", routeMs, "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
-		s.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy}, routeRes.TurnType, inboundUserPrompt, err)
 		return err
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
-	if len(routeRes.SessionDisabledProviders) > 0 {
-		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
-	}
-	if len(routeRes.ObservedOverflowModels) > 0 {
-		ctx = context.WithValue(ctx, ObservedOverflowModelsContextKey{}, routeRes.ObservedOverflowModels)
-	}
-	if len(routeRes.SessionDemotedModels) > 0 {
-		ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, routeRes.SessionDemotedModels)
-		if len(routeRes.SessionCooldownModels) > 0 {
-			ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, routeRes.SessionCooldownModels)
-		}
-		if len(routeRes.SessionStrikeReadmitModels) > 0 {
-			ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, routeRes.SessionStrikeReadmitModels)
-		}
-	}
-	if len(routeRes.CooldownProbeDeniedModels) > 0 {
-		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, routeRes.CooldownProbeDeniedModels)
-	}
+	ctx = withRouteSessionState(ctx, routeRes)
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision
 	s.firePolicyShadowForServingDecision(ctx, strategy, decision, routeRequest)
