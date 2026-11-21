@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -33,7 +34,7 @@ func gateServing(
 
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) { c.Set("router_api_key", subscriberAPIKey()) })
-	engine.Use(middleware.WithSubscriberAllowance(svc))
+	engine.Use(middleware.WithSubscriberAllowance(svc, proxy.RequestPresentsCoveringSubscription))
 	engine.POST("/v1/messages", serve)
 	return engine
 }
