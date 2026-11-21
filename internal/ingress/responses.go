@@ -29,7 +29,7 @@ func (Responses) DispatchBodies(body []byte, terminalResponses bool) (nativeBody
 	return nativeBody, conversionBody, nil
 }
 
-func (Responses) Convert(ctx context.Context, body []byte, portableCodex bool, shouldRescue func(model string) bool) (translate.ResponsesConversion, error) {
+func (Responses) ConvertCodexResponses(ctx context.Context, body []byte, portableCodex bool, shouldRescue func(model string) bool) (translate.ResponsesConversion, error) {
 	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: portableCodex})
 	if err != nil || !portableCodex || !conversion.Requirements.NativeOnly || !shouldRescue(conversion.Model) {
 		return conversion, err

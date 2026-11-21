@@ -21,7 +21,7 @@ func TestResponsesDispatchBodiesConvertsTheInboundBodyOffTerminalSurfaces(t *tes
 
 func TestResponsesConvertSkipsTheLossyRescueForNonCodexClients(t *testing.T) {
 	body := []byte(`{"model":"gpt-5","stream":true,"input":[{"role":"user","content":"hi"}]}`)
-	conversion, err := ingress.Responses{}.Convert(context.Background(), body, false, func(string) bool {
+	conversion, err := ingress.Responses{}.ConvertCodexResponses(context.Background(), body, false, func(string) bool {
 		t.Fatal("non-Codex conversion must not ask whether to rescue")
 		return false
 	})
