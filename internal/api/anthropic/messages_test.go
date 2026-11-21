@@ -246,7 +246,7 @@ func TestMessagesHandler_RLPolicyUnavailableReturns503(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", bytes.NewReader([]byte(validAnthropicBody)))
-	req = req.WithContext(router.WithStrategy(req.Context(), router.StrategyRL))
+	req = req.WithContext(router.WithStrategy(req.Context(), router.StrategyRetiredRL))
 	engine.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)

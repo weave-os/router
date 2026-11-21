@@ -1888,7 +1888,7 @@ func policyRolloutIDFromContext(ctx context.Context) string {
 
 func defaultStrategyUnavailable(strategy router.Strategy) error {
 	switch strategy {
-	case router.StrategyRL:
+	case router.StrategyRetiredRL:
 		return router.ErrRLPolicyUnavailable
 	case router.StrategyHMM, router.StrategyHMMEmbedding, router.StrategyHMMBeta, router.StrategyHMMQwen:
 		return router.ErrHMMUnavailable
