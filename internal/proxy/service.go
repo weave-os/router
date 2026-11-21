@@ -1286,14 +1286,6 @@ func (s *Service) WithTurnSignalCapture(enabled bool) *Service {
 	return s
 }
 
-func (s *Service) WithRouterFeedbackStore(store conversation.RouterFeedbackStore) *Service {
-	if s.lifecycle == nil {
-		s.lifecycle = &conversation.Lifecycle{}
-	}
-	s.lifecycle.SetRouterFeedbackStore(store)
-	return s
-}
-
 func (s *Service) WithContentCapture(mode ContentCaptureMode, maxBytes int, redactor Redactor) *Service {
 	s.captureMode = mode
 	if maxBytes > 0 {

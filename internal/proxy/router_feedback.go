@@ -20,6 +20,14 @@ import (
 	"github.com/google/uuid"
 )
 
+func (s *Service) WithRouterFeedbackStore(store conversation.RouterFeedbackStore) *Service {
+	if s.lifecycle == nil {
+		s.lifecycle = &conversation.Lifecycle{}
+	}
+	s.lifecycle.SetRouterFeedbackStore(store)
+	return s
+}
+
 type routerFeedbackPorts struct {
 	s *Service
 }
