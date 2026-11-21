@@ -36,8 +36,8 @@ func TestSummarizerCredentials_ReturnsBYOK(t *testing.T) {
 
 func TestSummarizerCredentials_SkipsAKeyOwingAnUnpayableFee(t *testing.T) {
 	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")}})
-	require.NotNil(t, credentials.Brokerage{}.SummarizerCredentials(ctx, providers.ProviderAnthropic, http.Header{}), "a funded turn summarizes on the key")
+	require.NotNil(t, (&credentials.Brokerage{}).SummarizerCredentials(ctx, providers.ProviderAnthropic, http.Header{}), "a funded turn summarizes on the key")
 	unfunded, _ := billing.NewService(nil).WithByokFeeRate(0.05).TripSubscriptionLane(ctx, subscriptionlane.CreditsDepletedCovered)
-	assert.Nil(t, credentials.Brokerage{}.SummarizerCredentials(unfunded, providers.ProviderAnthropic, http.Header{}),
+	assert.Nil(t, (&credentials.Brokerage{}).SummarizerCredentials(unfunded, providers.ProviderAnthropic, http.Header{}),
 		"an organization that cannot pay the BYOK fee must not be charged one for a summary")
 }
