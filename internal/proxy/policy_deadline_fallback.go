@@ -13,7 +13,7 @@ import (
 func servePolicyDeadlineFallback(ctx context.Context, s *Service, res *turnLoopResult, err error, req router.Request, sessionPins routingpolicy.SessionPins, pin *sessionpin.Pin) bool {
 	log := observability.FromContext(ctx)
 	if pin != nil && pin.Model != "" {
-		decision := pinDecision(*pin)
+		decision := pin.Decision()
 		decision.Reason = policyDeadlineFallbackReason
 		res.Decision = decision
 		res.StickyHit = true

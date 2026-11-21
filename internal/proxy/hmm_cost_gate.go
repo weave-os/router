@@ -25,7 +25,7 @@ func hmmCostGatedDecision(ctx context.Context, s *Service, input continuity.Cost
 	input.Now = s.clock.Now()
 	stayPin, plan, sticky := s.strategyPorts.CostGate.Decide(hmmCostGateFor(s), input)
 	if sticky {
-		return pinDecision(stayPin), plan, true, stayPin.Model
+		return stayPin.Decision(), plan, true, stayPin.Model
 	}
 	return input.Fresh, plan, false, stayPin.Model
 }

@@ -524,7 +524,7 @@
       "name": "error_class",
       "type": "string",
       "nullable": true,
-      "description": "How the turn failed: rate_limited, invalid_request, auth_rejected, model_not_found, upstream_4xx, upstream_5xx, stream_cut, stream_stalled (the router's stream watchdog ended a stalled stream), timeout, client_canceled, routing_refused, refusal, max_tokens, invalid_tool_args or other. Null on a normal completion."
+      "description": "How the turn failed: rate_limited, invalid_request, auth_rejected, model_not_found, upstream_4xx, upstream_5xx, stream_cut, stream_stalled (the router's stream watchdog ended a stalled stream), timeout, client_canceled, routing_refused, funding_refused (refused before any upstream call because no customer funding source could serve the turn; a throttled subscription records rate_limited), refusal, max_tokens, invalid_tool_args or other. Null on a normal completion."
     },
     {
       "name": "failure_owner",

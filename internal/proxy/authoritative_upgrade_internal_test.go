@@ -192,7 +192,7 @@ func TestUpgradeShadowLogsNullableEvidence(t *testing.T) {
 		c.AuthorityCacheShadow = true
 		c.UpgradeGate = true
 	})
-	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, Fresh: fresh, Decision: pinDecision(pin), StickyHit: true}
+	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, Fresh: fresh, Decision: pin.Decision(), StickyHit: true}
 	res.UpgradeShadow = svc.authoritativeUpgradeFor(ctx, router.Request{}, pin, fresh, res, 1000)
 	logAuthoritativeUpgrade(ctx, res)
 	var record map[string]any
@@ -211,7 +211,7 @@ func TestUpgradeShadowCapturesMarginOnStayButNotReplay(t *testing.T) {
 	fresh := upgradeTestFresh()
 	zero := 0.0
 	fresh.Metadata.ClassifierMargin = &zero
-	served := pinDecision(upgradeTestPin())
+	served := upgradeTestPin().Decision()
 	obs := buildObservationContext(hmm.ServingPorts(), context.Background(), router.StrategyFromContext(context.Background()), served, fresh, CaptureOff)
 	assert.Equal(t, &zero, obs.FreshClassifierMargin)
 	assert.Equal(t, string(escalation.High), obs.FreshPolicyGroup)

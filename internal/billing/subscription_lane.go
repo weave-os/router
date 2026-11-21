@@ -91,6 +91,25 @@ func unfundedTurn(ctx context.Context) bool {
 	return !subscriptionlane.Permits(SubscriptionLaneFromContext(ctx), subscriptionlane.OrganizationCreditsServed)
 }
 
+type byokFeeUnpayableKey struct{}
+
+func (s *Service) TripSubscriptionLane(ctx context.Context, event subscriptionlane.Event) (context.Context, subscriptionlane.State) {
+	ctx, lane := StepSubscriptionLane(ctx, event)
+	if s.ByokFeeOwed(ctx) && unfundedTurn(ctx) {
+		ctx = context.WithValue(ctx, byokFeeUnpayableKey{}, true)
+	}
+	return ctx, lane
+}
+
+func (s *Service) ByokFeeOwed(ctx context.Context) bool {
+	return s.byokFeeRate > 0 && !HasOverrideFromContext(ctx)
+}
+
+func ByokFeeUnpayable(ctx context.Context) bool {
+	unpayable, _ := ctx.Value(byokFeeUnpayableKey{}).(bool)
+	return unpayable
+}
+
 func subscriptionOnlyReason(ctx context.Context) (reason SubscriptionOnlyReason, ok bool) {
 	reason, ok = ctx.Value(subscriptionOnlyContextKeyT{}).(SubscriptionOnlyReason)
 	return reason, ok
