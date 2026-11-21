@@ -6,10 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 
 	"weave-os/router/internal/dispatch"
-	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -68,73 +66,6 @@ func (s *Service) inferenceExecutor() (*dispatch.Executor, error) {
 
 func routedOrigin(decision router.Decision, hardPinned, stickyHit bool) policy.OverrideSource {
 	return dispatch.RoutedOrigin(decision, hardPinned, stickyHit)
-}
-
-type dispatchAbort struct{ err error }
-
-func (e dispatchAbort) Error() string { return e.err.Error() }
-func (e dispatchAbort) Unwrap() error { return e.err }
-
-func (s *Service) dispatchPlanned(ctx context.Context, in dispatch.FailoverInputs, plan inference.ResolvedPlan) (winnerIdx int, err error) {
-	executor, err := s.inferenceExecutor()
-	if err != nil {
-		return -1, err
-	}
-
-	lastIdx := 0
-	lastProvider := in.InitialDecision.Provider
-	ctx, accounts := subscriptionAccountPool{s: s}.Begin(ctx, in.InitialDecision)
-	transport := dispatch.Transport{
-		OperationID: string(in.Purpose),
-		Committed:   func() bool { return committed(in.Prelude) },
-		Reset: func() {
-			if in.Prelude != nil {
-				in.Prelude.Discard()
-			}
-		},
-		Prepare: func(ctx context.Context, attempt dispatch.Attempt) (context.Context, error) {
-			lastIdx = attempt.Index
-			lastProvider = attempt.Target.Provider
-			if attempt.Index == 0 {
-				return ctx, nil
-			}
-			return resolveAndInjectCredentials(ctx, attempt.Target.Provider, in.InitialDecision.Model, http.Header{}), nil
-		},
-		Terminal: func(_ dispatch.Attempt, err error) bool {
-			var abort dispatchAbort
-			return errors.As(err, &abort)
-		},
-		Bound:      func(dispatch.Attempt, error) bool { return accounts.Bound() },
-		RetryDelay: dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(s.clock.Now),
-	}
-	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
-		return accounts.Serve(ctx, attemptCtx, dispatch.AccountAttempt{Inputs: in, Plan: plan, Attempt: attempt, Client: client})
-	}
-
-	if trace := attemptTraceFromContext(ctx); trace != nil {
-		transport.Describe = func(attempt dispatch.Attempt, err error) inference.AttemptDiagnosis {
-			return describeAttempt(ctx, trace, attempt, err)
-		}
-	}
-	req := inference.InvocationRequest{Purpose: in.Purpose, RequestID: observability.RequestIDFromContext(ctx)}
-	result, runErr := executor.Run(ctx, req, plan, transport)
-	s.recordOverloadOutcome(ctx, in.InitialDecision.Model, lastProvider, result.Outcome.ResponseCommitted, runErr)
-	if runErr == nil {
-		return lastIdx, nil
-	}
-	var abort dispatchAbort
-	switch reason := result.Summary.FallbackReason; {
-	case errors.As(runErr, &abort):
-		runErr = attributeCodexUsageLimitAbort(attemptTraceFromContext(ctx), abort.err)
-	case reason == dispatch.FailureReasonProviderNotConfigured, reason == dispatch.FailureReasonPrepare:
-		return lastIdx, runErr
-	default:
-		runErr = attributeTerminalError(attemptTraceFromContext(ctx), runErr)
-	}
-	if in.FlushErr != nil && !in.DeferFlushOnExhaustion && !committed(in.Prelude) {
-		in.FlushErr(in.Writer, runErr)
-	}
-	return lastIdx, runErr
 }
 
 func (s *Service) WithInferenceDeployment(config policy.DeploymentPolicyConfig) *Service {
