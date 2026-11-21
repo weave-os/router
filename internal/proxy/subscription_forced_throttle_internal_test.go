@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -35,13 +36,13 @@ func TestSubscriptionStateForcedModelThrottledPoolFundsCredits(t *testing.T) {
 	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
-	inputs := failoverInputs{
-		w: rec, buf: buffer, subscriptionStateRequest: &req,
-		subscriptionStateWinnerProvider: new(string),
-		initialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI, Reason: translate.ReasonUserForceModel},
-		purpose:                         inference.PurposeOpenAIChatCompletions,
-		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+	inputs := dispatch.FailoverInputs{
+		Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
+		SubscriptionStateWinnerProvider: new(string),
+		InitialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI, Reason: translate.ReasonUserForceModel},
+		Purpose:                         inference.PurposeOpenAIChatCompletions,
+		BuildAlternative: func(router.Decision) (dispatch.UpstreamAttempt, error) {
+			return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				buffer.Seal()
 				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/responses", nil))
 			}, nil

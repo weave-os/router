@@ -14,6 +14,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/providers/openaicompat"
@@ -181,23 +182,23 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			var servedModels []string
 			var subscriptionFunding []bool
 			var winner router.Decision
-			dispatch := failoverInputs{
-				w: rec, buf: buffer, subscriptionStateRequest: &req,
-				subscriptionStateWinnerProvider: new(string),
-				initialDecision:                 initialDecision,
-				purpose:                         inference.PurposeAnthropicMessages,
-				origin:                          origin,
-				buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
-					return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+			failover := dispatch.FailoverInputs{
+				Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
+				SubscriptionStateWinnerProvider: new(string),
+				InitialDecision:                 initialDecision,
+				Purpose:                         inference.PurposeAnthropicMessages,
+				Origin:                          origin,
+				BuildAlternative: func(target router.Decision) (dispatch.UpstreamAttempt, error) {
+					return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 						servedModels = append(servedModels, decision.Model)
 						subscriptionFunding = append(subscriptionFunding, servedOnSubscription(attemptCtx))
 						buffer.Seal()
 						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 					}, nil
 				},
-				onAlternative: func(decision router.Decision) { winner = decision },
+				OnAlternative: func(decision router.Decision) { winner = decision },
 			}
-			_, err := svc.dispatchWithFallback(ctx, dispatch)
+			_, err := svc.dispatchWithFallback(ctx, failover)
 			if scenario.wantErr {
 				require.Error(t, err)
 				require.Zero(t, paid.calls)
@@ -205,7 +206,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, scenario.want, winner.Model)
 				if scenario.want == statePaidModel {
-					require.Equal(t, providers.ProviderOpenRouter, *dispatch.subscriptionStateWinnerProvider)
+					require.Equal(t, providers.ProviderOpenRouter, *failover.SubscriptionStateWinnerProvider)
 				}
 				require.Equal(t, scenario.want, rec.Header().Get(HeaderRouterModel))
 				require.Contains(t, rec.Body.String(), "answer")
@@ -253,13 +254,13 @@ func TestSubscriptionStateRateLimitedIncludedLaneKeepsUpstreamStatus(t *testing.
 	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderAnthropic})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
-	inputs := failoverInputs{
-		w: rec, buf: buffer, subscriptionStateRequest: &req,
-		subscriptionStateWinnerProvider: new(string),
-		initialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
-		purpose:                         inference.PurposeAnthropicMessages,
-		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+	inputs := dispatch.FailoverInputs{
+		Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
+		SubscriptionStateWinnerProvider: new(string),
+		InitialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+		Purpose:                         inference.PurposeAnthropicMessages,
+		BuildAlternative: func(router.Decision) (dispatch.UpstreamAttempt, error) {
+			return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				buffer.Seal()
 				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 			}, nil
@@ -421,19 +422,19 @@ func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.
 	var winner router.Decision
 	var servedModels []string
 	var paidTargetSelected bool
-	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
-		w: rec, buf: buffer, subscriptionStateRequest: &req,
-		initialDecision: router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
-		purpose:         inference.PurposeAnthropicMessages,
-		buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
-			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+		Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
+		InitialDecision: router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+		Purpose:         inference.PurposeAnthropicMessages,
+		BuildAlternative: func(target router.Decision) (dispatch.UpstreamAttempt, error) {
+			return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				servedModels = append(servedModels, decision.Model)
 				buffer.Seal()
 				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 			}, nil
 		},
-		onSubscriptionStateTarget: func(decision router.Decision, _ []catalog.ProviderBinding) { winner = decision },
-		onSubscriptionStatePaidTarget: func(decision router.Decision, _ []catalog.ProviderBinding) {
+		OnSubscriptionStateTarget: func(decision router.Decision, _ []catalog.ProviderBinding) { winner = decision },
+		OnSubscriptionStatePaidTarget: func(decision router.Decision, _ []catalog.ProviderBinding) {
 			paidTargetSelected = decision.Model == statePaidModel
 		},
 	})
@@ -458,19 +459,19 @@ func TestSubscriptionStateFailedTargetReachesRecoveryCallback(t *testing.T) {
 	var recoveryDecision router.Decision
 	var attemptedModel string
 	winnerProvider := new(string)
-	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
-		w:                               httptest.NewRecorder(),
-		subscriptionStateRequest:        &request,
-		subscriptionStateWinnerProvider: winnerProvider,
-		initialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
-		purpose:                         inference.PurposeAnthropicMessages,
-		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-			return func(_ context.Context, attemptedTarget router.Decision, _ providers.Client) error {
+	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+		Writer:                          httptest.NewRecorder(),
+		SubscriptionStateRequest:        &request,
+		SubscriptionStateWinnerProvider: winnerProvider,
+		InitialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+		Purpose:                         inference.PurposeAnthropicMessages,
+		BuildAlternative: func(router.Decision) (dispatch.UpstreamAttempt, error) {
+			return func(_ context.Context, attemptedTarget router.Decision, _ dispatch.Upstream) error {
 				attemptedModel = attemptedTarget.Model
 				return &providers.UpstreamStatusError{Status: http.StatusBadRequest}
 			}, nil
 		},
-		onSubscriptionStateTarget: func(target router.Decision, _ []catalog.ProviderBinding) {
+		OnSubscriptionStateTarget: func(target router.Decision, _ []catalog.ProviderBinding) {
 			recoveryDecision = target
 		},
 	})
@@ -546,19 +547,19 @@ func TestSubscriptionStateModelsStrictDirectSubscription(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
 	var winner router.Decision
-	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
-		w: rec, buf: buffer, subscriptionStateRequest: &request, subscriptionStateHeaders: headers,
-		initialDecision: router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
-		purpose:         inference.PurposeAnthropicMessages,
-		buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
-			return func(attemptCtx context.Context, decision router.Decision, upstream providers.Client) error {
+	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+		Writer: rec, Prelude: buffer, SubscriptionStateRequest: &request, SubscriptionStateHeaders: headers,
+		InitialDecision: router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
+		Purpose:         inference.PurposeAnthropicMessages,
+		BuildAlternative: func(target router.Decision) (dispatch.UpstreamAttempt, error) {
+			return func(attemptCtx context.Context, decision router.Decision, upstream dispatch.Upstream) error {
 				require.True(t, servedOnSubscription(attemptCtx))
 				require.Equal(t, conditionalModelsSubscriptionToken, string(CredentialsFromContext(attemptCtx).APIKey))
 				buffer.Seal()
 				return upstream.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, routePathMessages, nil))
 			}, nil
 		},
-		onAlternative: func(target router.Decision) { winner = target },
+		OnAlternative: func(target router.Decision) { winner = target },
 	})
 	require.NoError(t, err)
 	require.Equal(t, stateClaudeModel, winner.Model)
@@ -881,19 +882,19 @@ func TestSubscriptionStateModelsSkipSpentSeatPoolsBeforeDispatch(t *testing.T) {
 	buffer := newPreludeBuffer(rec)
 	var attempted []string
 	var winner router.Decision
-	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
-		w: rec, buf: buffer, subscriptionStateRequest: &req,
-		subscriptionStateWinnerProvider: new(string),
-		initialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
-		purpose:                         inference.PurposeAnthropicMessages,
-		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+		Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
+		SubscriptionStateWinnerProvider: new(string),
+		InitialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
+		Purpose:                         inference.PurposeAnthropicMessages,
+		BuildAlternative: func(router.Decision) (dispatch.UpstreamAttempt, error) {
+			return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				attempted = append(attempted, decision.Model)
 				buffer.Seal()
 				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 			}, nil
 		},
-		onAlternative: func(decision router.Decision) { winner = decision },
+		OnAlternative: func(decision router.Decision) { winner = decision },
 	})
 
 	require.NoError(t, err)

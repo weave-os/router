@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -298,7 +299,7 @@ func TestAnthropicTierAttempt_OrdinaryRateLimitStaysFast(t *testing.T) {
 		logBody:       func(router.Decision, []byte) { t.Fatal("an ordinary rate limit must not re-emit the body") },
 	}
 	var served []bool
-	_, err = tiered.dispatch(fastModeCtx(fastOpusModel), router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream, func(fast bool) { served = append(served, fast) })
+	_, err = tiered.dispatch(fastModeCtx(fastOpusModel), router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, dispatch.NewUpstream(upstream), func(fast bool) { served = append(served, fast) })
 	require.ErrorIs(t, err, rateLimited)
 	assert.Equal(t, 1, upstream.dispatches)
 	assert.Equal(t, []bool{true}, served)
@@ -367,11 +368,11 @@ func TestAnthropicTierAttempt_ReemitsWhenBindingLosesFastTier(t *testing.T) {
 	attempt := tiered.attempt(func(fast bool) { served = append(served, fast) })
 	ctx := fastModeCtx(fastOpusModel)
 
-	require.NoError(t, attempt(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream))
+	require.NoError(t, attempt(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, dispatch.NewUpstream(upstream)))
 	assert.Equal(t, "fast", gjson.GetBytes(upstream.capturedBody, "speed").Str)
 	assert.Empty(t, loggedBodies, "same tier reuses the prepared body")
 
-	require.NoError(t, attempt(ctx, router.Decision{Provider: providers.ProviderAnthropicGateway, Model: fastOpusModel}, upstream))
+	require.NoError(t, attempt(ctx, router.Decision{Provider: providers.ProviderAnthropicGateway, Model: fastOpusModel}, dispatch.NewUpstream(upstream)))
 	assert.False(t, gjson.GetBytes(upstream.capturedBody, "speed").Exists(), "gateway hop must not carry the fast-tier speed field")
 	assert.Len(t, loggedBodies, 1, "tier change re-emits the body once")
 

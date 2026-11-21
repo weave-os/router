@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -129,9 +130,9 @@ func beginSubscriptionStateLane(ctx context.Context, initial router.Decision) co
 	return withClientAppRefusalPaidFallback(ctx, initial)
 }
 
-func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failoverInputs) (int, error) {
-	request := *in.subscriptionStateRequest
-	ctx = beginSubscriptionStateLane(ctx, in.initialDecision)
+func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispatch.FailoverInputs) (int, error) {
+	request := *in.SubscriptionStateRequest
+	ctx = beginSubscriptionStateLane(ctx, in.InitialDecision)
 	sessionUnavailableModels := modelSet(sessionDemotedModelsFromContext(ctx))
 	if sessionUnavailableModels == nil {
 		sessionUnavailableModels = make(map[string]struct{})
@@ -142,19 +143,19 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		}
 	}
 	request.Candidates.AutomaticExcludedModels = candidates.MergeExcludedModels(request.Candidates.AutomaticExcludedModels, sessionUnavailableModels)
-	if in.initialDecision.UserForcedModel() {
-		request.ForceModel = in.initialDecision.Model
+	if in.InitialDecision.UserForcedModel() {
+		request.ForceModel = in.InitialDecision.Model
 	}
-	in.subscriptionStateRequest = nil
-	in.alternatives = nil
-	includedModels := s.includedSubscriptionModels(ctx, request, in.subscriptionStateHeaders)
-	if pickCtx, served := s.memberPickPaidContext(ctx, request, in.subscriptionStateHeaders, in.initialDecision, includedModels); served {
+	in.SubscriptionStateRequest = nil
+	in.Alternatives = nil
+	includedModels := s.includedSubscriptionModels(ctx, request, in.SubscriptionStateHeaders)
+	if pickCtx, served := s.memberPickPaidContext(ctx, request, in.SubscriptionStateHeaders, in.InitialDecision, includedModels); served {
 		ctx = pickCtx
 		includedModels = nil
 	}
 	ctx, rotationBudget := withSubscriptionAdmissionBudget(ctx)
 	hasFixedTarget := request.ForceModel != "" || callerModelPassthroughActive(ctx) ||
-		in.origin == policy.OverrideSourceDeployment || in.origin == policy.OverrideSourceRequest
+		in.Origin == policy.OverrideSourceDeployment || in.Origin == policy.OverrideSourceRequest
 	readmitted := false
 	var includedFailure error
 	var throttleWaited time.Duration
@@ -178,9 +179,9 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 				attemptReq.EnabledProviders[provider] = struct{}{}
 			}
 		}
-		target := in.initialDecision
+		target := in.InitialDecision
 		if !hasFixedTarget {
-			if provider, engaged := s.usageBypassEngaged(ctx, in.subscriptionStateHeaders, attemptReq); engaged {
+			if provider, engaged := s.usageBypassEngaged(ctx, in.SubscriptionStateHeaders, attemptReq); engaged {
 				target.Model = request.RequestedModel
 				target.Provider = provider
 				target.Reason = reasonUsageBypass
@@ -207,7 +208,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			break
 		}
 		winner, err := s.dispatchSubscriptionStateTarget(attemptCtx, in, target, true)
-		if err == nil || committed(in.buf) || ctx.Err() != nil {
+		if err == nil || committed(in.Prelude) || ctx.Err() != nil {
 			return winner, err
 		}
 		if !isSubscriptionPoolError(err) && !subscriptionLaneRefused(err) && !providers.IsRetryable(err) &&
@@ -217,13 +218,13 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		if !anotherSeatPoolCanServe(ctx, seatAdmissionOf(s), includedModels, target) && waitOutShortSeatThrottle(ctx, target.Provider, target.Model, err, s.clock.Now(), s.retrySleep, &throttleWaited) {
 			continue
 		}
-		includedFailure = includedFailureAfter(includedFailure, err, ownCodexLoginRejected(ctx, in.subscriptionStateHeaders, s.usageObserver))
+		includedFailure = includedFailureAfter(includedFailure, err, ownCodexLoginRejected(ctx, in.SubscriptionStateHeaders, s.usageObserver))
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
 		strikeModelUnlessFundingFailure(ctx, target.Model, err)
 		if !hasFixedTarget {
 			s.holdSessionOffSubscriptionPool(ctx, target.Provider, target.Model)
 		}
-		includedModels, spentCodexModels = dropFailedIncludedModels(includedModels, target.Model, spentCodexModels, codexPlanSpentForTurn(ctx, in.subscriptionStateHeaders, s.usageObserver, target.Provider, err, s.codexSubscriptionExhausted(ctx, in.subscriptionStateHeaders)))
+		includedModels, spentCodexModels = dropFailedIncludedModels(includedModels, target.Model, spentCodexModels, codexPlanSpentForTurn(ctx, in.SubscriptionStateHeaders, s.usageObserver, target.Provider, err, s.codexSubscriptionExhausted(ctx, in.SubscriptionStateHeaders)))
 		if hasFixedTarget {
 			break
 		}
@@ -237,10 +238,10 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	paidModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
 	paidCtx, paidReq := s.subscriptionStateRequest(ctx, request, paidModels)
 	paidCtx = withIncludedLaneExhausted(paidCtx)
-	target := in.initialDecision
+	target := in.InitialDecision
 	for {
 		target = openRouterOverflowTarget(paidCtx, target)
-		refusal := s.subscriptionStatePaidTargetRefusal(paidCtx, in.subscriptionStateHeaders, paidReq, target)
+		refusal := s.subscriptionStatePaidTargetRefusal(paidCtx, in.SubscriptionStateHeaders, paidReq, target)
 		if refusal == nil {
 			break
 		}
@@ -257,7 +258,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		var err error
 		target, err = s.Route(paidCtx, paidReq)
 		if err != nil {
-			fallback, ok := s.openRouterOverflowFallbackTarget(paidCtx, paidReq, paidModels, in.initialDecision)
+			fallback, ok := s.openRouterOverflowFallbackTarget(paidCtx, paidReq, paidModels, in.InitialDecision)
 			if !ok {
 				return -1, includedFailureOr(includedFailure, err)
 			}
@@ -318,34 +319,34 @@ func (s *Service) subscriptionStatePaidTargetRefusal(ctx context.Context, header
 	return nil
 }
 
-func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failoverInputs, target router.Decision, usesIncludedSubscription bool) (int, error) {
-	ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.subscriptionStateHeaders)
+func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in dispatch.FailoverInputs, target router.Decision, usesIncludedSubscription bool) (int, error) {
+	ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.SubscriptionStateHeaders)
 	resolvedTargetBindings := s.subscriptionStateTargetBindings(ctx, target)
-	if !usesIncludedSubscription && in.onSubscriptionStatePaidTarget != nil {
-		in.onSubscriptionStatePaidTarget(target, resolvedTargetBindings)
+	if !usesIncludedSubscription && in.OnSubscriptionStatePaidTarget != nil {
+		in.OnSubscriptionStatePaidTarget(target, resolvedTargetBindings)
 	}
-	attempt, err := in.buildAlternative(target)
+	attempt, err := in.BuildAlternative(target)
 	if err != nil {
 		return -1, err
 	}
-	if in.buf != nil {
-		in.buf.Discard()
+	if in.Prelude != nil {
+		in.Prelude.Discard()
 	}
-	in.initialDecision = target
-	in.attempt = attempt
-	in.bindings = resolvedTargetBindings
+	in.InitialDecision = target
+	in.Attempt = attempt
+	in.Bindings = resolvedTargetBindings
 	if usesIncludedSubscription {
-		in.bindings = []catalog.ProviderBinding{{Provider: target.Provider}}
-		in.deferFlushOnExhaustion = true
+		in.Bindings = []catalog.ProviderBinding{{Provider: target.Provider}}
+		in.DeferFlushOnExhaustion = true
 	}
-	if in.onSubscriptionStateTarget != nil {
-		in.onSubscriptionStateTarget(target, in.bindings)
-	} else if in.onAlternative != nil {
-		in.onAlternative(target)
+	if in.OnSubscriptionStateTarget != nil {
+		in.OnSubscriptionStateTarget(target, in.Bindings)
+	} else if in.OnAlternative != nil {
+		in.OnAlternative(target)
 	}
 	winner, err := s.dispatchWithFallback(ctx, in)
-	if err == nil && in.subscriptionStateWinnerProvider != nil && winner >= 0 && winner < len(resolvedTargetBindings) {
-		*in.subscriptionStateWinnerProvider = resolvedTargetBindings[winner].Provider
+	if err == nil && in.SubscriptionStateWinnerProvider != nil && winner >= 0 && winner < len(resolvedTargetBindings) {
+		*in.SubscriptionStateWinnerProvider = resolvedTargetBindings[winner].Provider
 	}
 	return winner, err
 }

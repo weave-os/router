@@ -24,7 +24,17 @@ const DefaultBaseURL = "https://api.anthropic.com"
 
 const largePromptBodyBytes = 1 << 20
 
-var largePromptResponseHeaderTimeout = httputil.TimeoutFromEnv("ROUTER_ANTHROPIC_LARGE_PROMPT_HEADER_TIMEOUT_SECONDS", 120*time.Second)
+const DefaultLargePromptResponseHeaderTimeout = 120 * time.Second
+
+var largePromptResponseHeaderTimeout = DefaultLargePromptResponseHeaderTimeout
+
+type Config struct {
+	LargePromptResponseHeaderTimeout time.Duration
+}
+
+func Configure(cfg Config) {
+	largePromptResponseHeaderTimeout = cfg.LargePromptResponseHeaderTimeout
+}
 
 const WaferMessagesBaseURL = "https://pass.wafer.ai"
 
