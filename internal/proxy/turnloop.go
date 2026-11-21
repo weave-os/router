@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -148,7 +148,7 @@ type turnLoopResult struct {
 	TokenizerCalibration        sessionpin.TokenizerCalibration
 	ContextEstimate             int
 	StripThinkingBlocks         bool
-	Handover                    handoverOutcome
+	Handover                    dispatch.HandoverOutcome
 	SuggestionMode              bool
 	PrefixTrimmed               bool
 	EscalateEffort              bool
@@ -238,13 +238,7 @@ func isHMMDecision(ports continuity.StrategyPorts, dec router.Decision) bool {
 	return ports.Ownership.IsDecision(dec)
 }
 
-const (
-	nativeWebSearchPassthroughReason = "native_web_search_passthrough"
-)
-
 const policyDeadlineFallbackReason = "policy_deadline_last_known_good"
-
-const policyDeadlineDefaultReason = "policy_deadline_default_model"
 
 const unscorableHMMStickyReason = "hmm_no_user_boundary_sticky"
 
@@ -256,14 +250,6 @@ func isPolicyDeadlineErr(err error) bool {
 		return false
 	}
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
-}
-
-type handoverOutcome struct {
-	Invoked               bool
-	LatencyMS             int64
-	SummaryTokens         int
-	FallbackToFullHistory bool
-	SummaryUsage          handover.Usage
 }
 
 func (s *Service) hasSubAgentOverride() bool {
@@ -697,29 +683,12 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 
-		passthroughModel := s.baselineFor(ctx, req.RequestedModel)
-		_, excluded := req.Candidates.ExcludedModels[passthroughModel]
-		_, safetyExcluded := req.Candidates.SafetyExcludedModels[passthroughModel]
-		_, allowlisted := req.Candidates.AllowedModels[passthroughModel]
-		allowed := req.Candidates.AllowedModels == nil || allowlisted
-		binding, bindingFound := catalog.ResolveBindingWithCustom(
-			passthroughModel,
-			req.EnabledProviders,
-			req.CustomBindings,
-		)
-		if !excluded && !safetyExcluded && allowed && bindingFound && binding.Provider == providers.ProviderAnthropic {
+		if decision, ok := candidates.NativeWebSearchPassthrough(req, s.baselineFor(ctx, req.RequestedModel)); ok {
 			res.SessionKey = threadSessionKey
-			res.Decision = router.Decision{
-				Provider: binding.Provider,
-				Model:    passthroughModel,
-				Reason:   nativeWebSearchPassthroughReason,
-			}
+			res.Decision = decision
 			res.HardPinned = true
-			res.PinTier = nativeWebSearchPassthroughReason
-			log.Info("Native web-search sub-turn passed through to requested model",
-				"model", passthroughModel,
-				"provider", binding.Provider,
-			)
+			res.PinTier = candidates.NativeWebSearchPassthroughReason
+			log.Info("Native web-search sub-turn passed through to requested model", "model", decision.Model, "provider", decision.Provider)
 			return res, nil
 		}
 	}
@@ -790,72 +759,20 @@ func (s *Service) runTurnLoop(
 		}
 		pin.Provider = binding
 	}
-	disabledProviders := candidates.MergeSessionStrikes(pin.DisabledProviders, hmmHistory.DisabledProviders)
 	forcedProvider := ""
 	if forceModelFound {
 		forcedProvider = forceModelPin.Provider
 	} else if pinFound && isUserForcedReason(pin.Reason) {
 		forcedProvider = pin.Provider
 	}
-	if forcedProvider != "" {
-		filtered := make([]string, 0, len(disabledProviders))
-		for _, provider := range disabledProviders {
-			if provider != forcedProvider {
-				filtered = append(filtered, provider)
-			}
-		}
-		disabledProviders = filtered
-	}
-	if len(disabledProviders) > 0 {
+	if disabledProviders := candidates.SessionDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders, forcedProvider); len(disabledProviders) > 0 {
 		res.SessionDisabledProviders = disabledProviders
-		if req.EnabledProviders != nil {
-			filtered := make(map[string]struct{}, len(req.EnabledProviders))
-			for p := range req.EnabledProviders {
-				filtered[p] = struct{}{}
-			}
-			for _, p := range disabledProviders {
-				delete(filtered, p)
-			}
-			req.EnabledProviders = filtered
-		}
+		req.EnabledProviders = candidates.WithoutProviders(req.EnabledProviders, disabledProviders)
 	}
-	demoted := candidates.MergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels)
-	if turnStrikes := candidates.MergeSessionStrikes(pin.TurnStrikes, hmmHistory.TurnStrikes); len(turnStrikes) > 0 {
-		if routingEndsWithUserPrompt(ctx, env) {
-			s.clearTurnStrikes(ctx, res.SessionKey, res.PinRole)
-		} else {
-			demoted = candidates.MergeSessionStrikes(demoted, turnStrikes)
-		}
-	}
+	demoted := sessionDemotedModels(ctx, s, env, &res, pin, hmmHistory)
 	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.ImageCount), req.HasTools)
 	if s.ResolveTransientRateLimit(ctx) && (!forceModelFound || !candidates.ForcedPinEligible(forceModelPin, req)) {
-		cooldowns := mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns)
-		now := s.clock.Now()
-		cooling := activeDemotionCooldowns(cooldowns, now)
-		if len(cooling) > 0 {
-			res.SessionCooldownModels = readmittableCooldowns(cooling, demoted, req.ImageCount)
-			demoted = candidates.MergeSessionStrikes(demoted, cooldownsByExpiry(cooling))
-		}
-		expired := expiredDemotionCooldowns(cooldowns, now)
-		probed := false
-		for _, model := range cooldownsByExpiry(expired) {
-			if slices.Contains(demoted, model) ||
-				modelExcludedForRecoveryProbe(req, model) {
-				continue
-			}
-			if !probed {
-				if release, acquired := s.acquireRecoveryProbe(ctx, res.SessionKey, model); acquired {
-					res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
-					res.CooldownProbes = map[string]time.Time{model: expired[model]}
-					probed = true
-					continue
-				}
-			}
-			demoted = candidates.MergeSessionStrikes(demoted, []string{model})
-			res.CooldownProbeDeniedModels = append(res.CooldownProbeDeniedModels, model)
-			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, model)
-			ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, res.CooldownProbeDeniedModels)
-		}
+		ctx, demoted = applyDemotionCooldowns(ctx, s, &req, &res, demoted, mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns))
 	}
 	if len(demoted) > 0 {
 		res.SessionDemotedModels = demoted
@@ -887,235 +804,31 @@ func (s *Service) runTurnLoop(
 
 	forcedTierFloor := catalog.TierUnknown
 	if forceModelFound {
-		_, excluded := req.Candidates.ExcludedModels[forceModelPin.Model]
-		_, providerEnabled := req.EnabledProviders[forceModelPin.Provider]
-		providerEligible := req.EnabledProviders == nil || providerEnabled
-		imageCapable := candidates.ForcedPinServesImages(forceModelPin, req)
-		if _, estimateOnly := req.Candidates.ContextWindowExcludedModels[forceModelPin.Model]; excluded && estimateOnly {
-			log.Info("Forced session pin dispatched past the context-window estimate; the provider decides",
-				"pin_model", forceModelPin.Model,
-				"pin_provider", forceModelPin.Provider,
-				"role", res.PinRole,
-			)
-			excluded = false
-		}
-		if _, imageLimitExcluded := req.Candidates.ImageLimitExcludedModels[forceModelPin.Model]; imageLimitExcluded {
-			log.Info("Forced session pin dispatched past the image-count cap; the provider decides",
-				"pin_model", forceModelPin.Model,
-				"pin_provider", forceModelPin.Provider,
-				"role", res.PinRole,
-			)
-			excluded = false
-		}
-		if !excluded && providerEligible && imageCapable {
-			res.PinModel = forceModelPin.Model
-			res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
-			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
-				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
-			res.serveForceModelPin(forceModelPin)
-			sessionPins.AnchorForceModelHistory(ctx, installationID, res.SessionKey, res.PinRole, forceModelPin)
+		served, tierFloor := serveForceModelPin(ctx, &req, &res, forceModelPin, forceHistory, sessionPins, s.clock.Now())
+		if served {
 			return res, nil
 		}
-		res.ForcedPinDropped = true
-		res.ForcedPinDropReason = candidates.ForcedPinIneligibilityReason(forceModelPin, req)
-		res.ForcedPinModel = forceModelPin.Model
-		log.Info("Forced session pin dropped for this turn",
-			"pin_model", forceModelPin.Model,
-			"pin_provider", forceModelPin.Provider,
-			"drop_reason", res.ForcedPinDropReason,
-			"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
-			"role", res.PinRole,
-		)
-		if excluded || !imageCapable {
-			forcedTierFloor = catalog.TierFor(forceModelPin.Model)
-		}
-		if !imageCapable {
-			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, forceModelPin.Model)
-		}
+		forcedTierFloor = tierFloor
 		if !sessionForceControlFound || isUserForcedReason(pin.Reason) {
 			pinFound = false
 			pin = sessionpin.Pin{}
 		}
 	}
 	if pinFound && isUserForcedReason(pin.Reason) {
-		_, excluded := req.Candidates.ExcludedModels[pin.Model]
-		_, providerEnabled := req.EnabledProviders[pin.Provider]
-		providerEligible := req.EnabledProviders == nil || providerEnabled
-		imageCapable := candidates.PinServesImages(pin, req)
-		if !excluded && providerEligible && imageCapable {
-			decision := pinDecision(pin)
-			decision.Reason = pin.Reason
-			res.PinTier = pin.Reason
-			res.Decision = decision
-			res.UserForced = decision.UserForcedModel()
-			res.StickyHit = true
-			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
+		served, tierFloor := serveUserForcedPin(ctx, &req, &res, pin, sessionPins)
+		if served {
 			return res, nil
 		}
-		dropReason := "excluded"
-		switch {
-		case !providerEligible:
-			dropReason = "provider_not_enabled"
-		case !imageCapable:
-			dropReason = "not_image_capable"
-		}
-		log.Info("Forced session pin dropped for this turn",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-			"pin_reason", pin.Reason,
-			"drop_reason", dropReason,
-			"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
-			"role", res.PinRole,
-		)
-		res.ForcedPinDropped = true
-		res.ForcedPinDropReason = dropReason
-		res.ForcedPinModel = pin.Model
-		if excluded || !imageCapable {
-			forcedTierFloor = catalog.TierFor(pin.Model)
-		}
-		if !imageCapable {
-			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, pin.Model)
-		}
+		forcedTierFloor = tierFloor
 		pinFound = false
 		pin = sessionpin.Pin{}
 	}
 
-	if pinFound && !isUserForcedReason(pin.Reason) && automaticallyDisabled(req, pin.Model) {
-		reason, _ := s.globalAutomaticExclusionReason(ctx, pin.Model)
-		log.Info("Session pin model is disabled for automatic routing; falling through to scorer",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-			"pin_reason", pin.Reason,
-			"disable_reason", reason,
-			"role", res.PinRole,
-		)
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
-
-	if maxedModel := maxedOutServedModel(pin); pinFound && maxedModel != "" {
-		log.Info("Session pin maxed out on previous turn; excluding for this turn",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-			"maxed_model", maxedModel,
-			"last_output_tokens", pin.LastOutputTokens,
-		)
-		excluded := make(map[string]struct{}, len(req.Candidates.ExcludedModels)+1)
-		for k := range req.Candidates.ExcludedModels {
-			excluded[k] = struct{}{}
-		}
-		excluded[maxedModel] = struct{}{}
-		req.Candidates.ExcludedModels = excluded
-		req.Candidates.SafetyExcludedModels = addToSet(req.Candidates.SafetyExcludedModels, maxedModel)
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
-	if maxedModel := maxedOutServedModel(hmmHistory); maxedModel != "" {
-		log.Info("HMM history maxed out on previous turn; excluding for this turn",
-			"history_provider", hmmHistory.Provider,
-			"maxed_model", maxedModel,
-			"last_output_tokens", hmmHistory.LastOutputTokens,
-		)
-		excluded := make(map[string]struct{}, len(req.Candidates.ExcludedModels)+1)
-		for k := range req.Candidates.ExcludedModels {
-			excluded[k] = struct{}{}
-		}
-		excluded[maxedModel] = struct{}{}
-		req.Candidates.ExcludedModels = excluded
-		req.Candidates.SafetyExcludedModels = addToSet(req.Candidates.SafetyExcludedModels, maxedModel)
-		if pinFound && baseModelOf(pin.Model) == maxedModel {
-			pinFound = false
-			pin = sessionpin.Pin{}
-		}
-	}
-
-	if pinFound && advisorRejectsModel(env, pin.Model) {
-		log.Info("Session pin dropped: the request's advisor tool cannot advise the pinned model",
-			"pin_model", pin.Model,
-			"advisor_model", env.AdvisorToolModel(),
-		)
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
-
-	if pinFound {
-		if _, overCapacity := req.Candidates.ExcludedModels[pin.Model]; overCapacity {
-			outputReserveForPin := contextWindowOutputReserve
-			if feats.MaxTokens > outputReserveForPin {
-				outputReserveForPin = feats.MaxTokens
-			}
-			pinTokenEstimate := env.ContextOverflowTokenEstimate()
-			if modelStripsAnthropicSignatures(pin.Model) {
-				pinTokenEstimate -= env.SignatureTokenSavings()
-			}
-			if projected, ok := res.TokenizerCalibration.ProjectedPrompt(tokenizerFamilyFor(pin.Provider), res.ContextEstimate); ok && projected > pinTokenEstimate {
-				pinTokenEstimate = projected
-			}
-			needed := pinTokenEstimate + outputReserveForPin
-			modelCW := gatewayContextWindow(cortexGatewayProvidersForRequest(ctx), pin.Model, pin.Provider)
-			if needed > modelCW {
-				log.Info("Session pin excluded by context-window pre-filter; falling through to scorer",
-					"pin_model", pin.Model,
-					"pin_provider", pin.Provider,
-					"token_estimate", pinTokenEstimate,
-					"needed", needed,
-					"model_context_window", modelCW,
-				)
-				pinFound = false
-				pin = sessionpin.Pin{}
-			} else {
-				policyExcluded := s.excludedModelsForRequest(ctx)
-				_, policyExcludes := policyExcluded[pin.Model]
-				if !policyExcludes && !compatibilityExcludesModel(req, pin.Model) {
-					if len(req.Candidates.ExcludedModels) > 0 {
-						pruned := make(map[string]struct{}, len(req.Candidates.ExcludedModels)-1)
-						for k := range req.Candidates.ExcludedModels {
-							if k != pin.Model {
-								pruned[k] = struct{}{}
-							}
-						}
-						req.Candidates.ExcludedModels = pruned
-					}
-					delete(req.Candidates.SafetyExcludedModels, pin.Model)
-				}
-				log.Info("Session pin preserved despite context-window pre-filter exclusion",
-					"pin_model", pin.Model,
-					"token_estimate", pinTokenEstimate,
-					"needed", needed,
-					"model_context_window", modelCW,
-				)
-			}
-		}
-	}
-
-	if pinFound && !modelInRequestSubset(ctx, pin.Model) {
-		log.Info("Session pin outside request allowed-models subset; falling through to scorer",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-		)
-		pinFound = false
-	}
-
-	if pinFound && req.EnabledProviders != nil {
-		if _, ok := req.EnabledProviders[pin.Provider]; !ok {
-			log.Info("Session pin provider not in enabled set; falling through to scorer",
-				"pin_model", pin.Model,
-				"pin_provider", pin.Provider,
-			)
-			pinFound = false
-			pin = sessionpin.Pin{}
-		}
-	}
-
-	if pinFound && req.HasImages && (!catalog.AcceptsImages(pin.Model) ||
-		req.ImageCount > 0 && !catalog.AcceptsImageCount(pin.Model, req.ImageCount, req.EnabledProviders)) {
-		log.Info("Session pin is text-only for image-bearing turn; falling through to scorer",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-		)
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
+	reusable := turnPin{pin: pin, found: pinFound}
+	dropPinRuledOutLastTurn(ctx, s, env, &req, &res, &reusable, hmmHistory)
+	screenPinContextWindow(ctx, s, env, feats, &res, &req, &reusable)
+	screenPinForRequest(ctx, req, &reusable)
+	pin, pinFound = reusable.pin, reusable.found
 	if !pinFound {
 		clearPinEvidence(&res)
 	}
@@ -1235,39 +948,8 @@ func (s *Service) runTurnLoop(
 		if !routed {
 			dec, err := s.routeFor(ctx, strategy, req)
 			if err != nil {
-				if s.policyDeadlineFallback && isPolicyDeadlineErr(err) {
-					if pinFound && pin.Model != "" {
-						decision := pinDecision(pin)
-						decision.Reason = policyDeadlineFallbackReason
-						res.Decision = decision
-						res.StickyHit = true
-						res.PinTier = policyDeadlineFallbackReason
-						res.PolicyFallback = true
-						log.Warn("policy sidecar missed its deadline; serving session pin",
-							"err", err,
-							"pin_model", pin.Model,
-							"pin_provider", pin.Provider,
-							"pin_policy_group", s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup,
-							"requested_model", req.RequestedModel,
-						)
-						refreshed := decision
-						refreshed.Reason = pin.Reason
-						sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, refreshed)
-						return res, nil
-					}
-					if decision, ok := s.policyDeadlineDefaultDecision(req); ok {
-						res.Decision = decision
-						res.PinTier = policyDeadlineFallbackReason
-						res.PolicyFallback = true
-						log.Warn("policy sidecar missed its deadline; no session pin, serving tier-3 default",
-							"err", err,
-							"default_model", decision.Model,
-							"default_provider", decision.Provider,
-							"requested_model", req.RequestedModel,
-						)
-						sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, decision)
-						return res, nil
-					}
+				if s.policyDeadlineFallback && isPolicyDeadlineErr(err) && servePolicyDeadlineFallback(ctx, s, &res, err, req, sessionPins, pinIfFound(pin, pinFound)) {
+					return res, nil
 				}
 				log.Error("turnloop scorer failed", "err", err, "requested_model", req.RequestedModel)
 				return res, err
@@ -1286,77 +968,7 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 		if res.AuthoritativePerTurn {
-			activePin := sessionpin.Pin{}
-			if pinFound {
-				activePin = pin
-			}
-			plannerTokens := s.plannerTokensFor(ctx, env, feats)
-			res.UpgradeShadow = s.authoritativeUpgradeFor(ctx, req, activePin, fresh, res, plannerTokens)
-			res.AuthorityShadow = s.authorityCacheShadowFor(
-				ctx, req, activePin, hmmHistory, fresh, plannerTokens, prefixBroken,
-			)
-			s.logAuthorityCacheShadow(ctx, res)
-			if res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.DemotedModel() {
-				if pinFound && candidates.AutomaticPinEligible(pin, req) {
-					decision := pinDecision(pin)
-					res.Decision = decision
-					res.StickyHit = true
-					res.PinTier = string(pinTierAuthoritativeExcludedPin)
-					log.Warn("authoritative policy returned an excluded model; keeping session pin",
-						"pin_model", pin.Model,
-						"fresh_model", fresh.Model,
-						"reason", res.UpgradeShadow.Verdict.Reason,
-					)
-					sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
-					return res, nil
-				}
-
-				rerouteReq := req
-				rerouted, rerouteErr := s.routeFor(ctx, strategy, rerouteReq)
-				if rerouteErr != nil {
-					return res, rerouteErr
-				}
-				reroutedPin := sessionpin.Pin{Model: rerouted.Model, Provider: rerouted.Provider}
-				available := s.availableModels == nil
-				if s.availableModels != nil {
-					_, available = s.availableModels[rerouted.Model]
-				}
-				if !available || !candidates.PinEligible(reroutedPin, rerouteReq) {
-					return res, fmt.Errorf("authoritative policy returned excluded model %q after reroute: %w", rerouted.Model, router.ErrNoEligibleProvider)
-				}
-				res.Fresh = rerouted
-				res.Decision = rerouted
-				res.PinTier = string(pinTierAuthoritativeExcludedReroute)
-				log.Warn("authoritative policy returned an excluded model; serving rerouted decision",
-					"excluded_model", fresh.Model,
-					"rerouted_model", rerouted.Model,
-					"reason", res.UpgradeShadow.Verdict.Reason,
-				)
-				sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, rerouted)
-				return res, nil
-			}
-			sliding := s.strategyPorts.Upgrade.SlidingThresholdServes(req, pin, fresh)
-			if sliding.Served {
-				log.Info("authoritative sliding threshold serving fresh model",
-					"pin_model", pin.Model,
-					"pin_group", req.Session.SlidingThresholdPinGroup,
-					"fresh_model", fresh.Model,
-					"fresh_group", sliding.FreshGroup,
-					"classified_group", sliding.ClassifiedGroup,
-					"probability", sliding.Probability,
-				)
-			}
-			verdict := s.strategyPorts.Upgrade.JudgeAuthoritative(authoritativeGuardsFor(ctx, s, sliding.Served), pin, pinFound, fresh, plannerTokens)
-			if holdAuthoritativePin(ctx, sessionPins, s.strategyPorts.Ownership, &res, pin, fresh, verdict) {
-				return res, nil
-			}
-			res.Decision = fresh
-			res.PinTier = "authoritative_per_turn"
-			if sliding.Served {
-				res.PinTier = string(pinTierAuthoritativeSlidingThresholdUpgrade)
-			}
-			sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
-			return res, nil
+			return serveAuthoritativeTurn(ctx, s, &res, authoritativeTurn{env: env, feats: feats, strategy: strategy, req: req, pin: pin, pinFound: pinFound, hmmHistory: hmmHistory, fresh: fresh, prefixBroken: prefixBroken, sessionPins: sessionPins, installationID: installationID})
 		}
 		if isHMMDecision(s.strategyPorts, fresh) {
 			activePin := sessionpin.Pin{}
@@ -1403,44 +1015,20 @@ func (s *Service) runTurnLoop(
 		}
 
 		if !pinFound && pin.Model != "" && !prefixBroken {
-			pinTier := catalog.TierFor(pin.Model)
-			freshTier := catalog.TierFor(fresh.Model)
-			if pinTier != catalog.TierUnknown && freshTier != catalog.TierUnknown && freshTier <= pinTier {
-				if _, excluded := req.Candidates.ExcludedModels[pin.Model]; !excluded && !automaticallyDisabled(req, pin.Model) {
-					if _, available := s.availableModels[pin.Model]; available {
-						_, providerOK := req.EnabledProviders[pin.Provider]
-						if req.EnabledProviders == nil || providerOK {
-							if maxedOutServedModel(pin) != "" {
-								log.Info("Expired session pin maxed out on previous turn; skipping re-anchor",
-									"pin_model", pin.Model,
-									"pin_provider", pin.Provider,
-									"last_output_tokens", pin.LastOutputTokens,
-								)
-							} else if req.HasImages && (!catalog.AcceptsImages(pin.Model) ||
-								req.ImageCount > 0 && !catalog.AcceptsImageCount(pin.Model, req.ImageCount, req.EnabledProviders)) {
-								log.Info("Expired session pin is text-only for image-bearing turn; skipping re-anchor",
-									"pin_model", pin.Model,
-									"pin_provider", pin.Provider,
-								)
-							} else {
-								priorDecision := pinDecision(pin)
-								res.Decision = priorDecision
-								res.StickyHit = true
-								res.PinTier = "postgres_reanchor"
-								sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, priorDecision)
-								log.Info("router re-anchored expired session pin",
-									"prior_model", pin.Model,
-									"prior_provider", pin.Provider,
-									"fresh_model", fresh.Model,
-									"fresh_provider", fresh.Provider,
-									"prior_tier", pinTier.String(),
-									"fresh_tier", freshTier.String(),
-								)
-								return res, nil
-							}
-						}
-					}
-				}
+			switch continuity.JudgeReanchor(pin, fresh, req, s.availableModels) {
+			case continuity.ReanchorNone:
+			case continuity.ReanchorSkipMaxedOut:
+				log.Info("Expired session pin maxed out on previous turn; skipping re-anchor", "pin_model", pin.Model, "pin_provider", pin.Provider, "last_output_tokens", pin.LastOutputTokens)
+			case continuity.ReanchorSkipTextOnly:
+				log.Info("Expired session pin is text-only for image-bearing turn; skipping re-anchor", "pin_model", pin.Model, "pin_provider", pin.Provider)
+			case continuity.ReanchorServe:
+				priorDecision := pinDecision(pin)
+				res.Decision = priorDecision
+				res.StickyHit = true
+				res.PinTier = "postgres_reanchor"
+				sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, priorDecision)
+				log.Info("router re-anchored expired session pin", "prior_model", pin.Model, "prior_provider", pin.Provider, "fresh_model", fresh.Model, "fresh_provider", fresh.Provider, "prior_tier", catalog.TierFor(pin.Model).String(), "fresh_tier", catalog.TierFor(fresh.Model).String())
+				return res, nil
 			}
 		}
 
@@ -1461,23 +1049,21 @@ func (s *Service) runTurnLoop(
 		}, plannerConfigFor(ctx, s.continuityConfig.Planner))
 		res.PlannerDecision = decision
 
-		if decision.Outcome == planner.OutcomeStay && pinFound {
+		outcome := continuity.Settle(decision, pinFound, prefixBroken)
+		if outcome.Stay {
 			anchor := pinDecision(pin)
 			served := s.bandSwapServed(ctx, res.TurnType, pin, fresh, req.HasImages, req.ImageCount, req.EnabledProviders, req.Candidates.ExcludedModels)
 			res.Decision = served
 			res.StickyHit = true
-			res.PinTier = "postgres_stay_" + decision.Reason
+			res.PinTier = outcome.PinTier
 			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, anchor)
 			return res, nil
 		}
 
-		if pinFound && prefixBroken {
-			log.Info("Handover summarizer skipped: client history trim already bounded this switch turn",
-				"pin_model", pin.Model,
-				"fresh_model", fresh.Model,
-			)
+		if outcome.Handover == continuity.HandoverSkippedTrimmedHistory {
+			log.Info("Handover summarizer skipped: client history trim already bounded this switch turn", "pin_model", pin.Model, "fresh_model", fresh.Model)
 		}
-		if pinFound && !prefixBroken {
+		if outcome.Handover == continuity.HandoverSummarize {
 			var (
 				sumProvider       string
 				sumCreds          *Credentials
@@ -1526,37 +1112,27 @@ func (s *Service) runTurnLoop(
 		}
 
 		res.Decision = fresh
-		if pinFound {
-			res.PinTier = "switch_" + decision.Reason
+		if outcome.PinTier != "" {
+			res.PinTier = outcome.PinTier
 		}
 		sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 		return res, nil
 	}
 	res, routeErr = routeRemaining()
 	if escalationTurn != nil {
-		committed, err := s.escalationHelper().Finish(ctx, escalationTurn, res.Decision, decisionPolicyGroup(res.Decision), routeErr)
-		if err != nil {
-			log.Warn("Escalation state commit failed; routing without intervention", "err", err, "ordinal", escalationTurn.Ordinal())
-			if floor.RoutingApplied(res.Decision) {
-				req = baselineRequest
-				res = baselineTurn
-				res, routeErr = routeRemaining()
-			}
-		} else {
+		committed, rerunBaseline, err := s.escalationHelper().Settle(ctx, escalationTurn, res.Decision, decisionPolicyGroup(res.Decision), routeErr)
+		if rerunBaseline {
+			req, res = baselineRequest, baselineTurn
+			res, routeErr = routeRemaining()
+		} else if err == nil {
 			res.EscalationShadowMarked, res.EscalationScope, res.EscalationOrdinal = committed.ShadowMarked, committed.Scope, committed.Ordinal
 		}
 	}
 	res.escalation = escalationTurn
-	if escalationTurn.HasLLM() && routeErr == nil {
-		if err := s.escalationHelper().ApplyLLM(ctx, escalationTurn, res.Decision); err != nil {
-			log.Warn("LLM escalation application failed", "err", err)
-			if escalationTurn.LLMActive() && floor.RoutingApplied(res.Decision) {
-				req = baselineRequest
-				res = baselineTurn
-				res, routeErr = routeRemaining()
-				res.escalation = escalationTurn
-			}
-		}
+	if s.escalationHelper().SettleLLM(ctx, escalationTurn, res.Decision, routeErr) {
+		req, res = baselineRequest, baselineTurn
+		res, routeErr = routeRemaining()
+		res.escalation = escalationTurn
 	}
 	return res, routeErr
 }
