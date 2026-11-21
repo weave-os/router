@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -48,7 +49,7 @@ type chatAttemptDeps struct {
 	crossFormat          *bool
 }
 
-func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
+func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
 	targetNotice := routerNoticeForDecision(withOwnCodexRejectionNudge(ctx, deps.request.Header, deps.svc.usageObserver), deps.request.Header, target, targetMarker)
 	targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(deps.svc), target.Provider, target.Model, targetNotice)
 	if deps.isResponses {
@@ -61,7 +62,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 	}
 	switch providers.FamilyFor(target.Provider) {
 	case providers.FamilyOpenAICompat:
-		dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
+		dispatchOpenAI := func(actx context.Context, d router.Decision, p dispatch.Upstream, surface openAISurface, stripPromptCacheKey bool) error {
 			resetResponsesAttempt(deps.responseWriter)
 			var prep providers.PreparedRequest
 			switch surface {
@@ -244,7 +245,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 
 			return err
 		}
-		return func(actx context.Context, d router.Decision, p providers.Client) error {
+		return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 			surface := deps.responseSwitch.surface(d.Provider, servedOnCodexSubscription(actx))
 			gatewayKey := gatewayResponsesKey(actx, d.Provider)
 			stripPromptCacheKey := deps.svc.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
@@ -285,7 +286,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			deps.log.Error("Failed to translate OpenAI request to Gemini format", "err", emitErr)
 			return nil, fmt.Errorf("translate openai request to gemini: %w", emitErr)
 		}
-		dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (func(error) error, error) {
+		dispatchGemini := func(actx context.Context, d router.Decision, p dispatch.Upstream, pr providers.PreparedRequest) (func(error) error, error) {
 			resetResponsesAttempt(deps.responseWriter)
 			var usage translate.UsageSink
 			if deps.svc.usageRequired() {
@@ -312,7 +313,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			}
 			return finalize, rawErr
 		}
-		return func(actx context.Context, d router.Decision, p providers.Client) error {
+		return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 			retry := geminiToolModeAttempt{log: deps.log, buffer: deps.preludeBuf, env: deps.env, headers: deps.request.Header, opts: targetOpts}
 			return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
 				return dispatchGemini(actx, d, p, prepared)
@@ -325,7 +326,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			deps.log.Error("Failed to translate OpenAI request to Anthropic format", "err", emitErr)
 			return nil, fmt.Errorf("translate openai request: %w", emitErr)
 		}
-		dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, attemptPrep providers.PreparedRequest, fast bool) (func(error) error, error) {
+		dispatchAnthropic := func(actx context.Context, d router.Decision, p dispatch.Upstream, attemptPrep providers.PreparedRequest, fast bool) (func(error) error, error) {
 			resetResponsesAttempt(deps.responseWriter)
 			*deps.fastServed = fast
 			var usage translate.UsageSink
@@ -358,7 +359,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			}
 			return finalize, rawErr
 		}
-		return func(actx context.Context, d router.Decision, p providers.Client) error {
+		return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 			attemptOpts := targetOpts
 			attemptOpts.TargetProvider = d.Provider
 			attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
