@@ -92,7 +92,7 @@ type Service struct {
 	llmEscalationInvalidate      func(string)
 	sessionStrategyStore         sessionstrategy.Store
 	classifierSessions           *classifierSessions
-	noProgress                   *conversation.NoProgressTracker
+	lifecycle                    *conversation.Lifecycle
 	compaction                   *conversation.CompactionTracker
 	prefixTrimFreeSwitch         bool
 	escapeNormalize              bool
@@ -144,7 +144,6 @@ type Service struct {
 	bandSwap                       *bandswap.Classifier
 
 	turnSignalCaptureEnabled     bool
-	textRepetitionBreakEnabled   bool
 	feedbackStore                RouterFeedbackStore
 	summarizer                   handover.Summarizer
 	webSearch                    websearch.Executor
@@ -1004,13 +1003,12 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		emitter:                        emitter,
 		ingress:                        ingress.New(0),
 		pinStore:                       pinStore,
-		noProgress:                     conversation.NewNoProgressTracker(),
+		lifecycle:                      conversation.NewLifecycle(),
 		searchUse:                      newSearchUseTracker(),
 		searchRequirementDecayTurns:    DefaultSearchRequirementDecayTurns,
 		compaction:                     conversation.NewCompactionTracker(),
 		prefixTrimFreeSwitch:           true,
 		turnSignalCaptureEnabled:       true,
-		textRepetitionBreakEnabled:     true,
 		ccOrchToolsCrossVendor:         true,
 		hardPinExplore:                 hardPinExplore,
 		hardPinProvider:                hardPinProvider,
@@ -2074,7 +2072,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, strategy router.Str
 		return
 	}
 	log.Info("safety refusal — re-pinned session off refusing model",
-		"session_key", shortSessionKey(sessionKey),
+		"session_key", conversation.ShortSessionKey(sessionKey),
 		"refusal_category", category,
 		"from_model", served.Model,
 		"to_model", fbModel,
@@ -2502,18 +2500,18 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	s.logPlannerOutcome(ctx, routeRes)
 
 	toolBearingTurn := inboundToolCallCount > 0 || inboundLastUser.HasToolResult
-	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && toolBearingTurn && s.noProgress != nil {
+	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && toolBearingTurn && s.lifecycle.NoProgress() != nil {
 		fp := conversation.ComputeNoProgressFingerprint(decision, promptText, feats.MessageCount, conversation.ToolProgressMarker(env))
 		role := roleForTier(catalog.TierFor(feats.Model))
-		if looped, count := s.noProgress.RecordAndDetect(routeRes.SessionKey, facts.InstallationID, role, fp, s.clock.Now()); looped {
-			return s.handleNoProgressBreak(ctx, w, env, count, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, role, decision.Model, decision.Provider, feats.Tokens, routeRes.Decision.Reason)
+		if looped, count := s.lifecycle.NoProgress().RecordAndDetect(routeRes.SessionKey, facts.InstallationID, role, fp, s.clock.Now()); looped {
+			return writeLoopStop(ctx, w, env, conversation.LoopBreak{Pins: newLoopBreakPins(s, strategy), InstallationID: facts.InstallationID, SessionKey: routeRes.SessionKey, Role: role, DecisionModel: decision.Model, DecisionProvider: decision.Provider}.NoProgress(ctx, env, count, routeRes.Decision.Reason), feats.Tokens)
 		}
 	}
 
 	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
-			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, role, decision.Model, decision.Provider, feats.Tokens)
+			return writeLoopStop(ctx, w, env, conversation.LoopBreak{Pins: newLoopBreakPins(s, strategy), InstallationID: facts.InstallationID, SessionKey: routeRes.SessionKey, Role: role, DecisionModel: decision.Model, DecisionProvider: decision.Provider}.TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
 		}
 	}
 
@@ -3316,7 +3314,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			"repair_actions", iss.Actions,
 			"model", decision.Model,
 			"provider", finalProvider,
-			"session_key_prefix", shortSessionKey(routeRes.SessionKey),
+			"session_key_prefix", conversation.ShortSessionKey(routeRes.SessionKey),
 		)
 	}
 
@@ -4537,7 +4535,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if facts.Client.ClientApp == ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
-			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, role, decision.Model, decision.Provider, feats.Tokens)
+			return writeLoopStop(ctx, w, env, conversation.LoopBreak{Pins: newLoopBreakPins(s, strategy), InstallationID: facts.InstallationID, SessionKey: sessionKey, Role: role, DecisionModel: decision.Model, DecisionProvider: decision.Provider}.TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
 		}
 	}
 
@@ -5463,7 +5461,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			"repair_actions", iss.Actions,
 			"model", decision.Model,
 			"provider", finalProvider,
-			"session_key_prefix", shortSessionKey(routeRes.SessionKey),
+			"session_key_prefix", conversation.ShortSessionKey(routeRes.SessionKey),
 		)
 	}
 
