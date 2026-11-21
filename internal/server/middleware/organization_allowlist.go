@@ -4,27 +4,43 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/config"
 	"weave-os/router/internal/policyregistry"
 )
 
-const inferenceOrganizationAllowlistEnv = "ROUTER_INFERENCE_ORGANIZATION_ALLOWLIST"
-
 var errOrganizationNotAllowed = errors.New("organization is not allowed on this deployment")
+
+type Config struct {
+	InferenceOrganizationAllowlist []string
+}
+
+var activeConfig atomic.Pointer[Config]
+
+func Configure(cfg Config) {
+	activeConfig.Store(&cfg)
+}
+
+func ParseOrganizationAllowlist(raw string) []string {
+	var externalIDs []string
+	for _, externalID := range strings.Split(raw, ",") {
+		if externalID = strings.TrimSpace(externalID); externalID != "" {
+			externalIDs = append(externalIDs, externalID)
+		}
+	}
+	return externalIDs
+}
 
 type organizationAllowlist map[string]struct{}
 
-func organizationAllowlistFromEnv() organizationAllowlist {
-	var allowed organizationAllowlist
-	for _, externalID := range strings.Split(config.GetOr(inferenceOrganizationAllowlistEnv, ""), ",") {
-		if externalID = strings.TrimSpace(externalID); externalID == "" {
-			continue
-		}
-		if allowed == nil {
-			allowed = organizationAllowlist{}
-		}
+func configuredOrganizationAllowlist() organizationAllowlist {
+	cfg := activeConfig.Load()
+	if cfg == nil || len(cfg.InferenceOrganizationAllowlist) == 0 {
+		return nil
+	}
+	allowed := organizationAllowlist{}
+	for _, externalID := range cfg.InferenceOrganizationAllowlist {
 		allowed[externalID] = struct{}{}
 	}
 	return allowed

@@ -163,9 +163,9 @@ func TestLoopStopsPreserveHistoricalForcePin(t *testing.T) {
 		rec := httptest.NewRecorder()
 		var err error
 		if repetition {
-			err = svc.handleTextRepetitionBreak(context.Background(), rec, env, 3, "synthetic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic, 1)
+			err = loopBreakForTest(svc, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic).textRepetition(context.Background(), rec, env, 3, "synthetic", 1)
 		} else {
-			err = svc.handleNoProgressBreak(context.Background(), rec, env, 3, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic, 1, translate.ReasonUserForceModel)
+			err = loopBreakForTest(svc, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic).noProgress(context.Background(), rec, env, 3, 1, translate.ReasonUserForceModel)
 		}
 		require.NoError(t, err)
 		outcome := readCommandOutcome(t, rec)
