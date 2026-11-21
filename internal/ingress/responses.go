@@ -3,6 +3,7 @@ package ingress
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/translate"
@@ -41,6 +42,15 @@ func (Responses) Convert(ctx context.Context, body []byte, portableCodex bool, s
 	observability.FromContext(ctx).Info("Codex plan and seats cannot serve; converting native-only history lossily",
 		"native_only_reasons", NativeOnlyReasons(conversion.Report, body))
 	return rescued, nil
+}
+
+func (Responses) NewWriter(w http.ResponseWriter, conversion translate.ResponsesConversion, terminalResponses bool) *translate.ResponsesWriter {
+	writer := translate.NewResponsesWriter(w, conversion.Model)
+	if terminalResponses {
+		writer.EnableTerminalBadgeProvenance()
+	}
+	writer.SetToolMappings(conversion.ToolMappings)
+	return writer
 }
 
 func stripResponsesVisualArtifacts(body []byte) ([]byte, error) {

@@ -5531,11 +5531,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		ctx = context.WithValue(ctx, codexTitleGenerationContextKey{}, true)
 	}
 	ctx = context.WithValue(ctx, responsesTransformsContextKey{}, conversion.Report)
-	wrapper := translate.NewResponsesWriter(w, model)
-	if terminalResponses {
-		wrapper.EnableTerminalBadgeProvenance()
-	}
-	wrapper.SetToolMappings(conversion.ToolMappings)
+	wrapper := s.ingress.Responses.NewWriter(w, conversion, terminalResponses)
 	ctx, deferredLog := withDeferredCallLog(ctx)
 	deferredLog.requestBody = body
 	proxyErr := s.ProxyOpenAIChatCompletion(ctx, chatBody, wrapper, r)
