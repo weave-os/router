@@ -3,21 +3,21 @@ package envreads
 import (
 	"flag"
 	"net/http"
-	xos "os"
+	aliasedOS "os"
 	"strings"
 
 	"weave-os/router/internal/config"
 )
 
-type gjsonLike struct{}
+type keyValueStore struct{}
 
-func (gjsonLike) Get(string) string { return "" }
+func (keyValueStore) Get(string) string { return "" }
 
 func Reads() []any {
 	_ = flag.Bool("synthetic", false, "")
-	local := gjsonLike{}
+	local := keyValueStore{}
 	return []any{
-		xos.Getenv("FIXTURE_A"),
+		aliasedOS.Getenv("FIXTURE_A"),
 		config.GetOr("FIXTURE_B", ""),
 		http.ProxyFromEnvironment,
 		strings.TrimSpace(local.Get("not-an-env-read")),
@@ -25,6 +25,6 @@ func Reads() []any {
 }
 
 func Lookup() bool {
-	_, ok := xos.LookupEnv("FIXTURE_C")
+	_, ok := aliasedOS.LookupEnv("FIXTURE_C")
 	return ok
 }
