@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -781,72 +780,20 @@ func (s *Service) runTurnLoop(
 		}
 		pin.Provider = binding
 	}
-	disabledProviders := candidates.MergeSessionStrikes(pin.DisabledProviders, hmmHistory.DisabledProviders)
 	forcedProvider := ""
 	if forceModelFound {
 		forcedProvider = forceModelPin.Provider
 	} else if pinFound && isUserForcedReason(pin.Reason) {
 		forcedProvider = pin.Provider
 	}
-	if forcedProvider != "" {
-		filtered := make([]string, 0, len(disabledProviders))
-		for _, provider := range disabledProviders {
-			if provider != forcedProvider {
-				filtered = append(filtered, provider)
-			}
-		}
-		disabledProviders = filtered
-	}
-	if len(disabledProviders) > 0 {
+	if disabledProviders := candidates.SessionDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders, forcedProvider); len(disabledProviders) > 0 {
 		res.SessionDisabledProviders = disabledProviders
-		if req.EnabledProviders != nil {
-			filtered := make(map[string]struct{}, len(req.EnabledProviders))
-			for p := range req.EnabledProviders {
-				filtered[p] = struct{}{}
-			}
-			for _, p := range disabledProviders {
-				delete(filtered, p)
-			}
-			req.EnabledProviders = filtered
-		}
+		req.EnabledProviders = candidates.WithoutProviders(req.EnabledProviders, disabledProviders)
 	}
-	demoted := candidates.MergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels)
-	if turnStrikes := candidates.MergeSessionStrikes(pin.TurnStrikes, hmmHistory.TurnStrikes); len(turnStrikes) > 0 {
-		if routingEndsWithUserPrompt(ctx, env) {
-			s.clearTurnStrikes(ctx, res.SessionKey, res.PinRole)
-		} else {
-			demoted = candidates.MergeSessionStrikes(demoted, turnStrikes)
-		}
-	}
+	demoted := sessionDemotedModels(ctx, s, env, &res, pin, hmmHistory)
 	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.ImageCount), req.HasTools)
 	if s.ResolveTransientRateLimit(ctx) && (!forceModelFound || !candidates.ForcedPinEligible(forceModelPin, req)) {
-		cooldowns := mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns)
-		now := s.clock.Now()
-		cooling := activeDemotionCooldowns(cooldowns, now)
-		if len(cooling) > 0 {
-			res.SessionCooldownModels = readmittableCooldowns(cooling, demoted, req.ImageCount)
-			demoted = candidates.MergeSessionStrikes(demoted, cooldownsByExpiry(cooling))
-		}
-		expired := expiredDemotionCooldowns(cooldowns, now)
-		probed := false
-		for _, model := range cooldownsByExpiry(expired) {
-			if slices.Contains(demoted, model) ||
-				modelExcludedForRecoveryProbe(req, model) {
-				continue
-			}
-			if !probed {
-				if release, acquired := s.acquireRecoveryProbe(ctx, res.SessionKey, model); acquired {
-					res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
-					res.CooldownProbes = map[string]time.Time{model: expired[model]}
-					probed = true
-					continue
-				}
-			}
-			demoted = candidates.MergeSessionStrikes(demoted, []string{model})
-			res.CooldownProbeDeniedModels = append(res.CooldownProbeDeniedModels, model)
-			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, model)
-			ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, res.CooldownProbeDeniedModels)
-		}
+		ctx, demoted = applyDemotionCooldowns(ctx, s, &req, &res, demoted, mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns))
 	}
 	if len(demoted) > 0 {
 		res.SessionDemotedModels = demoted
