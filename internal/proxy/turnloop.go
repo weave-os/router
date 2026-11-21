@@ -1286,8 +1286,6 @@ func buildPolicyTurnContext(
 	}
 }
 
-func estimateSummaryTokens(s string) int { return conversation.EstimateSummaryTokens(s) }
-
 func sortedEnabledKeys(m map[string]struct{}) []string {
 	if len(m) == 0 {
 		return []string{}
