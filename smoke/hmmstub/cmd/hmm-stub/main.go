@@ -8,10 +8,12 @@ import (
 	"os"
 	"time"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/smoke/hmmstub"
 )
 
 func main() {
+	logconfig.Configure()
 	listen := flag.String("listen", ":8093", "listen address")
 	releaseDir := flag.String("release-dir", "/release", "directory to bake the stub policy release into")
 	registryDir := flag.String("registry-dir", "/registry", "directory to bake the stub v5 serving registry into")
