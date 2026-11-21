@@ -2091,16 +2091,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	ctx = context.WithValue(ctx, nativeSearchLoggerContextKey{}, observability.FromContext(ctx))
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
-	switch gjson.GetBytes(body, "thread.type").String() {
-	case translate.MessageThreadContinue:
+	body, threadContinued, threadErr := s.ingress.Anthropic.StripMessageThread(body, r.Header)
+	if threadErr != nil {
+		return fmt.Errorf("strip message thread: %w", threadErr)
+	}
+	if threadContinued {
 		observability.FromContext(ctx).Info("Rejecting message-thread continue; client resends full history")
-		return writeMessageThreadUnsupported(w)
-	case translate.MessageThreadCreate:
-		var threadErr error
-		if body, threadErr = sjson.DeleteBytes(body, "thread"); threadErr != nil {
-			return fmt.Errorf("strip message thread: %w", threadErr)
-		}
-		translate.StripMessageThreadsBeta(r.Header)
+		return ingress.WriteMessageThreadUnsupported(w)
 	}
 	ctx, returnErr = withTurnInput(ctx, s, body, r.Header, router.EndpointAnthropicMessages)
 	if returnErr != nil {
