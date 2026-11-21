@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 )
@@ -168,7 +169,7 @@ func TestRefusalObserver_ForwardsUnchangedAndDetects(t *testing.T) {
 }
 
 func repinCtx() context.Context {
-	return context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
+	return context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, uuid.New().String())
 }
 
 func TestMaybeRepinOnRefusal_RepinsToFallbackModel(t *testing.T) {

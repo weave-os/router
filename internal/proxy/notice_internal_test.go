@@ -88,7 +88,7 @@ func TestAddRoutingFundingSource(t *testing.T) {
 		},
 		{
 			name: "managed Claude subscription",
-			ctx: context.WithValue(WithManagedSubscriptionUsage(context.Background()), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
+			ctx: context.WithValue(WithManagedSubscriptionUsage(context.Background()), requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
 				auth.SubscriptionProviderClaude: {},
 			}),
 			provider: providers.ProviderAnthropic,
@@ -99,7 +99,7 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			name: "managed Codex subscription is selected over BYOK",
 			ctx: context.WithValue(requestcontext.WithCredentials(WithManagedSubscriptionUsage(context.Background()), &requestcontext.Credentials{
 				Source: requestcontext.SourceBYOK,
-			}), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
+			}), requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
 				auth.SubscriptionProviderCodex: {},
 			}),
 			provider: providers.ProviderOpenAI,

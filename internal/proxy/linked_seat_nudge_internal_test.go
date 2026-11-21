@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
@@ -65,7 +66,7 @@ func TestSpentOwnClaudePlanNudgesOnlyWithoutACoveringLinkedSeat(t *testing.T) {
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 			resetAt := time.Now().Add(time.Hour)
 			ctx := WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderClaude), []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: tc.seatState, CooldownUntil: &resetAt}})
-			ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, ownToken)
+			ctx = context.WithValue(ctx, requestcontext.AnthropicSubscriptionContextKey{}, ownToken)
 			body := `{"model":"` + model + `","stream":true,"max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body))))
@@ -118,7 +119,7 @@ func TestSpentOwnCodexPlanNudgesOnlyWithoutACoveringLinkedSeat(t *testing.T) {
 			// The first turn learns the plan is spent; the second starts from that memory.
 			var responses []string
 			for turn := 0; turn < 2; turn++ {
-				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 				ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderCodex, State: tc.seatState, Enabled: true, CooldownUntil: &resetAt}})
 				rec := httptest.NewRecorder()
 				require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body)))
@@ -166,7 +167,7 @@ func TestSpentOwnClaudePlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.
 		WithUsageObserver(observer).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 	ctx := WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderClaude), []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
-	ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, ownToken)
+	ctx = context.WithValue(ctx, requestcontext.AnthropicSubscriptionContextKey{}, ownToken)
 	body := `{"model":"` + model + `","stream":true,"max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body))))
@@ -219,7 +220,7 @@ func TestSpentOwnCodexPlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.T
 			// linked seat; the second sees that seat run out mid-turn.
 			var turnBodies []string
 			for turn = 0; turn < 2; turn++ {
-				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 				ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateActive, Enabled: true}})
 				rec := httptest.NewRecorder()
 				if ingress == "responses" {

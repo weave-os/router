@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
@@ -112,10 +113,10 @@ func TestService_PreviewAnthropicRouteBuildsServingCandidateContextWithoutDispat
 		})
 
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
-	ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-1")
-	ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, "1791da5d-d0db-494c-8574-859a4cb20d97")
-	ctx = context.WithValue(ctx, proxy.InstallationExcludedModelsContextKey{}, []string{"gpt-5.5-mini"})
-	ctx = context.WithValue(ctx, proxy.InstallationPreferredModelsContextKey{}, []string{"claude-opus-4-8"})
+	ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "1791da5d-d0db-494c-8574-859a4cb20d97")
+	ctx = context.WithValue(ctx, requestcontext.InstallationExcludedModelsContextKey{}, []string{"gpt-5.5-mini"})
+	ctx = context.WithValue(ctx, requestcontext.InstallationPreferredModelsContextKey{}, []string{"claude-opus-4-8"})
 	body := []byte(`{"model":"claude-opus-4-8[1m]","messages":[{"role":"user","content":"inspect this repository"}],"max_tokens":4096,"tools":[{"name":"Read","description":"read a file","input_schema":{"type":"object"}}]}`)
 
 	result, err := svc.PreviewAnthropicRoute(ctx, body, http.Header{})
@@ -152,8 +153,8 @@ func TestService_PreviewAnthropicRouteExcludesInfrastructureModelsForOAuthOnlyCo
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: previewer})
 
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
-	ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
-	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
+	ctx = context.WithValue(ctx, requestcontext.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "acct-123")
 	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"preview this turn"}],"max_tokens":1024}`)
 
 	_, err := svc.PreviewAnthropicRoute(ctx, body, http.Header{})
@@ -182,10 +183,10 @@ func TestService_AgentShadowEvaluationForcesEphemerallyWithoutServingRouter(t *t
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithAvailableModels(map[string]struct{}{"claude-opus-4-8": {}})
 
-	ctx := context.WithValue(context.Background(), proxy.AgentShadowEvalContextKey{}, proxy.AgentShadowEvaluation{
+	ctx := context.WithValue(context.Background(), requestcontext.AgentShadowEvalContextKey{}, requestcontext.AgentShadowEvaluation{
 		Model: "CLAUDE-OPUS-4-8", RolloutID: "pilot-1", StateID: "state-1",
 	})
-	ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, "1791da5d-d0db-494c-8574-859a4cb20d97")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "1791da5d-d0db-494c-8574-859a4cb20d97")
 	messages := make([]map[string]any, 0, 17)
 	for i := range 8 {
 		toolID := fmt.Sprintf("tool_%d", i)
@@ -256,7 +257,7 @@ func TestService_AgentShadowEvaluationNeverSubstitutesRequestedBaseline(t *testi
 			"gpt-5.5":         {},
 		})
 
-	ctx := context.WithValue(context.Background(), proxy.AgentShadowEvalContextKey{}, proxy.AgentShadowEvaluation{
+	ctx := context.WithValue(context.Background(), requestcontext.AgentShadowEvalContextKey{}, requestcontext.AgentShadowEvaluation{
 		Model: "gpt-5.5", RolloutID: "pilot-1", StateID: "state-1",
 	})
 	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"inspect this repository"}],"max_tokens":512}`)
@@ -280,11 +281,11 @@ func TestService_AgentShadowEvaluationNeverRetriesSubscriptionOnDeploymentKey(t 
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithAvailableModels(map[string]struct{}{"claude-opus-4-8": {}})
 
-	ctx := context.WithValue(context.Background(), proxy.AgentShadowEvalContextKey{}, proxy.AgentShadowEvaluation{
+	ctx := context.WithValue(context.Background(), requestcontext.AgentShadowEvalContextKey{}, requestcontext.AgentShadowEvaluation{
 		Model: "claude-opus-4-8", RolloutID: "pilot-1", StateID: "state-1",
 	})
-	ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, "1791da5d-d0db-494c-8574-859a4cb20d97")
-	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "1791da5d-d0db-494c-8574-859a4cb20d97")
+	ctx = context.WithValue(ctx, requestcontext.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
 	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"inspect this repository"}],"max_tokens":512}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
@@ -530,8 +531,8 @@ func TestService_ProxyOpenAIResponses_NativeBadgeForTerminalClientsHonorsSuppres
 				providers.ProviderOpenAI: provider,
 			}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
-			ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
-			ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
+			ctx := context.WithValue(context.Background(), requestcontext.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+			ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "acct-123")
 			ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: tc.clientApp})
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"\u2063\u2060\u2063\u2060**Weave Router** — gpt-5.6-sol\n\nold answer\n\n_Weave Router feedback:_ /rf + good experience"}]},{"type":"message","role":"user","content":"continue"},{"type":"message","role":"assistant","content":[{"type":"output_text","text":""}]},{"type":"function_call","call_id":"call_shell","name":"shell","arguments":"{}"}]}`)
 			rec := httptest.NewRecorder()
@@ -742,8 +743,8 @@ func TestService_CodexRequestRoutesInfrastructureOpenAIModelWithoutOAuth(t *test
 	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 
-	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
-	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
+	ctx := context.WithValue(context.Background(), requestcontext.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "acct-123")
 	body := []byte(`{"model":"gpt-5.6-sol","input":"route this turn"}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -785,8 +786,8 @@ func TestService_CodexForcedModelUsesModelScopedCredential(t *testing.T) {
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 
 			ctx := authedCtx("11111111-1111-1111-1111-111111111111")
-			ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
-			ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
+			ctx = context.WithValue(ctx, requestcontext.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+			ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "acct-123")
 			body := []byte(`{"model":"gpt-5.6-sol","input":"use the forced model"}`)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -819,8 +820,8 @@ func TestService_ProxyOpenAIResponses_CodexPassthroughUsesChatForOpenAICompatPro
 		providers.ProviderOpenRouter: openRouter,
 	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
-	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
-	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
+	ctx := context.WithValue(context.Background(), requestcontext.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "acct-123")
 	body := []byte(`{"model":"gpt-5.5","input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -861,8 +862,8 @@ func TestService_ProxyOpenAIResponses_CodexPortableBridgeKeepsHMMProvidersAndRes
 			providers.ProviderTogether:  {},
 		})
 
-	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
-	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
+	ctx := context.WithValue(context.Background(), requestcontext.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "acct-123")
 	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	body := []byte(`{
 			"model":"gpt-5.6-sol",
@@ -934,7 +935,7 @@ func TestService_PassthroughToNamedProvider_ResolvesBYOKCredential(t *testing.T)
 	provider := &fakeProvider{}
 	svc := makeProxyService(router.Decision{}, map[string]providers.Client{providers.ProviderAnthropic: provider})
 
-	ctx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx := context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok"), BaseURL: "https://byok.example.com"},
 	})
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil)
@@ -992,7 +993,7 @@ func TestService_PassthroughToProvider_CountTokensForwardsWithCredential(t *test
 		provider := &fakeProvider{}
 		svc := makeProxyService(router.Decision{}, map[string]providers.Client{providers.ProviderAnthropic: provider}).
 			WithDeploymentKeyedProviders(map[string]struct{}{})
-		ctx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		ctx := context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")},
 		})
 		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
@@ -1157,7 +1158,7 @@ func TestService_ProxyMessages_NoPinStoreRunsScorerEveryTurn(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		nil), hmm.ServingPorts())
 
-	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
+	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "key-1")
 	for range 2 {
 		rec := httptest.NewRecorder()
 		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -1388,9 +1389,9 @@ func TestService_CodexPassthrough_RoutesFreelyWithBothSubs(t *testing.T) {
 
 	// Both subscriptions presented on the authenticated request: a Codex sub
 	// (token + account-id) and a Claude sub.
-	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
-	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
-	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
+	ctx := context.WithValue(context.Background(), requestcontext.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "acct-123")
+	ctx = context.WithValue(ctx, requestcontext.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
 
 	body := []byte(`{"model":"gpt-5.5","input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
 	rec := httptest.NewRecorder()
@@ -1510,7 +1511,7 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 		fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}}
 		svc := proxy.WithStrategyPorts(proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
-		ctx := context.WithValue(context.Background(), proxy.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-7", "gpt-5"})
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-7", "gpt-5"})
 		rec := httptest.NewRecorder()
 		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
@@ -1526,7 +1527,7 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 			WithExcludedModelsOverride([]string{"gpt-4o"})
 
 		// Installation list says one thing; override says another. Override wins.
-		ctx := context.WithValue(context.Background(), proxy.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-7"})
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-7"})
 		rec := httptest.NewRecorder()
 		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/google/uuid"
@@ -45,8 +46,8 @@ func TestCommandOutcomesAcrossSurfaces(t *testing.T) {
 					app = ClientAppCodex
 				}
 				ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: app, SessionID: "synthetic-session"})
-				ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
-				ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "synthetic-key")
+				ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())
+				ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "synthetic-key")
 				seen := map[string]bool{}
 				for _, command := range []struct {
 					text        string
@@ -77,7 +78,7 @@ func TestCommandOutcomesAcrossSurfaces(t *testing.T) {
 					req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", nil)
 					requestContext := ctx
 					if command.excluded {
-						requestContext = context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{"claude-opus-5-5"})
+						requestContext = context.WithValue(ctx, requestcontext.InstallationExcludedModelsContextKey{}, []string{"claude-opus-5-5"})
 					}
 					switch surface {
 					case translate.FormatAnthropic:

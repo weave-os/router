@@ -54,8 +54,8 @@ var (
 // with no quota snapshot.
 func goldenCallerCodexSeatsCtx(seats ...*auth.SubscriptionAccount) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, goldenCallerCodexJWT)
-		ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, goldenLinkedCodexAccount)
+		ctx = context.WithValue(ctx, requestcontext.OpenAISubscriptionContextKey{}, goldenCallerCodexJWT)
+		ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, goldenLinkedCodexAccount)
 		ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyOwnSeatFirst: true}})
 		ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyLinkedFirst)
 		ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})

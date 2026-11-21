@@ -21,7 +21,7 @@ func TestSelectableSubscriptionProvidersCoverCallerFundedLanes(t *testing.T) {
 		http.CanonicalHeaderKey(requestcontext.ChatGPTAccountIDHeader): []string{"acct-1"},
 	}
 	ownKeys := func(provider string) context.Context {
-		return context.WithValue(routerKeyedCtx(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		return context.WithValue(routerKeyedCtx(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{Provider: provider, Plaintext: []byte("synthetic-own-key")},
 		})
 	}
@@ -50,7 +50,7 @@ func TestSelectableSubscriptionProvidersCoverCallerFundedLanes(t *testing.T) {
 		{name: "spent Claude login keeps the lane with an own key", svc: serviceWithUsageSnapshot(exhaustedSubToken, exhaustedSnapshot()), ctx: ownKeys(providers.ProviderAnthropic), headers: claudeLogin, want: []string{providers.ProviderAnthropic}},
 		{name: "spent Claude login without an own key leaves the lane", svc: serviceWithUsageSnapshot(exhaustedSubToken, exhaustedSnapshot()), ctx: routerKeyedCtx(), headers: claudeLogin, absent: []string{providers.ProviderAnthropic}},
 		{name: "no caller funding", svc: &Service{hmmServing: hmmPorts()}, ctx: routerKeyedCtx(), headers: http.Header{}, absent: []string{providers.ProviderAnthropic, providers.ProviderOpenAI}},
-		{name: "subscription routing disabled", svc: &Service{hmmServing: hmmPorts()}, ctx: context.WithValue(routerKeyedCtx(), InstallationSubscriptionRoutingDisabledContextKey{}, true), headers: claudeLogin, absent: []string{providers.ProviderAnthropic, providers.ProviderOpenAI}},
+		{name: "subscription routing disabled", svc: &Service{hmmServing: hmmPorts()}, ctx: context.WithValue(routerKeyedCtx(), requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true), headers: claudeLogin, absent: []string{providers.ProviderAnthropic, providers.ProviderOpenAI}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

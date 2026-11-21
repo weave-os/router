@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,9 +30,9 @@ const (
 // account id as the auth middleware stashes them, plus an installation id so
 // resolveAndInjectCredentials takes the router-keyed subscription-first branch.
 func codexSubscriptionTestCtx() context.Context {
-	ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, codexTestToken)
-	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
-	return context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx := context.WithValue(context.Background(), requestcontext.OpenAISubscriptionContextKey{}, codexTestToken)
+	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, codexTestAccountID)
+	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 }
 
 // TestCodexFailover_EligibilityAndSuppression covers the load-bearing predicates
@@ -71,7 +72,7 @@ func TestCodexFailover_EligibilityAndSuppression(t *testing.T) {
 	})
 
 	t.Run("suppression is Codex-scoped", func(t *testing.T) {
-		ctx := context.WithValue(codexSubscriptionTestCtx(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-test-subscription-token")
+		ctx := context.WithValue(codexSubscriptionTestCtx(), requestcontext.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-test-subscription-token")
 		suppressed := resolveAndInjectCredentials(withSuppressedCodexSubscription(ctx), providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
 		assert.True(t, servedOnSubscription(suppressed),
 			"suppressing the Codex token must leave a Claude subscription on the same request untouched")

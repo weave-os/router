@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"testing"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -50,7 +51,7 @@ func TestWithDefaultBaselineModel(t *testing.T) {
 // models never enter the desugared exclusion set, so ExcludedModels alone won't block them.
 func TestBaselineModelPermittedByAllowlist(t *testing.T) {
 	restricted := context.WithValue(context.Background(),
-		InstallationAllowedModelsContextKey{}, []string{"claude-opus-5"})
+		requestcontext.InstallationAllowedModelsContextKey{}, []string{"claude-opus-5"})
 
 	assert.True(t, modelPermittedByAllowlist(restricted, "claude-opus-5"),
 		"an allowlisted model clears the gate")

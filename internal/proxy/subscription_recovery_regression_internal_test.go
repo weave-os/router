@@ -9,11 +9,12 @@ import (
 	"time"
 	"weave-os/router/internal/billing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSubscriptionRecoverySlowFailureUsesSecondSeat(t *testing.T) {

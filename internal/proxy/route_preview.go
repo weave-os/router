@@ -58,7 +58,7 @@ func (s *Service) anthropicRoutingRequest(
 	ctx = requestcontext.WithClientIdentity(ctx, clientIdentity)
 	ctx = requestcontext.WithClientBudget(ctx, resolveClientBudget(clientIdentity, headers, env.Model(), modelVariant1M))
 
-	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
+	apiKeyID, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	ctx, log, sessionKey = bindRequestLogger(ctx, env, apiKeyID, "", ingress)
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
@@ -98,7 +98,7 @@ func (s *Service) anthropicRoutingRequest(
 	excluded, _ = candidates.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
 	excluded, _ = excludeAdvisorOutrankingModels(env, excluded, s.routableUniverse())
 
-	organizationID, _ := ctx.Value(ExternalIDContextKey{}).(string)
+	organizationID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 	installationID := ""
 	if id := installationIDFromContext(ctx); id != uuid.Nil {
 		installationID = id.String()

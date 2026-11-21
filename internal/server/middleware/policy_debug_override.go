@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/gin-gonic/gin"
 )
@@ -41,5 +41,5 @@ func WithPolicyDebugOverride() gin.HandlerFunc {
 }
 
 func contextWithPolicyDebug(ctx context.Context, enabled bool) context.Context {
-	return context.WithValue(ctx, proxy.PolicyDebugEnabledContextKey{}, enabled)
+	return context.WithValue(ctx, requestcontext.PolicyDebugEnabledContextKey{}, enabled)
 }

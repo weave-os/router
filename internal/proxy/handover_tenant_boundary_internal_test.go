@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/translate"
@@ -32,7 +33,7 @@ func TestRunCompactionHandover_SummarizerNeverCrossesTenantCredentialBoundary(t 
 	t.Parallel()
 
 	byokCtx := func(provider string) context.Context {
-		return context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{
+		return context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{
 			Provider:  provider,
 			Plaintext: []byte("synthetic-byok-" + provider),
 		}})

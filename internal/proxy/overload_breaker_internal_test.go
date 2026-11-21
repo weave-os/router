@@ -111,8 +111,8 @@ func (h *overloadHarness) turn(t *testing.T, ctx context.Context) *httptest.Resp
 func (h *overloadHarness) ctx() context.Context { return orgCtx(h.org) }
 
 func orgCtx(org string) context.Context {
-	ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "key-"+org)
-	return context.WithValue(ctx, InstallationIDContextKey{}, org)
+	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "key-"+org)
+	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, org)
 }
 
 // withdrawn reports whether the primary model is out of the harness

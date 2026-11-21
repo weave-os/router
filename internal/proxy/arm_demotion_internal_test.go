@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -290,7 +291,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_ClusterAllowlistPinSkipped(t 
 			svc := newDemotionTestService(store, true)
 			ctx := context.Background()
 			if tc.keyLists != nil {
-				ctx = context.WithValue(ctx, ClusterModelListsContextKey{}, tc.keyLists)
+				ctx = context.WithValue(ctx, requestcontext.ClusterModelListsContextKey{}, tc.keyLists)
 			}
 			if tc.userLists != nil {
 				ctx = context.WithValue(ctx, auth.UserClusterModelListsContextKey{}, tc.userLists)
@@ -714,7 +715,7 @@ func TestMaybeDemoteArmAfterRescuedFailure_ClusterAllowlistPinSkipped(t *testing
 			svc := newRescuedDemotionTestService(store, true)
 			ctx := context.Background()
 			if tc.keyLists != nil {
-				ctx = context.WithValue(ctx, ClusterModelListsContextKey{}, tc.keyLists)
+				ctx = context.WithValue(ctx, requestcontext.ClusterModelListsContextKey{}, tc.keyLists)
 			}
 
 			demoted := svc.maybeDemoteArmAfterRescuedFailure(

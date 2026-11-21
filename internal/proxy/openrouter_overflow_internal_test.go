@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
@@ -93,7 +94,7 @@ func TestOpenRouterOverflowKeepsLiveSubscriptionFirst(t *testing.T) {
 
 func TestOpenRouterOverflowFailsClosedWhenOpenRouterExcluded(t *testing.T) {
 	d := newOverflowDispatch(map[subscriptions.Provider]bool{})
-	ctx := context.WithValue(overflowContext(true), InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenRouter})
+	ctx := context.WithValue(overflowContext(true), requestcontext.InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenRouter})
 
 	require.Error(t, d.run(ctx, true))
 
@@ -112,7 +113,7 @@ func TestOpenRouterOverflowRewritesPaidRescueOutsideLane(t *testing.T) {
 
 func TestOpenRouterOverflowOffKeepsDirectPaidFallback(t *testing.T) {
 	d := newOverflowDispatch(map[subscriptions.Provider]bool{})
-	ctx := context.WithValue(exhaustedManagedSubscriptionContext(), InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateClaudeModel})
+	ctx := context.WithValue(exhaustedManagedSubscriptionContext(), requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateClaudeModel})
 
 	require.NoError(t, d.run(ctx, true))
 
@@ -125,7 +126,7 @@ func TestOpenRouterOverflowModelsKeepOnlyOpenRouterServedModels(t *testing.T) {
 	require.Contains(t, installationSubscriptionModelsWhenInactiveFromContext(ctx), stateClaudeModel)
 	require.NotContains(t, installationSubscriptionModelsWhenInactiveFromContext(ctx), "claude-opus-4-0")
 
-	configured := context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{"claude-opus-4-0", "gpt-5.4", "gemini-2.5-pro"})
+	configured := context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{"claude-opus-4-0", "gpt-5.4", "gemini-2.5-pro"})
 	require.Equal(t, []string{"gpt-5.4"}, installationSubscriptionModelsWhenInactiveFromContext(configured))
 }
 
@@ -140,7 +141,7 @@ func servedTargets(served []router.Decision) []router.Decision {
 func TestOpenRouterOverflowServesConfiguredModelRoutingCannotSee(t *testing.T) {
 	d := newOverflowDispatch(map[subscriptions.Provider]bool{})
 	d.svc.credentials.KeyedProviders = map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenRouter: {}}
-	ctx := context.WithValue(overflowContext(true), InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{"gpt-5.4"})
+	ctx := context.WithValue(overflowContext(true), requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{"gpt-5.4"})
 
 	require.NoError(t, d.run(ctx, true))
 

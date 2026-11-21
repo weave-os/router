@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
@@ -20,7 +21,7 @@ import (
 type subscriptionStateAllowedModelsKey struct{}
 
 func subscriptionStateModelsEnabled(ctx context.Context) bool {
-	enabled, _ := ctx.Value(InstallationSubscriptionStateModelsEnabledContextKey{}).(bool)
+	enabled, _ := ctx.Value(requestcontext.InstallationSubscriptionStateModelsEnabledContextKey{}).(bool)
 	return !subscriptionFundingOutOfPlayForRequest(ctx) &&
 		(enabled || openRouterOverflowEnabled(ctx) ||
 			len(installationSubscriptionModelsWhenActiveFromContext(ctx)) > 0 ||
@@ -61,8 +62,8 @@ func (s *Service) memberPickPaidContext(ctx context.Context, req router.Request,
 		return ctx, false
 	}
 	if !slices.Contains(installationSubscriptionModelsWhenInactiveFromContext(ctx), pick.Model) {
-		paidModels, _ := ctx.Value(InstallationSubscriptionModelsWhenInactiveContextKey{}).([]string)
-		ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, append(slices.Clone(paidModels), pick.Model))
+		paidModels, _ := ctx.Value(requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}).([]string)
+		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, append(slices.Clone(paidModels), pick.Model))
 	}
 	paidModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
 	if !slices.Contains(paidModels, pick.Model) {

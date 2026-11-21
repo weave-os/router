@@ -45,7 +45,7 @@ func (s *Service) firePolicyShadowForServingDecision(ctx context.Context, strate
 }
 
 func (s *Service) firePolicyShadowDecision(ctx context.Context, servingStrategy router.Strategy, serving router.Decision, req router.Request) {
-	shadowStrategy, _ := ctx.Value(PolicyShadowStrategyContextKey{}).(router.Strategy)
+	shadowStrategy, _ := ctx.Value(requestcontext.PolicyShadowStrategyContextKey{}).(router.Strategy)
 	if shadowStrategy == "" || shadowStrategy == servingStrategy {
 		return
 	}
@@ -103,7 +103,7 @@ func (s *Service) firePolicyShadowDecision(ctx context.Context, servingStrategy 
 }
 
 func (s *Service) installationID(ctx context.Context) string {
-	id, _ := ctx.Value(InstallationIDContextKey{}).(string)
+	id, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
 	return id
 }
 

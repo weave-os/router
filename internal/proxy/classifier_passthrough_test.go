@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
@@ -50,7 +51,7 @@ func classifierPassthroughFixture(t *testing.T, obs *usage.Observer) (*proxy.Ser
 }
 
 func classifierSubscriptionCtx() context.Context {
-	return claudeCreditFallbackContext(context.WithValue(authedCtx(uuid.New().String()), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken))
+	return claudeCreditFallbackContext(context.WithValue(authedCtx(uuid.New().String()), requestcontext.AnthropicSubscriptionContextKey{}, bypassSubToken))
 }
 
 func classifierRequest(ctx context.Context) (*httptest.ResponseRecorder, *http.Request) {
@@ -116,7 +117,7 @@ func TestClassifier_NoSubscription_ServesRequestedModel(t *testing.T) {
 func TestClassifier_RequestedModelNotAllowed_IsScored(t *testing.T) {
 	svc, fr, _, store := classifierPassthroughFixture(t, nil)
 	rec, req := classifierRequest(t.Context())
-	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.InstallationAllowedModelsContextKey{}, []string{classifierScorerPickMdl})
+	ctx := context.WithValue(authedCtx(uuid.New().String()), requestcontext.InstallationAllowedModelsContextKey{}, []string{classifierScorerPickMdl})
 
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, req))
 

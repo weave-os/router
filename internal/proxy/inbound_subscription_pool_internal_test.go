@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
@@ -45,8 +46,8 @@ func TestInboundClaudeOAuthStillRotatesManagedPool(t *testing.T) {
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 			service.retrySleep = noopSleep
 			ctx := enterpriseOnlyContext(managedSubscriptionTestContext())
-			ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
-			ctx = context.WithValue(ctx, InstallationSubscriptionStateModelsEnabledContextKey{}, stateModels)
+			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+			ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionStateModelsEnabledContextKey{}, stateModels)
 			body := `{"model":"auto","max_tokens":1024,"messages":[{"role":"user","content":"inspect synthetic input"}],"tools":[{"name":"read_file","description":"read a file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body))
 			request.Header.Set("Authorization", "Bearer "+parityAnthropicToken)
@@ -164,14 +165,14 @@ func TestResolvedOAuthRemainsAvailableWithoutManagedCapacity(t *testing.T) {
 		availableSeat bool
 	}{
 		{"no enrolled pool", func(ctx context.Context) context.Context {
-			return context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{})
+			return context.WithValue(ctx, requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{})
 		}, false},
 		{"no available seat", func(ctx context.Context) context.Context { return ctx }, false},
 		{"enrollment unavailable", func(ctx context.Context) context.Context {
-			return context.WithValue(ctx, ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+			return context.WithValue(ctx, requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 		}, false},
 		{"explicit own-plan pick", func(ctx context.Context) context.Context {
-			ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+			ctx = context.WithValue(ctx, requestcontext.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 			return fundOnOwnPlan(ctx, providers.ProviderAnthropic)
 		}, true},
 	} {

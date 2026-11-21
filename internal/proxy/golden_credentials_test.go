@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -193,18 +194,18 @@ func byokKey(provider, secret string, priority auth.FundingPriority) *auth.Exter
 
 func withBYOK(keys ...*auth.ExternalAPIKey) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, keys)
+		return context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, keys)
 	}
 }
 
 func goldenCodexCredentialCtx(ctx context.Context) context.Context {
-	ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, goldenCodexToken)
-	return context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, goldenCodexAccount)
+	ctx = context.WithValue(ctx, requestcontext.OpenAISubscriptionContextKey{}, goldenCodexToken)
+	return context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, goldenCodexAccount)
 }
 
 func goldenUnkeyedCtx(ctx context.Context) context.Context {
-	ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, "")
-	return context.WithValue(ctx, proxy.InstallationIDContextKey{}, "")
+	ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "")
+	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "")
 }
 
 func goldenCreditsDeniedCtx(ctx context.Context) context.Context {

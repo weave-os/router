@@ -6,12 +6,13 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func ctxWithExternalKeys(keys ...*auth.ExternalAPIKey) context.Context {
-	return context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, keys)
+	return context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, keys)
 }
 
 func TestServedOnBYOK_KeysOffCredentialSource(t *testing.T) {

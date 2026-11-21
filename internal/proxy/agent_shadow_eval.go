@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
@@ -20,26 +21,13 @@ const (
 	ReasonAgentShadowEval    = "agent_shadow_eval_force"
 )
 
-type AgentShadowEvaluation struct {
-	Model     string
-	RolloutID string
-	StateID   string
-}
-
-type AgentShadowEvalContextKey struct{}
-
-func AgentShadowEvalFromContext(ctx context.Context) (AgentShadowEvaluation, bool) {
-	value, ok := ctx.Value(AgentShadowEvalContextKey{}).(AgentShadowEvaluation)
-	return value, ok && value.Model != "" && value.RolloutID != "" && value.StateID != ""
-}
-
 func (s *Service) runAgentShadowEvaluationRoute(
 	ctx context.Context,
 	env *translate.RequestEnvelope,
 	feats translate.RoutingFeatures,
 	installationID uuid.UUID,
 	req router.Request,
-	evaluation AgentShadowEvaluation,
+	evaluation requestcontext.AgentShadowEvaluation,
 ) (turnLoopResult, error) {
 	req.TranslationRequirements = env.TranslationRequirements(router.EndpointAnthropicMessages)
 	var err error

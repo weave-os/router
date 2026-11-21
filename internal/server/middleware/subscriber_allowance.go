@@ -46,7 +46,7 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			}))
 		}
 
-		if _, shadow := proxy.AgentShadowEvalFromContext(c.Request.Context()); shadow {
+		if _, shadow := requestcontext.AgentShadowEvalFromContext(c.Request.Context()); shadow {
 			c.Next()
 			return
 		}

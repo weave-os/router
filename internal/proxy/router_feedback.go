@@ -118,7 +118,7 @@ func (s *Service) handleRouterFeedbackCommand(
 
 	clientID := ClientIdentityFrom(ctx)
 	routerUserID := auth.UserIDFrom(ctx)
-	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)
+	externalID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 
 	if s.feedbackStore != nil && target.installationID != uuid.Nil {
 		event := RouterFeedbackEvent{
@@ -259,7 +259,7 @@ func (s *Service) reportRouterFeedback(
 		payload["organization_id"] = organizationID
 	}
 	rolloutID := clientID.RolloutID
-	if persistedRolloutID, ok := ctx.Value(PolicyRolloutIDContextKey{}).(string); ok && persistedRolloutID != "" {
+	if persistedRolloutID, ok := ctx.Value(requestcontext.PolicyRolloutIDContextKey{}).(string); ok && persistedRolloutID != "" {
 		rolloutID = persistedRolloutID
 	}
 	payload["rollout_id"] = rolloutID

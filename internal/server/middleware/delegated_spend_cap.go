@@ -5,6 +5,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
 
 	"github.com/gin-gonic/gin"
@@ -25,7 +26,7 @@ func WithDelegatedSpendCap(svc *billing.Service) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if _, ok := proxy.AgentShadowEvalFromContext(ctx); ok || subscriberAllowanceCovers(c) {
+		if _, ok := requestcontext.AgentShadowEvalFromContext(ctx); ok || subscriberAllowanceCovers(c) {
 			c.Next()
 			return
 		}

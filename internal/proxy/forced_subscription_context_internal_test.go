@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
@@ -126,14 +127,14 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				WithAvailableModels(modelSet([]string{gatewayCompactionOpusModel, catalog.ModelGPT6Luna})).
 				WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})).
 				WithRetrySleep(func(context.Context, time.Duration) error { return nil })
-			ctx := context.WithValue(withClaudeCreditFallback(context.Background()), APIKeyIDContextKey{}, "synthetic-key")
-			ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
+			ctx := context.WithValue(withClaudeCreditFallback(context.Background()), requestcontext.APIKeyIDContextKey{}, "synthetic-key")
+			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())
 			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode, SessionID: "synthetic-session"})
-			ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
-			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{gatewayCompactionOpusModel})
-			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{gatewayCompactionOpusModel})
+			ctx = context.WithValue(ctx, requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+			ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{gatewayCompactionOpusModel})
+			ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{gatewayCompactionOpusModel})
 			if scenario.directSubscription {
-				ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-token")
+				ctx = context.WithValue(ctx, requestcontext.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-token")
 			}
 
 			// The body estimate plus output reserve exceeds Opus's window while

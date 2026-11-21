@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -31,9 +32,9 @@ func codexBypassFixture(t *testing.T, threshold float64, snapshot usage.Snapshot
 	obs.Record(obs.Key([]byte(laneAdmissionCodexToken)), snapshot)
 	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-terra", nil), hmm.ServingPorts()).
 		WithUsageObserver(obs)
-	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, laneAdmissionCodexToken)
-	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "account-1")
-	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx := context.WithValue(context.Background(), requestcontext.OpenAISubscriptionContextKey{}, laneAdmissionCodexToken)
+	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "account-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	return svc, fr, ctx
 }
 

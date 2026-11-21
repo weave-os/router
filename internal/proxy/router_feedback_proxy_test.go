@@ -15,6 +15,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -520,8 +521,8 @@ func TestService_RouterFeedbackCommand_CorrelatesCompactedHMMEmbeddingRoute(t *t
 		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}})
 	installationID := uuid.NewString()
 	ctx := router.WithStrategy(authedCtx(installationID), router.StrategyHMMEmbedding)
-	ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-test")
-	ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
+	ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org-test")
+	ctx = context.WithValue(ctx, requestcontext.PolicyTrainingAllowedContextKey{}, true)
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, routeBody, httptest.NewRecorder(), httpReq))
 
@@ -991,7 +992,7 @@ func TestService_RouterFeedbackCommand_SequenceRejectsHMMDeltaWithResolvedStrate
 			Unavailable: router.ErrStrategyUnavailable,
 		}).
 		WithAvailableModels(map[string]struct{}{"claude-opus-4-7": {}})
-	ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
+	ctx = context.WithValue(ctx, requestcontext.PolicyTrainingAllowedContextKey{}, true)
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	require.Eventually(t, func() bool { return len(hmmReporter.Payloads()) == 1 }, time.Second, 10*time.Millisecond)
@@ -1028,7 +1029,7 @@ func TestService_RouterFeedbackCommand_NegativeOnePreservesTrainingDelta(t *test
 		}).
 		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}})
 	ctx := router.WithStrategy(authedCtx(uuid.NewString()), router.StrategyHMMEmbedding)
-	ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
+	ctx = context.WithValue(ctx, requestcontext.PolicyTrainingAllowedContextKey{}, true)
 	require.NoError(t, svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 	require.Eventually(t, func() bool { return len(hmmReporter.Payloads()) == 1 }, time.Second, 10*time.Millisecond)
 	payload := hmmReporter.Payloads()[0]

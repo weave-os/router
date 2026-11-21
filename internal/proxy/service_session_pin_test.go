@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/hmm"
@@ -253,8 +254,8 @@ func newPinSvcWithTelemetry(fr *fakeRouter, store *fakePinStore, telemetry proxy
 }
 
 func authedCtx(installationID string) context.Context {
-	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
-	return context.WithValue(ctx, proxy.InstallationIDContextKey{}, installationID)
+	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "key-1")
+	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, installationID)
 }
 
 // authedCtxWithExternalKey also stashes a BYOK ExternalAPIKey, as the auth
@@ -266,7 +267,7 @@ func authedCtxWithExternalKey(installationID, provider string, plaintext []byte)
 		Provider:       provider,
 		Plaintext:      plaintext,
 	}}
-	return context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, keys)
+	return context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, keys)
 }
 
 const pinTestBody = `{
@@ -616,7 +617,7 @@ func TestService_HardPin_TitleGen_AppliesExcludedModels(t *testing.T) {
 		WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()),
-		proxy.InstallationExcludedModelsContextKey{}, []string{excludedModel})
+		requestcontext.InstallationExcludedModelsContextKey{}, []string{excludedModel})
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(titleGenBody), rec, httpReq))
@@ -1653,7 +1654,7 @@ func authedCtxWithGatewayKey(installationID, aliasedModel string) context.Contex
 	if aliasedModel != "" {
 		key.ModelAliases = map[string]string{aliasedModel: aliasedModel}
 	}
-	return context.WithValue(authedCtx(installationID), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
+	return context.WithValue(authedCtx(installationID), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
 }
 
 // A /force-model pin that names an unavailable provider was silently dropped:

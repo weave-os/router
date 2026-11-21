@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -53,9 +54,9 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 		Provider: providers.ProviderAnthropic,
 	}
 
-	ctx := context.WithValue(context.Background(), PolicyTrainingAllowedContextKey{}, true)
-	ctx = context.WithValue(ctx, ExternalIDContextKey{}, "org-1")
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "installation-1")
+	ctx := context.WithValue(context.Background(), requestcontext.PolicyTrainingAllowedContextKey{}, true)
+	ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "installation-1")
 	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, RolloutID: "rollout-1"})
 	const (
 		inputTokens  = 90
@@ -139,7 +140,7 @@ func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *test
 		Model:    "claude-haiku-4-5",
 		Provider: providers.ProviderAnthropic,
 	}
-	ctx := context.WithValue(context.Background(), PolicyTrainingAllowedContextKey{}, true)
+	ctx := context.WithValue(context.Background(), requestcontext.PolicyTrainingAllowedContextKey{}, true)
 
 	s.reportPolicyOutcome(
 		ctx,
@@ -191,7 +192,7 @@ func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 			Strategy: string(strategy),
 		},
 	}
-	ctx := context.WithValue(context.Background(), PolicyTrainingAllowedContextKey{}, true)
+	ctx := context.WithValue(context.Background(), requestcontext.PolicyTrainingAllowedContextKey{}, true)
 	effort := effortResolutionFor(router.Lookup(decision.Model), decision.Effort, decision.Effort, effortSourceArm)
 
 	s.reportPolicyOutcome(

@@ -19,10 +19,6 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
-type ManagedSubscriptionProvidersContextKey struct{}
-
-type ManagedSubscriptionEnrollmentUnavailableContextKey struct{}
-
 type ManagedSubscriptionUsageContextKey struct{}
 
 type SubscriptionOwnerContextKey struct{}
@@ -57,7 +53,7 @@ func managedSubscriptionEnrolled(ctx context.Context, provider subscriptions.Pro
 	if subscriptionAPIOnly(ctx) || subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
 		return false
 	}
-	enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
+	enrolled, _ := ctx.Value(requestcontext.ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
 	_, ok := enrolled[auth.SubscriptionProvider(provider)]
 	return ok
 }
@@ -71,7 +67,7 @@ func managedSubscriptionCanServe(ctx context.Context, provider, model string) bo
 }
 
 func managedSubscriptionEnrollmentUnavailable(ctx context.Context) bool {
-	unavailable, _ := ctx.Value(ManagedSubscriptionEnrollmentUnavailableContextKey{}).(bool)
+	unavailable, _ := ctx.Value(requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}).(bool)
 	return unavailable
 }
 

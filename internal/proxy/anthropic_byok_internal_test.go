@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
@@ -53,18 +54,18 @@ func TestAnthropicBYOKDispatchIgnoresSubscriptionState(t *testing.T) {
 			if tc.credentialErr != nil {
 				byok.Plaintext = nil
 			}
-			ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{byok})
+			ctx := context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{byok})
 			headers := http.Header{}
 			if tc.inbound {
 				headers.Set("Authorization", "Bearer "+oauthToken)
 			} else {
-				ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, oauthToken)
+				ctx = context.WithValue(ctx, requestcontext.AnthropicSubscriptionContextKey{}, oauthToken)
 			}
 			if tc.managed {
 				ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "synthetic-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}})
 			}
 			if tc.enrollmentUnknown {
-				ctx = context.WithValue(ctx, ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+				ctx = context.WithValue(ctx, requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 			}
 			model := catalog.ModelIDClaudeOpus48.String()
 			ctx = svc.resolveCredentials(ctx, providers.ProviderAnthropic, model, headers)
@@ -96,13 +97,13 @@ func TestAnthropicBYOKDisablesSubscriptionBypass(t *testing.T) {
 	for _, inbound := range []bool{false, true} {
 		t.Run(map[bool]string{false: "direct", true: "inbound"}[inbound], func(t *testing.T) {
 			svc := newServiceWithProviders(t, nil).WithUsageObserver(usage.NewObserver([]byte("synthetic-salt"), time.Minute, time.Now))
-			ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
-			ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+			ctx := context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
+			ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 			headers := http.Header{}
 			if inbound {
 				headers.Set("Authorization", "Bearer "+oauthToken)
 			} else {
-				ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, oauthToken)
+				ctx = context.WithValue(ctx, requestcontext.AnthropicSubscriptionContextKey{}, oauthToken)
 			}
 			req := router.Request{RequestedModel: catalog.ModelIDClaudeOpus48.String()}
 			for _, turn := range []turntype.TurnType{turntype.MainLoop, turntype.Classifier} {
@@ -136,9 +137,9 @@ func TestAnthropicBYOKHTTPNeverProbesOAuth(t *testing.T) {
 				providers.ProviderAnthropic: anthropic.NewClient("synthetic-deployment-key", upstream.URL),
 			}, nil, nil, false, "", "", nil)).
 				WithManagedSubscriptions(leaser)
-			ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
+			ctx := context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
 			ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "synthetic-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}})
-			ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+			ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 			body := `{"model":"` + model + `","max_tokens":32,"messages":[{"role":"user","content":"synthetic task"}]}`
 			for _, token := range []string{"sk-ant-oat01-original", "sk-ant-oat01-refreshed"} {
 				svc.WithUsageObserver(usage.NewObserver([]byte("synthetic-salt"), time.Minute, time.Now))
@@ -165,7 +166,7 @@ func TestAnthropicBYOKHTTPNeverProbesOAuth(t *testing.T) {
 func TestAnthropicBYOKDoesNotAuthorizeGatewayBindings(t *testing.T) {
 	svc := newServiceWithProviders(t, nil)
 	ctx := WithManagedSubscriptionCandidates(context.Background(), []*auth.SubscriptionAccount{{ID: "synthetic-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}})
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
+	ctx = context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
 	model := catalog.ModelIDClaudeOpus48.String()
 	require.NoError(t, svc.subscriptionAPIAuthorization(ctx, providers.ProviderAnthropic, model))
 	require.ErrorIs(t, svc.subscriptionAPIAuthorization(ctx, providers.ProviderOpenRouter, model), ErrSubscriptionPoolUnavailable,

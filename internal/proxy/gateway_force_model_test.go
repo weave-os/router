@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
@@ -37,8 +38,8 @@ func gatewayAllowlistCtx(allowed []string, aliased ...string) context.Context {
 		BaseURL:        "https://gateway.example.com",
 		ModelAliases:   aliases,
 	}
-	ctx := context.WithValue(authedCtx(id), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
-	return context.WithValue(ctx, proxy.InstallationAllowedModelsContextKey{}, allowed)
+	ctx := context.WithValue(authedCtx(id), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
+	return context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, allowed)
 }
 
 func anthropicOKProvider() *fakeProvider {

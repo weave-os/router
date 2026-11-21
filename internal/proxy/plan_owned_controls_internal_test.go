@@ -29,19 +29,19 @@ func boostPlanOwnedContext() context.Context {
 }
 
 func boostDefaultRoutingContext() context.Context {
-	return context.WithValue(boostPlanOwnedContext(), InstallationAllowedModelsContextKey{}, []string(nil))
+	return context.WithValue(boostPlanOwnedContext(), requestcontext.InstallationAllowedModelsContextKey{}, []string(nil))
 }
 
 func planOwnedContextFor(plan entitlement.Plan) context.Context {
 	alpha := 0.9
 	ctx := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Plan: string(plan)})
 	ctx = entitlement.WithProductScope(ctx, plan)
-	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{"customer-allowed"})
-	ctx = context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{"customer-excluded"})
-	ctx = context.WithValue(ctx, InstallationExcludedProvidersContextKey{}, []string{"customer-provider"})
-	ctx = context.WithValue(ctx, InstallationPreferredModelsContextKey{}, []string{"customer-preferred"})
-	ctx = context.WithValue(ctx, InstallationFastModeModelsContextKey{}, []string{"customer-fast"})
-	ctx = context.WithValue(ctx, ClusterModelListsContextKey{}, map[string][]string{"cluster": {"customer-arm"}})
+	ctx = context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, []string{"customer-allowed"})
+	ctx = context.WithValue(ctx, requestcontext.InstallationExcludedModelsContextKey{}, []string{"customer-excluded"})
+	ctx = context.WithValue(ctx, requestcontext.InstallationExcludedProvidersContextKey{}, []string{"customer-provider"})
+	ctx = context.WithValue(ctx, requestcontext.InstallationPreferredModelsContextKey{}, []string{"customer-preferred"})
+	ctx = context.WithValue(ctx, requestcontext.InstallationFastModeModelsContextKey{}, []string{"customer-fast"})
+	ctx = context.WithValue(ctx, requestcontext.ClusterModelListsContextKey{}, map[string][]string{"cluster": {"customer-arm"}})
 	return router.WithRoutingKnobs(ctx, &router.Overrides{Alpha: &alpha})
 }
 

@@ -48,8 +48,6 @@ func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 	requestcontext.ApplyIdentityHeader(ctx, upstream)
 }
 
-type ExternalAPIKeysContextKey struct{}
-
 func byokFirst(ctx context.Context, provider string) bool {
 	keyFirst := false
 	for _, key := range externalKeysFromContext(ctx) {

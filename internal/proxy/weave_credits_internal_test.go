@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +17,7 @@ import (
 
 func deniedCtxWithKeys(keys ...*auth.ExternalAPIKey) context.Context {
 	ctx := billing.WithWeaveCreditsDenied(context.Background())
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, keys)
+	ctx = context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, keys)
 	return withWeaveCreditsFunding(ctx, http.Header{})
 }
 

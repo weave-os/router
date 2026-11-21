@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -101,7 +102,7 @@ func runRescueWith(t *testing.T, svc *Service, body string) *httptest.ResponseRe
 	req.Header.Set("Authorization", "Bearer "+classifierTestSubToken)
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("anthropic-beta", classifierClientBeta)
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, uuid.New().String())
 
 	require.NoError(t, svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "req-rescue", "ext-rescue", turntype.Classifier, reasonClassifierPassthrough, req, rec))
 	return rec

@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -42,7 +43,7 @@ func gatewayKeyCtx(gateway string, aliased ...string) func(string) context.Conte
 		for _, model := range aliased {
 			key.ModelAliases[model] = "gw-" + model
 		}
-		return context.WithValue(authedCtx(installationID), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
+		return context.WithValue(authedCtx(installationID), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
 	}
 }
 
@@ -83,7 +84,7 @@ func TestService_UtilityHardPin_CatalogTargetPerInstallation(t *testing.T) {
 			name:    "excluded_default_model",
 			clients: []string{providers.ProviderAnthropic},
 			ctx: func(id string) context.Context {
-				return context.WithValue(authedCtx(id), proxy.InstallationExcludedModelsContextKey{}, []string{policy.UtilityHardPinDefaultModel})
+				return context.WithValue(authedCtx(id), requestcontext.InstallationExcludedModelsContextKey{}, []string{policy.UtilityHardPinDefaultModel})
 			},
 			wantModel: catalog.ModelIDClaudeHaiku55.String(),
 			wantVia:   providers.ProviderAnthropic,

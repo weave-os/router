@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -405,7 +406,7 @@ func TestApplyBlindExperimentTelemetry(t *testing.T) {
 	assert.False(t, telemetry.TrainingAllowed)
 
 	observation := buildObservationContext(hmm.ServingPorts(),
-		context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), PolicyTrainingAllowedContextKey{}, true), router.StrategyFromContext(context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), PolicyTrainingAllowedContextKey{}, true)),
+		context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), requestcontext.PolicyTrainingAllowedContextKey{}, true), router.StrategyFromContext(context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), requestcontext.PolicyTrainingAllowedContextKey{}, true)),
 		router.Decision{},
 		router.Decision{},
 		CaptureOff)

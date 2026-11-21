@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
@@ -87,8 +88,8 @@ func managedSubscriptionTestContext() context.Context {
 }
 
 func managedSubscriptionContext(provider auth.SubscriptionProvider) context.Context {
-	ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "key-1")
-	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
+	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "key-1")
+	ctx = context.WithValue(ctx, requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
 		provider: {},
 	})
 	// Pool recovery tests opt into metered fallback; default-only cases use raw enrollment.
@@ -267,7 +268,7 @@ func TestManagedSubscriptionPreservesAnthropicBYOK(t *testing.T) {
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
 	base := managedSubscriptionTestContext()
 
-	byokCtx := context.WithValue(base, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
+	byokCtx := context.WithValue(base, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
 	byokCtx = svc.resolveCredentials(byokCtx, providers.ProviderAnthropic, "claude-opus-4-8", nil)
 	unchangedCtx, _, managed, err := svc.leaseManagedSubscription(byokCtx, providers.ProviderAnthropic, "claude-opus-4-8")
 	require.NoError(t, err)
@@ -287,7 +288,7 @@ func TestManagedSubscriptionEnrollmentFailureDoesNotClaimCapacity(t *testing.T) 
 		t.Run(test.provider, func(t *testing.T) {
 			leaser := &scriptedSubscriptionLeaser{}
 			svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
-			ctx := context.WithValue(context.Background(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+			ctx := context.WithValue(context.Background(), requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 
 			_, _, managed, err := svc.leaseManagedSubscription(ctx, test.provider, test.model)
 
@@ -301,7 +302,7 @@ func TestManagedSubscriptionEnrollmentFailureDoesNotClaimCapacity(t *testing.T) 
 func TestManagedSubscriptionEnrollmentFailureDoesNotBlockUnrelatedProvider(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{}
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
-	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+	ctx := context.WithValue(managedSubscriptionTestContext(), requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	credentials := &Credentials{APIKey: []byte("google-api-key"), Source: credSourceBYOK}
 	ctx = context.WithValue(ctx, CredentialsContextKey{}, credentials)
 
@@ -322,7 +323,7 @@ func TestManagedSubscriptionEnrollmentFailureDoesNotAuthorizeAPIFallback(t *test
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: meteredOnlyClient{&fakeClient{}}}).
 		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+	ctx := context.WithValue(managedSubscriptionTestContext(), requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{APIKey: []byte("inbound-oauth"), OAuth: true, Source: credSourceSubscription})
 
 	out, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
@@ -410,7 +411,7 @@ func TestLeaseManagedSubscription_CreditsDepletedExhaustedPool_PlanFirstKeyServe
 	svc := newServiceWithProviders(t, nil).
 		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	ctx := context.WithValue(exhaustedManagedSubscriptionContext(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx := context.WithValue(exhaustedManagedSubscriptionContext(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{ID: "key-1", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok"), FundingPriority: auth.FundingPriorityPlanFirst},
 	})
 	ctx = flags.WithOverrides(
