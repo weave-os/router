@@ -26,10 +26,6 @@ func WithSubscriptionOwner(ctx context.Context, owner auth.SubscriptionOwner) co
 }
 
 func ExternalKeysFromContext(ctx context.Context) []*auth.ExternalAPIKey {
-	v := ctx.Value(ExternalAPIKeysContextKey{})
-	if v == nil {
-		return nil
-	}
-	keys, _ := v.([]*auth.ExternalAPIKey)
+	keys, _ := ctx.Value(ExternalAPIKeysContextKey{}).([]*auth.ExternalAPIKey)
 	return keys
 }
