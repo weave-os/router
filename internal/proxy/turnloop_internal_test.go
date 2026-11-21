@@ -127,7 +127,7 @@ func TestConsumePostCommandContinuation_RequiresEffectiveStrategy(t *testing.T) 
 
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
 
-	_, found := svc.consumePostCommandContinuation(ctx, router.StrategyFromContext(ctx), [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole)
+	_, found := postCommandContinuation(svc, router.StrategyFromContext(ctx)).Consume(ctx, [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole)
 	assert.False(t, found, "a non-beta continuation must not cross into a beta session")
 
 	store.mu.Lock()

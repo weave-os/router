@@ -37,12 +37,7 @@ The generated static registry in [`POLICY_INFERENCE.md`](POLICY_INFERENCE.md) is
 
 ## Direct Provider Calls
 
-These are the complete production `providers.Client.Proxy`/`Passthrough` call sites at the baseline. No new call site may be added outside `internal/dispatch` or a provider adapter. Handover, compaction-handover, and precompaction summaries run through `dispatch.Buffered` since Phases 6–7; `ProviderSummarizer` no longer holds a provider client.
-
-| File / symbol | Operation |
-| --- | --- |
-| `internal/proxy/usage_bypass.go` — `Service.bypassToAnthropic` | subscription-token main inference |
-| `internal/proxy/service.go` — `Service.PassthroughToNamedProvider` | metadata/passthrough |
+No production `providers.Client.Proxy`/`Passthrough` call site remains outside `internal/dispatch` and the provider adapters, and none may be added. Named-provider passthrough and the usage-bypass path send through `dispatch.Upstream` from `dispatch.Clients.Upstream`. Handover, compaction-handover, and precompaction summaries run through `dispatch.Buffered` since Phases 6–7; `ProviderSummarizer` no longer holds a provider client.
 
 Executor attempts do not hold a provider client: `dispatchPlanned` hands each attempt closure a `dispatch.Upstream` wrapping the client the executor selected and guarded for the planned target, and the closure sends through it.
 

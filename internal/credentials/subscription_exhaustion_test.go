@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 
 	"github.com/stretchr/testify/assert"
@@ -50,6 +51,24 @@ func TestClaudeSnapshotUnservable(t *testing.T) {
 	ownOverageFirst := credentials.ClaudeSubscriptionFacts{OwnOverageBeforePool: true}
 	assert.False(t, credentials.ClaudeSnapshotUnservable(ownOverageFirst, overage), "own overage serves before the pool")
 	assert.True(t, credentials.ClaudeSnapshotUnservable(ownOverageFirst, spentSnapshot()), "a spent seat without overage stays unservable")
+
+	noFallback := credentials.ClaudeSubscriptionFacts{NoPaidFallback: true}
+	assert.False(t, credentials.ClaudeSnapshotUnservable(noFallback, overage), "own overage serves when nothing else can pay")
+	assert.True(t, credentials.ClaudeSnapshotUnservable(noFallback, spentSnapshot()), "a spent seat without overage stays unservable")
+}
+
+func TestClaudePlanFromUsage(t *testing.T) {
+	enterpriseShape := usage.Snapshot{RepresentativeClaim: usage.AnthropicClaimOverage, OverageInUse: true}
+	planOverage := usage.Snapshot{Primary: usage.Window{UsedPercent: 1, WindowMinutes: 300}, RepresentativeClaim: usage.AnthropicClaimOverage, OverageInUse: true}
+	observed := fakeUsage{"k:enterprise": enterpriseShape, "k:plan": planOverage, "k:fresh": {Primary: usage.Window{UsedPercent: 0.2, WindowMinutes: 300}}}
+	unknown := providers.SubscriptionPlanUnknown
+
+	assert.Equal(t, providers.SubscriptionPlanEnterprise, credentials.ClaudePlanFromUsage(unknown, observed, []byte("enterprise")))
+	assert.Equal(t, unknown, credentials.ClaudePlanFromUsage(unknown, observed, []byte("plan")), "overage after a spent window is a personal plan")
+	assert.Equal(t, unknown, credentials.ClaudePlanFromUsage(unknown, observed, []byte("fresh")))
+	assert.Equal(t, unknown, credentials.ClaudePlanFromUsage(unknown, observed, []byte("unseen")))
+	assert.Equal(t, providers.SubscriptionPlanMax, credentials.ClaudePlanFromUsage(providers.SubscriptionPlanMax, observed, []byte("enterprise")),
+		"a known plan outranks the header shape")
 }
 
 func TestClaudeSubscriptionObservedExhausted(t *testing.T) {

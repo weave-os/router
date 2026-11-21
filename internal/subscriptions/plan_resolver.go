@@ -65,6 +65,9 @@ func (r *PlanResolver) Resolve(ctx context.Context, token []byte) providers.Subs
 		if err != nil || plan == providers.SubscriptionPlanUnknown {
 			plan = providers.SubscriptionPlanUnknown
 			ttl = 15 * time.Second
+			if previous, seen := r.entries.Peek(key); err != nil && seen {
+				plan = previous.plan
+			}
 		}
 		reading := subscriptionPlanReading{plan: plan, expiresAt: r.now().Add(ttl)}
 		r.entries.Add(key, reading)

@@ -6,12 +6,13 @@ import (
 
 	"github.com/google/uuid"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 )
 
-const providerOverloadedStatus = 529
+const providerOverloadedStatus = dispatch.ProviderOverloadedStatus
 
 const providerOverloadStrikeThreshold = 2
 

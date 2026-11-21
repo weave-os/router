@@ -51,7 +51,7 @@ func TestIsCommittedStreamFailure_WatchdogCauseBeatsWrappedCancellation(t *testi
 	for _, sentinel := range []error{providers.ErrUpstreamIdleTimeout, providers.ErrUpstreamOutputStall, providers.ErrUpstreamSlowThroughput} {
 		stalled, cancel := context.WithCancelCause(context.Background())
 		cancel(sentinel)
-		assert.True(t, isCommittedStreamFailure(stalled, fmt.Errorf("stream: %w", context.Canceled)), sentinel.Error())
+		assert.True(t, dispatch.IsCommittedStreamFailure(stalled, fmt.Errorf("stream: %w", context.Canceled)), sentinel.Error())
 	}
 }
 

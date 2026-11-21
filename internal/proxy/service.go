@@ -30,7 +30,6 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandswap"
-	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
@@ -55,7 +54,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 type Service struct {
@@ -102,36 +100,27 @@ type Service struct {
 	credentials                  credentials.Brokerage
 	continuityConfig             continuity.Config
 	hmmServing
-	policyDeadlineFallback      bool
-	policyDeadlineDefaultModel  string
-	cyberRefusalRepin           bool
-	cyberRefusalRetry           bool
-	anthropicServerSideFallback bool
+	policyDeadlineFallback     bool
+	policyDeadlineDefaultModel string
 
-	siblingFailover                bool
+	rescueConfig                   dispatch.RescueConfig
 	codexExtraCredits              bool
 	openAIResponsesBroad           bool
 	nativeAnthropicResponseSignals bool
 	nativeOpenAIResponseSignals    bool
 	allowedModelsHeader            bool
-	committedStreamArmDemotion     bool
-	rescuedFailureArmDemotion      bool
-	transientRateLimit             bool
-	rateLimitCooldownSeconds       int
-	providerOverloaded             bool
-	overloadBreaker                *breaker.Registry
+	armDemotion                    dispatch.ArmDemotionPolicy
+	throttling                     dispatch.Throttling
 	ingress                        ingress.Formats
-	cyberRefusalFallbackModel      string
 	effortEscalation               bool
 	ccOrchToolsCrossVendor         bool
 	ccTaskToolsCrossVendor         bool
 	ccAutonomySystemAppend         bool
-	earlyStopRedo                  flags.EarlyStopRedoMode
 	ccWorkspaceSystemAppend        bool
 	bandSwap                       *bandswap.Classifier
 
 	turnSignalCaptureEnabled     bool
-	feedbackStore                RouterFeedbackStore
+	feedbackStore                feedback.RouterFeedbackStore
 	summarizer                   handover.Summarizer
 	webSearch                    websearch.Executor
 	compactionHandoverSummarizer handover.Summarizer
@@ -984,31 +973,33 @@ func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 
 func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Emitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetryRepo TelemetryRepository) *Service {
 	s := &Service{
-		engine:                         dispatch.NewEngine(clients),
-		translationCompatibilityMode:   TranslationCompatibilityShadow,
-		emitter:                        emitter,
-		ingress:                        ingress.New(0),
-		pinStore:                       pinStore,
-		lifecycle:                      conversation.NewLifecycle(),
-		searchUse:                      newSearchUseTracker(),
-		searchRequirementDecayTurns:    DefaultSearchRequirementDecayTurns,
-		prefixTrimFreeSwitch:           true,
-		turnSignalCaptureEnabled:       true,
-		ccOrchToolsCrossVendor:         true,
-		hardPinExplore:                 hardPinExplore,
-		hardPinProvider:                hardPinProvider,
-		hardPinModel:                   hardPinModel,
-		telemetry:                      telemetryRepo,
-		continuityConfig:               continuity.DefaultConfig(),
-		hmmServing:                     hmmServing{hmmConfig: continuity.DefaultAuthoritativeConfig()},
-		cyberRefusalRepin:              true,
-		cyberRefusalRetry:              true,
-		anthropicServerSideFallback:    true,
-		siblingFailover:                true,
+		engine:                       dispatch.NewEngine(clients),
+		translationCompatibilityMode: TranslationCompatibilityShadow,
+		emitter:                      emitter,
+		ingress:                      ingress.New(0),
+		pinStore:                     pinStore,
+		lifecycle:                    conversation.NewLifecycle(),
+		searchUse:                    newSearchUseTracker(),
+		searchRequirementDecayTurns:  DefaultSearchRequirementDecayTurns,
+		prefixTrimFreeSwitch:         true,
+		turnSignalCaptureEnabled:     true,
+		ccOrchToolsCrossVendor:       true,
+		hardPinExplore:               hardPinExplore,
+		hardPinProvider:              hardPinProvider,
+		hardPinModel:                 hardPinModel,
+		telemetry:                    telemetryRepo,
+		continuityConfig:             continuity.DefaultConfig(),
+		hmmServing:                   hmmServing{hmmConfig: continuity.DefaultAuthoritativeConfig()},
+		rescueConfig: dispatch.RescueConfig{
+			SiblingFailover:             true,
+			CyberRefusalRepin:           true,
+			CyberRefusalRetry:           true,
+			CyberRefusalFallbackModel:   "claude-sonnet-5",
+			AnthropicServerSideFallback: true,
+		},
 		openAIResponsesBroad:           true,
 		nativeAnthropicResponseSignals: true,
 		nativeOpenAIResponseSignals:    true,
-		cyberRefusalFallbackModel:      "claude-sonnet-5",
 	}
 	s.routing = routingpolicy.New(nil)
 	s.escalationHelper()
@@ -1040,22 +1031,22 @@ func (s *Service) WithContinuityConfig(cfg continuity.Config) *Service {
 }
 
 func (s *Service) WithCyberRefusalRepin(enabled bool) *Service {
-	s.cyberRefusalRepin = enabled
+	s.rescueConfig.CyberRefusalRepin = enabled
 	return s
 }
 
 func (s *Service) WithCyberRefusalRetry(enabled bool) *Service {
-	s.cyberRefusalRetry = enabled
+	s.rescueConfig.CyberRefusalRetry = enabled
 	return s
 }
 
 func (s *Service) WithAnthropicServerSideFallback(enabled bool) *Service {
-	s.anthropicServerSideFallback = enabled
+	s.rescueConfig.AnthropicServerSideFallback = enabled
 	return s
 }
 
 func (s *Service) WithSiblingFailover(enabled bool) *Service {
-	s.siblingFailover = enabled
+	s.rescueConfig.SiblingFailover = enabled
 	return s
 }
 
@@ -1065,18 +1056,17 @@ func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
 }
 
 func (s *Service) WithCommittedStreamArmDemotion(enabled bool) *Service {
-	s.committedStreamArmDemotion = enabled
+	s.armDemotion.CommittedStream = enabled
 	return s
 }
 
 func (s *Service) WithRescuedFailureArmDemotion(enabled bool) *Service {
-	s.rescuedFailureArmDemotion = enabled
+	s.armDemotion.RescuedFailure = enabled
 	return s
 }
 
 func (s *Service) WithTransientRateLimit(enabled bool, cooldownSeconds int) *Service {
-	s.transientRateLimit = enabled
-	s.rateLimitCooldownSeconds = cooldownSeconds
+	s.throttling.RateLimit = dispatch.NewRateLimitPolicy(enabled, cooldownSeconds)
 	return s
 }
 
@@ -1192,7 +1182,7 @@ func (s *Service) WithRetrySleep(sleep func(context.Context, time.Duration) erro
 
 func (s *Service) WithCyberRefusalFallbackModel(model string) *Service {
 	if strings.TrimSpace(model) != "" {
-		s.cyberRefusalFallbackModel = strings.TrimSpace(model)
+		s.rescueConfig.CyberRefusalFallbackModel = strings.TrimSpace(model)
 	}
 	return s
 }
@@ -1243,7 +1233,7 @@ func (s *Service) WithCCAutonomySystemAppend(enabled bool) *Service {
 }
 
 func (s *Service) WithEarlyStopRedo(mode flags.EarlyStopRedoMode) *Service {
-	s.earlyStopRedo = mode
+	s.rescueConfig.EarlyStopRedo = mode
 	return s
 }
 
@@ -1272,7 +1262,7 @@ func (s *Service) WithTurnSignalCapture(enabled bool) *Service {
 	return s
 }
 
-func (s *Service) WithRouterFeedbackStore(store RouterFeedbackStore) *Service {
+func (s *Service) WithRouterFeedbackStore(store feedback.RouterFeedbackStore) *Service {
 	s.feedbackStore = store
 	return s
 }
@@ -1899,7 +1889,7 @@ func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http
 
 func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName string, body []byte, w http.ResponseWriter, r *http.Request) error {
 	log := observability.FromContext(ctx)
-	p, err := s.provider(providerName)
+	p, err := s.engine.Clients().Upstream(providerName)
 	if err != nil {
 		return err
 	}
@@ -2118,20 +2108,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	ctx, log, sessionKey = bindRequestLogger(ctx, env, facts.APIKeyID, facts.RequestID, "anthropic_messages")
 	log.Debug("Resolved client context budget", "budget_evidence", clientBudget.Evidence, "client_version", clientBudget.Version, "model_variant_1m", clientBudget.ModelVariant1M, "inbound_context_1m", clientBudget.InboundContext1M, "default_window", clientBudget.DefaultWindow, "default_compact_threshold", clientBudget.DefaultCompactThreshold)
-	if err := env.StripCommandOutcomes(); err != nil {
-		return fmt.Errorf("strip command outcomes: %w", err)
-	}
-	if removed, err := env.StripHistoricalCommands(); err != nil {
-		return fmt.Errorf("strip historical router commands: %w", err)
-	} else if removed > 0 {
-		log.Info("Stripped historical router commands from Anthropic history", "removed_messages", removed)
-	}
-	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
-		log.Info("Stripped router-feedback artifacts from Anthropic history", "removed_messages", removed)
-	}
-	if removed := env.StripBetaArtifacts(); removed > 0 {
-		ctx = withBetaArtifactHistory(ctx)
-		log.Info("Stripped beta artifacts from Anthropic history", "removed_messages", removed)
+	if ctx, err = stripClientHistory(ctx, log, env, "Anthropic"); err != nil {
+		return err
 	}
 
 	feats := env.RoutingFeatures()
@@ -2191,7 +2169,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				if err := s.handleForceModelCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
 					return err
 				}
-				s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 				return nil
 			}
 		}
@@ -2203,7 +2181,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				return err
 			}
 			if !cmd.FromToolResult {
-				s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 				return nil
 			}
 			requestBodyChanged = true
@@ -2214,7 +2192,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if err := s.handleRouterSessionCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 	if !agentShadowMode && env.ExtractRouterModelsCommand() {
@@ -2222,7 +2200,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if err := s.handleRouterModelsCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 	if !agentShadowMode && env.ExtractListModelsCommand() {
@@ -2230,7 +2208,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if err := s.handleListModelsCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 
@@ -3968,20 +3946,7 @@ func logBillingDebitFailure(ctx context.Context, p billing.DebitInferenceParams,
 	)
 }
 
-func upstreamStatus(err error) int {
-	if err == nil {
-		return http.StatusOK
-	}
-	var statusErr *providers.UpstreamStatusError
-	if errors.As(err, &statusErr) {
-		return statusErr.Status
-	}
-	var bufferedErr *providers.UpstreamErrorResponse
-	if errors.As(err, &bufferedErr) {
-		return bufferedErr.Status
-	}
-	return 0
-}
+func upstreamStatus(err error) int { return dispatch.UpstreamStatus(err) }
 
 func finalizeAfterProxy(proxyErr error, fn func() error) error {
 	var statusErr *providers.UpstreamStatusError
@@ -4028,13 +3993,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if echoed, _ := ctx.Value(responsesFooterEchoedContextKey{}).(bool); echoed {
 		footerEchoed = true
 	}
-	strippedBody, stripErr = translate.StripFeedbackFooterFromMessages(body)
-	if stripErr != nil {
-		log.Error("Failed to strip feedback footer from OpenAI messages", "err", stripErr)
-	} else {
-		body = strippedBody
-	}
-	env, parseErr := translate.ParseOpenAI(body)
+	env, body, parseErr := s.ingress.OpenAIChat.Parse(ctx, body)
 	if parseErr != nil {
 		log.Error("Failed to parse OpenAI request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
@@ -4053,20 +4012,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	ctx, log, sessionKey = bindRequestLogger(ctx, env, facts.APIKeyID, facts.RequestID, "openai_chat_completions")
-	if err := env.StripCommandOutcomes(); err != nil {
-		return fmt.Errorf("strip command outcomes: %w", err)
-	}
-	if removed, err := env.StripHistoricalCommands(); err != nil {
-		return fmt.Errorf("strip historical router commands: %w", err)
-	} else if removed > 0 {
-		log.Info("Stripped historical router commands from OpenAI history", "removed_messages", removed)
-	}
-	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
-		log.Info("Stripped router-feedback artifacts from OpenAI history", "removed_messages", removed)
-	}
-	if removed := env.StripBetaArtifacts(); removed > 0 {
-		ctx = withBetaArtifactHistory(ctx)
-		log.Info("Stripped beta artifacts from OpenAI history", "removed_messages", removed)
+	if ctx, err = stripClientHistory(ctx, log, env, "OpenAI"); err != nil {
+		return err
 	}
 	codexTitleGen, _ := ctx.Value(codexTitleGenerationContextKey{}).(bool)
 	feats := env.RoutingFeatures()
@@ -4121,7 +4068,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				if err := s.handleForceModelCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
 					return err
 				}
-				s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 				return nil
 			}
 		}
@@ -4137,7 +4084,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			return err
 		}
 		if synthetic {
-			s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+			postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 			return nil
 		}
 		requestBodyChanged = true
@@ -4147,7 +4094,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if err := s.handleRouterSessionCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 	if env.ExtractRouterModelsCommand() {
@@ -4155,7 +4102,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if err := s.handleRouterModelsCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 	if env.ExtractListModelsCommand() {
@@ -4163,7 +4110,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if err := s.handleListModelsCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 
@@ -4541,348 +4488,36 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	cyberRetryArmed := false
 	preOutputRescueArmed := false
 	cyberRefusalSeen := false
+	attemptDeps := chatAttemptDeps{
+		request:              r,
+		svc:                  s,
+		isResponses:          isResponses,
+		responseSwitch:       &responseSwitch,
+		facts:                facts,
+		responsesNotices:     responsesNotices,
+		responsesPreludeBuf:  responsesPreludeBuf,
+		env:                  env,
+		responseWriter:       w,
+		responsesBody:        responsesBody,
+		log:                  log,
+		fastServed:           &fastServed,
+		routeRes:             &routeRes,
+		makeMarkerSink:       makeMarkerSink,
+		cyberRetryArmed:      &cyberRetryArmed,
+		preOutputRescueArmed: &preOutputRescueArmed,
+		extractor:            &extractor,
+		toolValidator:        toolValidator,
+		responsesWriter:      responsesWriter,
+		preludeBuf:           preludeBuf,
+		sink:                 sink,
+		respSummary:          &respSummary,
+		nativeRespSummary:    &nativeRespSummary,
+		cyberRefusalSeen:     &cyberRefusalSeen,
+		responsesEndpointKey: responsesEndpointKey,
+		crossFormat:          &crossFormat,
+	}
 	buildProviderAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
-		targetNotice := routerNoticeForDecision(withOwnCodexRejectionNudge(ctx, r.Header, s.usageObserver), r.Header, target, targetMarker)
-		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
-		if isResponses {
-			if targetMarker != "" && (!responseSwitch.passthrough() || supportsResponsesTerminalSurfaces(facts.Client.ClientApp)) {
-				_, noticeErr := responsesNotices.prepare(ctx, responsesPreludeBuf, responsesPreludeBuf, translate.FormatOpenAIResponses, env.Stream(), targetNotice)
-				if noticeErr != nil {
-					return nil, fmt.Errorf("emit Responses router notice: %w", noticeErr)
-				}
-			}
-		}
-		switch providers.FamilyFor(target.Provider) {
-		case providers.FamilyOpenAICompat:
-			dispatchOpenAI := func(actx context.Context, d router.Decision, p dispatch.Upstream, surface openAISurface, stripPromptCacheKey bool) error {
-				resetResponsesAttempt(w)
-				var prep providers.PreparedRequest
-				switch surface {
-				case surfaceResponsesNative:
-					outBody, setErr := sjson.SetBytes(responsesBody, "model", d.Model)
-					if setErr != nil {
-						log.Error("Failed to set routed model on Codex Responses body", "err", setErr, "decision_model", d.Model)
-						return fmt.Errorf("set codex model: %w", setErr)
-					}
-					outBody, setErr = translate.ClampResponsesInputCallIDs(outBody)
-					if setErr != nil {
-						return fmt.Errorf("clamp codex call_id: %w", setErr)
-					}
-					nativeOpts := targetOpts
-					nativeOpts.TargetProvider = d.Provider
-					nativeOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-					fastServed = nativeOpts.FastMode
-					outBody, setErr = codexNativeFastMode(outBody, nativeOpts, routeRes.TurnType)
-					if setErr != nil {
-						return fmt.Errorf("set codex service_tier: %w", setErr)
-					}
-					outBody, setErr = codexNativeEffort(outBody, nativeOpts, routeRes.TurnType)
-					if setErr != nil {
-						return fmt.Errorf("set codex reasoning effort: %w", setErr)
-					}
-					prep = providers.PreparedRequest{
-						Body:     outBody,
-						Endpoint: providers.EndpointResponses,
-						Headers:  make(http.Header),
-						Stats: providers.RequestMutationStats{
-							Transformations: responseTransformationsFromContext(actx),
-						},
-					}
-				default:
-					attemptOpts := targetOpts
-					attemptOpts.TargetProvider = d.Provider
-					attemptOpts.StripPromptCacheKey = stripPromptCacheKey
-					attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-					attemptOpts.ReasoningReplayScope = s.reasoningReplayScope(actx, d)
-					fastServed = attemptOpts.FastMode
-					var emitErr error
-					if surface == surfaceResponsesTranslated {
-						prep, emitErr = env.PrepareOpenAIResponses(r.Header, attemptOpts)
-					} else {
-						prep, emitErr = prepareOpenAIForTurn(env, r.Header, attemptOpts, routeRes.TurnType)
-					}
-					if emitErr != nil {
-						log.Error("Failed to emit OpenAI body", "err", emitErr,
-							"decision_provider", d.Provider, "endpoint", prep.Endpoint)
-						return fmt.Errorf("emit body: %w", emitErr)
-					}
-				}
-				noticeSink, noticeErr := makeMarkerSink(reconnectNoticeForAttempt(actx, r.Header, targetNotice))
-				if noticeErr != nil {
-					return fmt.Errorf("emit OpenAI router notice: %w", noticeErr)
-				}
-				refusalGate := newCyberRefusalGate(noticeSink,
-					cyberRetryArmed && d.Provider == providers.ProviderOpenAI)
-				if surface == surfaceResponsesNative && env.Stream() && preOutputRescueArmed {
-					refusalGate.holdPreOutputFailure()
-				}
-				var attemptSink http.ResponseWriter = refusalGate
-				var seedToolCalls *translate.SeedToolCallChatWriter
-				if surface == surfaceChat {
-					if names := env.SeedToolCallNames(prep.ResponseToolNames); len(names) > 0 {
-						seedToolCalls = translate.NewSeedToolCallChatWriter(attemptSink, names)
-						attemptSink = seedToolCalls
-					}
-				}
-				proxyWriter := attemptSink
-				var translator *translate.ResponsesToOpenAIChatWriter
-				var toolNames *translate.ToolNameWriter
-				var nativeTerminal *ingress.ResponsesTerminalObserver
-				switch {
-				case surface == surfaceResponsesTranslated:
-					var usage translate.UsageSink
-					if s.usageRequired() {
-						extractor = telemetry.NewUsageExtractor(d.Provider)
-						usage = extractor
-					}
-					translator = translate.NewResponsesToOpenAIChatWriter(attemptSink, d.Model, usage).
-						WithLogger(log).
-						WithToolValidator(toolValidator)
-					if providers.OutputExcludesReasoning(d.Provider) {
-						translator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
-					}
-					if isResponses {
-						responsesWriter.SetUsageSource(translator.UsageFacts)
-					}
-					if err := translator.Prelude(env.Stream()); err != nil {
-						log.Error("chat/completions prelude failed (Responses upstream)", "err", err)
-					}
-					toolNames = translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
-					proxyWriter = toolNames
-				case surface == surfaceResponsesNative:
-					nativeTerminal = ingress.NewResponsesTerminalObserver(attemptSink)
-					proxyWriter = nativeTerminal
-					if s.usageRequired() {
-						extractor, proxyWriter = s.newUsageExtractor(nativeTerminal, d.Provider)
-					}
-				case s.usageRequired() || isResponses:
-					extractor, proxyWriter = s.newUsageExtractor(attemptSink, d.Provider)
-				}
-				if surface == surfaceChat && isResponses {
-					responsesWriter.SetUsageSource(extractor.UsageFacts)
-				}
-				var chatTerminal *streamTerminalObserver
-				if surface == surfaceChat && !isResponses && env.Stream() {
-					chatTerminal = newStreamTerminalObserver(proxyWriter, nativeStreamOpenAIChat)
-					proxyWriter = chatTerminal
-				}
-				if preludeBuf != nil {
-					preludeBuf.Seal()
-				}
-				err := p.Proxy(actx, d, prep, proxyWriter, r)
-				if nativeTerminal != nil && nativeTerminal.Observed() && errors.Is(err, context.Canceled) {
-					err = nil
-				}
-				if seedToolCalls != nil {
-					err = finalizeAfterProxy(err, seedToolCalls.Finalize)
-					if n := seedToolCalls.ConvertedToolCalls(); n > 0 {
-						log.Warn("Recovered tool calls from Seed text markup",
-							"model", d.Model,
-							"provider", d.Provider,
-							"tool_calls", n)
-					}
-				}
-				if err == nil && chatTerminal != nil {
-					err = chatTerminal.streamErr()
-				}
-				if err != nil && surface != surfaceResponsesNative && env.Stream() && preludeBuf.Committed() {
-					_ = emitOpenAISSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
-				}
-				if translator != nil {
-					err = finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
-					if err == nil {
-						err = translator.UpstreamError()
-					}
-					respSummary = translator.Summary()
-					nativeRespSummary = false
-				} else if nativeTerminal != nil {
-					nativeTerminal.Finalize()
-					if rw, ok := w.(*translate.ResponsesWriter); ok {
-						err = finalizeAfterProxy(err, rw.Finalize)
-					}
-					if err == nil && env.Stream() {
-						err = nativeTerminal.Err()
-					}
-					if isStreamTerminalMissing(err) {
-						refusalGate.Abandon()
-					}
-					if nativeTerminal.Observed() && nativeTerminal.Signals().OutputLimitReached {
-						extractor.RecordOutputLimitReached()
-					}
-					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.Signals().FinishReason}
-					nativeRespSummary = false
-					if nativeTerminal.Observed() && s.ResolveNativeOpenAIResponseSignals(actx) {
-						respSummary.StopReason = nativeTerminal.Signals().FinishReason
-						respSummary.ToolUseBlocks = nativeTerminal.Signals().ToolCalls
-						nativeRespSummary = true
-					}
-				}
-				if releaseErr := refusalGate.finalizeAttempt(err); releaseErr != nil && (err == nil || providers.IsUpstreamCyberPolicyRefusal(releaseErr)) {
-					err = releaseErr
-				}
-				if err != nil && refusalGate.holdFailure && refusalGate.releaseEvent != "" {
-					log.Warn("Held Responses stream released before upstream failure",
-						"model", d.Model,
-						"provider", d.Provider,
-						"release_event", refusalGate.releaseEvent,
-						"release_item_type", refusalGate.releaseItemType,
-						"err", err)
-				}
-				if refusalGate.refused {
-					cyberRefusalSeen = true
-				}
-				if refusalGate.withheld {
-					err = providers.CyberPolicyRefusalError()
-				}
-
-				return err
-			}
-			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
-				surface := responseSwitch.surface(d.Provider, servedOnCodexSubscription(actx))
-				gatewayKey := gatewayResponsesKey(actx, d.Provider)
-				stripPCK := s.engine.GatewayCaps().RejectsPromptCacheKey(gatewayKey)
-				err := dispatchOpenAI(actx, d, p, surface, stripPCK)
-				if err != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
-					providers.IsUpstreamPromptCacheKeyRejection(err) {
-					s.engine.GatewayCaps().RememberRejectsPromptCacheKey(gatewayKey)
-					stripPCK = true
-					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
-						"model", d.Model,
-						"decision_provider", d.Provider,
-						"request_id", facts.RequestID)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
-					}
-					err = dispatchOpenAI(actx, d, p, surface, true)
-				}
-				if err == nil || surface == surfaceChat ||
-					committed(preludeBuf) || !providers.IsUpstreamResponsesUnsupported(err) ||
-					codexSubscriptionModelRejected(err) {
-					return err
-				}
-				if responseSwitch.fallbackToChat(surface) != nil {
-					return err
-				}
-				s.engine.GatewayCaps().RememberLacksResponses(responsesEndpointKey)
-				log.Warn("OpenAI endpoint rejected the Responses API; retrying on chat/completions",
-					"model", d.Model,
-					"decision_provider", d.Provider,
-					"request_id", facts.RequestID)
-				if preludeBuf != nil {
-					preludeBuf.Discard()
-				}
-				return dispatchOpenAI(actx, d, p, surfaceChat, stripPCK)
-			}, nil
-		case providers.FamilyGemini:
-			crossFormat = true
-			prep, emitErr := env.PrepareGemini(r.Header, targetOpts)
-			if emitErr != nil {
-				log.Error("Failed to translate OpenAI request to Gemini format", "err", emitErr)
-				return nil, fmt.Errorf("translate openai request to gemini: %w", emitErr)
-			}
-			dispatchGemini := func(actx context.Context, d router.Decision, p dispatch.Upstream, pr providers.PreparedRequest) (func(error) error, error) {
-				resetResponsesAttempt(w)
-				var usage translate.UsageSink
-				if s.usageRequired() {
-					extractor = telemetry.NewUsageExtractor(d.Provider)
-					usage = extractor
-				}
-				attemptSink, noticeErr := makeMarkerSink(reconnectNoticeForAttempt(actx, r.Header, targetNotice))
-				if noticeErr != nil {
-					return func(err error) error { return err }, noticeErr
-				}
-				translator := translate.NewGeminiToOpenAISSETranslator(attemptSink, d.Model, usage)
-				if isResponses {
-					responsesWriter.SetUsageSource(translator.UsageFacts)
-				}
-				if preludeBuf != nil {
-					preludeBuf.Seal()
-				}
-				rawErr := p.Proxy(actx, d, pr, translator, r)
-				finalize := func(err error) error {
-					if err != nil && env.Stream() && preludeBuf.Committed() {
-						_ = emitOpenAISSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
-					}
-					return finalizeAfterProxy(err, translator.Finalize)
-				}
-				return finalize, rawErr
-			}
-			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
-				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
-				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
-					return dispatchGemini(actx, d, p, prepared)
-				})
-			}, nil
-		case providers.FamilyAnthropic:
-			crossFormat = true
-			prep, emitErr := env.PrepareAnthropic(r.Header, targetOpts)
-			if emitErr != nil {
-				log.Error("Failed to translate OpenAI request to Anthropic format", "err", emitErr)
-				return nil, fmt.Errorf("translate openai request: %w", emitErr)
-			}
-			dispatchAnthropic := func(actx context.Context, d router.Decision, p dispatch.Upstream, attemptPrep providers.PreparedRequest, fast bool) (func(error) error, error) {
-				resetResponsesAttempt(w)
-				fastServed = fast
-				var usage translate.UsageSink
-				if s.usageRequired() {
-					extractor = telemetry.NewUsageExtractor(providers.ProviderAnthropic)
-					extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(attemptPrep.Body) })
-					usage = extractor
-				}
-				attemptSink, noticeErr := makeMarkerSink(reconnectNoticeForAttempt(actx, r.Header, targetNotice))
-				if noticeErr != nil {
-					return func(err error) error { return err }, noticeErr
-				}
-				translator := translate.NewSSETranslator(attemptSink, d.Model, usage)
-				if isResponses {
-					responsesWriter.SetUsageSource(translator.UsageFacts)
-				}
-				if preludeBuf != nil {
-					preludeBuf.Seal()
-				}
-				toolNames := translate.NewAnthropicToolNameWriter(translator, attemptPrep.ResponseToolNames)
-				rawErr := p.Proxy(actx, d, attemptPrep, toolNames, r)
-				finalize := func(err error) error {
-					if err != nil && env.Stream() && preludeBuf.Committed() {
-						_ = emitOpenAISSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
-					}
-					err = finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
-					respSummary = translator.Summary()
-					nativeRespSummary = false
-					return err
-				}
-				return finalize, rawErr
-			}
-			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
-				attemptOpts := targetOpts
-				attemptOpts.TargetProvider = d.Provider
-				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-				attemptPrep := prep
-				if attemptOpts.FastMode != targetOpts.FastMode {
-					var emitErr error
-					attemptPrep, emitErr = env.PrepareAnthropic(r.Header, attemptOpts)
-					if emitErr != nil {
-						log.Error("Failed to re-translate OpenAI request to Anthropic format for fast-tier change", "err", emitErr)
-						return fmt.Errorf("translate openai request: %w", emitErr)
-					}
-				}
-				finalize, rawErr := dispatchAnthropic(actx, d, p, attemptPrep, attemptOpts.FastMode)
-				rawErr, _ = retryAnthropicStandardSpeed(log, preludeBuf, d, attemptOpts, rawErr, func(standardOpts translate.EmitOptions) (func() error, error) {
-					standardPrep, emitErr := env.PrepareAnthropic(r.Header, standardOpts)
-					if emitErr != nil {
-						return nil, emitErr
-					}
-					return func() error {
-						var standardErr error
-						finalize, standardErr = dispatchAnthropic(actx, d, p, standardPrep, false)
-						return standardErr
-					}, nil
-				})
-				return finalize(rawErr)
-			}, nil
-		default:
-			return nil, fmt.Errorf("%w: %s (no translation path defined)", ErrProviderNotConfigured, target.Provider)
-		}
+		return buildChatAttempt(ctx, attemptDeps, target, targetOpts, targetMarker, fundingCtx)
 	}
 
 	buildAttempt := responseSwitch.wrapBuilder(buildProviderAttempt)
@@ -5155,34 +4790,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	return proxyErr
 }
 
-func stripResponsesVisualArtifacts(body []byte) ([]byte, error) {
-	stripped, err := translate.StripCommandOutcomesFromResponsesInput(body)
-	if err != nil {
-		return nil, fmt.Errorf("strip Responses command outcome: %w", err)
-	}
-	stripped, err = translate.StripRoutingBadgeFromResponsesInput(stripped)
-	if err != nil {
-		return nil, fmt.Errorf("strip native Responses routing badge: %w", err)
-	}
-	stripped, err = translate.StripFeedbackFooterFromResponsesInput(stripped)
-	if err != nil {
-		return nil, fmt.Errorf("strip native Responses feedback footer: %w", err)
-	}
-	return stripped, nil
-}
-
-func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
-	stripped, err := translate.StripRouterCommandsFromResponsesInput(body)
-	if err != nil {
-		return nil, fmt.Errorf("strip Responses router command: %w", err)
-	}
-	stripped, err = translate.StripHistoricalCommandsFromResponsesInput(stripped)
-	if err != nil {
-		return nil, err
-	}
-	return stripResponsesVisualArtifacts(stripped)
-}
-
 func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
@@ -5200,7 +4807,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		ctx = context.WithValue(ctx, responsesFooterEchoedContextKey{}, true)
 	}
 	ctx = withSubscriptionOnlyWarningEcho(ctx, body)
-	nativeBody, conversionBody, err := responsesDispatchBodies(body, terminalResponses)
+	nativeBody, conversionBody, err := s.ingress.Responses.DispatchBodies(body, terminalResponses)
 	if err != nil {
 		return err
 	}
@@ -5209,7 +4816,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	} else {
 		ctx = context.WithValue(ctx, responsesReplayedModelContextKey{}, translate.LastReplayedResponsesModel(body))
 	}
-	conversion, err := convertCodexResponses(ctx, conversionBody, portableCodex, codexLossyRescueNeeded(ctx, s, r.Header))
+	conversion, err := s.ingress.Responses.ConvertCodexResponses(ctx, conversionBody, portableCodex, codexLossyRescueNeeded(ctx, s, r.Header))
 	if err != nil {
 		return fmt.Errorf("translate responses request: %w", err)
 	}
