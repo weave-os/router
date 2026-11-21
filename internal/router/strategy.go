@@ -66,3 +66,14 @@ func WithStrategy(ctx context.Context, s Strategy) context.Context {
 func StrategyFromContext(ctx context.Context) Strategy {
 	return StrategySelectionFromContext(ctx).Effective()
 }
+
+func StrategyUnavailableError(strategy Strategy) error {
+	switch strategy {
+	case StrategyRetiredRL:
+		return ErrRLPolicyUnavailable
+	case StrategyHMM, StrategyHMMEmbedding, StrategyHMMBeta, StrategyHMMQwen:
+		return ErrHMMUnavailable
+	default:
+		return ErrStrategyUnavailable
+	}
+}
