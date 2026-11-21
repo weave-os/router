@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"syscall"
@@ -181,17 +180,15 @@ func canonicalDiscoveryOrigin(parsed *url.URL) (string, error) {
 	return scheme + "://" + net.JoinHostPort(host, port), nil
 }
 
-const restrictUpstreamEgressEnv = "ROUTER_RESTRICT_UPSTREAM_EGRESS"
+var publicDestinationsOnly = false
 
-var publicDestinationsOnly = publicDestinationsOnlyFromEnv()
-
-func publicDestinationsOnlyFromEnv() bool {
-	if v := strings.TrimSpace(os.Getenv(restrictUpstreamEgressEnv)); v != "" {
+func ParsePublicDestinationsOnly(restrictOverride, deploymentMode string) bool {
+	if v := strings.TrimSpace(restrictOverride); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			return b
 		}
 	}
-	return strings.EqualFold(strings.TrimSpace(os.Getenv("ROUTER_DEPLOYMENT_MODE")), "managed")
+	return strings.EqualFold(strings.TrimSpace(deploymentMode), "managed")
 }
 
 func restrictDestination(_, address string, _ syscall.RawConn) error {
