@@ -22,19 +22,7 @@ const (
 
 // envReadAllowlist lists library files that still read the environment.
 // Counts only go down; delete an entry once its package takes typed config.
-var envReadAllowlist = map[string]int{
-	"internal/api/admin/auth.go":                           1,
-	"internal/api/admin/config.go":                         3,
-	"internal/api/admin/keys.go":                           1,
-	"internal/observability/apm/apm.go":                    4,
-	"internal/observability/logger.go":                     5,
-	"internal/observability/trace.go":                      1,
-	"internal/postgres/pgtls/pgtls.go":                     4,
-	"internal/providers/httputil/egress.go":                2,
-	"internal/providers/httputil/httputil.go":              3,
-	"internal/server/middleware/organization_allowlist.go": 1,
-	"internal/server/server.go":                            3,
-}
+var envReadAllowlist = map[string]int{}
 
 var envReadObjects = map[string][]string{
 	"os":       {"Getenv", "LookupEnv", "Environ", "ExpandEnv"},
