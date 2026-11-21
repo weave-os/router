@@ -69,8 +69,6 @@ type Service struct {
 	recoveryProbeLeases map[string]localRecoveryProbeLease
 	nextRecoveryProbeID uint64
 
-	claudePlans                  *subscriptions.PlanResolver
-	sessionHolds                 subscriptionSessionHolds
 	strategies                   map[router.Strategy]registeredStrategy
 	clients                      *dispatch.Clients
 	executor                     *dispatch.Executor
@@ -157,8 +155,6 @@ type Service struct {
 	piHandoffSecret              []byte
 	feedbackBaseURL              string
 	usageObserver                *usage.Observer
-
-	managedSubscriptions subscriptions.Leaser
 }
 
 type registeredStrategy struct {
@@ -1563,7 +1559,7 @@ func (s *Service) WithCodexExtraCredits(enabled bool) *Service {
 }
 
 func (s *Service) WithManagedSubscriptions(pool subscriptions.Leaser) *Service {
-	s.managedSubscriptions = pool
+	s.credentials.ManagedSubscriptions = pool
 	return s
 }
 
@@ -2446,7 +2442,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			released, ok := releaseThrottledLinkedFirst(ctx)
 			if ok {
 				ctx = released
-			} else if s.managedSubscriptions != nil && managedSubscriptionCanServe(ctx, routeRes.Decision.Provider, routeRes.Decision.Model) {
+			} else if s.credentials.ManagedSubscriptions != nil && managedSubscriptionCanServe(ctx, routeRes.Decision.Provider, routeRes.Decision.Model) {
 				ctx = withSuppressedClaudeSubscription(ctx)
 				linkedSubscriptionRetry = true
 				log.Info("Subscription-only bypass hit retryable error; trying linked Claude accounts",
