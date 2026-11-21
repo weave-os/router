@@ -13,8 +13,6 @@ var ErrInvalidRoutingKnobs = errors.New("router: invalid routing knobs")
 
 var ErrRoutingUnavailable = errors.New("router: routing unavailable")
 
-var ErrRLPolicyUnavailable = errors.New("rl: policy router unavailable")
-
 var ErrHMMUnavailable = errors.New("hmm: policy router unavailable")
 
 var ErrDecisionModelUnavailable = errors.New("decision model classifier unavailable")

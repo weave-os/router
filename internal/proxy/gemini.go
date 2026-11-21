@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
@@ -231,7 +232,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		IncludeStreamUsage: s.usageRequired(),
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
-	effortServed.apply(&opts)
+	effortServed.Apply(&opts)
 	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
 	prep, emitErr := env.PrepareGemini(r.Header, geminiOptionsForTurn(opts, routeRes.TurnType))
@@ -259,7 +260,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	bindings := s.resolveBindingsForDispatch(ctx, decision)
 	primaryDecision := decision
 	notices := &requestNoticeStream{now: s.clock.Now}
-	attempt := func(actx context.Context, d router.Decision, p providers.Client) error {
+	attempt := func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 		attemptSink, noticeErr := notices.prepare(actx, preludeBuf, preludeBuf, translate.FormatGemini, env.Stream(), translate.NewRouterNotice(translate.NoticeModelSelection, marker, d.Model, ""))
 		if noticeErr != nil {
 			return fmt.Errorf("emit Gemini router notice: %w", noticeErr)
@@ -278,21 +279,21 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		}
 		return err
 	}
-	winnerIdx, proxyErr := s.dispatchWithFallback(ctx, failoverInputs{
-		w:               contentSink,
-		buf:             preludeBuf,
-		initialDecision: decision,
-		bindings:        bindings,
-		attempt:         attempt,
-		flushErr: func(w http.ResponseWriter, err error) {
+	winnerIdx, proxyErr := s.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+		Writer:          contentSink,
+		Prelude:         preludeBuf,
+		InitialDecision: decision,
+		Bindings:        bindings,
+		Attempt:         attempt,
+		FlushErr: func(w http.ResponseWriter, err error) {
 			if env.Stream() && preludeBuf.PreludeSent() {
 				s.ingress.Gemini.WriteStreamError(w)
 				return
 			}
 			flushBufferedIfPresent(w, err)
 		},
-		purpose: routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
-		origin:  routeRes.dispatchOrigin(decision),
+		Purpose: routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
+		Origin:  routeRes.dispatchOrigin(decision),
 	})
 	primaryFailureErr := proxyErr
 	proxyMs := s.clock.Now().Sub(proxyStart).Milliseconds()
