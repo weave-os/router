@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/auth"
-
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
@@ -69,6 +69,9 @@ func restrictToSubscriptionProviders(ctx context.Context, headers http.Header, e
 }
 
 func restrictToCustomerFundedProviders(ctx context.Context, headers http.Header, enabled map[string]struct{}) map[string]struct{} {
+	if billing.ByokFeeUnpayable(ctx) {
+		return restrictToSubscriptionProviders(ctx, headers, enabled)
+	}
 	return restrictToProviders(enabled, customerFundedProviders(ctx, headers))
 }
 
