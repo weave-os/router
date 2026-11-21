@@ -434,8 +434,7 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 	if selected.Metadata == nil {
 		return nil
 	}
-	trace := s.strategyPorts.Facts.ClassifierTelemetryOf(selected.Metadata).SelectionTrace
-	return candidates.SubscriptionAlternatives(req, selected, trace, func(provider, model string) bool {
+	return candidates.SubscriptionAlternatives(req, selected, s.strategyPorts.Facts.ClassifierTelemetryOf(selected.Metadata).SelectionTrace, func(provider, model string) bool {
 		return s.supportsSubscriptionTransport(provider) && managedSubscriptionCanServe(ctx, provider, model)
 	})
 }
