@@ -71,7 +71,7 @@ func (s *Service) ResolveAuthorityCacheShadow(ctx context.Context) bool {
 }
 
 func (s *Service) ResolveSiblingFailover(ctx context.Context) bool {
-	return s.rescueConfig.SiblingFailoverEnabled(ctx)
+	return flags.BoolOr(ctx, flags.KeySiblingFailover, s.rescueConfig.SiblingFailover)
 }
 
 func (s *Service) ResolveAllowedModelsHeader(ctx context.Context) bool {
@@ -135,19 +135,19 @@ func (s *Service) ResolveEffortEscalation(ctx context.Context) bool {
 }
 
 func (s *Service) ResolveCyberRefusalRepin(ctx context.Context) bool {
-	return s.rescueConfig.CyberRefusalRepinEnabled(ctx)
+	return flags.BoolOr(ctx, flags.KeyCyberRefusalRepin, s.rescueConfig.CyberRefusalRepin)
 }
 
 func (s *Service) ResolveCyberRefusalRetry(ctx context.Context) bool {
-	return s.rescueConfig.CyberRefusalRetryEnabled(ctx)
+	return flags.BoolOr(ctx, flags.KeyCyberRefusalRetry, s.rescueConfig.CyberRefusalRetry)
 }
 
 func (s *Service) ResolveCyberRefusalFallbackModel(ctx context.Context) string {
-	return s.rescueConfig.CyberRefusalFallback(ctx)
+	return flags.StringOr(ctx, flags.KeyCyberRefusalFallback, s.rescueConfig.CyberRefusalFallbackModel)
 }
 
 func (s *Service) ResolveAnthropicServerSideFallback(ctx context.Context) bool {
-	return s.rescueConfig.AnthropicServerSideFallbackEnabled(ctx)
+	return flags.BoolOr(ctx, flags.KeyAnthropicServerFallback, s.rescueConfig.AnthropicServerSideFallback)
 }
 
 func plannerConfigFor(ctx context.Context, cfg planner.EVConfig) planner.EVConfig {
