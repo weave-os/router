@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
 
@@ -13,12 +14,10 @@ import (
 
 type codexSelectedModelContextKey struct{}
 
-const CodexNativeModelPinHeader = "X-Weave-Codex-Native-Model-Pin"
-
 const CodexModelCatalogHeader = "X-Weave-Codex-Model-Catalog"
 
 func codexModelSwitched(header http.Header, conversion translate.ResponsesConversion) bool {
-	if header.Get(CodexNativeModelPinHeader) != "1" {
+	if header.Get(requestcontext.CodexNativeModelPinHeader) != "1" {
 		return false
 	}
 	return conversion.CodexModelSwitch ||

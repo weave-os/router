@@ -142,40 +142,25 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
 		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
 	}
-	routeStart := s.clock.Now()
-	routeCtx, routeSpan := startRoutingSpan(ctx, strategy, routeRequest)
-	routeRes, err := s.runTurnLoop(routeCtx, env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
+	routeRes, routeMs, err := routeTurn(ctx, s, s.clock, log, routeTurnRequest{
+		Request:        routeRequest,
+		Started:        s.clock.Now(),
+		Failure:        routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy},
+		FailureMessage: "Routing failed for Gemini request",
+		IsUserPrompt:   inboundUserPrompt,
+	}, func(routeCtx context.Context) (turnLoopResult, error) {
+		return s.runTurnLoop(routeCtx, env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
+	})
 	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
 		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseGemini)
 	}()
-	finishRoutingSpan(routeSpan, routeRes.Decision, err)
-	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
 	if err != nil {
-		log.Error("Routing failed for Gemini request", "err", err, "route_ms", routeMs, "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
-		s.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy}, routeRes.TurnType, inboundUserPrompt, err)
 		return err
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
-	if len(routeRes.SessionDisabledProviders) > 0 {
-		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
-	}
-	if len(routeRes.ObservedOverflowModels) > 0 {
-		ctx = context.WithValue(ctx, ObservedOverflowModelsContextKey{}, routeRes.ObservedOverflowModels)
-	}
-	if len(routeRes.SessionDemotedModels) > 0 {
-		ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, routeRes.SessionDemotedModels)
-		if len(routeRes.SessionCooldownModels) > 0 {
-			ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, routeRes.SessionCooldownModels)
-		}
-		if len(routeRes.SessionStrikeReadmitModels) > 0 {
-			ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, routeRes.SessionStrikeReadmitModels)
-		}
-	}
-	if len(routeRes.CooldownProbeDeniedModels) > 0 {
-		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, routeRes.CooldownProbeDeniedModels)
-	}
+	ctx = withRouteSessionState(ctx, routeRes)
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision
 	s.firePolicyShadowForServingDecision(ctx, strategy, decision, routeRequest)
@@ -185,10 +170,10 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	pinAgeSec := routeRes.PinAgeSec
 	s.logPlannerOutcome(ctx, routeRes)
 
-	w.Header().Set(HeaderRouterDecision, decision.Reason)
-	w.Header().Set(HeaderRouterProvider, decision.Provider)
-	w.Header().Set(HeaderRouterModel, decision.Model)
-	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	w.Header().Set(requestcontext.HeaderRouterDecision, decision.Reason)
+	w.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
+	w.Header().Set(requestcontext.HeaderRouterModel, decision.Model)
+	w.Header().Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 	setContextEstimateHeaders(w.Header(), overflowEstimate, outputReserve)
 	s.setFeedbackLinkHeader(ctx, w, facts.InstallationID, facts.ExternalID, facts.RequestID, "")
 
@@ -296,52 +281,13 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if responseBuffer != nil && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
 	}
-	geminiUpstreamBuilder := telemetry.NewAttrBuilder(41).
-		String("request_id", facts.RequestID).
-		String("external_id", facts.ExternalID).
-		String("client.device_id", facts.Client.DeviceID).
-		String("client.account_id", facts.Client.AccountID).
-		String("client.session_id", facts.Client.SessionID).
-		String("client.user_agent", facts.Client.UserAgent).
-		String("client.app", facts.Client.TelemetryClientApp()).
-		String("rollout_id", policyRolloutIDFromContext(ctx)).
-		String("requested.model", feats.Model).
-		String("decision.model", decision.Model).
-		String("decision.provider", decision.Provider).
-		String("decision.reason", decision.Reason).
-		String("routing.turn_type", string(tt)).
-		Int64("usage.input_tokens", int64(in)).
-		Int64("usage.output_tokens", int64(out)).
-		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
-		Int64("usage.cache_read_input_tokens", int64(cacheRead)).
-		Float64("cost.requested_input_usd", requestedInputCost).
-		Int64("cost.baseline_warm_prefill_tokens", int64(baselineWarmPrefill)).
-		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, reqPricing, usageMods)).
-		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods)).
-		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, actPricing, usageMods)).
-		Bool("cost.subscription_served", s.costNeutralSubscriptionServed(ctx)).
-		Int64("latency.upstream_ms", proxyMs).
-		Int64("latency.total_ms", s.clock.Now().Sub(requestStart).Milliseconds()).
-		Int64("upstream.status_code", int64(upstreamStatus(proxyErr))).
-		Bool("routing.cross_format", false)
-	if s.effectiveCaptureMode(ctx) == CaptureOff {
-		geminiUpstreamBuilder.Int64("request.message_count", int64(feats.MessageCount)).
-			Bool("request.has_tools", feats.HasTools)
-	}
-	applyPlannerAttrs(geminiUpstreamBuilder, routeRes)
-	applyRoutingStateAttrs(geminiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
-	applyCallerRoutingAttrs(ctx, geminiUpstreamBuilder)
-	applyBlindExperimentOutcomeAttrs(ctx, geminiUpstreamBuilder, &routeRes, feats.Model, decision.Model)
-	applyEffortAttrs(geminiUpstreamBuilder, effortServed)
-	s.applySubscriptionSpanTelemetry(ctx, geminiUpstreamBuilder, feats.Model, decision.Model)
-	addTimingAttrs(ctx, geminiUpstreamBuilder)
-	geminiObs := buildObservationContext(s.strategyPorts, ctx, strategy, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
-	geminiObs.applySpanAttrs(geminiUpstreamBuilder)
-	telemetry.Record(ctx, telemetry.Span{
-		Name:  "router.upstream",
-		Start: proxyStart,
-		End:   s.clock.Now(),
-		Attrs: geminiUpstreamBuilder.Build(),
+	geminiUpstreamBuilder, geminiObs := recordUpstreamSpan(ctx, s.clock, upstreamSpan{
+		facts: facts, feats: feats, decision: decision, provider: decision.Provider, routeRes: &routeRes, sessionKey: sessionKey,
+		extractor: extractor, inputTokens: in, outputTokens: out, cacheCreation: cacheCreation, cacheRead: cacheRead, usageMods: usageMods,
+		requestedInputCost: requestedInputCost, baselineWarmPrefill: baselineWarmPrefill, reqPricing: reqPricing, actPricing: actPricing,
+		subscriptionServed: s.costNeutralSubscriptionServed(ctx), proxyMs: proxyMs, requestStart: requestStart, proxyStart: proxyStart, proxyErr: proxyErr,
+		effortServed: effortServed, captureMode: s.effectiveCaptureMode(ctx), strategyPorts: s.strategyPorts, strategy: strategy,
+		subscriptionAttrs: func(b *telemetry.AttrBuilder) { s.applySubscriptionSpanTelemetry(ctx, b, feats.Model, decision.Model) },
 	})
 	respBody, respTrunc := capturedResponse(contentCap)
 	s.recordCallLog(ctx, geminiUpstreamBuilder.Build(), routeMs, proxyErr, body, respBody, respTrunc)
@@ -424,14 +370,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			CredentialKeySuffix:    credentialKeySuffix,
 			CredentialSource:       credentialSource,
 		}
-		applyServedGroupTelemetry(s.strategyPorts, ctx, &telemetryParams, routeRes, decision)
-		applyPlannerTelemetry(&telemetryParams, routeRes)
-		applyEffortTelemetry(&telemetryParams, effortServed)
-		applyAuthorityShadowTelemetry(&telemetryParams, routeRes)
-		applyBlindExperimentTelemetry(ctx, &telemetryParams, &routeRes)
-		applyPolicyPinTelemetry(ctx, &telemetryParams, decision.Metadata)
-		applySubscriberTelemetry(ctx, &telemetryParams)
-		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &telemetryParams, routeRes)
+		applyServedTurnTelemetry(ctx, s.strategyPorts, &telemetryParams, routeRes, decision, effortServed)
 		subscriberTelemetry = &telemetryParams
 	}
 
@@ -440,11 +379,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		subscriberSettlement = s.emitBilling(ctx, facts.RequestID, facts.ExternalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead, usageMods)
 	}
 	if subscriberTelemetry != nil {
-		if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
-			applySubscriberSettlementTelemetry(subscriberSettlement, subscriberTelemetry)
-		} else {
-			markSubscriberTelemetryUnsettled(subscriberTelemetry)
-		}
+		applyTelemetrySettlement(subscriberTelemetry, turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead), subscriberSettlement)
 		s.fireTelemetry(ctx, *subscriberTelemetry)
 	}
 

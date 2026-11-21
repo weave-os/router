@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
 
@@ -84,7 +85,7 @@ func anthropicClientAppRefused(ctx context.Context, err error) bool {
 
 func knownThirdPartyClientApp(clientApp string) bool {
 	switch clientApp {
-	case ClientAppCodex, ClientAppCursor, ClientAppGeminiCLI, ClientAppOpencode:
+	case requestcontext.ClientAppCodex, requestcontext.ClientAppCursor, requestcontext.ClientAppGeminiCLI, requestcontext.ClientAppOpencode:
 		return true
 	}
 	return false

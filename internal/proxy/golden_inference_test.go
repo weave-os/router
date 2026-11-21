@@ -228,7 +228,7 @@ const goldenToolResultBody = `{"model":"claude-opus-4-7","stream":true,"max_toke
 {"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"FAIL a\nFAIL b\nFAIL c"}]}]}`
 
 func goldenClaudeCodeCtx(ctx context.Context) context.Context {
-	return requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode})
+	return requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
 }
 
 // goldenAnthropicOnlyScenarios cover behavior that only the Messages ingress

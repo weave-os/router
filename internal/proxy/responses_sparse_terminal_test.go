@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -44,7 +45,7 @@ func (c *sparseResponsesClient) Passthrough(context.Context, providers.PreparedR
 }
 
 func TestProxyOpenAIResponses_NativeStreamCompletionDoesNotReplayOutput(t *testing.T) {
-	for _, clientApp := range []string{"", ClientAppCodex} {
+	for _, clientApp := range []string{"", requestcontext.ClientAppCodex} {
 		for _, interrupt := range []bool{false, true} {
 			t.Run(fmt.Sprintf("client=%s/interrupted=%t", clientApp, interrupt), func(t *testing.T) {
 				client := &sparseResponsesClient{interrupt: interrupt}

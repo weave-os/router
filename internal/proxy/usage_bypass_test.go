@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
@@ -115,8 +116,8 @@ func TestUsageBypass_NativeWebSearchSubTurnUsesSubscription(t *testing.T) {
 
 	assert.Zero(t, fr.routeCalls, "an isolated search sub-turn must bypass policy scoring")
 	require.Len(t, p.proxyBodies, 1, "the subscription request must dispatch exactly once")
-	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel))
-	assert.Equal(t, "usage_bypass", rec.Header().Get(proxy.HeaderRouterDecision))
+	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(requestcontext.HeaderRouterModel))
+	assert.Equal(t, "usage_bypass", rec.Header().Get(requestcontext.HeaderRouterDecision))
 }
 
 // TestUsageBypass_AtThreshold_EngagesRouting is the counterpart: once observed
@@ -846,6 +847,6 @@ func TestUsageBypass_HealthyHighOutputKeepsBypassEligible(t *testing.T) {
 	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	rec, req, body := bypassRequest(t)
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
-	assert.Equal(t, bypassRequestedMdl, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, bypassRequestedMdl, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Zero(t, routes.routeCalls, "a healthy long answer cannot force a subscribed request off the bypass")
 }

@@ -515,3 +515,24 @@ func TestAnthropicOverageCapRejectedRequiresBothRejections(t *testing.T) {
 	h.Set("anthropic-ratelimit-unified-status", "allowed")
 	require.False(t, usage.AnthropicOverageCapRejected(h))
 }
+
+func TestOverageWithoutIncludedWindowsIgnoresExpiredPlanWindows(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return now })
+	planKey, enterpriseKey := obs.Key([]byte("plan-token")), obs.Key([]byte("enterprise-token"))
+	obs.Record(planKey, usage.Snapshot{
+		Primary:      usage.Window{UsedPercent: 1, WindowMinutes: 300, ResetAt: now.Add(time.Minute)},
+		OverageInUse: true,
+	})
+	obs.Record(enterpriseKey, usage.Snapshot{RepresentativeClaim: usage.AnthropicClaimOverage, OverageInUse: true})
+	now = now.Add(2 * time.Minute)
+
+	planSnap, ok := obs.Snapshot(planKey)
+	require.True(t, ok)
+	assert.True(t, planSnap.OverageInUse)
+	assert.False(t, planSnap.OverageWithoutIncludedWindows(), "a plan window that reset is not an Enterprise shape")
+
+	enterpriseSnap, ok := obs.Snapshot(enterpriseKey)
+	require.True(t, ok)
+	assert.True(t, enterpriseSnap.OverageWithoutIncludedWindows())
+}

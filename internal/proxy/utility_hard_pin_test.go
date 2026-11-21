@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -115,8 +116,8 @@ func TestService_UtilityHardPin_CatalogTargetPerInstallation(t *testing.T) {
 			require.NoError(t, svc.ProxyMessages(legacyExploreCtx(setup.ctx(uuid.New().String())), []byte(exploreBody), rec, httpReq))
 
 			assert.Equal(t, 0, fr.routeCalls, "utility hard pins bypass the scorer")
-			assert.Equal(t, setup.wantModel, rec.Header().Get(proxy.HeaderRouterModel))
-			assert.Equal(t, setup.wantVia, rec.Header().Get(proxy.HeaderRouterProvider))
+			assert.Equal(t, setup.wantModel, rec.Header().Get(requestcontext.HeaderRouterModel))
+			assert.Equal(t, setup.wantVia, rec.Header().Get(requestcontext.HeaderRouterProvider))
 		})
 	}
 }

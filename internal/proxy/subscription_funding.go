@@ -85,7 +85,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 		if claudeEnterpriseTarget(callCtx, target) || claudeEnterpriseTurn(callCtx) {
 			return claudeEnterpriseFunding(callCtx, target, s.supportsSubscriptionTransport(target.Provider))
 		}
-		if creds := CredentialsFromContext(callCtx); creds != nil && creds.OAuth {
+		if quotaProofExempt(callCtx, CredentialsFromContext(callCtx)) {
 			return nil
 		}
 		if byokFirst(callCtx, target.Provider) {
@@ -394,6 +394,10 @@ func includedQuotaSpent(snapshot usage.Snapshot, now time.Time) bool {
 
 func credentialRejectionStands(subscriptionErr, retryErr error, credentialRejected func(error) bool) bool {
 	return errors.Is(retryErr, dispatch.ErrAuthorizationDenied) && credentialRejected(subscriptionErr)
+}
+
+func quotaProofExempt(ctx context.Context, creds *Credentials) bool {
+	return creds != nil && creds.OAuth || paidCapacityUnfunded(ctx) && unfundedKeyFunds(ctx, creds)
 }
 
 func missingQuotaSnapshotRefusal(ctx context.Context, pool subscriptions.Provider, snapshotPresent bool) error {
