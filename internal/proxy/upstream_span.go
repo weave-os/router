@@ -35,7 +35,8 @@ type upstreamSpan struct {
 	respSummary         translate.ResponseSummary
 	refusal             *refusalObserver
 	extractor           *telemetry.UsageExtractor
-	in, out             int
+	inputTokens         int
+	outputTokens        int
 	cacheCreation       int
 	cacheRead           int
 	usageMods           catalog.UsageModifiers
@@ -58,41 +59,41 @@ type upstreamSpan struct {
 	subscriptionAttrs   func(*telemetry.AttrBuilder)
 }
 
-func recordUpstreamSpan(ctx context.Context, clock auth.Clock, in upstreamSpan) (*telemetry.AttrBuilder, observationContext) {
-	builder := upstreamSpanAttrs(ctx, clock, in)
-	if in.captureMode == CaptureOff {
-		builder.Int64("request.message_count", int64(in.feats.MessageCount)).
-			Bool("request.has_tools", in.feats.HasTools)
+func recordUpstreamSpan(ctx context.Context, clock auth.Clock, span upstreamSpan) (*telemetry.AttrBuilder, observationContext) {
+	builder := upstreamSpanAttrs(ctx, clock, span)
+	if span.captureMode == CaptureOff {
+		builder.Int64("request.message_count", int64(span.feats.MessageCount)).
+			Bool("request.has_tools", span.feats.HasTools)
 	}
-	applyPlannerAttrs(builder, *in.routeRes)
-	applyRoutingStateAttrs(builder, *in.routeRes, in.decision.ServedIdentity(), in.sessionKey)
+	applyPlannerAttrs(builder, *span.routeRes)
+	applyRoutingStateAttrs(builder, *span.routeRes, span.decision.ServedIdentity(), span.sessionKey)
 	applyCallerRoutingAttrs(ctx, builder)
-	if in.taskArmSurface {
-		applyExperimentAttrs(ctx, builder, in.routeRes, in.taskArm, in.feats.Model, in.decision.Model)
+	if span.taskArmSurface {
+		applyExperimentAttrs(ctx, builder, span.routeRes, span.taskArm, span.feats.Model, span.decision.Model)
 	} else {
-		applyBlindExperimentOutcomeAttrs(ctx, builder, in.routeRes, in.feats.Model, in.decision.Model)
+		applyBlindExperimentOutcomeAttrs(ctx, builder, span.routeRes, span.feats.Model, span.decision.Model)
 	}
-	applyEffortAttrs(builder, in.effortServed)
-	in.subscriptionAttrs(builder)
+	applyEffortAttrs(builder, span.effortServed)
+	span.subscriptionAttrs(builder)
 	addTimingAttrs(ctx, builder)
-	obs := buildObservationContext(in.strategyPorts, ctx, in.strategy, in.decision, in.routeRes.Fresh, in.captureMode)
+	obs := buildObservationContext(span.strategyPorts, ctx, span.strategy, span.decision, span.routeRes.Fresh, span.captureMode)
 	obs.applySpanAttrs(builder)
 	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.upstream",
-		Start: in.proxyStart,
+		Start: span.proxyStart,
 		End:   clock.Now(),
 		Attrs: builder.Build(),
 	})
 	return builder, obs
 }
 
-func upstreamSpanAttrs(ctx context.Context, clock auth.Clock, in upstreamSpan) *telemetry.AttrBuilder {
-	facts, decision := in.facts, in.decision
-	promptTokens := catalog.PromptTokens(in.in, in.cacheCreation, in.cacheRead, decision.Provider)
+func upstreamSpanAttrs(ctx context.Context, clock auth.Clock, span upstreamSpan) *telemetry.AttrBuilder {
+	facts, decision := span.facts, span.decision
+	promptTokens := catalog.PromptTokens(span.inputTokens, span.cacheCreation, span.cacheRead, decision.Provider)
 	builder := telemetry.NewAttrBuilder(41).
 		String("request_id", facts.RequestID).
 		String("external_id", facts.ExternalID)
-	if in.taskArmSurface {
+	if span.taskArmSurface {
 		builder.String("router_user_id", auth.UserIDFrom(ctx))
 	}
 	builder.
@@ -102,52 +103,52 @@ func upstreamSpanAttrs(ctx context.Context, clock auth.Clock, in upstreamSpan) *
 		String("client.user_agent", facts.Client.UserAgent).
 		String("client.app", facts.Client.TelemetryClientApp()).
 		String("rollout_id", policyRolloutIDFromContext(ctx)).
-		String("requested.model", in.feats.Model).
+		String("requested.model", span.feats.Model).
 		String("decision.model", decision.Model).
-		String("decision.provider", in.provider).
+		String("decision.provider", span.provider).
 		String("decision.reason", decision.Reason).
-		String("routing.turn_type", string(in.routeRes.TurnType))
-	if in.taskArmSurface {
+		String("routing.turn_type", string(span.routeRes.TurnType))
+	if span.taskArmSurface {
 		builder.
-			String("upstream.finish_reason", in.respSummary.UpstreamFinishReason).
-			String("upstream.stop_reason", in.respSummary.StopReason)
+			String("upstream.finish_reason", span.respSummary.UpstreamFinishReason).
+			String("upstream.stop_reason", span.respSummary.StopReason)
 	}
-	if in.refusal != nil {
+	if span.refusal != nil {
 		builder.
-			Bool("upstream.refusal", in.refusal.refused).
-			String("upstream.refusal_category", in.refusal.category)
+			Bool("upstream.refusal", span.refusal.refused).
+			String("upstream.refusal_category", span.refusal.category)
 	}
 	builder.
-		Int64("usage.input_tokens", int64(in.in)).
-		Int64("usage.output_tokens", int64(in.out)).
-		Int64("usage.cache_creation_input_tokens", int64(in.cacheCreation)).
-		Int64("usage.cache_read_input_tokens", int64(in.cacheRead))
-	if in.taskArmSurface {
+		Int64("usage.input_tokens", int64(span.inputTokens)).
+		Int64("usage.output_tokens", int64(span.outputTokens)).
+		Int64("usage.cache_creation_input_tokens", int64(span.cacheCreation)).
+		Int64("usage.cache_read_input_tokens", int64(span.cacheRead))
+	if span.taskArmSurface {
 		builder.
-			Int64("usage.cache_creation_1h_input_tokens", int64(in.usageMods.CacheCreation1h)).
-			String("usage.speed", string(in.extractor.Speed())).
-			String("usage.inference_geo", string(in.extractor.InferenceGeo()))
+			Int64("usage.cache_creation_1h_input_tokens", int64(span.usageMods.CacheCreation1h)).
+			String("usage.speed", string(span.extractor.Speed())).
+			String("usage.inference_geo", string(span.extractor.InferenceGeo()))
 	}
 	builder.
-		Float64("cost.requested_input_usd", in.requestedInputCost).
-		Int64("cost.baseline_warm_prefill_tokens", int64(in.baselineWarmPrefill)).
-		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(promptTokens, in.out, in.reqPricing, in.usageMods)).
-		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in.in, in.cacheCreation, in.cacheRead, in.actPricing, decision.Provider, in.usageMods)).
-		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(promptTokens, in.out, in.actPricing, in.usageMods)).
-		Bool("cost.subscription_served", in.subscriptionServed)
-	if in.taskArmSurface {
-		builder.Bool("cost.fast_mode", in.fastServed)
+		Float64("cost.requested_input_usd", span.requestedInputCost).
+		Int64("cost.baseline_warm_prefill_tokens", int64(span.baselineWarmPrefill)).
+		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(promptTokens, span.outputTokens, span.reqPricing, span.usageMods)).
+		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(span.inputTokens, span.cacheCreation, span.cacheRead, span.actPricing, decision.Provider, span.usageMods)).
+		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(promptTokens, span.outputTokens, span.actPricing, span.usageMods)).
+		Bool("cost.subscription_served", span.subscriptionServed)
+	if span.taskArmSurface {
+		builder.Bool("cost.fast_mode", span.fastServed)
 	}
 	builder.
-		Int64("latency.upstream_ms", in.proxyMs).
-		Int64("latency.total_ms", clock.Now().Sub(in.requestStart).Milliseconds()).
-		Int64("upstream.status_code", int64(upstreamStatus(in.proxyErr))).
-		Bool("routing.cross_format", in.crossFormat)
-	if d := in.dispatch; d != nil {
+		Int64("latency.upstream_ms", span.proxyMs).
+		Int64("latency.total_ms", clock.Now().Sub(span.requestStart).Milliseconds()).
+		Int64("upstream.status_code", int64(upstreamStatus(span.proxyErr))).
+		Bool("routing.cross_format", span.crossFormat)
+	if d := span.dispatch; d != nil {
 		builder.
 			String("dispatch.primary_provider", d.primaryProvider).
 			String("dispatch.primary_model", d.primaryModel).
-			String("dispatch.final_provider", in.provider).
+			String("dispatch.final_provider", span.provider).
 			Int64("dispatch.fallback_attempts", int64(d.fallbackAttempts)).
 			Bool("dispatch.failover_used", d.failoverUsed).
 			Bool("dispatch.failover_attempted", d.failoverAttempted)
