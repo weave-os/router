@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"os"
 
 	"weave-os/router/internal/providers/anthropic"
@@ -21,6 +22,7 @@ func upstreamHTTPConfigFromEnv() httputil.Config {
 		H2ReadIdleTimeout:            httputil.ParseTimeoutSeconds(os.Getenv("ROUTER_H2_READ_IDLE_TIMEOUT_SECONDS"), defaults.H2ReadIdleTimeout),
 		H2PingTimeout:                httputil.ParseTimeoutSeconds(os.Getenv("ROUTER_H2_PING_TIMEOUT_SECONDS"), defaults.H2PingTimeout),
 		PublicDestinationsOnly:       httputil.ParsePublicDestinationsOnly(os.Getenv("ROUTER_RESTRICT_UPSTREAM_EGRESS"), os.Getenv("ROUTER_DEPLOYMENT_MODE")),
+		Proxy:                        http.ProxyFromEnvironment,
 	}
 }
 

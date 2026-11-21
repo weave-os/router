@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,6 +43,7 @@ type Config struct {
 	H2ReadIdleTimeout            time.Duration
 	H2PingTimeout                time.Duration
 	PublicDestinationsOnly       bool
+	Proxy                        func(*http.Request) (*url.URL, error)
 }
 
 func DefaultConfig() Config {
@@ -74,6 +76,8 @@ var (
 	DefaultMinThroughputDeltasPerWindow = DefaultConfig().MinThroughputDeltasPerWindow
 )
 
+var upstreamProxy func(*http.Request) (*url.URL, error)
+
 func Configure(cfg Config) {
 	DefaultSSEIdleTimeout = cfg.SSEIdleTimeout
 	DefaultResponsesSSEIdleTimeout = cfg.ResponsesSSEIdleTimeout
@@ -85,6 +89,7 @@ func Configure(cfg Config) {
 	DefaultH2ReadIdleTimeout = cfg.H2ReadIdleTimeout
 	DefaultH2PingTimeout = cfg.H2PingTimeout
 	publicDestinationsOnly = cfg.PublicDestinationsOnly
+	upstreamProxy = cfg.Proxy
 }
 
 func ParseInt(raw string, fallback int) int {
@@ -160,7 +165,7 @@ func newTransport(dialTimeout, tlsTimeout, responseHeaderTimeout time.Duration, 
 		Timeout:   dialTimeout,
 		KeepAlive: 30 * time.Second,
 	}
-	proxy := http.ProxyFromEnvironment
+	proxy := upstreamProxy
 	if publicOnly {
 		dialer.Control = restrictDestination
 		proxy = nil

@@ -107,6 +107,9 @@ func TestPublicDestinationsOnlyFollowsDeploymentModeUnlessOverridden(t *testing.
 func TestRestrictedTransportIgnoresAnEnvironmentProxy(t *testing.T) {
 	// Through a proxy the dialer connects to the proxy, so restrictDestination
 	// would inspect the proxy's address and never the upstream's.
+	previous := upstreamProxy
+	t.Cleanup(func() { upstreamProxy = previous })
+	upstreamProxy = http.ProxyFromEnvironment
 	restricted := newTransport(time.Second, time.Second, time.Second, true)
 	assert.Nil(t, restricted.Proxy, "a restricted transport must not route through a proxy")
 

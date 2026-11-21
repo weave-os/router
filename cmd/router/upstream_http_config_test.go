@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
@@ -27,9 +29,16 @@ func clearUpstreamHTTPEnv(t *testing.T) {
 	}
 }
 
+func withoutProxy(t *testing.T, cfg httputil.Config) httputil.Config {
+	t.Helper()
+	assert.Equal(t, reflect.ValueOf(http.ProxyFromEnvironment).Pointer(), reflect.ValueOf(cfg.Proxy).Pointer(), "upstream transports honor HTTP(S)_PROXY/NO_PROXY")
+	cfg.Proxy = nil
+	return cfg
+}
+
 func TestUpstreamHTTPConfigFromEnvDefaults(t *testing.T) {
 	clearUpstreamHTTPEnv(t)
-	assert.Equal(t, httputil.DefaultConfig(), upstreamHTTPConfigFromEnv())
+	assert.Equal(t, httputil.DefaultConfig(), withoutProxy(t, upstreamHTTPConfigFromEnv()))
 	assert.Equal(t, anthropic.Config{LargePromptResponseHeaderTimeout: 120 * time.Second}, anthropicConfigFromEnv())
 	assert.Equal(t, openaicompat.Config{GrokResponseHeaderTimeout: 90 * time.Second}, openAICompatConfigFromEnv())
 }
@@ -63,7 +72,7 @@ func TestUpstreamHTTPConfigFromEnvOverrides(t *testing.T) {
 		H2ReadIdleTimeout:            18 * time.Second,
 		H2PingTimeout:                19 * time.Second,
 		PublicDestinationsOnly:       true,
-	}, upstreamHTTPConfigFromEnv())
+	}, withoutProxy(t, upstreamHTTPConfigFromEnv()))
 	assert.Equal(t, anthropic.Config{LargePromptResponseHeaderTimeout: 200 * time.Second}, anthropicConfigFromEnv())
 	assert.Equal(t, openaicompat.Config{GrokResponseHeaderTimeout: 60 * time.Second}, openAICompatConfigFromEnv())
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -270,7 +272,7 @@ func TestConfigureReplacesPackageDefaults(t *testing.T) {
 		ThroughputWindow: DefaultThroughputWindow, ThroughputMinElapsed: DefaultThroughputMinElapsed,
 		MinThroughputDeltasPerWindow: DefaultMinThroughputDeltasPerWindow,
 		H2ReadIdleTimeout:            DefaultH2ReadIdleTimeout, H2PingTimeout: DefaultH2PingTimeout,
-		PublicDestinationsOnly: publicDestinationsOnly,
+		PublicDestinationsOnly: publicDestinationsOnly, Proxy: upstreamProxy,
 	}
 	t.Cleanup(func() { Configure(previous) })
 
@@ -285,6 +287,22 @@ func TestConfigureReplacesPackageDefaults(t *testing.T) {
 		[]any{DefaultSSEIdleTimeout, DefaultResponsesSSEIdleTimeout, DefaultResponsesOutputStallTimeout, DefaultOutputStallTimeout,
 			DefaultThroughputWindow, DefaultThroughputMinElapsed, DefaultMinThroughputDeltasPerWindow,
 			DefaultH2ReadIdleTimeout, DefaultH2PingTimeout, publicDestinationsOnly})
+}
+
+func TestNewTransportUsesConfiguredProxyUnlessPublicDestinationsOnly(t *testing.T) {
+	previous := upstreamProxy
+	t.Cleanup(func() { upstreamProxy = previous })
+	proxyURL := &url.URL{Scheme: "http", Host: "proxy.invalid:3128"}
+	upstreamProxy = http.ProxyURL(proxyURL)
+	req := httptest.NewRequest(http.MethodGet, "https://api.example.com/v1", nil)
+
+	got, err := newTransport(time.Second, time.Second, time.Second, false).Proxy(req)
+	require.NoError(t, err)
+	assert.Equal(t, proxyURL, got)
+	assert.Nil(t, newTransport(time.Second, time.Second, time.Second, true).Proxy, "public-destinations-only dials directly")
+
+	upstreamProxy = nil
+	assert.Nil(t, newTransport(time.Second, time.Second, time.Second, false).Proxy, "unconfigured transports dial directly")
 }
 
 func TestNewTransport_ConfiguresHTTP2Keepalives(t *testing.T) {
