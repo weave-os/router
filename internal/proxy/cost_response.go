@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/usage"
@@ -102,11 +103,11 @@ func roundUSD(v float64) float64 {
 }
 
 func setRouterCostHeaders(h http.Header, cost routerResponseCost) {
-	h.Set(HeaderRouterCostUSD, strconv.FormatFloat(cost.TotalUSD, 'f', -1, 64))
-	h.Set(HeaderRouterCostInputUSD, strconv.FormatFloat(cost.InputUSD, 'f', -1, 64))
-	h.Set(HeaderRouterCostOutputUSD, strconv.FormatFloat(cost.OutputUSD, 'f', -1, 64))
-	h.Set(HeaderRouterCacheReadTokens, strconv.Itoa(cost.CacheReadTokens))
-	h.Set(HeaderRouterCacheCreationTokens, strconv.Itoa(cost.CacheCreationTokens))
+	h.Set(requestcontext.HeaderRouterCostUSD, strconv.FormatFloat(cost.TotalUSD, 'f', -1, 64))
+	h.Set(requestcontext.HeaderRouterCostInputUSD, strconv.FormatFloat(cost.InputUSD, 'f', -1, 64))
+	h.Set(requestcontext.HeaderRouterCostOutputUSD, strconv.FormatFloat(cost.OutputUSD, 'f', -1, 64))
+	h.Set(requestcontext.HeaderRouterCacheReadTokens, strconv.Itoa(cost.CacheReadTokens))
+	h.Set(requestcontext.HeaderRouterCacheCreationTokens, strconv.Itoa(cost.CacheCreationTokens))
 }
 
 type streamCostWriter struct {

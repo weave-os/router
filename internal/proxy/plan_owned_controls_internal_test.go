@@ -124,7 +124,7 @@ func TestBoostServingAllowsForceModelHeader(t *testing.T) {
 
 	request, err := http.NewRequestWithContext(boostDefaultRoutingContext(), http.MethodPost, "http://router.test/v1/messages", nil)
 	require.NoError(t, err)
-	request.Header.Set(ForceModelHeader, "claude-opus-5")
+	request.Header.Set(requestcontext.ForceModelHeader, "claude-opus-5")
 
 	ctx, forced, err := (&Service{hmmServing: hmmPorts()}).applyForceModelHeader(request.Context(), request, uuid.Nil, [sessionpin.SessionKeyLen]byte{})
 	require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestBoostServingHeaderForceModelCarriesEffortSameTurn(t *testing.T) {
 
 	request, err := http.NewRequestWithContext(boostDefaultRoutingContext(), http.MethodPost, "http://router.test/v1/messages", nil)
 	require.NoError(t, err)
-	request.Header.Set(ForceModelHeader, "sol:medium")
+	request.Header.Set(requestcontext.ForceModelHeader, "sol:medium")
 
 	svc := &Service{hmmServing: hmmPorts()}
 	ctx, forced, err := svc.applyForceModelHeader(request.Context(), request, uuid.Nil, [sessionpin.SessionKeyLen]byte{})

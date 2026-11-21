@@ -15,6 +15,7 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/candidates"
@@ -228,7 +229,7 @@ func validateHandoffEnvelope(ctx context.Context, env *translate.RequestEnvelope
 	_, force := env.ExtractForceModelCommand()
 	_, feedback := env.ExtractRouterFeedbackCommand()
 	_, serverTool := websearch.FindServerTool(body)
-	if beta || force || feedback || serverTool || headers.Get(ForceModelHeader) != "" ||
+	if beta || force || feedback || serverTool || headers.Get(requestcontext.ForceModelHeader) != "" ||
 		claims.SessionID != clientSessionIDForRequest(ctx, env) || claims.RequestedModel != env.Model() {
 		return ErrHandoffInvalid
 	}
@@ -242,7 +243,7 @@ func (s *Service) canPrepareHandoff(ctx context.Context, env *translate.RequestE
 	_, feedbackCommand := env.ExtractRouterFeedbackCommand()
 	_, serverTool := websearch.FindServerTool(body)
 	return !shadow && !billing.SubscriptionOnlyFromContext(ctx) &&
-		strings.HasPrefix(env.MetadataUserID(), "pi:") && headers.Get(ForceModelHeader) == "" &&
+		strings.HasPrefix(env.MetadataUserID(), "pi:") && headers.Get(requestcontext.ForceModelHeader) == "" &&
 		!betaCommand && !forceCommand && !feedbackCommand && !serverTool &&
 		authoritativePolicyTurn(turntype.DetectFromEnvelope(env, feats, ""))
 }

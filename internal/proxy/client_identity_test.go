@@ -66,7 +66,7 @@ func newTestAuthSvc(users auth.UserRepository) *auth.Service {
 
 func TestParseClaudeCodeMetadata_PullsEmail(t *testing.T) {
 	raw := `{"device_id":"dev-1","account_uuid":"acct-1","session_id":"sess-1","email":"User@Example.com"}`
-	got := proxy.ParseClaudeCodeMetadata(raw)
+	got := requestcontext.ParseClaudeCodeMetadata(raw)
 
 	assert.Equal(t, "dev-1", got.DeviceID)
 	assert.Equal(t, "acct-1", got.AccountID)
@@ -76,18 +76,18 @@ func TestParseClaudeCodeMetadata_PullsEmail(t *testing.T) {
 }
 
 func TestParseClaudeCodeMetadata_EmptyAndMalformed(t *testing.T) {
-	assert.Equal(t, proxy.ClaudeCodeMetadata{}, proxy.ParseClaudeCodeMetadata(""))
-	assert.Equal(t, proxy.ClaudeCodeMetadata{}, proxy.ParseClaudeCodeMetadata("not-json"))
+	assert.Equal(t, requestcontext.ClaudeCodeMetadata{}, requestcontext.ParseClaudeCodeMetadata(""))
+	assert.Equal(t, requestcontext.ClaudeCodeMetadata{}, requestcontext.ParseClaudeCodeMetadata("not-json"))
 }
 
 func TestNormalizeEmail_Valid(t *testing.T) {
-	assert.Equal(t, "steven@workweave.ai", proxy.NormalizeEmail("  Steven@Workweave.AI  "))
-	assert.Equal(t, "a@b.co", proxy.NormalizeEmail("a@b.co"))
+	assert.Equal(t, "steven@workweave.ai", requestcontext.NormalizeEmail("  Steven@Workweave.AI  "))
+	assert.Equal(t, "a@b.co", requestcontext.NormalizeEmail("a@b.co"))
 }
 
 func TestNormalizeEmail_RejectsEmptyAndWhitespace(t *testing.T) {
-	assert.Empty(t, proxy.NormalizeEmail("   "))
-	assert.Empty(t, proxy.NormalizeEmail(""))
+	assert.Empty(t, requestcontext.NormalizeEmail("   "))
+	assert.Empty(t, requestcontext.NormalizeEmail(""))
 }
 
 func TestInternalTestIdentitySkipsAssignedUserRouting(t *testing.T) {
@@ -103,70 +103,70 @@ func TestInternalTestIdentitySkipsAssignedUserRouting(t *testing.T) {
 }
 
 func TestNormalizeEmail_RejectsBadShape(t *testing.T) {
-	assert.Empty(t, proxy.NormalizeEmail("not-an-email"))
-	assert.Empty(t, proxy.NormalizeEmail("@example.com"))
-	assert.Empty(t, proxy.NormalizeEmail("alice@"))
-	assert.Empty(t, proxy.NormalizeEmail("a@b@c"))
+	assert.Empty(t, requestcontext.NormalizeEmail("not-an-email"))
+	assert.Empty(t, requestcontext.NormalizeEmail("@example.com"))
+	assert.Empty(t, requestcontext.NormalizeEmail("alice@"))
+	assert.Empty(t, requestcontext.NormalizeEmail("a@b@c"))
 }
 
 func TestNormalizeEmail_RejectsOverLength(t *testing.T) {
-	local := strings.Repeat("a", proxy.MaxEmailLen-len("@x.co"))
+	local := strings.Repeat("a", requestcontext.MaxEmailLen-len("@x.co"))
 	atCap := local + "@x.co"
-	require.Len(t, atCap, proxy.MaxEmailLen)
-	assert.Equal(t, atCap, proxy.NormalizeEmail(atCap))
+	require.Len(t, atCap, requestcontext.MaxEmailLen)
+	assert.Equal(t, atCap, requestcontext.NormalizeEmail(atCap))
 
-	overCap := strings.Repeat("a", proxy.MaxEmailLen-len("@x.co")+1) + "@x.co"
-	require.Greater(t, len(overCap), proxy.MaxEmailLen)
-	assert.Empty(t, proxy.NormalizeEmail(overCap))
+	overCap := strings.Repeat("a", requestcontext.MaxEmailLen-len("@x.co")+1) + "@x.co"
+	require.Greater(t, len(overCap), requestcontext.MaxEmailLen)
+	assert.Empty(t, requestcontext.NormalizeEmail(overCap))
 }
 
 func TestNormalizeDisplayName_TrimsAndPassesUnicode(t *testing.T) {
-	assert.Equal(t, "Alice Liddell", proxy.NormalizeDisplayName("  Alice Liddell  "))
-	assert.Equal(t, "Renée Fleming", proxy.NormalizeDisplayName("Renée Fleming"))
-	assert.Empty(t, proxy.NormalizeDisplayName(""))
-	assert.Empty(t, proxy.NormalizeDisplayName("   "))
+	assert.Equal(t, "Alice Liddell", requestcontext.NormalizeDisplayName("  Alice Liddell  "))
+	assert.Equal(t, "Renée Fleming", requestcontext.NormalizeDisplayName("Renée Fleming"))
+	assert.Empty(t, requestcontext.NormalizeDisplayName(""))
+	assert.Empty(t, requestcontext.NormalizeDisplayName("   "))
 }
 
 func TestNormalizeDisplayName_DecodesLatin1Bytes(t *testing.T) {
-	assert.Equal(t, "Ásta Þórsdóttir", proxy.NormalizeDisplayName("\xc1sta \xde\xf3rsd\xf3ttir"))
+	assert.Equal(t, "Ásta Þórsdóttir", requestcontext.NormalizeDisplayName("\xc1sta \xde\xf3rsd\xf3ttir"))
 }
 
 func TestNormalizeDisplayName_StripsControlBytes(t *testing.T) {
 	// CR/LF + control bytes must be dropped so the value can't break log
 	// lines or smuggle extra HTTP headers. Surrounding visible chars stay.
-	out := proxy.NormalizeDisplayName("Alice\r\nMallory")
+	out := requestcontext.NormalizeDisplayName("Alice\r\nMallory")
 	assert.NotContains(t, out, "\r")
 	assert.NotContains(t, out, "\n")
 	assert.Equal(t, "AliceMallory", out)
-	assert.Equal(t, "Alice", proxy.NormalizeDisplayName("Alice\x00\x07"))
-	assert.Equal(t, "AliceBob", proxy.NormalizeDisplayName("Alice\u0085\u009bBob\x7f"))
+	assert.Equal(t, "Alice", requestcontext.NormalizeDisplayName("Alice\x00\x07"))
+	assert.Equal(t, "AliceBob", requestcontext.NormalizeDisplayName("Alice\u0085\u009bBob\x7f"))
 }
 
 func TestNormalizeDisplayName_RejectsOverLength(t *testing.T) {
-	atCap := strings.Repeat("a", proxy.MaxDisplayNameLen)
-	require.Len(t, atCap, proxy.MaxDisplayNameLen)
-	assert.Equal(t, atCap, proxy.NormalizeDisplayName(atCap))
+	atCap := strings.Repeat("a", requestcontext.MaxDisplayNameLen)
+	require.Len(t, atCap, requestcontext.MaxDisplayNameLen)
+	assert.Equal(t, atCap, requestcontext.NormalizeDisplayName(atCap))
 
-	overCap := strings.Repeat("a", proxy.MaxDisplayNameLen+1)
-	require.Greater(t, len(overCap), proxy.MaxDisplayNameLen)
-	assert.Empty(t, proxy.NormalizeDisplayName(overCap))
+	overCap := strings.Repeat("a", requestcontext.MaxDisplayNameLen+1)
+	require.Greater(t, len(overCap), requestcontext.MaxDisplayNameLen)
+	assert.Empty(t, requestcontext.NormalizeDisplayName(overCap))
 }
 
 func TestNormalizeClientIdentifier_PassesThroughShortValues(t *testing.T) {
-	assert.Equal(t, "dev-abc123", proxy.NormalizeClientIdentifier("dev-abc123"))
+	assert.Equal(t, "dev-abc123", requestcontext.NormalizeClientIdentifier("dev-abc123"))
 	assert.Equal(t, "550e8400-e29b-41d4-a716-446655440000",
-		proxy.NormalizeClientIdentifier("550e8400-e29b-41d4-a716-446655440000"))
-	assert.Empty(t, proxy.NormalizeClientIdentifier(""))
+		requestcontext.NormalizeClientIdentifier("550e8400-e29b-41d4-a716-446655440000"))
+	assert.Empty(t, requestcontext.NormalizeClientIdentifier(""))
 }
 
 func TestNormalizeClientIdentifier_RejectsOverLength(t *testing.T) {
-	atCap := strings.Repeat("a", proxy.MaxClientIdentifierLen)
-	require.Len(t, atCap, proxy.MaxClientIdentifierLen)
-	assert.Equal(t, atCap, proxy.NormalizeClientIdentifier(atCap))
+	atCap := strings.Repeat("a", requestcontext.MaxClientIdentifierLen)
+	require.Len(t, atCap, requestcontext.MaxClientIdentifierLen)
+	assert.Equal(t, atCap, requestcontext.NormalizeClientIdentifier(atCap))
 
-	overCap := strings.Repeat("a", proxy.MaxClientIdentifierLen+1)
-	require.Greater(t, len(overCap), proxy.MaxClientIdentifierLen)
-	assert.Empty(t, proxy.NormalizeClientIdentifier(overCap))
+	overCap := strings.Repeat("a", requestcontext.MaxClientIdentifierLen+1)
+	require.Greater(t, len(overCap), requestcontext.MaxClientIdentifierLen)
+	assert.Empty(t, requestcontext.NormalizeClientIdentifier(overCap))
 }
 
 func TestResolveUserFromContext_AccountUUIDOnlyReachesUpsert(t *testing.T) {
@@ -176,7 +176,7 @@ func TestResolveUserFromContext_AccountUUIDOnlyReachesUpsert(t *testing.T) {
 	svc := newTestAuthSvc(repo)
 	inst := &auth.Installation{ID: "inst-1"}
 
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{
 		AccountID: "2c2aace8-82e9-4cb1-8d1f-2f822da43177",
 	})
 	ctx = auth.ResolveUserFromContext(ctx, svc, inst, nil, requestcontext.CallerFrom(ctx))
@@ -192,7 +192,7 @@ func TestResolveUserFromContext_EmailOnlyReachesEmailUpsert(t *testing.T) {
 	svc := newTestAuthSvc(repo)
 	inst := &auth.Installation{ID: "inst-1"}
 
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{
 		Email: "alice@example.com",
 	})
 	ctx = auth.ResolveUserFromContext(ctx, svc, inst, nil, requestcontext.CallerFrom(ctx))
@@ -210,22 +210,22 @@ func TestNormalizeClientApp(t *testing.T) {
 		userAgent string
 		want      string
 	}{
-		{"explicit header wins", "codex", "claude-cli/2.0.1", proxy.ClientAppCodex},
-		{"explicit header lowercased", "Claude-Code", "", proxy.ClientAppClaudeCode},
-		{"cli alias canonicalizes to claude-code", "cli", "", proxy.ClientAppClaudeCode},
-		{"cli-bg alias canonicalizes to claude-code", "cli-bg", "", proxy.ClientAppClaudeCode},
-		{"explicit header trimmed", "  cursor  ", "", proxy.ClientAppCursor},
-		{"oversized header falls through to UA", strings.Repeat("a", proxy.MaxClientAppLen+1), "claude-cli/2.0.1", proxy.ClientAppClaudeCode},
-		{"UA claude-cli", "", "claude-cli/2.0.1 (cli, win32)", proxy.ClientAppClaudeCode},
-		{"UA codex_cli_rs", "", "codex_cli_rs/0.39.0 (darwin)", proxy.ClientAppCodex},
-		{"UA cursor", "", "Cursor/0.42.1 (darwin x64)", proxy.ClientAppCursor},
-		{"UA gemini-cli", "", "gemini-cli/1.0.0 (linux)", proxy.ClientAppGeminiCLI},
+		{"explicit header wins", "codex", "claude-cli/2.0.1", requestcontext.ClientAppCodex},
+		{"explicit header lowercased", "Claude-Code", "", requestcontext.ClientAppClaudeCode},
+		{"cli alias canonicalizes to claude-code", "cli", "", requestcontext.ClientAppClaudeCode},
+		{"cli-bg alias canonicalizes to claude-code", "cli-bg", "", requestcontext.ClientAppClaudeCode},
+		{"explicit header trimmed", "  cursor  ", "", requestcontext.ClientAppCursor},
+		{"oversized header falls through to UA", strings.Repeat("a", requestcontext.MaxClientAppLen+1), "claude-cli/2.0.1", requestcontext.ClientAppClaudeCode},
+		{"UA claude-cli", "", "claude-cli/2.0.1 (cli, win32)", requestcontext.ClientAppClaudeCode},
+		{"UA codex_cli_rs", "", "codex_cli_rs/0.39.0 (darwin)", requestcontext.ClientAppCodex},
+		{"UA cursor", "", "Cursor/0.42.1 (darwin x64)", requestcontext.ClientAppCursor},
+		{"UA gemini-cli", "", "gemini-cli/1.0.0 (linux)", requestcontext.ClientAppGeminiCLI},
 		{"UA unknown returns empty", "", "curl/8.4.0", ""},
 		{"both empty returns empty", "", "", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := proxy.NormalizeClientApp(tc.xApp, tc.userAgent)
+			got := requestcontext.NormalizeClientApp(tc.xApp, tc.userAgent)
 			assert.Equal(t, tc.want, got)
 		})
 	}
@@ -235,39 +235,39 @@ func TestClientIdentityFromHeaders_EvalPrefixKeepsHarness(t *testing.T) {
 	t.Run("eval prefix resolves to the imitated harness", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-App", "Weave-Eval-Codex")
-		got := proxy.ClientIdentityFromHeaders(h)
-		assert.Equal(t, proxy.ClientAppCodex, got.ClientApp)
+		got := requestcontext.ClientIdentityFromHeaders(h)
+		assert.Equal(t, requestcontext.ClientAppCodex, got.ClientApp)
 		assert.True(t, got.Eval)
 		assert.Equal(t, "weave-eval-codex", got.TelemetryClientApp())
 	})
 	t.Run("eval prefix on claude-code alias", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-App", "weave-eval-cli")
-		got := proxy.ClientIdentityFromHeaders(h)
-		assert.Equal(t, proxy.ClientAppClaudeCode, got.ClientApp)
+		got := requestcontext.ClientIdentityFromHeaders(h)
+		assert.Equal(t, requestcontext.ClientAppClaudeCode, got.ClientApp)
 		assert.True(t, got.Eval)
 		assert.Equal(t, "weave-eval-claude-code", got.TelemetryClientApp())
 	})
 	t.Run("production client is untagged", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-App", "codex")
-		got := proxy.ClientIdentityFromHeaders(h)
-		assert.Equal(t, proxy.ClientAppCodex, got.ClientApp)
+		got := requestcontext.ClientIdentityFromHeaders(h)
+		assert.Equal(t, requestcontext.ClientAppCodex, got.ClientApp)
 		assert.False(t, got.Eval)
-		assert.Equal(t, proxy.ClientAppCodex, got.TelemetryClientApp())
+		assert.Equal(t, requestcontext.ClientAppCodex, got.TelemetryClientApp())
 	})
 	t.Run("oversized eval header falls through to UA", func(t *testing.T) {
 		h := http.Header{}
-		h.Set("X-App", "weave-eval-"+strings.Repeat("a", proxy.MaxClientAppLen))
+		h.Set("X-App", "weave-eval-"+strings.Repeat("a", requestcontext.MaxClientAppLen))
 		h.Set("User-Agent", "codex_cli_rs/0.39.0 (darwin)")
-		got := proxy.ClientIdentityFromHeaders(h)
-		assert.Equal(t, proxy.ClientAppCodex, got.ClientApp)
+		got := requestcontext.ClientIdentityFromHeaders(h)
+		assert.Equal(t, requestcontext.ClientAppCodex, got.ClientApp)
 		assert.False(t, got.Eval)
 	})
 	t.Run("bare prefix carries no harness", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-App", "weave-eval-")
-		got := proxy.ClientIdentityFromHeaders(h)
+		got := requestcontext.ClientIdentityFromHeaders(h)
 		assert.Empty(t, got.ClientApp)
 		assert.True(t, got.Eval)
 		assert.Empty(t, got.TelemetryClientApp())
@@ -279,7 +279,7 @@ func TestResolveUserFromContext_BothMissingIsNoOp(t *testing.T) {
 	svc := newTestAuthSvc(repo)
 	inst := &auth.Installation{ID: "inst-1"}
 
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{})
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{})
 	ctx = auth.ResolveUserFromContext(ctx, svc, inst, nil, requestcontext.CallerFrom(ctx))
 
 	assert.Empty(t, repo.emailUpserts)
@@ -295,36 +295,36 @@ func TestClientIdentityFromHeaders_SessionIDSources(t *testing.T) {
 	t.Run("claude code header", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-Claude-Code-Session-Id", claude)
-		assert.Equal(t, claude, proxy.ClientIdentityFromHeaders(h).SessionID)
+		assert.Equal(t, claude, requestcontext.ClientIdentityFromHeaders(h).SessionID)
 	})
 	t.Run("codex Session-Id", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("Session-Id", codex)
 		h.Set("Thread-Id", codex)
 		h.Set("X-App", "codex")
-		got := proxy.ClientIdentityFromHeaders(h)
+		got := requestcontext.ClientIdentityFromHeaders(h)
 		assert.Equal(t, codex, got.SessionID)
-		assert.Equal(t, proxy.ClientAppCodex, got.ClientApp)
+		assert.Equal(t, requestcontext.ClientAppCodex, got.ClientApp)
 	})
 	t.Run("codex Thread-Id fallback", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("Thread-Id", codex)
-		assert.Equal(t, codex, proxy.ClientIdentityFromHeaders(h).SessionID)
+		assert.Equal(t, codex, requestcontext.ClientIdentityFromHeaders(h).SessionID)
 	})
 	t.Run("opencode X-OpenCode-Session", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-OpenCode-Session", opencode)
 		h.Set("X-App", "opencode")
-		got := proxy.ClientIdentityFromHeaders(h)
+		got := requestcontext.ClientIdentityFromHeaders(h)
 		assert.Equal(t, opencode, got.SessionID)
-		assert.Equal(t, proxy.ClientAppOpencode, got.ClientApp)
+		assert.Equal(t, requestcontext.ClientAppOpencode, got.ClientApp)
 	})
 	t.Run("opencode subagent reports parent session", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-OpenCode-Session", "ses_child")
 		h.Set("X-Parent-Session-Id", opencode)
 		h.Set("X-App", "opencode")
-		got := proxy.ClientIdentityFromHeaders(h)
+		got := requestcontext.ClientIdentityFromHeaders(h)
 		assert.Equal(t, opencode, got.SessionID)
 		assert.True(t, got.OpenCodeSubagent)
 	})
@@ -332,38 +332,38 @@ func TestClientIdentityFromHeaders_SessionIDSources(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-OpenCode-Session", opencode)
 		h.Set("X-App", "opencode")
-		assert.False(t, proxy.ClientIdentityFromHeaders(h).OpenCodeSubagent)
+		assert.False(t, requestcontext.ClientIdentityFromHeaders(h).OpenCodeSubagent)
 		h.Del("X-OpenCode-Session")
 		h.Set("X-Parent-Session-Id", opencode)
-		assert.False(t, proxy.ClientIdentityFromHeaders(h).OpenCodeSubagent, "a parent id without a child session is not a subagent")
+		assert.False(t, requestcontext.ClientIdentityFromHeaders(h).OpenCodeSubagent, "a parent id without a child session is not a subagent")
 	})
 	t.Run("opencode subagent headers ignored for other clients", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-OpenCode-Session", "ses_child")
 		h.Set("X-Parent-Session-Id", opencode)
 		h.Set("X-App", "codex")
-		assert.False(t, proxy.ClientIdentityFromHeaders(h).OpenCodeSubagent)
+		assert.False(t, requestcontext.ClientIdentityFromHeaders(h).OpenCodeSubagent)
 	})
 	t.Run("opencode detected from User-Agent", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-OpenCode-Session", opencode)
 		h.Set("User-Agent", "opencode/latest/2.0.18/cli")
-		assert.Equal(t, opencode, proxy.ClientIdentityFromHeaders(h).SessionID)
+		assert.Equal(t, opencode, requestcontext.ClientIdentityFromHeaders(h).SessionID)
 	})
 	t.Run("X-OpenCode-Session ignored for other clients", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-OpenCode-Session", opencode)
 		h.Set("X-App", "codex")
-		assert.Empty(t, proxy.ClientIdentityFromHeaders(h).SessionID)
+		assert.Empty(t, requestcontext.ClientIdentityFromHeaders(h).SessionID)
 	})
 	t.Run("claude header wins over Session-Id", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-Claude-Code-Session-Id", claude)
 		h.Set("Session-Id", codex)
-		assert.Equal(t, claude, proxy.ClientIdentityFromHeaders(h).SessionID)
+		assert.Equal(t, claude, requestcontext.ClientIdentityFromHeaders(h).SessionID)
 	})
 	t.Run("no session headers", func(t *testing.T) {
-		assert.Empty(t, proxy.ClientIdentityFromHeaders(http.Header{}).SessionID)
+		assert.Empty(t, requestcontext.ClientIdentityFromHeaders(http.Header{}).SessionID)
 	})
 }
 
@@ -373,7 +373,7 @@ func TestResolveUserFromContext_NoClientIdentityAttributesToPersonalKeyOwner(t *
 	inst := &auth.Installation{ID: "inst-1"}
 	key := &auth.APIKey{ID: "key-1", InstallationID: "inst-1", CredentialSubjectID: "61f77e74-0000-4000-8000-000000000001"}
 
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{DisplayName: "Alice Liddell"})
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{DisplayName: "Alice Liddell"})
 	ctx = auth.ResolveUserFromContext(ctx, svc, inst, key, requestcontext.CallerFrom(ctx))
 
 	assert.Empty(t, repo.emailUpserts)
@@ -392,7 +392,7 @@ func TestResolveUserFromContext_NoClientIdentityOnSharedKeyAttributesToPerKeyUse
 	inst := &auth.Installation{ID: "inst-1"}
 	key := &auth.APIKey{ID: "61f77e74-0000-4000-8000-0000000000aa", InstallationID: "inst-1"}
 
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{})
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{})
 	ctx = auth.ResolveUserFromContext(ctx, svc, inst, key, requestcontext.CallerFrom(ctx))
 
 	assert.Empty(t, repo.subjectUpserts)
@@ -408,7 +408,7 @@ func TestResolveUserFromContext_ClientIdentityBeatsPersonalKeyOwner(t *testing.T
 	inst := &auth.Installation{ID: "inst-1"}
 	key := &auth.APIKey{ID: "key-1", InstallationID: "inst-1", CredentialSubjectID: "61f77e74-0000-4000-8000-000000000001"}
 
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{Email: "alice@example.com"})
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{Email: "alice@example.com"})
 	ctx = auth.ResolveUserFromContext(ctx, svc, inst, key, requestcontext.CallerFrom(ctx))
 
 	require.Len(t, repo.emailUpserts, 1)

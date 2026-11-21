@@ -7,12 +7,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/translate"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestResponseWritersEscapeHTMLWithoutChangingJSON(t *testing.T) {
