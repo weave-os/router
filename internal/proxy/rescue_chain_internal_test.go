@@ -26,8 +26,8 @@ type fakeRescueServices struct {
 	readmitted []string
 }
 
-func (f *fakeRescueServices) resolveEffort(context.Context, router.Decision, router.ModelSpec, bool) effortResolution {
-	return effortResolution{}
+func (f *fakeRescueServices) resolveEffort(context.Context, router.Decision, router.ModelSpec, bool) dispatch.EffortResolution {
+	return dispatch.EffortResolution{}
 }
 
 func (f *fakeRescueServices) ResolveCredentials(ctx context.Context, _, _ string, _ http.Header) context.Context {
@@ -42,9 +42,9 @@ func (f *fakeRescueServices) NoteRescueReadmission(_ context.Context, _, rescuer
 	f.readmitted = append(f.readmitted, rescuer.Model)
 }
 
-func (f *fakeRescueServices) dispatchWithFallback(_ context.Context, in failoverInputs) (int, error) {
-	f.dispatched = append(f.dispatched, in.initialDecision.Model)
-	return 0, f.outcomes[in.initialDecision.Model]
+func (f *fakeRescueServices) dispatchWithFallback(_ context.Context, in dispatch.FailoverInputs) (int, error) {
+	f.dispatched = append(f.dispatched, in.InitialDecision.Model)
+	return 0, f.outcomes[in.InitialDecision.Model]
 }
 
 func newSiblingRescueChain(ctx context.Context, svc *fakeRescueServices, primaryErr error, siblings ...router.Decision) *rescueChain {
@@ -54,7 +54,7 @@ func newSiblingRescueChain(ctx context.Context, svc *fakeRescueServices, primary
 		r:           httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil),
 		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 		preludeBuf:  newPreludeBuffer(httptest.NewRecorder()),
-		buildAttempt: func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error) {
+		buildAttempt: func(router.Decision, translate.EmitOptions, string, context.Context) (dispatch.UpstreamAttempt, error) {
 			return func(context.Context, router.Decision, dispatch.Upstream) error { return nil }, nil
 		},
 		respSummary:      &translate.ResponseSummary{StopReason: "stale"},

@@ -19,7 +19,7 @@ const (
 	surfaceResponsesTranslated
 )
 
-type modelAttemptBuilder func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error)
+type modelAttemptBuilder func(router.Decision, translate.EmitOptions, string, context.Context) (dispatch.UpstreamAttempt, error)
 
 type responseProtocolSwitch struct {
 	notices             *requestNoticeStream
@@ -109,7 +109,7 @@ func (s responseProtocolSwitch) selectTarget(target router.Decision) error {
 }
 
 func (s *responseProtocolSwitch) wrapBuilder(build modelAttemptBuilder) modelAttemptBuilder {
-	return func(target router.Decision, opts translate.EmitOptions, marker string, fundingCtx context.Context) (dispatchAttempt, error) {
+	return func(target router.Decision, opts translate.EmitOptions, marker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
 		if err := s.selectTarget(target); err != nil {
 			return nil, err
 		}

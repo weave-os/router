@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -17,11 +18,11 @@ import (
 )
 
 type rescueServices interface {
-	dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error)
-	resolveEffort(ctx context.Context, decision router.Decision, caps router.ModelSpec, escalate bool) effortResolution
-	runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) handoverOutcome
+	dispatchWithFallback(ctx context.Context, in dispatch.FailoverInputs) (winnerIdx int, err error)
+	resolveEffort(ctx context.Context, decision router.Decision, caps router.ModelSpec, escalate bool) dispatch.EffortResolution
+	runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) dispatch.HandoverOutcome
 	earlyStopRedoMode(ctx context.Context, routeRes turnLoopResult, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode
-	redoEarlyStop(ctx context.Context, redo earlyStopRedo) (redone bool, err error)
+	redoEarlyStop(ctx context.Context, redo dispatch.EarlyStopRedo) (redone bool, err error)
 }
 
 type rescueChain struct {
@@ -38,8 +39,8 @@ type rescueChain struct {
 	opts             translate.EmitOptions
 	contentSink      http.ResponseWriter
 	preludeBuf       *preludeBuffer
-	attempt          dispatchAttempt
-	buildAttempt     func(target router.Decision, opts translate.EmitOptions, marker string, fundingCtx context.Context) (dispatchAttempt, error)
+	attempt          dispatch.UpstreamAttempt
+	buildAttempt     func(target router.Decision, opts translate.EmitOptions, marker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error)
 	flushErr         func(w http.ResponseWriter, err error)
 	surface          inference.Purpose
 	overflowEstimate int
@@ -51,7 +52,7 @@ type rescueChain struct {
 	bindings     []catalog.ProviderBinding
 	marker       string
 	proxyErr     error
-	effortServed effortResolution
+	effortServed dispatch.EffortResolution
 	winnerIdx    int
 
 	primaryProvider                      string
@@ -117,48 +118,48 @@ func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 	s := c.svc
 	r := c.r
 	routeRes := c.routeRes
-	c.winnerIdx, c.proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
-		w:                               c.contentSink,
-		buf:                             c.preludeBuf,
-		initialDecision:                 c.decision,
-		subscriptionStateRequest:        c.translationEligibleRequest(),
-		subscriptionStateHeaders:        r.Header,
-		subscriptionStateWinnerProvider: &c.subscriptionStateWinnerProvider,
-		alternatives: func() []router.Decision {
+	c.winnerIdx, c.proxyErr = s.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+		Writer:                          c.contentSink,
+		Prelude:                         c.preludeBuf,
+		InitialDecision:                 c.decision,
+		SubscriptionStateRequest:        c.translationEligibleRequest(),
+		SubscriptionStateHeaders:        r.Header,
+		SubscriptionStateWinnerProvider: &c.subscriptionStateWinnerProvider,
+		Alternatives: func() []router.Decision {
 			if routeRes.HardPinned || routeRes.AuthoritativePerTurn {
 				return nil
 			}
 			return c.credentials.SubscriptionAlternativeDecisions(ctx, *c.req, c.decision)
 		}(),
-		buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
+		BuildAlternative: func(target router.Decision) (dispatch.UpstreamAttempt, error) {
 			alternativeOpts, _ := switchedAttemptOptions(ctx, c.opts, target, routeRes.EscalateEffort, s.resolveEffort)
 			alternativeMarker := subscriptionTargetMarker(c.strategyPorts, ctx, r.Header, routeRes, c.primaryDecision, target, c.pickedMarker)
 			alternativeCtx := c.credentials.ResolveCredentials(ctx, target.Provider, target.Model, r.Header)
 			return c.buildAttempt(target, alternativeOpts, alternativeMarker, alternativeCtx)
 		},
-		onAlternative: func(target router.Decision) {
+		OnAlternative: func(target router.Decision) {
 			overloadedModel := c.decision.Model
 			c.decision = target
 			c.bindings = c.routing.ResolveBindingsForDispatch(ctx, target)
 			c.marker = siblingMarkerFor(c.strategyPorts, ctx, r.Header, routeRes, overloadedModel, target.Model)
 		},
-		onSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
+		OnSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
 			c.marker = subscriptionTargetMarker(c.strategyPorts, ctx, r.Header, routeRes, c.primaryDecision, target, c.pickedMarker)
 			c.decision = target
 			c.bindings = targetBindings
 		},
-		onSubscriptionStatePaidTarget: func(target router.Decision, _ []catalog.ProviderBinding) {
+		OnSubscriptionStatePaidTarget: func(target router.Decision, _ []catalog.ProviderBinding) {
 			c.subscriptionStatePaidTargetAttempted = true
 			if onPaidTarget != nil {
 				onPaidTarget(target)
 			}
 		},
-		bindings:               c.bindings,
-		attempt:                c.attempt,
-		flushErr:               c.flushErr,
-		deferFlushOnExhaustion: deferFlush,
-		purpose:                routeRes.dispatchPurpose(c.surface),
-		origin:                 routeRes.dispatchOrigin(c.decision),
+		Bindings:               c.bindings,
+		Attempt:                c.attempt,
+		FlushErr:               c.flushErr,
+		DeferFlushOnExhaustion: deferFlush,
+		Purpose:                routeRes.dispatchPurpose(c.surface),
+		Origin:                 routeRes.dispatchOrigin(c.decision),
 	})
 	c.subscriptionPoolFailure = isSubscriptionPoolError(c.proxyErr)
 }
@@ -245,16 +246,16 @@ func (c *rescueChain) dispatchSibling(ctx context.Context, siblingDecision route
 	if c.reqStats != nil {
 		*c.reqStats = providers.RequestMutationStats{}
 	}
-	c.winnerIdx, c.proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
-		w:                      c.contentSink,
-		buf:                    c.preludeBuf,
-		initialDecision:        siblingDecision,
-		bindings:               siblingBindings,
-		attempt:                siblingAttempt,
-		flushErr:               c.flushErr,
-		deferFlushOnExhaustion: true,
-		purpose:                routeRes.dispatchPurpose(c.surface),
-		origin:                 routeRes.rescueOrigin(),
+	c.winnerIdx, c.proxyErr = s.dispatchWithFallback(siblingCtx, dispatch.FailoverInputs{
+		Writer:                 c.contentSink,
+		Prelude:                c.preludeBuf,
+		InitialDecision:        siblingDecision,
+		Bindings:               siblingBindings,
+		Attempt:                siblingAttempt,
+		FlushErr:               c.flushErr,
+		DeferFlushOnExhaustion: true,
+		Purpose:                routeRes.dispatchPurpose(c.surface),
+		Origin:                 routeRes.rescueOrigin(),
 	})
 	c.subscriptionPoolFailure = isSubscriptionPoolError(c.proxyErr)
 	c.decision = siblingDecision

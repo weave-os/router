@@ -247,7 +247,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		IncludeStreamUsage: s.usageRequired(),
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
-	effortServed.apply(&opts)
+	effortServed.Apply(&opts)
 	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
 	prep, emitErr := env.PrepareGemini(r.Header, geminiOptionsForTurn(opts, routeRes.TurnType))
@@ -294,21 +294,21 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		}
 		return err
 	}
-	winnerIdx, proxyErr := s.dispatchWithFallback(ctx, failoverInputs{
-		w:               contentSink,
-		buf:             preludeBuf,
-		initialDecision: decision,
-		bindings:        bindings,
-		attempt:         attempt,
-		flushErr: func(w http.ResponseWriter, err error) {
+	winnerIdx, proxyErr := s.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+		Writer:          contentSink,
+		Prelude:         preludeBuf,
+		InitialDecision: decision,
+		Bindings:        bindings,
+		Attempt:         attempt,
+		FlushErr: func(w http.ResponseWriter, err error) {
 			if env.Stream() && preludeBuf.PreludeSent() {
 				s.ingress.Gemini.WriteStreamError(w)
 				return
 			}
 			flushBufferedIfPresent(w, err)
 		},
-		purpose: routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
-		origin:  routeRes.dispatchOrigin(decision),
+		Purpose: routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
+		Origin:  routeRes.dispatchOrigin(decision),
 	})
 	primaryFailureErr := proxyErr
 	proxyMs := s.clock.Now().Sub(proxyStart).Milliseconds()

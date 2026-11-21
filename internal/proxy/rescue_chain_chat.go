@@ -147,16 +147,16 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 			o.effortServed = subEffort
 			*o.respSummary = translate.ResponseSummary{}
 			subscriptionErr := o.proxyErr
-			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
-				w:                      o.contentSink,
-				buf:                    preludeBuf,
-				initialDecision:        o.decision,
-				bindings:               subBindings,
-				attempt:                subAttempt,
-				flushErr:               o.flushErrAsOpenAI,
-				deferFlushOnExhaustion: o.cyberRetryViable || o.rescueArmed,
-				purpose:                routeRes.dispatchPurpose(o.surface),
-				origin:                 routeRes.dispatchOrigin(o.decision),
+			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(subCtx, dispatch.FailoverInputs{
+				Writer:                 o.contentSink,
+				Prelude:                preludeBuf,
+				InitialDecision:        o.decision,
+				Bindings:               subBindings,
+				Attempt:                subAttempt,
+				FlushErr:               o.flushErrAsOpenAI,
+				DeferFlushOnExhaustion: o.cyberRetryViable || o.rescueArmed,
+				Purpose:                routeRes.dispatchPurpose(o.surface),
+				Origin:                 routeRes.dispatchOrigin(o.decision),
 			})
 			o.bindings = subBindings
 			o.codexFailoverUsed = o.proxyErr == nil
@@ -197,16 +197,16 @@ func (o *chatRescue) claudeRetry(ctx context.Context) {
 				"upstream_status", upstreamStatus(o.proxyErr))
 			o.claudeRetryRan = true
 			*o.respSummary = translate.ResponseSummary{}
-			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
-				w:                      o.contentSink,
-				buf:                    preludeBuf,
-				initialDecision:        o.decision,
-				bindings:               subBindings,
-				attempt:                subAttempt,
-				flushErr:               o.flushErrAsOpenAI,
-				deferFlushOnExhaustion: o.cyberRetryViable || o.rescueArmed,
-				purpose:                routeRes.dispatchPurpose(o.surface),
-				origin:                 routeRes.dispatchOrigin(o.decision),
+			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(subCtx, dispatch.FailoverInputs{
+				Writer:                 o.contentSink,
+				Prelude:                preludeBuf,
+				InitialDecision:        o.decision,
+				Bindings:               subBindings,
+				Attempt:                subAttempt,
+				FlushErr:               o.flushErrAsOpenAI,
+				DeferFlushOnExhaustion: o.cyberRetryViable || o.rescueArmed,
+				Purpose:                routeRes.dispatchPurpose(o.surface),
+				Origin:                 routeRes.dispatchOrigin(o.decision),
 			})
 			o.bindings = subBindings
 			o.claudeFailoverUsed = o.proxyErr == nil
@@ -253,16 +253,16 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 			o.cyberRetryRan = true
 			o.effortServed = retryEffort
 			*o.respSummary = translate.ResponseSummary{}
-			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(retryCtx, failoverInputs{
-				w:                      o.contentSink,
-				buf:                    preludeBuf,
-				initialDecision:        o.cyberRetryTarget,
-				bindings:               retryBindings,
-				attempt:                retryAttempt,
-				flushErr:               o.flushErrAsOpenAI,
-				deferFlushOnExhaustion: o.rescueArmed,
-				purpose:                routeRes.dispatchPurpose(o.surface),
-				origin:                 routeRes.rescueOrigin(),
+			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(retryCtx, dispatch.FailoverInputs{
+				Writer:                 o.contentSink,
+				Prelude:                preludeBuf,
+				InitialDecision:        o.cyberRetryTarget,
+				Bindings:               retryBindings,
+				Attempt:                retryAttempt,
+				FlushErr:               o.flushErrAsOpenAI,
+				DeferFlushOnExhaustion: o.rescueArmed,
+				Purpose:                routeRes.dispatchPurpose(o.surface),
+				Origin:                 routeRes.rescueOrigin(),
 			})
 			o.subscriptionPoolFailure = isSubscriptionPoolError(o.proxyErr)
 			o.decision = o.cyberRetryTarget
