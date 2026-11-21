@@ -103,11 +103,11 @@ func (s *Service) ResolveCCWorkspaceSystemAppend(ctx context.Context) bool {
 }
 
 func (s *Service) ResolveCommittedStreamArmDemotion(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyCommittedStreamArmDemotion, s.committedStreamArmDemotion)
+	return s.armDemotion.CommittedStreamEnabled(ctx)
 }
 
 func (s *Service) ResolveRescuedFailureArmDemotion(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyRescuedFailureArmDemotion, s.rescuedFailureArmDemotion)
+	return s.armDemotion.RescuedFailureEnabled(ctx)
 }
 
 func (s *Service) ResolveTransientRateLimit(ctx context.Context) bool {
