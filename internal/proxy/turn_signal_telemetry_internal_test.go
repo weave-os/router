@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -58,7 +60,7 @@ func sampleSignals() conversation.SpiralSignals {
 }
 
 func TestApplyTurnSignalTelemetry_CopiesFullSnapshot(t *testing.T) {
-	var telemetry InsertTelemetryParams
+	var telemetry turnrecord.InsertTelemetryParams
 	reasons := []conversation.SpiralReason{conversation.SpiralReasonErrStreak, conversation.SpiralReasonPingPong}
 	applyTurnSignalTelemetry(&telemetry, sampleSignals(), reasons, true, true, CaptureFull)
 
@@ -85,7 +87,7 @@ func TestApplyTurnSignalTelemetry_CopiesFullSnapshot(t *testing.T) {
 }
 
 func TestApplyTurnSignalTelemetry_QuietTurnRecordsZeros(t *testing.T) {
-	var telemetry InsertTelemetryParams
+	var telemetry turnrecord.InsertTelemetryParams
 	applyTurnSignalTelemetry(&telemetry, conversation.SpiralSignals{}, nil, true, true, CaptureFull)
 
 	require.NotNil(t, telemetry.SpiralErrStreak)
@@ -111,7 +113,7 @@ func TestApplyTurnSignalTelemetry_SkipsIneligibleTurns(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var telemetry InsertTelemetryParams
+			var telemetry turnrecord.InsertTelemetryParams
 			applyTurnSignalTelemetry(&telemetry, sampleSignals(), []conversation.SpiralReason{conversation.SpiralReasonErrStreak},
 				tc.computed, tc.trainingAllowed, tc.capture)
 
@@ -132,24 +134,24 @@ func TestApplyTurnSignalTelemetry_NilParamsIsNoOp(t *testing.T) {
 }
 
 type memorySessionTurnClock struct {
-	finishes map[string]SessionTurnClockReading
+	finishes map[string]telemetry.SessionTurnClockReading
 }
 
-func (c *memorySessionTurnClock) AdvanceSessionTurnClock(_ context.Context, advance SessionTurnClockAdvance) (SessionTurnClockReading, bool, error) {
+func (c *memorySessionTurnClock) AdvanceSessionTurnClock(_ context.Context, advance telemetry.SessionTurnClockAdvance) (telemetry.SessionTurnClockReading, bool, error) {
 	key := advance.InstallationID + string(advance.SessionKey)
 	previous, found := c.finishes[key]
 	if !found || previous.ResponseEndedAt.Before(advance.ResponseEndedAt) {
-		c.finishes[key] = SessionTurnClockReading{ResponseEndedAt: advance.ResponseEndedAt, ServedModel: advance.ServedModel}
+		c.finishes[key] = telemetry.SessionTurnClockReading{ResponseEndedAt: advance.ResponseEndedAt, ServedModel: advance.ServedModel}
 	}
 	return previous, found, nil
 }
 
 func TestApplyUserPromptGap_TimesTypedPromptAgainstPreviousResponse(t *testing.T) {
-	clock := &memorySessionTurnClock{finishes: map[string]SessionTurnClockReading{}}
+	clock := &memorySessionTurnClock{finishes: map[string]telemetry.SessionTurnClockReading{}}
 	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	start := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
-	turn := func(offset time.Duration, latencyMs int64, turnType string, model string, typed bool) InsertTelemetryParams {
-		return InsertTelemetryParams{
+	turn := func(offset time.Duration, latencyMs int64, turnType string, model string, typed bool) turnrecord.InsertTelemetryParams {
+		return turnrecord.InsertTelemetryParams{
 			InstallationID: "installation-1",
 			SpanType:       "router.upstream",
 			SessionKey:     []byte("session-a"),
@@ -161,8 +163,8 @@ func TestApplyUserPromptGap_TimesTypedPromptAgainstPreviousResponse(t *testing.T
 			UserPrompt:     &typed,
 		}
 	}
-	apply := func(p InsertTelemetryParams) InsertTelemetryParams {
-		service.applyUserPromptGap(context.Background(), slog.Default(), &p)
+	apply := func(p turnrecord.InsertTelemetryParams) turnrecord.InsertTelemetryParams {
+		service.turnTelemetry.applyUserPromptGap(context.Background(), slog.Default(), &p)
 		return p
 	}
 
@@ -184,35 +186,35 @@ func TestApplyUserPromptGap_TimesTypedPromptAgainstPreviousResponse(t *testing.T
 }
 
 func TestApplyUserPromptGap_OverlappingPreviousResponseLeavesGapNull(t *testing.T) {
-	clock := &memorySessionTurnClock{finishes: map[string]SessionTurnClockReading{}}
+	clock := &memorySessionTurnClock{finishes: map[string]telemetry.SessionTurnClockReading{}}
 	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	start := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	typed := true
-	long := InsertTelemetryParams{
+	long := turnrecord.InsertTelemetryParams{
 		InstallationID: "installation-1", SpanType: "router.upstream", SessionKey: []byte("session-a"),
 		Timestamp: start, TotalLatencyMs: 60_000, TurnType: "main_loop", DecisionModel: "gpt-6-sol", OutputTokens: 120, UserPrompt: &typed,
 	}
-	service.applyUserPromptGap(context.Background(), slog.Default(), &long)
+	service.turnTelemetry.applyUserPromptGap(context.Background(), slog.Default(), &long)
 
 	overlapping := long
 	overlapping.Timestamp = start.Add(10 * time.Second)
 	overlapping.TotalLatencyMs = 1_000
-	service.applyUserPromptGap(context.Background(), slog.Default(), &overlapping)
+	service.turnTelemetry.applyUserPromptGap(context.Background(), slog.Default(), &overlapping)
 
 	assert.Nil(t, overlapping.UserPromptGapMs, "a response still running when the prompt arrived is not a wait")
 	assert.Empty(t, overlapping.UserPromptGapPriorModel)
 }
 
 func TestApplyUserPromptGap_FailedTurnDoesNotMoveTheClock(t *testing.T) {
-	clock := &memorySessionTurnClock{finishes: map[string]SessionTurnClockReading{}}
+	clock := &memorySessionTurnClock{finishes: map[string]telemetry.SessionTurnClockReading{}}
 	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	start := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	typed := true
-	reply := InsertTelemetryParams{
+	reply := turnrecord.InsertTelemetryParams{
 		InstallationID: "installation-1", SpanType: "router.upstream", SessionKey: []byte("session-a"),
 		Timestamp: start, TotalLatencyMs: 4_000, TurnType: "main_loop", DecisionModel: "claude-opus-5-5", OutputTokens: 120, UserPrompt: &typed,
 	}
-	service.applyUserPromptGap(context.Background(), slog.Default(), &reply)
+	service.turnTelemetry.applyUserPromptGap(context.Background(), slog.Default(), &reply)
 
 	failed := reply
 	failed.Timestamp = start.Add(10 * time.Second)
@@ -220,12 +222,12 @@ func TestApplyUserPromptGap_FailedTurnDoesNotMoveTheClock(t *testing.T) {
 	failed.DecisionModel = "gpt-6-sol"
 	failed.OutputTokens = 0
 	failed.UpstreamStatusCode = 502
-	failed.ErrorClass = TurnErrorUpstream5xx
-	service.applyUserPromptGap(context.Background(), slog.Default(), &failed)
+	failed.ErrorClass = turnrecord.TurnErrorUpstream5xx
+	service.turnTelemetry.applyUserPromptGap(context.Background(), slog.Default(), &failed)
 
 	next := reply
 	next.Timestamp = start.Add(20 * time.Second)
-	service.applyUserPromptGap(context.Background(), slog.Default(), &next)
+	service.turnTelemetry.applyUserPromptGap(context.Background(), slog.Default(), &next)
 
 	// The 502 at +10s showed no reply, so the prompt at +20s waited 16s on opus.
 	require.NotNil(t, next.UserPromptGapMs)
@@ -238,9 +240,9 @@ type deadlineRecordingClock struct {
 	deadline time.Time
 }
 
-func (c *deadlineRecordingClock) AdvanceSessionTurnClock(ctx context.Context, _ SessionTurnClockAdvance) (SessionTurnClockReading, bool, error) {
+func (c *deadlineRecordingClock) AdvanceSessionTurnClock(ctx context.Context, _ telemetry.SessionTurnClockAdvance) (telemetry.SessionTurnClockReading, bool, error) {
 	c.deadline, _ = ctx.Deadline()
-	return SessionTurnClockReading{}, false, nil
+	return telemetry.SessionTurnClockReading{}, false, nil
 }
 
 func TestApplyUserPromptGap_ClockLeavesTheInsertItsBudget(t *testing.T) {
@@ -249,11 +251,11 @@ func TestApplyUserPromptGap_ClockLeavesTheInsertItsBudget(t *testing.T) {
 	parent, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	parentDeadline, _ := parent.Deadline()
-	row := InsertTelemetryParams{
+	row := turnrecord.InsertTelemetryParams{
 		InstallationID: "installation-1", SpanType: "router.upstream", SessionKey: []byte("session-a"),
 		Timestamp: time.Now(), TurnType: "main_loop", DecisionModel: "claude-opus-5-5", OutputTokens: 120,
 	}
-	service.applyUserPromptGap(parent, slog.Default(), &row)
+	service.turnTelemetry.applyUserPromptGap(parent, slog.Default(), &row)
 
 	require.False(t, clock.deadline.IsZero(), "the clock must run under a deadline")
 	assert.LessOrEqual(t, clock.deadline.Sub(parentDeadline), -3*time.Second,

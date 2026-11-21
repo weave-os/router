@@ -18,6 +18,8 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 // goldenEpoch anchors the fake clock; pins and cooldowns compare against it.
@@ -473,12 +475,12 @@ func (s *goldenPinStore) SweepExpired(context.Context) error { return nil }
 // arrive asynchronously, so each insert signals rows.
 type goldenTelemetry struct {
 	// Read methods are unused by the serving path; calling one panics.
-	proxy.TelemetryRepository
+	turnrecord.TelemetryRepository
 	rec  *goldenRecorder
 	rows chan struct{}
 }
 
-func (g *goldenTelemetry) InsertRequestTelemetry(_ context.Context, p proxy.InsertTelemetryParams) error {
+func (g *goldenTelemetry) InsertRequestTelemetry(_ context.Context, p turnrecord.InsertTelemetryParams) error {
 	g.rec.mu.Lock()
 	g.rec.telemetry = append(g.rec.telemetry, goldenValue(p))
 	g.rec.recordRaw(p)
@@ -487,7 +489,7 @@ func (g *goldenTelemetry) InsertRequestTelemetry(_ context.Context, p proxy.Inse
 	return nil
 }
 
-func (g *goldenTelemetry) InsertInferenceAttempt(_ context.Context, p proxy.InsertInferenceAttemptParams) error {
+func (g *goldenTelemetry) InsertInferenceAttempt(_ context.Context, p telemetry.InsertInferenceAttemptParams) error {
 	g.rec.mu.Lock()
 	defer g.rec.mu.Unlock()
 	g.rec.inferenceAttempts = append(g.rec.inferenceAttempts, goldenValue(p.Event))

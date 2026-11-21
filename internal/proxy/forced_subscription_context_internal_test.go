@@ -16,8 +16,10 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
@@ -78,7 +80,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 		{name: "real overflow allows compaction and continuation", overflow: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			var models, credentials, apiKeys, contents, efforts []string
+			var models, authHeaders, apiKeys, contents, efforts []string
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, err := io.ReadAll(r.Body)
 				if err != nil {
@@ -87,7 +89,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 					return
 				}
 				models = append(models, gjson.GetBytes(body, "model").String())
-				credentials = append(credentials, r.Header.Get("Authorization"))
+				authHeaders = append(authHeaders, r.Header.Get("Authorization"))
 				apiKeys = append(apiKeys, r.Header.Get("x-api-key"))
 				efforts = append(efforts, gjson.GetBytes(body, "output_config.effort").String())
 				content := gjson.GetBytes(body, "messages.0.content")
@@ -128,12 +130,12 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 			ctx := context.WithValue(withClaudeCreditFallback(context.Background()), APIKeyIDContextKey{}, "synthetic-key")
 			ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
-			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode, SessionID: "synthetic-session"})
-			ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode, SessionID: "synthetic-session"})
+			ctx = context.WithValue(ctx, credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{gatewayCompactionOpusModel})
 			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{gatewayCompactionOpusModel})
 			if scenario.directSubscription {
-				ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-token")
+				ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-token")
 			}
 
 			// The body estimate plus output reserve exceeds Opus's window while
@@ -148,7 +150,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				recorder := httptest.NewRecorder()
 				request := httptest.NewRequestWithContext(ctx, http.MethodPost, routePathMessages, strings.NewReader(string(body)))
 				if scenario.forceWithEffort {
-					request.Header.Set(ForceModelHeader, gatewayCompactionOpusModel+":high")
+					request.Header.Set(requestcontext.ForceModelHeader, gatewayCompactionOpusModel+":high")
 				}
 				err = svc.ProxyMessages(WithManagedSubscriptionUsage(ctx), body, recorder, request)
 				return recorder, err
@@ -189,7 +191,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 					continue
 				}
 				wantCredential := "Bearer synthetic-token"
-				assert.Equal(t, wantCredential, credentials[i], "context estimation must not force a paid attempt")
+				assert.Equal(t, wantCredential, authHeaders[i], "context estimation must not force a paid attempt")
 				if scenario.forceWithEffort {
 					assert.Equal(t, "high", efforts[i], "canonicalizing the model must preserve the requested wire effort")
 				}

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/google/uuid"
@@ -40,9 +41,9 @@ func TestCommandOutcomesAcrossSurfaces(t *testing.T) {
 				store := newForceModelMapStore()
 				svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 					WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
-				app := ClientAppClaudeCode
+				app := requestcontext.ClientAppClaudeCode
 				if surface != translate.FormatAnthropic {
-					app = ClientAppCodex
+					app = requestcontext.ClientAppCodex
 				}
 				ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: app, SessionID: "synthetic-session"})
 				ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
@@ -149,7 +150,7 @@ func TestCommandOutcomeRequiresPersistence(t *testing.T) {
 	env := forceCommandEnv(t)
 	for _, command := range []translate.ForceModelResult{{Model: "opus"}, {Clear: true}} {
 		rec := httptest.NewRecorder()
-		err := svc.handleForceModelCommand(context.Background(), rec, env, command, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, [sessionpin.SessionKeyLen]byte{2}, 1)
+		err := (forceModelCommands{svc}).handle(context.Background(), rec, env, command, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, [sessionpin.SessionKeyLen]byte{2}, 1)
 		require.Error(t, err)
 		assert.Empty(t, rec.Header().Get(translate.RouterCommandHeader))
 		assert.Empty(t, rec.Body.String())
@@ -183,7 +184,7 @@ func TestAcknowledgmentWriteFailureDoesNotUndoPin(t *testing.T) {
 	svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	key := [sessionpin.SessionKeyLen]byte{2}
-	err := svc.handleForceModelCommand(context.Background(), &commandWriteFailure{httptest.NewRecorder()}, forceCommandEnv(t), translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, key, 1)
+	err := (forceModelCommands{svc}).handle(context.Background(), &commandWriteFailure{httptest.NewRecorder()}, forceCommandEnv(t), translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, key, 1)
 	require.Error(t, err)
 	pin, found, err := store.Get(context.Background(), key, forceModelSessionRole)
 	require.NoError(t, err)
@@ -196,7 +197,7 @@ func TestHeaderPersistenceFailureRetainsSameActionForce(t *testing.T) {
 	svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
-	request.Header.Set(ForceModelHeader, "opus:high")
+	request.Header.Set(requestcontext.ForceModelHeader, "opus:high")
 	_, model, err := svc.applyForceModelHeader(context.Background(), request, uuid.New(), [sessionpin.SessionKeyLen]byte{1})
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-5-5:high", model)

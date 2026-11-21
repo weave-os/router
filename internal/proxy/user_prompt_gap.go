@@ -6,45 +6,31 @@ import (
 	"time"
 
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
-type SessionTurnClock interface {
-	AdvanceSessionTurnClock(ctx context.Context, advance SessionTurnClockAdvance) (previous SessionTurnClockReading, found bool, err error)
-}
-
-type SessionTurnClockAdvance struct {
-	InstallationID  string
-	SessionKey      []byte
-	ResponseEndedAt time.Time
-	ServedModel     string
-}
-
-type SessionTurnClockReading struct {
-	ResponseEndedAt time.Time
-	ServedModel     string
-}
-
-func (s *Service) WithSessionTurnClock(clock SessionTurnClock) *Service {
-	s.turnClock = clock
+func (s *Service) WithSessionTurnClock(clock telemetry.SessionTurnClock) *Service {
+	s.turnTelemetry.turnClock = clock
 	return s
 }
 
 const sessionTurnClockTimeout = time.Second
 
-func advancesSessionTurnClock(p InsertTelemetryParams) bool {
+func advancesSessionTurnClock(p turnrecord.InsertTelemetryParams) bool {
 	if p.SpanType != "router.upstream" || len(p.SessionKey) == 0 || p.DecisionModel == "" || p.OutputTokens <= 0 {
 		return false
 	}
 	return p.TurnType == string(turntype.MainLoop) || p.TurnType == string(turntype.ToolResult)
 }
 
-func (s *Service) applyUserPromptGap(ctx context.Context, log *slog.Logger, p *InsertTelemetryParams) {
-	if s.turnClock == nil || !advancesSessionTurnClock(*p) {
+func (t turnTelemetry) applyUserPromptGap(ctx context.Context, log *slog.Logger, p *turnrecord.InsertTelemetryParams) {
+	if t.turnClock == nil || !advancesSessionTurnClock(*p) {
 		return
 	}
 	clockCtx, cancel := context.WithTimeout(ctx, sessionTurnClockTimeout)
 	defer cancel()
-	previous, found, err := s.turnClock.AdvanceSessionTurnClock(clockCtx, SessionTurnClockAdvance{
+	previous, found, err := t.turnClock.AdvanceSessionTurnClock(clockCtx, telemetry.SessionTurnClockAdvance{
 		InstallationID:  p.InstallationID,
 		SessionKey:      p.SessionKey,
 		ResponseEndedAt: p.Timestamp.Add(time.Duration(p.TotalLatencyMs) * time.Millisecond),
@@ -59,7 +45,7 @@ func (s *Service) applyUserPromptGap(ctx context.Context, log *slog.Logger, p *I
 	}
 }
 
-func userPromptGap(p InsertTelemetryParams, previous SessionTurnClockReading) (*int64, string) {
+func userPromptGap(p turnrecord.InsertTelemetryParams, previous telemetry.SessionTurnClockReading) (*int64, string) {
 	if p.UserPrompt == nil || !*p.UserPrompt || previous.ResponseEndedAt.After(p.Timestamp) {
 		return nil, ""
 	}

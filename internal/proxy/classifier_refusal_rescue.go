@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
@@ -25,9 +26,9 @@ type classifierRescuePolicy struct {
 func newClassifierRescuePolicy(ctx context.Context, s *Service) classifierRescuePolicy {
 	return classifierRescuePolicy{
 		enabled: s.ResolveCyberRefusalRetry(ctx),
-		models:  append([]string{s.ResolveCyberRefusalFallbackModel(ctx)}, catalog.ClassifierRescueOrder(s.subscriptionModels.servedForCaller(ctx, s.clock.Now()))...),
+		models:  append([]string{s.ResolveCyberRefusalFallbackModel(ctx)}, catalog.ClassifierRescueOrder(s.credentials.SubscriptionModels.ServedForCaller(CredentialsFromContext(ctx), s.clock.Now()))...),
 		unavailable: func(model string) bool {
-			return s.subscriptionModels.deniedForCaller(ctx, model, s.clock.Now())
+			return s.credentials.SubscriptionModels.DeniedForCaller(CredentialsFromContext(ctx), model, s.clock.Now())
 		},
 		rejected: func(model string, err error) {
 			s.recordSubscriptionModelRejection(ctx, providers.ProviderAnthropic, model, err)
@@ -135,7 +136,7 @@ func proxyClassifierWithRefusalRescue(ctx context.Context, proxy classifierProxy
 		}
 		log.Info("classifier refusal re-served on fallback model",
 			"from_model", served.Model, "to_model", target.decision.Model, "refusal_category", category)
-		w.Header().Set(HeaderRouterModel, target.decision.Model)
+		w.Header().Set(requestcontext.HeaderRouterModel, target.decision.Model)
 		return target.decision, fallbackResp.replay(w, nil)
 	}
 	return served, servedResp.replay(w, nil)

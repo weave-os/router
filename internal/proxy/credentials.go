@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
@@ -29,7 +28,7 @@ func CredentialsFromContext(ctx context.Context) *Credentials {
 	if override, set := ctx.Value(CredentialsContextKey{}).(*Credentials); set && override == nil {
 		return nil
 	}
-	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.Finished {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.Finished {
 		return usage.WinningCredentials
 	}
 	return requestcontext.CredentialsFromContext(ctx)
@@ -51,18 +50,12 @@ func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 	requestcontext.ApplyIdentityHeader(ctx, upstream)
 }
 
-type ExternalAPIKeysContextKey struct{}
-
 func byokFirst(ctx context.Context, provider string) bool {
-	return credentials.KeyFirst(externalKeysFromContext(ctx), provider) && !billing.ByokFeeUnpayable(ctx)
+	return credentials.KeyFirst(credentials.ExternalKeysFromContext(ctx), provider) && !billing.ByokFeeUnpayable(ctx)
 }
 
 func anthropicBYOKFirst(ctx context.Context) bool {
 	return byokFirst(ctx, providers.ProviderAnthropic)
-}
-
-func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
-	return credentials.BuildCredentialsMap(keys)
 }
 
 func ExtractClientCredentials(provider string, headers http.Header) *Credentials {

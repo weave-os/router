@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -123,7 +124,7 @@ func readmitSessionStrikes(ctx context.Context, request *router.Request) bool {
 }
 
 func beginSubscriptionStateLane(ctx context.Context, initial router.Decision) context.Context {
-	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
 		usage.IntendedModel = initial.Model
 	}
 	return withClientAppRefusalPaidFallback(ctx, initial)
@@ -228,7 +229,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispat
 			break
 		}
 	}
-	if err := includedLaneVerdict(s.sessionHolds.withUnservedHoldsReleased(ctx, request.EnabledProviders)); err != nil {
+	if err := includedLaneVerdict(withUnservedHoldsReleased(ctx, &s.credentials.SessionHolds, request.EnabledProviders)); err != nil {
 		return -1, flushIncludedLaneVerdict(in, err)
 	}
 	if ctx.Err() != nil {

@@ -5,21 +5,22 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
 
 	"github.com/tidwall/gjson"
 )
 
-const subscriptionThirdPartyDenialTTL = subscriptionModelDenialTTL
+const subscriptionThirdPartyDenialTTL = credentials.SubscriptionModelDenialTTL
 
 var ErrSubscriptionClientAppRefused = errors.New("claude subscription refused third-party client")
 
 func markSubscriptionClientAppRefused(ctx context.Context) {
-	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
 		usage.ClientAppRefused = true
 	}
 }
@@ -46,7 +47,7 @@ func claudePoolRefusesClientApp(ctx context.Context) bool {
 	if spendsPool, _ := ctx.Value(clientAppRefusalPaidFallbackKey{}).(bool); !spendsPool {
 		return false
 	}
-	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	return usage != nil && usage.ClientAppRefused
 }
 
@@ -54,7 +55,7 @@ func forcedClaudeClientAppRefused(ctx context.Context, decision router.Decision,
 	if creds != nil && (creds.OAuth || creds.Source == credSourceBYOK) || clientAppRefusalPaidFallback(ctx) {
 		return false
 	}
-	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	return usage != nil && usage.ClientAppRefused && strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel)
 }
 
@@ -83,20 +84,8 @@ func anthropicClientAppRefused(ctx context.Context, err error) bool {
 
 func knownThirdPartyClientApp(clientApp string) bool {
 	switch clientApp {
-	case ClientAppCodex, ClientAppCursor, ClientAppGeminiCLI, ClientAppOpencode:
+	case requestcontext.ClientAppCodex, requestcontext.ClientAppCursor, requestcontext.ClientAppGeminiCLI, requestcontext.ClientAppOpencode:
 		return true
 	}
 	return false
-}
-
-func thirdPartyDenialModel(clientApp string) string {
-	return "\x00client-app:" + clientApp
-}
-
-func (a *subscriptionModelAccess) denyManagedClientApp(account, provider, clientApp string, until time.Time) {
-	a.denyManaged("account:"+account, account, provider, thirdPartyDenialModel(clientApp), until)
-}
-
-func (a *subscriptionModelAccess) managedClientAppDenied(account, provider, clientApp string, now time.Time) bool {
-	return a.managedDenied("account:"+account, account, provider, thirdPartyDenialModel(clientApp), now)
 }

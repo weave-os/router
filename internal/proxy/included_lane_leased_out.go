@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/subscriptions"
 )
 
 func leaseOrMarkLeasedOut(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, pool subscriptions.Provider, model, sessionID string) (subscriptions.Lease, bool, error) {
 	lease, present, err := leaser.Lease(ctx, owner, pool, sessionID)
-	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if state == nil || state.ClientAppRefused || (err == nil && present) || (err != nil && !errors.Is(err, subscriptions.ErrNoAvailableAccount)) {
 		return lease, present, err
 	}
@@ -30,7 +31,7 @@ func includedLaneCannotServe(ctx context.Context, pool subscriptions.Provider, t
 }
 
 func includedLaneLeasedOut(ctx context.Context, pool subscriptions.Provider, target inference.Target, now time.Time) bool {
-	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if state == nil || !callerPlanThrottled(ctx, pool, now) {
 		return false
 	}
@@ -56,7 +57,7 @@ func recordCallerCodexFailureOnLinkedSeat(ctx context.Context, creds *Credential
 	if creds == nil || !creds.OAuth || creds.SubscriptionAccountID != "" || len(creds.AccountID) == 0 || upstreamStatus(attemptErr) != http.StatusTooManyRequests {
 		return
 	}
-	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	candidates, _ := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
 	callerUserID := subscriptions.CodexUserIDFromJWT(string(creds.APIKey))
 	if state == nil || state.IntendedModel == "" || callerUserID == "" {

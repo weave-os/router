@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/candidates"
 )
@@ -91,7 +92,7 @@ func (s *Service) globalAutomaticExclusionReason(ctx context.Context, model stri
 		}
 	}
 	if _, open := s.overloadOpenModels(ctx)[model]; open {
-		return overloadBreakerReason, true
+		return dispatch.OverloadBreakerReason, true
 	}
 	return "", false
 }

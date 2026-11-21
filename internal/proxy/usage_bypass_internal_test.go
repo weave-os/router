@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -99,8 +100,8 @@ func TestUsageBypassDecision_CodexSubscriptionPreservesRequestedModel(t *testing
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
 	svc := &Service{hmmServing: hmmPorts(), clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
-	ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, codexToken)
-	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "account-1")
+	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, codexToken)
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "account-1")
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
@@ -136,7 +137,7 @@ func TestUsageBypassDecision_SessionDemotionBlocks_GlobalAutomaticExclusionDoesN
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
 	svc := &Service{hmmServing: hmmPorts(), clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
@@ -189,7 +190,7 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 		return obs
 	}
 	baseCtx := func() context.Context {
-		ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
+		ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
 		return context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
 			Enabled:   true,
 			Threshold: &threshold,
@@ -251,7 +252,7 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 	}
 	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithUsageObserver(obs)
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
@@ -271,7 +272,7 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 	assert.Equal(t, "claude-haiku-4-5", res.PriorServedModel)
 	assert.True(t, res.SessionEverSwitched)
 	assert.True(t, res.modelSwitched(), "bypass must retain switch history for Anthropic thinking-block stripping")
-	assert.True(t, svc.compaction.Tracks(res.SessionKey, uuid.Nil, res.PinRole), "bypass must retain compaction-trim tracking")
+	assert.True(t, svc.lifecycle.Compaction().Tracks(res.SessionKey, uuid.Nil, res.PinRole), "bypass must retain compaction-trim tracking")
 }
 
 // TestUsageBypass_EngagesUnderAuthoritativePolicy verifies that an authoritative
@@ -300,7 +301,7 @@ func TestUsageBypass_EngagesUnderAuthoritativePolicy(t *testing.T) {
 				AuthoritativePerTurnSelection: true,
 			},
 		})
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
@@ -400,7 +401,7 @@ func TestBypass_NonStreamResponseIncludesCostHeaders(t *testing.T) {
 	)
 	upstream := &bypassFakeProvider{respBody: `{"usage":{"input_tokens":1200,"output_tokens":340}}`}
 	svc := newBypassService(upstream)
-	svc.telemetry = newBypassCaptureTelemetry() // enables usage extraction
+	svc.turnTelemetry.repo = newBypassCaptureTelemetry() // enables usage extraction
 
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
@@ -414,11 +415,11 @@ func TestBypass_NonStreamResponseIncludesCostHeaders(t *testing.T) {
 	pricing, ok := catalog.PriceFor(providers.ProviderAnthropic, feats.Model)
 	require.True(t, ok, "test model must have catalog pricing")
 	want := routerResponseCostFromPricing(pricing, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
-	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
-	assert.Equal(t, strconv.FormatFloat(want.InputUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostInputUSD))
-	assert.Equal(t, strconv.FormatFloat(want.OutputUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostOutputUSD))
-	assert.Equal(t, "0", rec.Header().Get(HeaderRouterCacheReadTokens))
-	assert.Equal(t, "0", rec.Header().Get(HeaderRouterCacheCreationTokens))
+	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(requestcontext.HeaderRouterCostUSD))
+	assert.Equal(t, strconv.FormatFloat(want.InputUSD, 'f', -1, 64), rec.Header().Get(requestcontext.HeaderRouterCostInputUSD))
+	assert.Equal(t, strconv.FormatFloat(want.OutputUSD, 'f', -1, 64), rec.Header().Get(requestcontext.HeaderRouterCostOutputUSD))
+	assert.Equal(t, "0", rec.Header().Get(requestcontext.HeaderRouterCacheReadTokens))
+	assert.Equal(t, "0", rec.Header().Get(requestcontext.HeaderRouterCacheCreationTokens))
 }
 
 // TestBypass_TransportError_ReroutesViaScorer: a raw transport error (connection
@@ -470,7 +471,7 @@ func TestBypass_LocalPrepError_PropagatesToClient(t *testing.T) {
 // non-empty installation id so resolveAndInjectCredentials takes the
 // router-keyed subscription-first branch.
 func subscriptionCtx() context.Context {
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-test-subscription-token")
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-test-subscription-token")
 	return context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 }
 
@@ -619,7 +620,7 @@ func TestBypass_EmitsUsageAndCost(t *testing.T) {
 
 	upstream := &bypassFakeProvider{respBody: sse}
 	svc := newBypassService(upstream)
-	svc.emitter = emitter // makes usageRequired() true so the extractor runs
+	svc.turnTelemetry.emitter = emitter // makes usageRequired() true so the extractor runs
 
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
@@ -662,12 +663,12 @@ func TestBypass_EmitsUsageAndCost(t *testing.T) {
 	assert.InDelta(t, wantIn, spanFloat(t, sp, "cost.requested_input_usd"), 1e-9)
 }
 
-// bypassCaptureTelemetry records InsertTelemetryParams rows for assertions.
+// bypassCaptureTelemetry records turnrecord.InsertTelemetryParams rows for assertions.
 // Only InsertRequestTelemetry matters; the read methods satisfy the interface.
 type bypassCaptureTelemetry struct {
 	panicTelemetryRepo // inherit no-op reads
 	mu                 sync.Mutex
-	rows               []InsertTelemetryParams
+	rows               []turnrecord.InsertTelemetryParams
 	notify             chan struct{}
 }
 
@@ -675,7 +676,7 @@ func newBypassCaptureTelemetry() *bypassCaptureTelemetry {
 	return &bypassCaptureTelemetry{notify: make(chan struct{}, 4)}
 }
 
-func (c *bypassCaptureTelemetry) InsertRequestTelemetry(_ context.Context, p InsertTelemetryParams) error {
+func (c *bypassCaptureTelemetry) InsertRequestTelemetry(_ context.Context, p turnrecord.InsertTelemetryParams) error {
 	c.mu.Lock()
 	c.rows = append(c.rows, p)
 	c.mu.Unlock()
@@ -695,7 +696,7 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 	upstream := &bypassFakeProvider{respBody: "{}"}
 	svc := newBypassService(upstream)
 	sink := newBypassCaptureTelemetry()
-	svc.telemetry = sink
+	svc.turnTelemetry.repo = sink
 
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
@@ -766,7 +767,7 @@ func TestBypass_NoTelemetryRowWithoutInstallation(t *testing.T) {
 	upstream := &bypassFakeProvider{respBody: "{}"}
 	svc := newBypassService(upstream)
 	sink := newBypassCaptureTelemetry()
-	svc.telemetry = sink
+	svc.turnTelemetry.repo = sink
 
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
@@ -788,7 +789,7 @@ func TestBypass_TelemetryRowClassifiesOutputCap(t *testing.T) {
 		`"stop_reason":"max_tokens","usage":{"input_tokens":3,"output_tokens":5}}`}
 	svc := newBypassService(upstream)
 	sink := newBypassCaptureTelemetry()
-	svc.telemetry = sink
+	svc.turnTelemetry.repo = sink
 
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
@@ -807,5 +808,5 @@ func TestBypass_TelemetryRowClassifiesOutputCap(t *testing.T) {
 	sink.mu.Lock()
 	defer sink.mu.Unlock()
 	require.Len(t, sink.rows, 1)
-	assert.Equal(t, TurnErrorMaxTokens, sink.rows[0].ErrorClass, "a bypass reply cut off at its output cap is classified like a routed one")
+	assert.Equal(t, turnrecord.TurnErrorMaxTokens, sink.rows[0].ErrorClass, "a bypass reply cut off at its output cap is classified like a routed one")
 }

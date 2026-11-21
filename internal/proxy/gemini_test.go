@@ -10,8 +10,10 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
@@ -51,14 +53,14 @@ func TestProxyGeminiGenerateContent_RoutesToGoogleProvider(t *testing.T) {
 		false, providers.ProviderGoogle, "gemini-2.5-flash",
 		nil), hmm.ServingPorts())
 
-	ctx := context.WithValue(authedCtx("00000000-0000-0000-0000-000000000001"), proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+	ctx := context.WithValue(authedCtx("00000000-0000-0000-0000-000000000001"), credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader(""))
 	require.NoError(t, svc.ProxyGeminiGenerateContent(ctx, []byte(geminiInjectedBody), rec, httpReq))
 
-	assert.Equal(t, "gemini-2.5-pro", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "gemini-2.5-pro", rec.Header().Get(requestcontext.HeaderRouterModel))
 	assertContextHeaders(t, rec.Header())
-	assert.Equal(t, providers.ProviderGoogle, rec.Header().Get(proxy.HeaderRouterProvider))
+	assert.Equal(t, providers.ProviderGoogle, rec.Header().Get(requestcontext.HeaderRouterProvider))
 	require.Len(t, googleProv.proxyBodies, 1, "the upstream Google client must be invoked once")
 	body := string(googleProv.proxyBodies[0])
 	assert.NotContains(t, body, `"model"`,

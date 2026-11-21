@@ -5,12 +5,14 @@ import (
 	"github.com/google/uuid"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/postgres/dbbudget"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/sqlc"
+	"weave-os/router/internal/telemetry"
 )
 
-func (r *TelemetryRepo) InsertInferenceAttempt(ctx context.Context, p proxy.InsertInferenceAttemptParams) error {
+var _ telemetry.InferenceAttemptStore = (*TelemetryRepo)(nil)
+
+func (r *TelemetryRepo) InsertInferenceAttempt(ctx context.Context, p telemetry.InsertInferenceAttemptParams) error {
 	id, err := uuid.Parse(p.InstallationID)
 	if err != nil {
 		return err

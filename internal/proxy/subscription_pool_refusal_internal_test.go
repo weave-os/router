@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -32,11 +34,11 @@ func poolRefusalPins() map[string]poolRefusalPin {
 	throttledSeat := &auth.SubscriptionAccount{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooling}
 	svc := &Service{hmmServing: hmmPorts(), clock: func() time.Time { return now }}
 	enrollmentUnknown := func(ctx context.Context) context.Context {
-		return context.WithValue(WithManagedSubscriptionUsage(ctx), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+		return context.WithValue(WithManagedSubscriptionUsage(ctx), credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	}
 	callerPlanThrottledCtx := func(ctx context.Context) context.Context {
 		ctx = WithManagedSubscriptionUsage(ctx)
-		state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+		state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 		state.ThrottledProviders = map[subscriptions.Provider]time.Time{subscriptions.ProviderClaude: cooling}
 		return ctx
 	}
@@ -107,7 +109,7 @@ func TestSubscriptionPoolUnavailableAndThrottledRefusalsIgnoreTheLaneMark(t *tes
 func TestOnlyACallerPlanThrottleIsCustomerOwned(t *testing.T) {
 	for name, pin := range poolRefusalPins() {
 		owner := classifyFailureOwner(failureOwnerInput{Err: pin.err(context.Background())})
-		assert.Equal(t, errors.Is(pin.sentinel, errCallerPlanThrottled), owner == FailureOwnerClient, name)
+		assert.Equal(t, errors.Is(pin.sentinel, errCallerPlanThrottled), owner == turnrecord.FailureOwnerClient, name)
 	}
 }
 

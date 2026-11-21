@@ -63,42 +63,6 @@
       "removal_phase": "8"
     },
     {
-      "id": "direct_provider_call|internal/proxy/service.go|Service.PassthroughToNamedProvider|weave-os/router/internal/providers.Passthrough|1",
-      "kind": "direct_provider_call",
-      "file": "internal/proxy/service.go",
-      "line": 2675,
-      "symbol": "Service.PassthroughToNamedProvider",
-      "detail": "weave-os/router/internal/providers.Passthrough",
-      "owner": "@steventohme",
-      "rationale": "Metadata passthrough remains explicit in proxy until the executor exposes a separate non-selection method.",
-      "operation_class": "metadata_passthrough",
-      "removal_phase": "5"
-    },
-    {
-      "id": "target_construction|internal/proxy/service.go|pinDecision|router.Decision|1",
-      "kind": "target_construction",
-      "file": "internal/proxy/service.go",
-      "line": 4999,
-      "symbol": "pinDecision",
-      "detail": "provider=<dynamic> model=<dynamic>",
-      "owner": "@steventohme",
-      "rationale": "Existing session pins are converted directly into compatibility decisions until pins become typed resolver inputs.",
-      "operation_class": "main_inference",
-      "removal_phase": "8"
-    },
-    {
-      "id": "target_construction|internal/proxy/service.go|orderBandPair|router.Decision|1",
-      "kind": "target_construction",
-      "file": "internal/proxy/service.go",
-      "line": 5123,
-      "symbol": "orderBandPair",
-      "detail": "provider=<dynamic> model=<dynamic>",
-      "owner": "@steventohme",
-      "rationale": "Existing band-pair selection creates a compatibility decision until policy alternatives own this transition.",
-      "operation_class": "main_inference",
-      "removal_phase": "8"
-    },
-    {
       "id": "target_construction|internal/proxy/turnloop.go|Service.runTurnLoop|router.Decision|1",
       "kind": "target_construction",
       "file": "internal/proxy/turnloop.go",
@@ -119,18 +83,6 @@
       "detail": "provider=anthropic model=<dynamic>",
       "owner": "@steventohme",
       "rationale": "Existing Anthropic subscription bypass constructs its dispatch DTO directly until public-surface migration.",
-      "operation_class": "main_inference",
-      "removal_phase": "8"
-    },
-    {
-      "id": "direct_provider_call|internal/proxy/usage_bypass.go|Service.bypassToAnthropic|weave-os/router/internal/providers.Proxy|1",
-      "kind": "direct_provider_call",
-      "file": "internal/proxy/usage_bypass.go",
-      "line": 340,
-      "symbol": "Service.bypassToAnthropic",
-      "detail": "weave-os/router/internal/providers.Proxy",
-      "owner": "@steventohme",
-      "rationale": "Existing subscription bypass dispatch remains direct until the public Messages surface migrates through the executor.",
       "operation_class": "main_inference",
       "removal_phase": "8"
     }

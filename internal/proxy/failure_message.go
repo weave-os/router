@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
 
@@ -108,23 +109,23 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	if errors.Is(a.Err, translate.ErrCustomToolArguments) {
 		return failureWording{"sent malformed tool arguments", "malformed tool call arguments"}
 	}
-	switch TurnErrorClass(a.Diagnosis.ErrorClass) {
-	case TurnErrorStreamStalled:
+	switch turnrecord.TurnErrorClass(a.Diagnosis.ErrorClass) {
+	case turnrecord.TurnErrorStreamStalled:
 		return failureWording{"stalled", "stream stalled"}
-	case TurnErrorTimeout:
+	case turnrecord.TurnErrorTimeout:
 		return failureWording{"timed out", "timeout"}
-	case TurnErrorRateLimited:
+	case turnrecord.TurnErrorRateLimited:
 		if status == providerOverloadedStatus {
 			return failureWording{"was overloaded", withStatus("overloaded")}
 		}
 		return failureWording{"was rate-limited", withStatus("rate limited")}
-	case TurnErrorUpstream5xx:
+	case turnrecord.TurnErrorUpstream5xx:
 		return failureWording{"returned a " + strconv.Itoa(status), "server error " + strconv.Itoa(status)}
-	case TurnErrorStreamCut:
+	case turnrecord.TurnErrorStreamCut:
 		return failureWording{"cut the stream", "stream cut"}
-	case TurnErrorRefusal:
+	case turnrecord.TurnErrorRefusal:
 		return failureWording{"declined the request", "declined the request"}
-	case TurnErrorClientCanceled:
+	case turnrecord.TurnErrorClientCanceled:
 		return failureWording{"was canceled", "request canceled"}
 	default:
 	}
@@ -135,7 +136,7 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 		return failureWording{"refused our account credential", withStatus("refused our account credential")}
 	}
 	if status >= 400 && status < 500 {
-		if a.Diagnosis.BodyTranslated && attemptOwner(a) == FailureOwnerRouter {
+		if a.Diagnosis.BodyTranslated && attemptOwner(a) == turnrecord.FailureOwnerRouter {
 			return failureWording{"rejected our translated request", withStatus("rejected our translated request")}
 		}
 		return failureWording{"rejected the request", withStatus("rejected the request")}
@@ -145,7 +146,7 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 
 func rescueDetailLine(a dispatch.TracedAttempt) string {
 	owner := attemptOwner(a)
-	if owner == "" || owner == FailureOwnerUnknown {
+	if owner == "" || owner == turnrecord.FailureOwnerUnknown {
 		return ""
 	}
 	if _, limited := codexUsageLimitOf(a); limited || isUpstreamContextOverflow(a.Err) {
@@ -234,7 +235,7 @@ func attributeAttempt(a dispatch.TracedAttempt, retries int, err error) error {
 
 func attributionPrefix(a dispatch.TracedAttempt, retries int) string {
 	limit, limited := codexUsageLimitOf(a)
-	if attemptOwner(a) == FailureOwnerRouter && !limited {
+	if attemptOwner(a) == turnrecord.FailureOwnerRouter && !limited {
 		return ""
 	}
 	var outcome string
@@ -250,12 +251,12 @@ func attributionPrefix(a dispatch.TracedAttempt, retries int) string {
 	case status >= 400:
 		outcome = "returned " + strconv.Itoa(status) + " (" + failureWordingFor(a).badge + ")"
 	default:
-		switch TurnErrorClass(a.Diagnosis.ErrorClass) {
-		case TurnErrorTimeout:
+		switch turnrecord.TurnErrorClass(a.Diagnosis.ErrorClass) {
+		case turnrecord.TurnErrorTimeout:
 			outcome = "timed out"
-		case TurnErrorStreamStalled:
+		case turnrecord.TurnErrorStreamStalled:
 			outcome = "stalled mid-stream"
-		case TurnErrorStreamCut:
+		case turnrecord.TurnErrorStreamCut:
 			outcome = "cut the stream"
 		default:
 			return ""
@@ -285,7 +286,7 @@ func attributedTerminalMessage(a dispatch.TracedAttempt, prefix string) string {
 	wording := failureWordingFor(a).terminal
 	provider := attemptProviderName(a)
 	switch attemptOwner(a) {
-	case FailureOwnerProvider:
+	case turnrecord.FailureOwnerProvider:
 		if prefix != "" {
 			if msg := upstreamErrorText(a.Err); msg != "" {
 				return prefix + ": " + msg
@@ -293,9 +294,9 @@ func attributedTerminalMessage(a dispatch.TracedAttempt, prefix string) string {
 			return prefix + " (provider issue)."
 		}
 		return "Provider " + provider + " failed: " + wording + "."
-	case FailureOwnerRouter:
+	case turnrecord.FailureOwnerRouter:
 		return "Router error: " + strings.TrimPrefix(provider+" "+wording, "The provider ") + "."
-	case FailureOwnerClient:
+	case turnrecord.FailureOwnerClient:
 		return "Request rejected by " + provider + ": " + wording + "."
 	default:
 		return ""

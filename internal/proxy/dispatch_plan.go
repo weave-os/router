@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -132,17 +133,17 @@ func (s *Service) dispatchPlanned(ctx context.Context, in dispatch.FailoverInput
 			guarded = dispatch.ObservePrepared(guarded, observeAttemptSent(trace))
 		}
 		var lastSubscriptionErr error
-		if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
+		if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
 			usage.IntendedModel = decision.Model
 		}
 		for account := 0; ; account++ {
 			if !committed(in.Prelude) {
-				in.Writer.Header().Set(HeaderRouterProvider, decision.Provider)
-				in.Writer.Header().Set(HeaderRouterModel, decision.Model)
-				in.Writer.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+				in.Writer.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
+				in.Writer.Header().Set(requestcontext.HeaderRouterModel, decision.Model)
+				in.Writer.Header().Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 				if attempt.Index > 0 {
-					in.Writer.Header().Set(HeaderRouterFallbackFrom, in.Bindings[0].Provider)
-					in.Writer.Header().Set(HeaderRouterFallbackAttempt, attemptIdxLabel(attempt.Index))
+					in.Writer.Header().Set(requestcontext.HeaderRouterFallbackFrom, in.Bindings[0].Provider)
+					in.Writer.Header().Set(requestcontext.HeaderRouterFallbackAttempt, attemptIdxLabel(attempt.Index))
 				}
 			}
 			if current := CredentialsFromContext(attemptCtx); current != nil && current.OAuth && !s.supportsSubscriptionTransport(decision.Provider) {
@@ -180,7 +181,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in dispatch.FailoverInput
 			managedBinding = managedBinding || managedAttempt
 			credentialCtx = s.withClaudeSubscriptionProfile(credentialCtx, nil)
 			credentialCtx = withClaudeEnterpriseTurn(credentialCtx, decision)
-			if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && managedAttempt {
+			if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && managedAttempt {
 				if usage.AttemptedAccounts == nil {
 					usage.AttemptedAccounts = make(map[string]struct{})
 				}
@@ -198,7 +199,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in dispatch.FailoverInput
 				return dispatchAbort{err: subscriptionOnlyUnavailable(ctx)}
 			}
 			if creds := CredentialsFromContext(credentialCtx); creds != nil && creds.OAuth {
-				if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+				if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 					state.SubscriptionAttempted = true
 					if creds.Source == credSourceSubscription && creds.SubscriptionPlan != "" {
 						state.ClaudeSubscriptionPlan = creds.SubscriptionPlan
@@ -224,7 +225,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in dispatch.FailoverInput
 			}
 			lease.Release()
 			if attemptErr == nil {
-				if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
+				if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
 					usage.WinningCredentials = requestcontext.CredentialsFromContext(credentialCtx)
 					usage.Finished = true
 				}
@@ -345,7 +346,7 @@ func (s *Service) afterSubscriptionRotationBudget(ctx context.Context, decision 
 }
 
 func recordWinningCredentials(ctx, credentialCtx context.Context) {
-	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
 		usage.WinningCredentials = requestcontext.CredentialsFromContext(credentialCtx)
 		usage.Finished = true
 	}

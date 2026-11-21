@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -17,16 +18,16 @@ import (
 func TestRequestFactsFromReadsTheBoundaryKeys(t *testing.T) {
 	installation := uuid.New()
 	keys := []*auth.ExternalAPIKey{{ID: "key-1", Provider: providers.ProviderAnthropic}}
-	client := requestcontext.ClientIdentity{SessionID: "session-1", ClientApp: ClientAppCodex}
+	client := requestcontext.ClientIdentity{SessionID: "session-1", ClientApp: requestcontext.ClientAppCodex}
 	headers := http.Header{"Authorization": []string{"Bearer inbound"}}
 	ctx := observability.WithRequestID(context.Background(), "req-1")
 	ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "api-key-1")
 	ctx = context.WithValue(ctx, ExternalIDContextKey{}, "external-1")
 	ctx = context.WithValue(ctx, InstallationIDContextKey{}, installation.String())
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, keys)
-	ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, "claude-token")
-	ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, "codex-token")
-	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "account-1")
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, keys)
+	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, "claude-token")
+	ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, "codex-token")
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "account-1")
 	ctx = requestcontext.WithClientIdentity(ctx, client)
 
 	facts := requestFactsFrom(ctx, headers)
