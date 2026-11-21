@@ -7,7 +7,7 @@ import (
 )
 
 type turnTelemetry struct {
-	emitter   TelemetryEmitter
+	emitter   telemetry.Emitter
 	repo      TelemetryRepository
 	turnClock telemetry.SessionTurnClock
 }
