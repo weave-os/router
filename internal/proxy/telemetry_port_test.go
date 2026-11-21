@@ -62,7 +62,7 @@ func TestTelemetryPort_LinkFeedbackRecordsAndFlushes(t *testing.T) {
 	service := proxy.WithStrategyPorts(proxy.NewService(nil, nil, emitter, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithFeedback(&fakeFeedbackRepoForSpanTest{}, feedbacktoken.NewSigner("secret", time.Hour), "https://router.example.com")
 
-	err := service.SubmitFeedback(context.Background(), proxy.SubmitFeedbackParams{
+	err := service.SubmitFeedback(context.Background(), feedbacktoken.SubmitFeedbackParams{
 		InstallationID: "inst-1",
 		ExternalID:     "org-1",
 		RequestID:      "req-1",

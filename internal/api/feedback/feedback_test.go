@@ -21,21 +21,21 @@ import (
 )
 
 type fakeFeedbackRepo struct {
-	ctxResult proxy.FeedbackContext
+	ctxResult token.FeedbackContext
 	ctxErr    error
-	upserts   []proxy.UpsertFeedbackParams
+	upserts   []token.UpsertFeedbackParams
 }
 
-func (f *fakeFeedbackRepo) Upsert(_ context.Context, p proxy.UpsertFeedbackParams) error {
+func (f *fakeFeedbackRepo) Upsert(_ context.Context, p token.UpsertFeedbackParams) error {
 	f.upserts = append(f.upserts, p)
 	return nil
 }
 
-func (f *fakeFeedbackRepo) GetContext(_ context.Context, _, _ string) (proxy.FeedbackContext, error) {
+func (f *fakeFeedbackRepo) GetContext(_ context.Context, _, _ string) (token.FeedbackContext, error) {
 	return f.ctxResult, f.ctxErr
 }
 
-func newService(repo proxy.FeedbackRepository, signer *token.Signer) *proxy.Service {
+func newService(repo token.FeedbackRepository, signer *token.Signer) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(nil, nil, nil, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithFeedback(repo, signer, "https://router.example.com")
 }
@@ -43,7 +43,7 @@ func newService(repo proxy.FeedbackRepository, signer *token.Signer) *proxy.Serv
 func TestGetContextHandler_ValidTokenReturnsContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	signer := token.NewSigner("secret", time.Hour)
-	repo := &fakeFeedbackRepo{ctxResult: proxy.FeedbackContext{
+	repo := &fakeFeedbackRepo{ctxResult: token.FeedbackContext{
 		RequestID:      "req-1",
 		ChosenModel:    "claude-haiku-4-5",
 		ChosenProvider: "anthropic",
@@ -201,7 +201,7 @@ func TestSubmitHandler_InvalidTokenReturns404(t *testing.T) {
 	assert.Empty(t, repo.upserts)
 }
 
-func rateEngine(repo proxy.FeedbackRepository, signer *token.Signer) *gin.Engine {
+func rateEngine(repo token.FeedbackRepository, signer *token.Signer) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.GET("/v1/feedback/rate", feedbackapi.RateHandler(newService(repo, signer)))

@@ -100,7 +100,7 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 	linkSvc := proxy.WithStrategyPorts(proxy.NewService(nil, nil, emitter, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithFeedback(repo, signer, "https://router.example.com")
 
-	err := linkSvc.SubmitFeedback(context.Background(), proxy.SubmitFeedbackParams{
+	err := linkSvc.SubmitFeedback(context.Background(), feedbacktoken.SubmitFeedbackParams{
 		InstallationID: "inst-1",
 		ExternalID:     "org-1",
 		RequestID:      "req-1",
@@ -168,10 +168,10 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 
 type fakeFeedbackRepoForSpanTest struct{}
 
-func (f *fakeFeedbackRepoForSpanTest) Upsert(_ context.Context, _ proxy.UpsertFeedbackParams) error {
+func (f *fakeFeedbackRepoForSpanTest) Upsert(_ context.Context, _ feedbacktoken.UpsertFeedbackParams) error {
 	return nil
 }
 
-func (f *fakeFeedbackRepoForSpanTest) GetContext(_ context.Context, _, _ string) (proxy.FeedbackContext, error) {
-	return proxy.FeedbackContext{}, nil
+func (f *fakeFeedbackRepoForSpanTest) GetContext(_ context.Context, _, _ string) (feedbacktoken.FeedbackContext, error) {
+	return feedbacktoken.FeedbackContext{}, nil
 }

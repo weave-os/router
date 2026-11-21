@@ -87,7 +87,7 @@ func SubmitHandler(svc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 
-		err = svc.SubmitFeedback(c.Request.Context(), proxy.SubmitFeedbackParams{
+		err = svc.SubmitFeedback(c.Request.Context(), token.SubmitFeedbackParams{
 			InstallationID: claims.InstallationID,
 			ExternalID:     claims.ExternalID,
 			RequestID:      claims.RequestID,
@@ -128,7 +128,7 @@ func RateHandler(svc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 
-		err = svc.SubmitFeedback(c.Request.Context(), proxy.SubmitFeedbackParams{
+		err = svc.SubmitFeedback(c.Request.Context(), token.SubmitFeedbackParams{
 			InstallationID: claims.InstallationID,
 			ExternalID:     claims.ExternalID,
 			RequestID:      claims.RequestID,
@@ -145,7 +145,7 @@ func RateHandler(svc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-func toContextResponse(f proxy.FeedbackContext) contextResponse {
+func toContextResponse(f token.FeedbackContext) contextResponse {
 	resp := contextResponse{
 		RequestID:      f.RequestID,
 		ChosenModel:    f.ChosenModel,
