@@ -213,11 +213,11 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	if useCodex {
 		baseURL = c.codexBaseURL
 		path = codexResponsesPath
-		shaped, collect, err := codexDispatchBody(reqBody)
+		shaped, collectForcedStream, err := codexDispatchBody(reqBody)
 		if err != nil {
 			return err
 		}
-		reqBody, collectCodexResponse = shaped, collect
+		reqBody, collectCodexResponse = shaped, collectForcedStream
 	} else if prep.Endpoint == providers.EndpointResponses {
 		reqBody = maxEffortToXhigh(reqBody, decision.Model)
 	}
