@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -781,72 +780,20 @@ func (s *Service) runTurnLoop(
 		}
 		pin.Provider = binding
 	}
-	disabledProviders := candidates.MergeSessionStrikes(pin.DisabledProviders, hmmHistory.DisabledProviders)
 	forcedProvider := ""
 	if forceModelFound {
 		forcedProvider = forceModelPin.Provider
 	} else if pinFound && isUserForcedReason(pin.Reason) {
 		forcedProvider = pin.Provider
 	}
-	if forcedProvider != "" {
-		filtered := make([]string, 0, len(disabledProviders))
-		for _, provider := range disabledProviders {
-			if provider != forcedProvider {
-				filtered = append(filtered, provider)
-			}
-		}
-		disabledProviders = filtered
-	}
-	if len(disabledProviders) > 0 {
+	if disabledProviders := candidates.SessionDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders, forcedProvider); len(disabledProviders) > 0 {
 		res.SessionDisabledProviders = disabledProviders
-		if req.EnabledProviders != nil {
-			filtered := make(map[string]struct{}, len(req.EnabledProviders))
-			for p := range req.EnabledProviders {
-				filtered[p] = struct{}{}
-			}
-			for _, p := range disabledProviders {
-				delete(filtered, p)
-			}
-			req.EnabledProviders = filtered
-		}
+		req.EnabledProviders = candidates.WithoutProviders(req.EnabledProviders, disabledProviders)
 	}
-	demoted := candidates.MergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels)
-	if turnStrikes := candidates.MergeSessionStrikes(pin.TurnStrikes, hmmHistory.TurnStrikes); len(turnStrikes) > 0 {
-		if routingEndsWithUserPrompt(ctx, env) {
-			s.clearTurnStrikes(ctx, res.SessionKey, res.PinRole)
-		} else {
-			demoted = candidates.MergeSessionStrikes(demoted, turnStrikes)
-		}
-	}
+	demoted := sessionDemotedModels(ctx, s, env, &res, pin, hmmHistory)
 	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.ImageCount), req.HasTools)
 	if s.ResolveTransientRateLimit(ctx) && (!forceModelFound || !candidates.ForcedPinEligible(forceModelPin, req)) {
-		cooldowns := mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns)
-		now := s.clock.Now()
-		cooling := activeDemotionCooldowns(cooldowns, now)
-		if len(cooling) > 0 {
-			res.SessionCooldownModels = readmittableCooldowns(cooling, demoted, req.ImageCount)
-			demoted = candidates.MergeSessionStrikes(demoted, cooldownsByExpiry(cooling))
-		}
-		expired := expiredDemotionCooldowns(cooldowns, now)
-		probed := false
-		for _, model := range cooldownsByExpiry(expired) {
-			if slices.Contains(demoted, model) ||
-				modelExcludedForRecoveryProbe(req, model) {
-				continue
-			}
-			if !probed {
-				if release, acquired := s.acquireRecoveryProbe(ctx, res.SessionKey, model); acquired {
-					res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
-					res.CooldownProbes = map[string]time.Time{model: expired[model]}
-					probed = true
-					continue
-				}
-			}
-			demoted = candidates.MergeSessionStrikes(demoted, []string{model})
-			res.CooldownProbeDeniedModels = append(res.CooldownProbeDeniedModels, model)
-			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, model)
-			ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, res.CooldownProbeDeniedModels)
-		}
+		ctx, demoted = applyDemotionCooldowns(ctx, s, &req, &res, demoted, mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns))
 	}
 	if len(demoted) > 0 {
 		res.SessionDemotedModels = demoted
@@ -878,95 +825,22 @@ func (s *Service) runTurnLoop(
 
 	forcedTierFloor := catalog.TierUnknown
 	if forceModelFound {
-		_, excluded := req.Candidates.ExcludedModels[forceModelPin.Model]
-		_, providerEnabled := req.EnabledProviders[forceModelPin.Provider]
-		providerEligible := req.EnabledProviders == nil || providerEnabled
-		imageCapable := candidates.ForcedPinServesImages(forceModelPin, req)
-		if _, estimateOnly := req.Candidates.ContextWindowExcludedModels[forceModelPin.Model]; excluded && estimateOnly {
-			log.Info("Forced session pin dispatched past the context-window estimate; the provider decides",
-				"pin_model", forceModelPin.Model,
-				"pin_provider", forceModelPin.Provider,
-				"role", res.PinRole,
-			)
-			excluded = false
-		}
-		if _, imageLimitExcluded := req.Candidates.ImageLimitExcludedModels[forceModelPin.Model]; imageLimitExcluded {
-			log.Info("Forced session pin dispatched past the image-count cap; the provider decides",
-				"pin_model", forceModelPin.Model,
-				"pin_provider", forceModelPin.Provider,
-				"role", res.PinRole,
-			)
-			excluded = false
-		}
-		if !excluded && providerEligible && imageCapable {
-			res.PinModel = forceModelPin.Model
-			res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
-			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
-				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
-			res.serveForceModelPin(forceModelPin)
-			sessionPins.AnchorForceModelHistory(ctx, installationID, res.SessionKey, res.PinRole, forceModelPin)
+		served, tierFloor := serveForceModelPin(ctx, &req, &res, forceModelPin, forceHistory, sessionPins, s.clock.Now())
+		if served {
 			return res, nil
 		}
-		res.ForcedPinDropped = true
-		res.ForcedPinDropReason = candidates.ForcedPinIneligibilityReason(forceModelPin, req)
-		res.ForcedPinModel = forceModelPin.Model
-		log.Info("Forced session pin dropped for this turn",
-			"pin_model", forceModelPin.Model,
-			"pin_provider", forceModelPin.Provider,
-			"drop_reason", res.ForcedPinDropReason,
-			"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
-			"role", res.PinRole,
-		)
-		if excluded || !imageCapable {
-			forcedTierFloor = catalog.TierFor(forceModelPin.Model)
-		}
-		if !imageCapable {
-			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, forceModelPin.Model)
-		}
+		forcedTierFloor = tierFloor
 		if !sessionForceControlFound || isUserForcedReason(pin.Reason) {
 			pinFound = false
 			pin = sessionpin.Pin{}
 		}
 	}
 	if pinFound && isUserForcedReason(pin.Reason) {
-		_, excluded := req.Candidates.ExcludedModels[pin.Model]
-		_, providerEnabled := req.EnabledProviders[pin.Provider]
-		providerEligible := req.EnabledProviders == nil || providerEnabled
-		imageCapable := candidates.PinServesImages(pin, req)
-		if !excluded && providerEligible && imageCapable {
-			decision := pin.Decision()
-			decision.Reason = pin.Reason
-			res.PinTier = pin.Reason
-			res.Decision = decision
-			res.UserForced = decision.UserForcedModel()
-			res.StickyHit = true
-			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pin.Decision())
+		served, tierFloor := serveUserForcedPin(ctx, &req, &res, pin, sessionPins)
+		if served {
 			return res, nil
 		}
-		dropReason := "excluded"
-		switch {
-		case !providerEligible:
-			dropReason = "provider_not_enabled"
-		case !imageCapable:
-			dropReason = "not_image_capable"
-		}
-		log.Info("Forced session pin dropped for this turn",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-			"pin_reason", pin.Reason,
-			"drop_reason", dropReason,
-			"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
-			"role", res.PinRole,
-		)
-		res.ForcedPinDropped = true
-		res.ForcedPinDropReason = dropReason
-		res.ForcedPinModel = pin.Model
-		if excluded || !imageCapable {
-			forcedTierFloor = catalog.TierFor(pin.Model)
-		}
-		if !imageCapable {
-			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, pin.Model)
-		}
+		forcedTierFloor = tierFloor
 		pinFound = false
 		pin = sessionpin.Pin{}
 	}
