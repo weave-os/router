@@ -207,9 +207,7 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 		delta = 0
 	case p.ByokServed:
 		delta = 0
-		if !unfundedTurn(ctx) {
-			fee = -s.byokFeeMicros(notional)
-		}
+		fee = -s.byokFeeMicros(notional)
 	case subscriberCovered:
 		held, err := s.meterSubscriberAllowance(ctx, p, coverage, notional)
 		if err != nil {
