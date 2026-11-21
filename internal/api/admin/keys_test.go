@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -394,7 +395,7 @@ func upsertKeyEngineWithModels(svc *auth.Service, models admin.HMMRosterSource) 
 	engine := gin.New()
 	engine.POST("/admin/v1/provider-keys", func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{ID: "inst-1"})
-	}, admin.UpsertExternalKeyHandler(svc, models))
+	}, admin.UpsertExternalKeyHandler(svc, models, admin.Config{HasDeploymentProviderKey: func(p string) bool { return os.Getenv(providers.APIKeyEnvVar(p)) != "" }}))
 	return engine
 }
 
