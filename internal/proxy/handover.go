@@ -12,6 +12,7 @@ import (
 	"time"
 	"weave-os/router/internal/billing"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -326,58 +327,23 @@ func extractAnthropicAssistantText(body []byte) string {
 var _ handover.Summarizer = (*ProviderSummarizer)(nil)
 
 func (s *Service) runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) dispatch.HandoverOutcome {
-	log := observability.FromContext(ctx)
-	var out dispatch.HandoverOutcome
-	out.Invoked = true
-
 	summarizer := s.summarizer
-	if s.compactionHandoverSummarizer != nil {
-		summarizer = s.compactionHandoverSummarizer
+	if compactionSummarizer := s.lifecycle.CompactionHandoverSummarizer(); compactionSummarizer != nil {
+		summarizer = compactionSummarizer
 	}
-	var (
-		sumProvider       string
-		sumCreds          *Credentials
-		canCallSummarizer bool
-	)
-	if summarizer != nil {
-		sumProvider = summarizer.Provider()
-		sumCreds = summarizerCredsFor(ctx, sumProvider, reqHeaders)
-		nonDepCreds := s.requestUsesNonDeploymentCreds(ctx, reqHeaders)
-		canCallSummarizer = sumCreds != nil || !nonDepCreds
-	}
+	return conversation.CompactionHandover{
+		Summarizer: summarizer,
+		Access:     summarizerAccess{s: s, headers: reqHeaders},
+		Now:        s.clock.Now,
+	}.Run(ctx, env, decisionModel, scope)
+}
 
-	switch {
-	case summarizer == nil:
-		out.FallbackToFullHistory = true
-		log.Info("Compaction handover: summarizer not wired; preserved compacted body instead", "decision_model", decisionModel)
-	case !canCallSummarizer:
-		out.FallbackToFullHistory = true
-		log.Info("Compaction handover: summarizer skipped (tenant boundary); preserved compacted body instead", "decision_model", decisionModel)
-	default:
-		var summCtx context.Context
-		if sumCreds != nil {
-			summCtx = context.WithValue(ctx, CredentialsContextKey{}, sumCreds)
-		} else {
-			summCtx = clearCredentials(ctx)
-		}
-		start := s.clock.Now()
-		summary, summaryUsage, sumErr := summarizer.Summarize(summCtx, env, scope)
-		out.LatencyMS = s.clock.Now().Sub(start).Milliseconds()
-		switch {
-		case sumErr != nil:
-			out.FallbackToFullHistory = true
-			log.Warn("Compaction handover: summarizer failed; preserved compacted body instead", "err", sumErr, "decision_model", decisionModel)
-		case summary == "":
-			out.FallbackToFullHistory = true
-			log.Warn("Compaction handover: summarizer returned empty; preserved compacted body instead", "decision_model", decisionModel)
-		default:
-			handover.RewriteEnvelope(env, summary)
-			out.SummaryTokens = estimateSummaryTokens(summary)
-			out.SummaryUsage = summaryUsage
-			log.Info("Compaction handover: context rewritten with summary", "summary_len", len(summary), "decision_model", decisionModel)
-		}
+func (s *Service) WithCompactionHandoverSummarizer(sz handover.Summarizer) *Service {
+	if s.lifecycle == nil {
+		s.lifecycle = &conversation.Lifecycle{}
 	}
-	return out
+	s.lifecycle.SetCompactionHandoverSummarizer(sz)
+	return s
 }
 
 func summarizerCredsFor(ctx context.Context, provider string, headers http.Header) *Credentials {

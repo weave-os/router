@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
@@ -1333,12 +1334,7 @@ func buildPolicyTurnContext(
 	}
 }
 
-func estimateSummaryTokens(s string) int {
-	if s == "" {
-		return 0
-	}
-	return len(s) / 4
-}
+func estimateSummaryTokens(s string) int { return conversation.EstimateSummaryTokens(s) }
 
 func resolveSummarizerCreds(ctx context.Context, provider string, headers http.Header) *Credentials {
 	if provider == "" {
