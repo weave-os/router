@@ -10,7 +10,10 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -158,4 +161,47 @@ func TestSubscriptionModelAccessFollowsTheWinningCredentialOfAFinishedManagedTur
 
 	assert.Equal(t, []string{"claude-sonnet-4-5"}, svc.credentials.SubscriptionModels.ServedForCaller(winning, now))
 	assert.Empty(t, svc.credentials.SubscriptionModels.ServedForCaller(requested, now), "the served model belongs to the credential that served the turn")
+}
+
+func finishedManagedTurnOnAnotherCredential() (ctx context.Context, requested, winning *Credentials) {
+	requested = &Credentials{APIKey: []byte("sk-ant-oat01-requested"), OAuth: true}
+	winning = &Credentials{APIKey: []byte("sk-ant-oat01-winning"), OAuth: true}
+	ctx = context.WithValue(context.Background(), CredentialsContextKey{}, requested)
+	ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{Finished: true, WinningCredentials: winning})
+	return ctx, requested, winning
+}
+
+type anyPurposePlan struct{ inference.ResolvedPlan }
+
+func (anyPurposePlan) Purpose() inference.Purpose { return inference.Purpose("") }
+
+func TestLeasedProviderAttemptMarksTheModelServedForTheWinningCredential(t *testing.T) {
+	now := time.Now()
+	svc := &Service{clock: func() time.Time { return now }}
+	ctx, requested, winning := finishedManagedTurnOnAnotherCredential()
+	served := func(context.Context, router.Decision, dispatch.Upstream) error { return nil }
+
+	_, err := invokeLeasedProviderAttempt(svc, ctx, anyPurposePlan{}, leasedProviderAttempt{
+		inputs:   dispatch.FailoverInputs{Attempt: served},
+		decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-5-5"},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude-sonnet-5-5"}, svc.credentials.SubscriptionModels.ServedForCaller(winning, now))
+	assert.Empty(t, svc.credentials.SubscriptionModels.ServedForCaller(requested, now), "the served model belongs to the credential that served the turn")
+}
+
+func TestClassifierRescuePolicyReadsServedAndDeniedModelsOfTheWinningCredential(t *testing.T) {
+	now := time.Now()
+	svc := &Service{clock: func() time.Time { return now }}
+	ctx, requested, winning := finishedManagedTurnOnAnotherCredential()
+	access := &svc.credentials.SubscriptionModels
+	access.MarkServedForCaller(winning, providers.ProviderAnthropic, "claude-sonnet-5-5", now)
+	access.MarkServedForCaller(requested, providers.ProviderAnthropic, "claude-haiku-5-5", now)
+	access.Deny(winning.APIKey, "claude-opus-5-5", now.Add(time.Hour))
+
+	policy := newClassifierRescuePolicy(ctx, svc)
+
+	assert.Equal(t, []string{"claude-sonnet-5-5"}, policy.models[1:], "rescue candidates come from the credential that served the turn")
+	assert.True(t, policy.unavailable("claude-opus-5-5"), "a model denied to the winning credential is skipped")
 }
