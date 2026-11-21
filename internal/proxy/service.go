@@ -92,7 +92,7 @@ type Service struct {
 	llmEscalationInvalidate      func(string)
 	sessionStrategyStore         sessionstrategy.Store
 	classifierSessions           *classifierSessions
-	noProgress                   *conversation.NoProgressTracker
+	lifecycle                    *conversation.Lifecycle
 	compaction                   *conversation.CompactionTracker
 	prefixTrimFreeSwitch         bool
 	escapeNormalize              bool
@@ -144,7 +144,6 @@ type Service struct {
 	bandSwap                       *bandswap.Classifier
 
 	turnSignalCaptureEnabled     bool
-	textRepetitionBreakEnabled   bool
 	feedbackStore                RouterFeedbackStore
 	summarizer                   handover.Summarizer
 	webSearch                    websearch.Executor
@@ -1004,13 +1003,12 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		emitter:                        emitter,
 		ingress:                        ingress.New(0),
 		pinStore:                       pinStore,
-		noProgress:                     conversation.NewNoProgressTracker(),
+		lifecycle:                      conversation.NewLifecycle(),
 		searchUse:                      newSearchUseTracker(),
 		searchRequirementDecayTurns:    DefaultSearchRequirementDecayTurns,
 		compaction:                     conversation.NewCompactionTracker(),
 		prefixTrimFreeSwitch:           true,
 		turnSignalCaptureEnabled:       true,
-		textRepetitionBreakEnabled:     true,
 		ccOrchToolsCrossVendor:         true,
 		hardPinExplore:                 hardPinExplore,
 		hardPinProvider:                hardPinProvider,
@@ -1439,7 +1437,7 @@ func (s *Service) HasExcludedModelsOverride() bool {
 	return s.routing.ExcludedModelsOverride() != nil
 }
 
-func (s *Service) WithGlobalAutomaticExclusions(store GlobalAutomaticExclusionStore) *Service {
+func (s *Service) WithGlobalAutomaticExclusions(store candidates.GlobalAutomaticExclusionStore) *Service {
 	if store == nil {
 		s.globalAutomaticExclusions = nil
 		return s
@@ -2063,7 +2061,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, strategy router.Str
 		return
 	}
 	log.Info("safety refusal — re-pinned session off refusing model",
-		"session_key", shortSessionKey(sessionKey),
+		"session_key", conversation.ShortSessionKey(sessionKey),
 		"refusal_category", category,
 		"from_model", served.Model,
 		"to_model", fbModel,
@@ -2485,24 +2483,23 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	tt := routeRes.TurnType
 	stickyHit := routeRes.StickyHit
-	pinTier := routeRes.PinTier
 	pinAgeSec := routeRes.PinAgeSec
 	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
 	s.logPlannerOutcome(ctx, routeRes)
 
 	toolBearingTurn := inboundToolCallCount > 0 || inboundLastUser.HasToolResult
-	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && toolBearingTurn && s.noProgress != nil {
+	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && toolBearingTurn && s.lifecycle.NoProgress() != nil {
 		fp := conversation.ComputeNoProgressFingerprint(decision, promptText, feats.MessageCount, conversation.ToolProgressMarker(env))
 		role := roleForTier(catalog.TierFor(feats.Model))
-		if looped, count := s.noProgress.RecordAndDetect(routeRes.SessionKey, facts.InstallationID, role, fp, s.clock.Now()); looped {
-			return s.handleNoProgressBreak(ctx, w, env, count, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, role, decision.Model, decision.Provider, feats.Tokens, routeRes.Decision.Reason)
+		if looped, count := s.lifecycle.NoProgress().RecordAndDetect(routeRes.SessionKey, facts.InstallationID, role, fp, s.clock.Now()); looped {
+			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, role, decision).NoProgress(ctx, env, count, routeRes.Decision.Reason), feats.Tokens)
 		}
 	}
 
 	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
-			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, role, decision.Model, decision.Provider, feats.Tokens)
+			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, role, decision).TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
 		}
 	}
 
@@ -2540,49 +2537,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	reqPricing, _ := catalog.PrimaryPriceFor(s.baselineFor(ctx, feats.Model))
 	actPricing, _ := catalog.PrimaryPriceFor(decision.Model)
-	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
-	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
-	decisionBuilder := telemetry.NewAttrBuilder(46).
-		String("request_id", facts.RequestID).
-		String("external_id", facts.ExternalID).
-		String("router_user_id", auth.UserIDFrom(ctx)).
-		String("client.device_id", facts.Client.DeviceID).
-		String("client.account_id", facts.Client.AccountID).
-		String("client.session_id", facts.Client.SessionID).
-		String("client.user_agent", facts.Client.UserAgent).
-		String("client.app", facts.Client.TelemetryClientApp()).
-		String("rollout_id", policyRolloutIDFromContext(ctx)).
-		String("requested.model", feats.Model).
-		String("decision.model", decision.Model).
-		String("decision.provider", decision.Provider).
-		String("decision.reason", decision.Reason).
-		Bool("routing.policy_fallback", routeRes.PolicyFallback).
-		Bool("routing.sticky_hit", stickyHit).
-		Bool("routing.session_pin_hit", pinTier == "in_proc" || pinTier == "postgres").
-		String("routing.session_pin_tier", pinTier).
-		Int64("routing.session_pin_age_s", pinAgeSec).
-		String("routing.turn_type", string(tt)).
-		String("routing.embed_input", embedInput).
-		Int64("routing.estimated_input_tokens", int64(feats.Tokens)).
-		Float64("catalog.requested_input_per_1m", reqDecisionPricing.InputUSDPer1M).
-		Float64("catalog.requested_output_per_1m", reqDecisionPricing.OutputUSDPer1M).
-		Float64("catalog.actual_input_per_1m", actDecisionPricing.InputUSDPer1M).
-		Float64("catalog.actual_output_per_1m", actDecisionPricing.OutputUSDPer1M).
-		Int64("latency.route_ms", routeMs)
-	applySubscriptionDecisionSpanTelemetry(ctx, decisionBuilder, feats.Model, decision.Model)
-	applyServingSpanAttrs(ctx, decisionBuilder)
-	applySidecarAttrs(decisionBuilder, routeRes)
-	applyPlannerAttrs(decisionBuilder, routeRes)
-	applyRoutingStateAttrs(decisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
-	applyCallerRoutingAttrs(ctx, decisionBuilder)
-	applyExperimentAttrs(ctx, decisionBuilder, &routeRes, taskArm, feats.Model, routeRes.Decision.Model)
-	telemetry.Record(ctx, telemetry.Span{
-		Name:  "router.decision",
-		Start: requestStart,
-		End:   s.clock.Now(),
-		Attrs: decisionBuilder.Build(),
+	recordDecisionSpan(ctx, s.clock, decisionSpan{
+		surface: decisionSpanWithTaskArmAndSubscriber, facts: facts, feats: feats, decision: decision, routeRes: &routeRes, taskArm: taskArm,
+		sessionKey: sessionKey, embedInput: embedInput, routeMs: routeMs,
+		reqPricing: reqPricing, actPricing: actPricing, start: requestStart,
 	})
-	telemetry.Flush(ctx)
 
 	opts := translate.EmitOptions{
 		TargetModel:                       decision.Model,
@@ -3305,7 +3264,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			"repair_actions", iss.Actions,
 			"model", decision.Model,
 			"provider", finalProvider,
-			"session_key_prefix", shortSessionKey(routeRes.SessionKey),
+			"session_key_prefix", conversation.ShortSessionKey(routeRes.SessionKey),
 		)
 	}
 
@@ -3725,37 +3684,6 @@ func pinDecision(p sessionpin.Pin) router.Decision {
 		Effort:   p.Effort,
 		Reason:   p.Reason,
 	}
-}
-
-func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Decision, bool) {
-	if s.policyDeadlineDefaultModel == "" {
-		return router.Decision{}, false
-	}
-	if _, excluded := req.Candidates.ExcludedModels[s.policyDeadlineDefaultModel]; excluded {
-		return router.Decision{}, false
-	}
-	if _, excluded := req.Candidates.SafetyExcludedModels[s.policyDeadlineDefaultModel]; excluded {
-		return router.Decision{}, false
-	}
-
-	providerSet := make(map[string]struct{}, s.clients.Len())
-	for _, provider := range s.clients.Names() {
-		if req.EnabledProviders != nil {
-			if _, enabled := req.EnabledProviders[provider]; !enabled {
-				continue
-			}
-		}
-		providerSet[provider] = struct{}{}
-	}
-	binding, ok := catalog.ResolveBinding(s.policyDeadlineDefaultModel, providerSet)
-	if !ok {
-		return router.Decision{}, false
-	}
-	return router.Decision{
-		Provider: binding.Provider,
-		Model:    s.policyDeadlineDefaultModel,
-		Reason:   policyDeadlineDefaultReason,
-	}, true
 }
 
 func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, hasImages bool, imageCount int, enabledProviders, excludedModels map[string]struct{}) router.Decision {
@@ -4526,7 +4454,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if facts.Client.ClientApp == requestcontext.ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
-			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, role, decision.Model, decision.Provider, feats.Tokens)
+			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, sessionKey, role, decision).TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
 		}
 	}
 
@@ -4545,49 +4473,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	reqPricing, _ := catalog.PrimaryPriceFor(s.baselineFor(ctx, feats.Model))
 	actPricing, _ := catalog.PrimaryPriceFor(decision.Model)
-	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
-	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
-	openaiDecisionBuilder := telemetry.NewAttrBuilder(46).
-		String("request_id", facts.RequestID).
-		String("external_id", facts.ExternalID).
-		String("router_user_id", auth.UserIDFrom(ctx)).
-		String("client.device_id", facts.Client.DeviceID).
-		String("client.account_id", facts.Client.AccountID).
-		String("client.session_id", facts.Client.SessionID).
-		String("client.user_agent", facts.Client.UserAgent).
-		String("client.app", facts.Client.TelemetryClientApp()).
-		String("rollout_id", policyRolloutIDFromContext(ctx)).
-		String("requested.model", feats.Model).
-		String("decision.model", decision.Model).
-		String("decision.provider", decision.Provider).
-		String("decision.reason", decision.Reason).
-		Bool("routing.policy_fallback", routeRes.PolicyFallback).
-		Bool("routing.sticky_hit", stickyHit).
-		Bool("routing.session_pin_hit", pinTier == "in_proc" || pinTier == "postgres").
-		String("routing.session_pin_tier", pinTier).
-		Int64("routing.session_pin_age_s", pinAgeSec).
-		String("routing.turn_type", string(tt)).
-		String("routing.embed_input", embedInput).
-		Int64("routing.estimated_input_tokens", int64(feats.Tokens)).
-		Float64("catalog.requested_input_per_1m", reqDecisionPricing.InputUSDPer1M).
-		Float64("catalog.requested_output_per_1m", reqDecisionPricing.OutputUSDPer1M).
-		Float64("catalog.actual_input_per_1m", actDecisionPricing.InputUSDPer1M).
-		Float64("catalog.actual_output_per_1m", actDecisionPricing.OutputUSDPer1M).
-		Int64("latency.route_ms", routeMs)
-	applySubscriptionDecisionSpanTelemetry(ctx, openaiDecisionBuilder, feats.Model, decision.Model)
-	applyServingSpanAttrs(ctx, openaiDecisionBuilder)
-	applySidecarAttrs(openaiDecisionBuilder, routeRes)
-	applyPlannerAttrs(openaiDecisionBuilder, routeRes)
-	applyRoutingStateAttrs(openaiDecisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
-	applyCallerRoutingAttrs(ctx, openaiDecisionBuilder)
-	applyExperimentAttrs(ctx, openaiDecisionBuilder, &routeRes, taskArm, feats.Model, routeRes.Decision.Model)
-	telemetry.Record(ctx, telemetry.Span{
-		Name:  "router.decision",
-		Start: requestStart,
-		End:   s.clock.Now(),
-		Attrs: openaiDecisionBuilder.Build(),
+	recordDecisionSpan(ctx, s.clock, decisionSpan{
+		surface: decisionSpanWithTaskArmAndSubscriber, facts: facts, feats: feats, decision: decision, routeRes: &routeRes, taskArm: taskArm,
+		sessionKey: sessionKey, embedInput: embedInput, routeMs: routeMs,
+		reqPricing: reqPricing, actPricing: actPricing, start: requestStart,
 	})
-	telemetry.Flush(ctx)
 
 	opts := translate.EmitOptions{
 		TargetModel:              decision.Model,
@@ -5452,7 +5342,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			"repair_actions", iss.Actions,
 			"model", decision.Model,
 			"provider", finalProvider,
-			"session_key_prefix", shortSessionKey(routeRes.SessionKey),
+			"session_key_prefix", conversation.ShortSessionKey(routeRes.SessionKey),
 		)
 	}
 
