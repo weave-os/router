@@ -59,7 +59,7 @@ func WithAdminOnly(svc *auth.Service) gin.HandlerFunc {
 }
 
 func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAdmissionConfig) gin.HandlerFunc {
-	allowedOrganizations := organizationAllowlistFromEnv()
+	allowedOrganizations := configuredOrganizationAllowlist()
 	return func(c *gin.Context) {
 		parentCtx := c.Request.Context()
 		var testPlan *policyregistry.TestPlanScope
