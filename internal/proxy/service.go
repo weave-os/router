@@ -1439,7 +1439,7 @@ func (s *Service) HasExcludedModelsOverride() bool {
 	return s.routing.ExcludedModelsOverride() != nil
 }
 
-func (s *Service) WithGlobalAutomaticExclusions(store GlobalAutomaticExclusionStore) *Service {
+func (s *Service) WithGlobalAutomaticExclusions(store candidates.GlobalAutomaticExclusionStore) *Service {
 	if store == nil {
 		s.globalAutomaticExclusions = nil
 		return s
