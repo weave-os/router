@@ -294,7 +294,7 @@ func TestNewTransportUsesConfiguredProxyUnlessPublicDestinationsOnly(t *testing.
 	t.Cleanup(func() { upstreamProxy = previous })
 	proxyURL := &url.URL{Scheme: "http", Host: "proxy.invalid:3128"}
 	upstreamProxy = http.ProxyURL(proxyURL)
-	req := httptest.NewRequest(http.MethodGet, "https://api.example.com/v1", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example.com/v1", nil)
 
 	got, err := newTransport(time.Second, time.Second, time.Second, false).Proxy(req)
 	require.NoError(t, err)
