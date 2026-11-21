@@ -14,12 +14,12 @@ import (
 
 func TestSettleChoosesTheHandoverOnlyForAPinnedSwitch(t *testing.T) {
 	stay := planner.Decision{Outcome: planner.OutcomeStay, Reason: "ev"}
-	sw := planner.Decision{Outcome: planner.OutcomeSwitch, Reason: "ev"}
+	switching := planner.Decision{Outcome: planner.OutcomeSwitch, Reason: "ev"}
 
 	assert.Equal(t, continuity.Outcome{Stay: true, PinTier: "postgres_stay_ev"}, continuity.Settle(stay, true, false))
 	assert.Equal(t, continuity.Outcome{}, continuity.Settle(stay, false, false))
-	assert.Equal(t, continuity.Outcome{PinTier: "switch_ev", Handover: continuity.HandoverSummarize}, continuity.Settle(sw, true, false))
-	assert.Equal(t, continuity.Outcome{PinTier: "switch_ev", Handover: continuity.HandoverSkippedTrimmedHistory}, continuity.Settle(sw, true, true))
+	assert.Equal(t, continuity.Outcome{PinTier: "switch_ev", Handover: continuity.HandoverSummarize}, continuity.Settle(switching, true, false))
+	assert.Equal(t, continuity.Outcome{PinTier: "switch_ev", Handover: continuity.HandoverSkippedTrimmedHistory}, continuity.Settle(switching, true, true))
 }
 
 func TestJudgeReanchorServesAnExpiredPinNoWeakerThanTheFreshPick(t *testing.T) {
