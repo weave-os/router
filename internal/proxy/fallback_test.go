@@ -107,16 +107,16 @@ func TestDispatchWithFallback_PrimarySucceedsNoRetry(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings: []catalog.ProviderBinding{
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings: []catalog.ProviderBinding{
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			// No Prelude phase in these tests, so Seal happens right before Proxy.
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
@@ -135,11 +135,11 @@ func TestDispatchWithFallback_RejectsMissingPurposeBeforeAnyAttempt(t *testing.T
 	s := newServiceWithProviders(t, map[string]providers.Client{"fireworks": primary})
 
 	rec := httptest.NewRecorder()
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
-		bindings:        []catalog.ProviderBinding{{Provider: "fireworks"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
+		Bindings:        []catalog.ProviderBinding{{Provider: "fireworks"}},
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
 	})
@@ -169,16 +169,16 @@ func TestDispatchWithFallback_RetriesOnRetryableBufferedError(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings: []catalog.ProviderBinding{
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings: []catalog.ProviderBinding{
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			// No Prelude phase in these tests, so Seal happens right before Proxy.
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
@@ -220,16 +220,16 @@ func TestDispatchWithFallback_SchemaRejectionDoesNotFailoverCrossBinding(t *test
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "moonshotai/kimi-k3"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings: []catalog.ProviderBinding{
+	_, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "moonshotai/kimi-k3"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings: []catalog.ProviderBinding{
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -259,16 +259,16 @@ func TestDispatchWithFallback_RetriesOnTransportError(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings: []catalog.ProviderBinding{
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings: []catalog.ProviderBinding{
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			// No Prelude phase in these tests, so Seal happens right before Proxy.
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
@@ -300,16 +300,16 @@ func TestDispatchWithFallback_RetriesOnResponseHeaderTimeout(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-flash"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings: []catalog.ProviderBinding{
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-flash"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings: []catalog.ProviderBinding{
 			{Provider: providers.ProviderMakora},
 			{Provider: providers.ProviderOpenRouter},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -345,16 +345,16 @@ func TestDispatchWithFallback_RetriesOnUpstreamIdleTimeout(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "gpt-5.5"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings: []catalog.ProviderBinding{
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "gpt-5.5"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings: []catalog.ProviderBinding{
 			{Provider: providers.ProviderOpenAI},
 			{Provider: providers.ProviderOpenRouter},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -384,21 +384,21 @@ func TestDispatchWithFallback_NoRetryOnNonRetryableStatus(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings: []catalog.ProviderBinding{
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings: []catalog.ProviderBinding{
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			// No Prelude phase in these tests, so Seal happens right before Proxy.
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
+		FlushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
@@ -430,20 +430,20 @@ func TestDispatchWithFallback_ModelNotFoundFailsOverToNextBinding(t *testing.T) 
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "qwen/qwen3-next-80b-a3b-instruct"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings: []catalog.ProviderBinding{
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "qwen/qwen3-next-80b-a3b-instruct"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings: []catalog.ProviderBinding{
 			{Provider: "bedrock"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
+		FlushErr: flushBufferedIfPresent,
 	})
 
 	require.NoError(t, err, "404 on primary must fail over to the next binding")
@@ -466,17 +466,17 @@ func TestDispatchWithFallback_ModelNotFoundSingleBindingFlushes(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "qwen/qwen3-next-80b-a3b-instruct"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: "bedrock"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+	_, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "qwen/qwen3-next-80b-a3b-instruct"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: "bedrock"}},
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
+		FlushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
@@ -508,20 +508,20 @@ func TestDispatchWithFallback_BillingBlockedFailsOverToNextBinding(t *testing.T)
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings: []catalog.ProviderBinding{
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings: []catalog.ProviderBinding{
 			{Provider: "makora"},
 			{Provider: "together"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
+		FlushErr: flushBufferedIfPresent,
 	})
 
 	require.NoError(t, err, "402 on primary must fail over to the next binding")
@@ -545,17 +545,17 @@ func TestDispatchWithFallback_BillingBlockedSingleBindingFlushes(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: "makora"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+	_, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: "makora"}},
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
+		FlushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
@@ -585,16 +585,16 @@ func TestDispatchWithFallback_NoRetryAfterBytesFlushed(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings: []catalog.ProviderBinding{
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings: []catalog.ProviderBinding{
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			// No Prelude phase in these tests, so Seal happens right before Proxy.
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
@@ -625,21 +625,21 @@ func TestDispatchWithFallback_BothFailFinalBodyFlushed(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings: []catalog.ProviderBinding{
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings: []catalog.ProviderBinding{
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			// No Prelude phase in these tests, so Seal happens right before Proxy.
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
+		FlushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
@@ -673,17 +673,17 @@ func TestDispatchWithFallback_SingleBindingExhaustsRetries(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "claude-opus-4-7"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "claude-opus-4-7"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
+		FlushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
@@ -733,17 +733,17 @@ func TestDispatchWithFallback_SlowAttemptsStopBeforeRetryCount(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "claude-opus-4-7"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+	_, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "claude-opus-4-7"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
+		FlushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
@@ -769,17 +769,17 @@ func TestDispatchWithFallback_SingleBindingRetrySucceeds(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "claude-opus-4-7"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "claude-opus-4-7"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
+		FlushErr: flushBufferedIfPresent,
 	})
 
 	require.NoError(t, err)
@@ -803,17 +803,17 @@ func TestDispatchWithFallback_SingleBindingNonRetryableNoRetry(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "claude-opus-4-7"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+	_, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "claude-opus-4-7"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
+		FlushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
@@ -839,17 +839,17 @@ func TestDispatchWithFallback_SingleBindingBackoffAbortsOnCancel(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: "claude-opus-4-7"},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+	_, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: "claude-opus-4-7"},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
+		FlushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)

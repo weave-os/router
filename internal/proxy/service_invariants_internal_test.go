@@ -186,12 +186,12 @@ func TestRefusalObserver_CategoryBeforeOverlapWindowIsKept(t *testing.T) {
 func TestEmitBilling_HandoverSummaryDebitedOnceAlongsideTurn(t *testing.T) {
 	cases := []struct {
 		name     string
-		handover handoverOutcome
+		handover dispatch.HandoverOutcome
 		want     []string
 	}{
-		{"no handover", handoverOutcome{}, []string{auxTestRequestID}},
-		{"summary served", handoverOutcome{Invoked: true, SummaryUsage: auxTestUsage()}, []string{auxTestRequestID, auxTestRequestID + auxSuffixHandoverSummary}},
-		{"fell back to full history", handoverOutcome{Invoked: true, FallbackToFullHistory: true, SummaryUsage: auxTestUsage()}, []string{auxTestRequestID}},
+		{"no handover", dispatch.HandoverOutcome{}, []string{auxTestRequestID}},
+		{"summary served", dispatch.HandoverOutcome{Invoked: true, SummaryUsage: auxTestUsage()}, []string{auxTestRequestID, auxTestRequestID + auxSuffixHandoverSummary}},
+		{"fell back to full history", dispatch.HandoverOutcome{Invoked: true, FallbackToFullHistory: true, SummaryUsage: auxTestUsage()}, []string{auxTestRequestID}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
