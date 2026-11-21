@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 
@@ -28,7 +29,7 @@ func PassthroughHandler(svc *proxy.Service) gin.HandlerFunc {
 
 		if err := svc.PassthroughToProvider(c.Request.Context(), body, c.Writer, c.Request); err != nil {
 			cls, ok := proxy.ClassifyDispatchError(err)
-			if ok && cls.Kind == proxy.DispatchErrorUpstreamStatus {
+			if ok && cls.Kind == ingress.DispatchErrorUpstreamStatus {
 				if c.Writer.Written() {
 					return
 				}
@@ -39,7 +40,7 @@ func PassthroughHandler(svc *proxy.Service) gin.HandlerFunc {
 				log.Error("Passthrough failed mid-stream", "err", err)
 				return
 			}
-			if ok && cls.Kind == proxy.DispatchErrorNotImplemented {
+			if ok && cls.Kind == ingress.DispatchErrorNotImplemented {
 				writeAnthropicError(c, cls.Status, anthropicErrorType(cls), cls.Message)
 				return
 			}

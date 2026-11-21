@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -107,7 +108,7 @@ func TestCompactionOverflowingEverywhereStaysTerminalWithoutTrimCounts(t *testin
 
 			class, ok := ClassifyDispatchError(err)
 			require.True(t, ok)
-			assert.Equal(t, DispatchErrorCompactionUnservable, class.Kind)
+			assert.Equal(t, ingress.DispatchErrorCompactionUnservable, class.Kind)
 			assert.Equal(t, http.StatusBadGateway, class.Status)
 			assert.True(t, class.NoClientRetry)
 			assert.NotContains(t, class.Message, "prompt is too long")

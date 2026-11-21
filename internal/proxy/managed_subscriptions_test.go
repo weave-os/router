@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
@@ -384,7 +385,7 @@ func TestLeaseManagedSubscription_LinkedFirstExhaustedPool_NoFallbackKey_Refuses
 	require.True(t, managed)
 	cls, ok := ClassifyDispatchError(err)
 	require.True(t, ok)
-	assert.Equal(t, DispatchErrorSubscriptionPoolExhausted, cls.Kind, "a funded linked-first turn must not claim credits are exhausted")
+	assert.Equal(t, ingress.DispatchErrorSubscriptionPoolExhausted, cls.Kind, "a funded linked-first turn must not claim credits are exhausted")
 }
 
 func TestLeaseManagedSubscription_CreditsDepletedExhaustedPool_StillRefuses(t *testing.T) {
@@ -402,7 +403,7 @@ func TestLeaseManagedSubscription_CreditsDepletedExhaustedPool_StillRefuses(t *t
 	require.True(t, managed)
 	cls, ok := ClassifyDispatchError(err)
 	require.True(t, ok)
-	assert.Equal(t, DispatchErrorCreditsExhausted, cls.Kind, "a depleted balance, not pool capacity, is why the turn can't be served")
+	assert.Equal(t, ingress.DispatchErrorCreditsExhausted, cls.Kind, "a depleted balance, not pool capacity, is why the turn can't be served")
 	assert.Equal(t, http.StatusPaymentRequired, cls.Status)
 }
 

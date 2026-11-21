@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -138,7 +139,7 @@ func TestService_UtilityHardPin_NoEligibleProviderIs400(t *testing.T) {
 	require.NotErrorIs(t, err, router.ErrRoutingUnavailable)
 	class, ok := proxy.ClassifyDispatchError(err)
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorNoEligibleProvider, class.Kind)
+	assert.Equal(t, ingress.DispatchErrorNoEligibleProvider, class.Kind)
 	assert.Equal(t, http.StatusBadRequest, class.Status)
 }
 
