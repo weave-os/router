@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -222,7 +223,7 @@ func TestService_ProxyOpenAIChatCompletion_UsesBYOKBaseForResponsesCapability(t 
 		},
 	}
 	svc := openAIChatService(provider)
-	ctx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{
+	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{
 		Provider:  providers.ProviderOpenAI,
 		Plaintext: []byte("synthetic-key"),
 		BaseURL:   "https://tenant.example.invalid/v1",
