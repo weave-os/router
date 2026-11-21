@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/require"
 )
@@ -102,7 +103,7 @@ func TestClaudeEnterpriseOverageCapBypassReroutesToPlanFirstKey(t *testing.T) {
 	service := ingress.quotaService(upstream)
 	threshold := 0.9
 	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()))
-	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	recorder, request, body := ingress.request(t, false)
 	require.NoError(t, ingress.call(service, ctx, body, recorder, request))
 	require.Equal(t, http.StatusOK, recorder.Code)

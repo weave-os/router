@@ -15,6 +15,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -100,8 +101,8 @@ func newRescuedFailureTurnService(store sessionpin.Store, decision router.Decisi
 }
 
 func rescuedFailureCtx() context.Context {
-	ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "key-1")
-	return context.WithValue(ctx, InstallationIDContextKey{}, uuid.New().String())
+	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "key-1")
+	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.New().String())
 }
 
 // assertRescuedFailureStrikes checks that exactly the primary was struck, on

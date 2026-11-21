@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/server/middleware"
 
@@ -232,12 +233,12 @@ func TestWithAuthPrefersRouterKeyHeader(t *testing.T) {
 		assert.Equal(t, installation, middleware.InstallationFrom(c))
 		assert.Equal(t, apiKey, middleware.APIKeyFrom(c))
 		ctx := c.Request.Context()
-		assert.Equal(t, "rollout-1", ctx.Value(proxy.PolicyRolloutIDContextKey{}))
-		assert.Equal(t, router.Strategy("future-policy"), ctx.Value(proxy.PolicyShadowStrategyContextKey{}))
-		assert.Equal(t, true, ctx.Value(proxy.PolicyDebugEnabledContextKey{}))
-		assert.Equal(t, "high", ctx.Value(proxy.PolicyRoutingIntentContextKey{}))
-		assert.Equal(t, true, ctx.Value(proxy.PolicyTrainingAllowedContextKey{}))
-		assert.Equal(t, true, ctx.Value(proxy.InstallationShowModelSelectionReasoningContextKey{}))
+		assert.Equal(t, "rollout-1", ctx.Value(requestcontext.PolicyRolloutIDContextKey{}))
+		assert.Equal(t, router.Strategy("future-policy"), ctx.Value(requestcontext.PolicyShadowStrategyContextKey{}))
+		assert.Equal(t, true, ctx.Value(requestcontext.PolicyDebugEnabledContextKey{}))
+		assert.Equal(t, "high", ctx.Value(requestcontext.PolicyRoutingIntentContextKey{}))
+		assert.Equal(t, true, ctx.Value(requestcontext.PolicyTrainingAllowedContextKey{}))
+		assert.Equal(t, true, ctx.Value(requestcontext.InstallationShowModelSelectionReasoningContextKey{}))
 		c.Status(http.StatusOK)
 	})
 
@@ -294,7 +295,7 @@ func TestWithAuthPropagatesContentCaptureOverride(t *testing.T) {
 	engine.GET("/probe", func(c *gin.Context) {
 		// Without this the proxy only ever sees the deployment-wide mode, and
 		// an installation that asked for no retention still gets captured.
-		assert.Equal(t, proxy.CaptureOff, c.Request.Context().Value(proxy.InstallationCaptureModeContextKey{}))
+		assert.Equal(t, proxy.CaptureOff, c.Request.Context().Value(requestcontext.InstallationCaptureModeContextKey{}))
 		c.Status(http.StatusOK)
 	})
 
@@ -320,7 +321,7 @@ func TestWithAuthOmitsContentCaptureOverrideWhenUnset(t *testing.T) {
 	engine := gin.New()
 	engine.Use(middleware.WithAuth(svc, false))
 	engine.GET("/probe", func(c *gin.Context) {
-		assert.Nil(t, c.Request.Context().Value(proxy.InstallationCaptureModeContextKey{}),
+		assert.Nil(t, c.Request.Context().Value(requestcontext.InstallationCaptureModeContextKey{}),
 			"no stored override must leave the deployment mode in charge, not pin it to off")
 		c.Status(http.StatusOK)
 	})
@@ -349,7 +350,7 @@ func TestWithAuthCarriesPaidFallbackOnSubscriptionRefusalOptIn(t *testing.T) {
 			engine := gin.New()
 			engine.Use(middleware.WithAuth(svc, false))
 			engine.GET("/probe", func(c *gin.Context) {
-				consented, _ := c.Request.Context().Value(proxy.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
+				consented, _ := c.Request.Context().Value(requestcontext.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
 				assert.Equal(t, optedIn, consented)
 				c.Status(http.StatusOK)
 			})

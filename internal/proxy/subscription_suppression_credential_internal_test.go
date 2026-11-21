@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
@@ -18,7 +19,7 @@ const routerKeyedInstallationID = "11111111-1111-1111-1111-111111111111"
 // stashed an installation ID, so installationIDFromContext != nil and
 // resolveAndInjectCredentials treats it as router-keyed.
 func routerKeyedCtx() context.Context {
-	return context.WithValue(context.Background(), InstallationIDContextKey{}, routerKeyedInstallationID)
+	return context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, routerKeyedInstallationID)
 }
 
 // The exhaustion / 429 failover suppresses the Claude subscription and re-resolves
@@ -79,7 +80,7 @@ func TestResolveAndInjectCredentials_SuppressionDoesNotClearCodexOpenAITurn(t *t
 // subscriptionDisabledCtx returns a router-keyed ctx with subscription routing
 // disabled (the "use my subscription first" toggle off).
 func subscriptionDisabledCtx() context.Context {
-	return context.WithValue(routerKeyedCtx(), InstallationSubscriptionRoutingDisabledContextKey{}, true)
+	return context.WithValue(routerKeyedCtx(), requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true)
 }
 
 // Toggle off must suppress the Claude subscription so the turn bills prepaid.

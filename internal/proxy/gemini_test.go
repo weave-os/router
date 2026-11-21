@@ -33,7 +33,7 @@ const geminiInjectedBody = `{
 
 func geminiExperimentContext(installationID string, arm auth.BlindExperimentArm) context.Context {
 	ctx := authedCtx(installationID)
-	ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
+	ctx = context.WithValue(ctx, requestcontext.PolicyTrainingAllowedContextKey{}, true)
 	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "router-user-1")
 	return context.WithValue(ctx, auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
 		Active:              true,

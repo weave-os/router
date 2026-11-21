@@ -4,7 +4,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
 
 	"github.com/gin-gonic/gin"
@@ -14,7 +14,7 @@ func WithAPIKeySpendCap(svc *billing.Service, funding credentials.CustomerFundin
 	requireCustomerFunding(funding)
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
-		if _, ok := proxy.AgentShadowEvalFromContext(c.Request.Context()); ok {
+		if _, ok := requestcontext.AgentShadowEvalFromContext(c.Request.Context()); ok {
 			c.Next()
 			return
 		}

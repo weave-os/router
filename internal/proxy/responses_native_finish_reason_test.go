@@ -29,7 +29,7 @@ func codexNativeResponsesCtx() context.Context {
 	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
 	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-123")
 	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
-	return context.WithValue(ctx, proxy.InstallationIDContextKey{}, nativeResponsesInstallationID)
+	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, nativeResponsesInstallationID)
 }
 
 // nativeResponsesStream frames a native Responses SSE turn ending in terminal.

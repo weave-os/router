@@ -12,14 +12,15 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 )
 
 func escalationCompletionContext() context.Context {
 	ctx := escalationTestContext(true, false)
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
-	return context.WithValue(ctx, APIKeyIDContextKey{}, "completion-test-key")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())
+	return context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "completion-test-key")
 }
 
 func newEscalationCompletionService(store *escalationTestStore, observer *escalationTestObserver, clients map[string]providers.Client) *Service {

@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
 
 	"github.com/stretchr/testify/assert"
@@ -19,7 +20,7 @@ type planBindingFacts struct {
 func (f planBindingFacts) context() context.Context {
 	ctx := routerKeyedCtx()
 	if f.includedLane {
-		ctx = context.WithValue(ctx, InstallationSubscriptionStateModelsEnabledContextKey{}, true)
+		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionStateModelsEnabledContextKey{}, true)
 	}
 	if f.apiOnly {
 		ctx = context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)

@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
@@ -23,7 +24,7 @@ import (
 )
 
 func TestModelSelectionReasoningIsOptInAndUsesRecordedClassification(t *testing.T) {
-	ctx := context.WithValue(context.Background(), InstallationShowModelSelectionReasoningContextKey{}, true)
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationShowModelSelectionReasoningContextKey{}, true)
 	turn := turnLoopResult{Decision: router.Decision{Model: "chosen-model", Metadata: &router.RoutingMetadata{
 		ClassifierPredictedLabel: string(selectionComplexityHigh), PolicyGroup: string(selectionComplexityLow),
 	}}}
@@ -43,7 +44,7 @@ func TestModelSelectionReasoningIsOptInAndUsesRecordedClassification(t *testing.
 }
 
 func TestModelSelectionReasoningOnlyForNewlyServedModel(t *testing.T) {
-	ctx := context.WithValue(context.Background(), InstallationShowModelSelectionReasoningContextKey{}, true)
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationShowModelSelectionReasoningContextKey{}, true)
 	turn := turnLoopResult{Decision: router.Decision{Model: "new-model"}, PriorServedModel: "old-model"}
 	marker := routingMarkerFor(turn)
 	assert.Equal(t, marker, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, marker, turn.Decision.Model, ""))

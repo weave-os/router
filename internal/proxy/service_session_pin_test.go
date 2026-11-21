@@ -257,8 +257,8 @@ func newPinSvcWithTelemetry(fr *fakeRouter, store *fakePinStore, telemetry turnr
 }
 
 func authedCtx(installationID string) context.Context {
-	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
-	return context.WithValue(ctx, proxy.InstallationIDContextKey{}, installationID)
+	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "key-1")
+	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, installationID)
 }
 
 // authedCtxWithExternalKey also stashes a BYOK ExternalAPIKey, as the auth
@@ -620,7 +620,7 @@ func TestService_HardPin_TitleGen_AppliesExcludedModels(t *testing.T) {
 		WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()),
-		proxy.InstallationExcludedModelsContextKey{}, []string{excludedModel})
+		requestcontext.InstallationExcludedModelsContextKey{}, []string{excludedModel})
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(titleGenBody), rec, httpReq))

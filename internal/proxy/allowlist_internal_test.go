@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
@@ -12,16 +13,16 @@ import (
 )
 
 func ctxWithAllowedModels(models ...string) context.Context {
-	return context.WithValue(context.Background(), InstallationAllowedModelsContextKey{}, models)
+	return context.WithValue(context.Background(), requestcontext.InstallationAllowedModelsContextKey{}, models)
 }
 
 func ctxWithExcludedAndAllowed(excluded, allowed []string) context.Context {
 	ctx := context.Background()
 	if len(excluded) > 0 {
-		ctx = context.WithValue(ctx, InstallationExcludedModelsContextKey{}, excluded)
+		ctx = context.WithValue(ctx, requestcontext.InstallationExcludedModelsContextKey{}, excluded)
 	}
 	if len(allowed) > 0 {
-		ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, allowed)
+		ctx = context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, allowed)
 	}
 	return ctx
 }

@@ -48,7 +48,7 @@ func TestFeedbackFooter_ClientGating(t *testing.T) {
 	})
 
 	t.Run("hidden terminal surfaces suppress the hint even for a main-loop turn", func(t *testing.T) {
-		hiddenCtx := context.WithValue(context.Background(), InstallationHideTerminalSurfacesContextKey{}, true)
+		hiddenCtx := context.WithValue(context.Background(), requestcontext.InstallationHideTerminalSurfacesContextKey{}, true)
 		assert.Empty(t, withStore.feedbackFooter(hiddenCtx, requestcontext.ClientAppClaudeCode, turntype.MainLoop, false), "hidden orgs get no /rf hint")
 	})
 

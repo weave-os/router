@@ -121,7 +121,7 @@ func TestSpentOwnCodexPlanNudgesOnlyWithoutACoveringLinkedSeat(t *testing.T) {
 			// The first turn learns the plan is spent; the second starts from that memory.
 			var responses []string
 			for turn := 0; turn < 2; turn++ {
-				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 				ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderCodex, State: tc.seatState, Enabled: true, CooldownUntil: &resetAt}})
 				rec := httptest.NewRecorder()
 				require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body)))
@@ -222,7 +222,7 @@ func TestSpentOwnCodexPlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.T
 			// linked seat; the second sees that seat run out mid-turn.
 			var turnBodies []string
 			for turn = 0; turn < 2; turn++ {
-				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 				ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateActive, Enabled: true}})
 				rec := httptest.NewRecorder()
 				if ingress == "responses" {

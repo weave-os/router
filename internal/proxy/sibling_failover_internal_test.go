@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -295,7 +296,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 
 	t.Run("skips the failed model and installation-excluded candidates", func(t *testing.T) {
 		s := siblingService(providers.ProviderAnthropic)
-		excluded := context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{"claude-sonnet-5"})
+		excluded := context.WithValue(ctx, requestcontext.InstallationExcludedModelsContextKey{}, []string{"claude-sonnet-5"})
 		_, ok := firstSibling(s, excluded, overloadedDecision(&router.RoutingMetadata{
 			CandidateModels: []string{"claude-opus-5", "claude-sonnet-5"},
 		}), 1_000, 0)

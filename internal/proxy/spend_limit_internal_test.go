@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/stretchr/testify/assert"
@@ -51,7 +52,7 @@ func spendLimitCtx(userID string) context.Context {
 		ctx = context.WithValue(ctx, auth.UserIDContextKey{}, userID)
 	}
 	if "org-1" != "" {
-		ctx = context.WithValue(ctx, ExternalIDContextKey{}, "org-1")
+		ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org-1")
 	}
 	return ctx
 }
@@ -68,7 +69,7 @@ func spendLimitCheck(s *Service, ctx context.Context) error {
 // withUsageBypassSubscription layers a usage-bypass config plus a valid Claude
 // subscription token onto ctx, exactly as the auth middleware would.
 func withUsageBypassSubscription(ctx context.Context) context.Context {
-	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 	return context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-valid-token")
 }
 
@@ -132,7 +133,7 @@ func TestCheckUserMonthlySpendLimit_CapReachedNoSubscriptionStillRejects(t *test
 	// Usage-bypass on, but no subscription credential present: the turn would route
 	// to a paid model, so a reached cap must still 402.
 	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
-	ctx := context.WithValue(spendLimitCtx("u1"), InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+	ctx := context.WithValue(spendLimitCtx("u1"), requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)

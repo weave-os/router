@@ -25,12 +25,10 @@ func markSubscriptionClientAppRefused(ctx context.Context) {
 	}
 }
 
-type APIKeyPaidFallbackOnSubscriptionRefusalContextKey struct{}
-
 type clientAppRefusalPaidFallbackKey struct{}
 
 func withClientAppRefusalPaidFallback(ctx context.Context, decision router.Decision) context.Context {
-	consented, _ := ctx.Value(APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
+	consented, _ := ctx.Value(requestcontext.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
 	forcedConsent := consented && strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel)
 	if !forcedConsent && weaveCreditsDenied(ctx) {
 		return ctx

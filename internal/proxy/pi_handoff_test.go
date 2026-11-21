@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -34,8 +35,8 @@ func handoffTestService() (*Service, *betaTestRouter, *betaCaptureProvider, cont
 	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPiHandoffSecret(strings.Repeat("test-secret-", 4)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: classifier, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
-	ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "handoff-test-key")
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
+	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "handoff-test-key")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())
 	return svc, classifier, upstream, router.WithStrategy(ctx, router.StrategyHMM)
 }
 
@@ -79,8 +80,8 @@ func TestPiHandoffRejectsTamperingIdentityAndExpiration(t *testing.T) {
 		ctx   context.Context
 		token string
 	}{
-		{"other-key", context.WithValue(ctx, APIKeyIDContextKey{}, "another-key"), prepared.Token},
-		{"other-installation", context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString()), prepared.Token},
+		{"other-key", context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "another-key"), prepared.Token},
+		{"other-installation", context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString()), prepared.Token},
 		{"tampered", ctx, prepared.Token + "invalid"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -239,7 +240,7 @@ func TestForceParentDoesNotRejectChildHandoff(t *testing.T) {
 	_, req, err := svc.anthropicRoutingRequest(parsed, clean, nil, "handoff-test")
 	require.NoError(t, err)
 	claims := handoffFromContext(parsed)
-	apiKeyID, _ := parsed.Value(APIKeyIDContextKey{}).(string)
+	apiKeyID, _ := parsed.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	installationID := claims.Route.InstallationID
 	controlKey := deriveForceModelSessionKeyForRequest(parsed, env, apiKeyID, claims.Route.SessionKey)
 	_, _, err = (forceModelCommands{svc}).apply(parsed, router.StrategyFromContext(parsed), translate.ForceModelResult{Model: "opus", ParentOnly: true}, installationID, claims.Route.SessionKey, controlKey)

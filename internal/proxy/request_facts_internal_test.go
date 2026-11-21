@@ -21,9 +21,9 @@ func TestRequestFactsFromReadsTheBoundaryKeys(t *testing.T) {
 	client := requestcontext.ClientIdentity{SessionID: "session-1", ClientApp: requestcontext.ClientAppCodex}
 	headers := http.Header{"Authorization": []string{"Bearer inbound"}}
 	ctx := observability.WithRequestID(context.Background(), "req-1")
-	ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "api-key-1")
-	ctx = context.WithValue(ctx, ExternalIDContextKey{}, "external-1")
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, installation.String())
+	ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "api-key-1")
+	ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "external-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, installation.String())
 	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, keys)
 	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, "claude-token")
 	ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, "codex-token")
@@ -48,7 +48,7 @@ func TestRequestFactsFromReadsTheBoundaryKeys(t *testing.T) {
 }
 
 func TestRequestFactsFromWithoutRouterKey(t *testing.T) {
-	invalid := context.WithValue(context.Background(), InstallationIDContextKey{}, "not-a-uuid")
+	invalid := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "not-a-uuid")
 	for name, ctx := range map[string]context.Context{"absent": context.Background(), "unparseable installation": invalid} {
 		t.Run(name, func(t *testing.T) {
 			facts := requestFactsFrom(ctx, nil)

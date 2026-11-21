@@ -1,12 +1,16 @@
 package conversation
 
-import "weave-os/router/internal/feedback"
+import (
+	"weave-os/router/internal/feedback"
+	"weave-os/router/internal/router/handover"
+)
 
 type Lifecycle struct {
-	noProgress          *NoProgressTracker
-	compaction          *CompactionTracker
-	textRepetitionBreak bool
-	routerFeedback      feedback.RouterFeedbackStore
+	noProgress                   *NoProgressTracker
+	compaction                   *CompactionTracker
+	textRepetitionBreak          bool
+	compactionHandoverSummarizer handover.Summarizer
+	routerFeedback               feedback.RouterFeedbackStore
 }
 
 func NewLifecycle() *Lifecycle {
@@ -33,6 +37,17 @@ func (l *Lifecycle) Compaction() *CompactionTracker {
 		return nil
 	}
 	return l.compaction
+}
+
+func (l *Lifecycle) CompactionHandoverSummarizer() handover.Summarizer {
+	if l == nil {
+		return nil
+	}
+	return l.compactionHandoverSummarizer
+}
+
+func (l *Lifecycle) SetCompactionHandoverSummarizer(summarizer handover.Summarizer) {
+	l.compactionHandoverSummarizer = summarizer
 }
 
 func (l *Lifecycle) RouterFeedbackStore() feedback.RouterFeedbackStore {

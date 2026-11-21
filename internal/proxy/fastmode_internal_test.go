@@ -29,7 +29,7 @@ const (
 )
 
 func fastModeCtx(models ...string) context.Context {
-	return context.WithValue(context.Background(), InstallationFastModeModelsContextKey{}, models)
+	return context.WithValue(context.Background(), requestcontext.InstallationFastModeModelsContextKey{}, models)
 }
 
 func newFastModeService(decision router.Decision, upstream providers.Client) *Service {

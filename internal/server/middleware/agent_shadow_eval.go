@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 
 	"github.com/gin-gonic/gin"
@@ -34,7 +33,7 @@ func WithAgentShadowEvaluation() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "agent_shadow_eval_not_authorized"})
 			return
 		}
-		ctx := context.WithValue(c.Request.Context(), proxy.AgentShadowEvalContextKey{}, proxy.AgentShadowEvaluation{
+		ctx := context.WithValue(c.Request.Context(), requestcontext.AgentShadowEvalContextKey{}, requestcontext.AgentShadowEvaluation{
 			Model: model, RolloutID: rollout, StateID: stateID,
 		})
 		c.Request = c.Request.WithContext(ctx)

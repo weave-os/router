@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/llmescalation"
@@ -181,8 +182,8 @@ func auxTestService(t *testing.T) (*Service, *auxBillingRepo, *auxTelemetryRepo)
 // auxTestContext carries the installation + client identity the router's auth
 // middleware would have stashed on a real request.
 func auxTestContext(installationID uuid.UUID) context.Context {
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, installationID.String())
-	ctx = context.WithValue(ctx, ExternalIDContextKey{}, auxTestOrgID)
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installationID.String())
+	ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, auxTestOrgID)
 	return context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{
 		SessionID: auxTestSessionID,
 		DeviceID:  "device-aux-1",

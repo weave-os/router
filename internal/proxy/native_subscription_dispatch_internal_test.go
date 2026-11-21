@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 )
@@ -47,7 +48,7 @@ func TestNativeCodexSubscriptionWithDepletedCredits(t *testing.T) {
 			ctx := codexSubscriptionTestCtx()
 			expectedBearer := "Bearer " + codexTestToken
 			if managed {
-				ctx = context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+				ctx = context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 				svc.WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "synthetic-seat", AccessToken: "synthetic-linked-token", ProviderAccount: codexTestAccountID}}})
 				expectedBearer = "Bearer synthetic-linked-token"
 			}

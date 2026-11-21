@@ -607,8 +607,8 @@ func TestProxyEntrypointsInterceptBetaWithoutRoutingUpstream(t *testing.T) {
 			svc := withHMMPorts(NewService(stableRouter, dispatch.NewClients(nil), nil, pins, false, "", "", nil)).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: betaRouter}).
 				WithSessionStrategyStore(store)
-			ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "beta-test-key")
-			ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
+			ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "beta-test-key")
+			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())
 			body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"/beta"}],"max_tokens":128,"metadata":{"user_id":"user_account__session_4dbee464-ebf7-437f-9f20-db5a6f7fe3b4"}}`)
 			request := httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil)
 			response := httptest.NewRecorder()
@@ -823,8 +823,8 @@ func TestBetaPreferenceSurvivesFirstMessageRewriteWithinClientSession(t *testing
 				providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: betaRouter}).
 				WithSessionStrategyStore(&betaTestPreferenceStore{})
-			ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "beta-test-key")
-			ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
+			ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "beta-test-key")
+			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())
 			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{SessionID: "conversation-1"})
 
 			tools := []any{

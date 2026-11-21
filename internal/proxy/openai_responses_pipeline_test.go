@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -157,9 +158,9 @@ func TestService_ProxyOpenAIChatCompletion_HandoverUsesResponsesEndpoint(t *test
 
 func proxyContextWithExternalID(t *testing.T, externalID string) context.Context {
 	t.Helper()
-	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "pipeline-test-key")
+	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "pipeline-test-key")
 	if externalID != "" {
-		ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, externalID)
+		ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, externalID)
 	}
 	return ctx
 }

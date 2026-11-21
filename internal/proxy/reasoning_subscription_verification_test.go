@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 )
@@ -64,7 +65,7 @@ func TestVerificationOpaqueReasoningWireScope(t *testing.T) {
 			require.NoError(t, err)
 			signature := base64.StdEncoding.EncodeToString(envelope)
 			body := `{"model":"auto","stream":true,"max_tokens":1000,"thinking":{"type":"enabled","budget_tokens":8192},"messages":[{"role":"user","content":"synthetic"},{"role":"assistant","content":[{"type":"thinking","thinking":"summary","signature":` + strconv.Quote(signature) + `},{"type":"text","text":"continue"}]}],"tools":[{"name":"read_file","input_schema":{"type":"object"}}]}`
-			ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+			ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", strings.NewReader(body))))
 			require.Contains(t, rec.Body.String(), "reasoning answer")

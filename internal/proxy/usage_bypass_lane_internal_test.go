@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/router/turntype"
@@ -30,7 +31,7 @@ func TestUsageBypassDecisionRequiresTheProductToSellTheRequestedModel(t *testing
 	obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
 	svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})), usageObserver: obs}
 	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
-	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 
 	_, sold := svc.usageBypassDecision(ctx, http.Header{}, router.Request{RequestedModel: "claude-sonnet-4-6"}, nil, turntype.MainLoop)
 	_, unsold := svc.usageBypassDecision(ctx, http.Header{}, router.Request{

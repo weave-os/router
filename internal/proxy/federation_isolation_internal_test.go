@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -63,7 +64,7 @@ func TestFederationOutageDoesNotBlockOpenAIInference(t *testing.T) {
 		{ID: "federation-key", Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, CredentialError: auth.ErrAnthropicFederationUnavailable},
 		{ID: "openai-key", Provider: providers.ProviderOpenAI, Plaintext: []byte("synthetic-openai-key")},
 	})
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":100,"messages":[{"role":"user","content":"hello"}]}`)
 	recorder := httptest.NewRecorder()
 	err := service.ProxyMessages(ctx, body, recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
@@ -81,7 +82,7 @@ func TestFederationOutageFailsClosedOnAnthropicInference(t *testing.T) {
 	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}
 	service := withHMMPorts(NewService(staticRouter{decision: decision}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: client}), nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil))
 	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{ID: "federation-key", Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, CredentialError: auth.ErrAnthropicFederationUnavailable}})
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":100,"messages":[{"role":"user","content":"hello"}]}`)
 	err := service.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 	require.ErrorIs(t, err, auth.ErrAnthropicFederationUnavailable)

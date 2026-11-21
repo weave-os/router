@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
 )
@@ -17,7 +18,7 @@ func sessionHoldOwner(ctx context.Context) string {
 	if session == "" {
 		return ""
 	}
-	installation, _ := ctx.Value(InstallationIDContextKey{}).(string)
+	installation, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
 	return installation + "\x00" + session
 }
 

@@ -130,12 +130,12 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				WithAvailableModels(modelSet([]string{gatewayCompactionOpusModel, catalog.ModelGPT6Luna})).
 				WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})).
 				WithRetrySleep(func(context.Context, time.Duration) error { return nil })
-			ctx := context.WithValue(withClaudeCreditFallback(context.Background()), APIKeyIDContextKey{}, "synthetic-key")
-			ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
+			ctx := context.WithValue(withClaudeCreditFallback(context.Background()), requestcontext.APIKeyIDContextKey{}, "synthetic-key")
+			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())
 			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode, SessionID: "synthetic-session"})
 			ctx = context.WithValue(ctx, credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
-			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{gatewayCompactionOpusModel})
-			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{gatewayCompactionOpusModel})
+			ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{gatewayCompactionOpusModel})
+			ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{gatewayCompactionOpusModel})
 			if scenario.directSubscription {
 				ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-token")
 			}

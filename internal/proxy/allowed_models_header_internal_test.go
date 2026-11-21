@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -23,7 +24,7 @@ const (
 )
 
 func ctxWithRequestSubset(ctx context.Context, models ...string) context.Context {
-	return context.WithValue(ctx, RequestAllowedModelsContextKey{}, RequestAllowedModels{Requested: models, Effective: models})
+	return context.WithValue(ctx, requestcontext.RequestAllowedModelsContextKey{}, RequestAllowedModels{Requested: models, Effective: models})
 }
 
 func TestParseAllowedModelsHeader_ResolvesAliasesAndDedupes(t *testing.T) {
@@ -102,7 +103,7 @@ func TestTelemetryDecisionReason_PrefixesOnlyWithSubset(t *testing.T) {
 
 func TestRequestedAllowedModelsForTelemetry(t *testing.T) {
 	assert.Nil(t, requestedAllowedModelsForTelemetry(context.Background()))
-	ctx := context.WithValue(context.Background(), RequestAllowedModelsContextKey{}, RequestAllowedModels{
+	ctx := context.WithValue(context.Background(), requestcontext.RequestAllowedModelsContextKey{}, RequestAllowedModels{
 		Requested: []string{testTerra, testSol},
 		Effective: []string{testSol},
 	})
@@ -221,7 +222,7 @@ func TestRequestAllowedModelsPresent(t *testing.T) {
 func TestReadmitForcedModel_GatewayBypassKeepsUnsignedHistoryGeminiExclusion(t *testing.T) {
 	const gemini = "gemini-3.1-pro-preview"
 	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{testOpus: {}, gemini: {}}}
-	ctx := context.WithValue(gatewayKeyCtx(gemini), InstallationAllowedModelsContextKey{}, []string{testOpus})
+	ctx := context.WithValue(gatewayKeyCtx(gemini), requestcontext.InstallationAllowedModelsContextKey{}, []string{testOpus})
 	req := router.Request{Candidates: router.Candidates{ExcludedModels: s.excludedModelsForRequest(ctx)}}
 	require.Contains(t, req.Candidates.ExcludedModels, gemini)
 	pin := sessionpin.Pin{Model: gemini, Provider: providers.ProviderAnthropicGateway}

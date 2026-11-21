@@ -115,8 +115,8 @@ func classifierSessionFixture(t *testing.T, classify atomicClassifierFunc) (*Ser
 	store := &classifierMemoryStore{threads: make(map[uuid.UUID]router.ClassifierThread), turns: make(map[uuid.UUID]map[string]router.ClassifierPrediction), prefixCheckpoints: make(map[uuid.UUID]router.ClassifierPrefixCheckpoint)}
 	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), clock: time.Now}
 	require.NoError(t, svc.WithClassifierSessions(ClassifierSessionConfig{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64), SelectionPolicySHA256: strings.Repeat("b", 64), SigningKey: []byte(strings.Repeat("k", 32)), InstallationIDs: []uuid.UUID{installation}}, store, classify))
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, installation.String())
-	ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "test-credential")
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installation.String())
+	ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "test-credential")
 	return svc, ctx, store
 }
 
@@ -151,8 +151,8 @@ func TestClassifierHandshakeAuthenticationAndIdempotency(t *testing.T) {
 	child := classifierAdmit(t, svc, ctx)
 	require.NotEqual(t, deriveSessionKeyForRequest(admitted, nil, "test-credential"), deriveSessionKeyForRequest(child, nil, "test-credential"))
 	for _, foreign := range []context.Context{
-		context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString()),
-		context.WithValue(ctx, APIKeyIDContextKey{}, "other-credential"),
+		context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString()),
+		context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "other-credential"),
 		requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{ReleaseID: "managed-release"}),
 	} {
 		_, err := svc.AdmitClassifierThread(foreign, ticket)

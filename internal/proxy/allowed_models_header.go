@@ -15,8 +15,6 @@ import (
 
 const AllowlistOverrideReasonPrefix = "allowlist_override:"
 
-type RequestAllowedModelsContextKey struct{}
-
 type RequestAllowedModels struct {
 	Requested []string
 	Effective []string
@@ -73,7 +71,7 @@ func ParseAllowedModelsHeader(raw string, installationAllowed []string) (Request
 }
 
 func requestAllowedModelsFromContext(ctx context.Context) (RequestAllowedModels, bool) {
-	v, ok := ctx.Value(RequestAllowedModelsContextKey{}).(RequestAllowedModels)
+	v, ok := ctx.Value(requestcontext.RequestAllowedModelsContextKey{}).(RequestAllowedModels)
 	return v, ok && len(v.Effective) > 0
 }
 

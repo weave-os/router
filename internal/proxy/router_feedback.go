@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -109,9 +110,9 @@ func (c routerFeedbackCommand) handle(ctx context.Context, s *Service) error {
 	clientID := ClientIdentityFrom(ctx)
 	ack := newCommandAcknowledgment(translate.CommandRouterFeedback)
 	ack.clientApp = clientID.ClientApp
-	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)
+	externalID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 	rolloutID := clientID.RolloutID
-	if persistedRolloutID, ok := ctx.Value(PolicyRolloutIDContextKey{}).(string); ok && persistedRolloutID != "" {
+	if persistedRolloutID, ok := ctx.Value(requestcontext.PolicyRolloutIDContextKey{}).(string); ok && persistedRolloutID != "" {
 		rolloutID = persistedRolloutID
 	}
 	result, err := newRouterFeedback(s).Record(ctx, conversation.RouterFeedbackRequest{

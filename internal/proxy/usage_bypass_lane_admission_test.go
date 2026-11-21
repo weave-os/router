@@ -36,7 +36,7 @@ func codexBypassFixture(t *testing.T, threshold float64, snapshot usage.Snapshot
 		WithUsageObserver(obs)
 	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, laneAdmissionCodexToken)
 	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "account-1")
-	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	return svc, fr, ctx
 }
 

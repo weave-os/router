@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions"
@@ -60,7 +61,7 @@ func TestProxyOpenAIChatCompletion_SubscriptionPoolExhaustionRescuesSibling(t *t
 
 	installationID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude),
-		InstallationIDContextKey{}, installationID.String())
+		requestcontext.InstallationIDContextKey{}, installationID.String())
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body)))
@@ -89,7 +90,7 @@ func TestProxyOpenAIChatCompletion_SubscriptionOnlyKeepsPoolUnavailability(t *te
 		})
 
 	ctx := billing.WithSubscriptionOnly(managedSubscriptionContext(auth.SubscriptionProviderClaude), billing.SubscriptionOnlyCreditsDepleted)
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
 	rec := httptest.NewRecorder()
 	body := openaiChatBody()
 
@@ -116,7 +117,7 @@ func TestProxyMessages_SubscriptionPoolExhaustionRescuesSibling(t *testing.T) {
 		})
 
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude),
-		InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
+		requestcontext.InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"auto","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"read main.go"}],"tools":[{"name":"read_file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`)
 
@@ -178,7 +179,7 @@ func TestProxyEndpoints_CachedManagedModelDenialEvictsAutomaticPin(t *testing.T)
 
 			installationID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
 			ctx := billing.WithSubscriptionOnly(managedSubscriptionContext(auth.SubscriptionProviderClaude), billing.SubscriptionOnlyCreditsDepleted)
-			ctx = context.WithValue(ctx, InstallationIDContextKey{}, installationID.String())
+			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, installationID.String())
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader(string(tc.body)))
 

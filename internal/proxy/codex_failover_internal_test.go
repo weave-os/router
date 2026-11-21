@@ -33,7 +33,7 @@ const (
 func codexSubscriptionTestCtx() context.Context {
 	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, codexTestToken)
 	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, codexTestAccountID)
-	return context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 }
 
 // TestCodexFailover_EligibilityAndSuppression covers the load-bearing predicates

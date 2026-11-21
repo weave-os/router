@@ -579,7 +579,7 @@ func TestTurnLoop_ToolResultPinOnExcludedProviderFallsThroughToScorer(t *testing
 		nil), hmm.ServingPorts())
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()),
-		proxy.InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
+		requestcontext.InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(toolResultBody), rec, httpReq))

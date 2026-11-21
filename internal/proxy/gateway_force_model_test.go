@@ -41,7 +41,7 @@ func gatewayAllowlistCtx(allowed []string, aliased ...string) context.Context {
 		ModelAliases:   aliases,
 	}
 	ctx := context.WithValue(authedCtx(id), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
-	return context.WithValue(ctx, proxy.InstallationAllowedModelsContextKey{}, allowed)
+	return context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, allowed)
 }
 
 func anthropicOKProvider() *fakeProvider {

@@ -94,12 +94,12 @@ func TestPolicyStrategyRegistryRoutesFutureStrategyWithoutServiceChanges(t *test
 		},
 	})
 
-	ctx := context.WithValue(context.Background(), ExternalIDContextKey{}, "org-1")
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx := context.WithValue(context.Background(), requestcontext.ExternalIDContextKey{}, "org-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex, RolloutID: "rollout-1"})
-	ctx = context.WithValue(ctx, PolicyTrainingAllowedContextKey{}, true)
-	ctx = context.WithValue(ctx, PolicyDebugEnabledContextKey{}, true)
-	ctx = context.WithValue(ctx, PolicyRoutingIntentContextKey{}, "high")
+	ctx = context.WithValue(ctx, requestcontext.PolicyTrainingAllowedContextKey{}, true)
+	ctx = context.WithValue(ctx, requestcontext.PolicyDebugEnabledContextKey{}, true)
+	ctx = context.WithValue(ctx, requestcontext.PolicyRoutingIntentContextKey{}, "high")
 	ctx = router.WithStrategy(ctx, strategy)
 	svc.captureMode = CaptureFull
 

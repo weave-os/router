@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/candidates"
@@ -43,18 +44,6 @@ func addToSet(set map[string]struct{}, model string) map[string]struct{} {
 	}
 	out[model] = struct{}{}
 	return out
-}
-
-func installationIDFromContext(ctx context.Context) uuid.UUID {
-	raw, _ := ctx.Value(InstallationIDContextKey{}).(string)
-	if raw == "" {
-		return uuid.Nil
-	}
-	id, err := uuid.Parse(raw)
-	if err != nil {
-		return uuid.Nil
-	}
-	return id
 }
 
 func applyPinEvidence(ports continuity.StrategyPorts, res *turnLoopResult, pin sessionpin.Pin, now time.Time) {
@@ -443,7 +432,7 @@ func (s *Service) runTurnLoop(
 			})
 		}
 	}
-	req.OrganizationID, _ = ctx.Value(ExternalIDContextKey{}).(string)
+	req.OrganizationID, _ = ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 	if installationID != uuid.Nil {
 		req.InstallationID = installationID.String()
 	}
@@ -1285,8 +1274,6 @@ func buildPolicyTurnContext(
 		HistoryTruncated:    req.HistoryTruncated || res.PrefixTrimmed,
 	}
 }
-
-func estimateSummaryTokens(s string) int { return conversation.EstimateSummaryTokens(s) }
 
 func sortedEnabledKeys(m map[string]struct{}) []string {
 	if len(m) == 0 {

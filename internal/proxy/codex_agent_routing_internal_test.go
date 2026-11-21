@@ -128,8 +128,8 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 	installationID := uuid.New()
 	rootCtx, root := codexRoutingEnvelope(t, "/root", true)
 	childCtx, child := codexRoutingEnvelope(t, "/root/reviewer", true)
-	rootCtx = context.WithValue(context.WithValue(rootCtx, InstallationIDContextKey{}, installationID.String()), APIKeyIDContextKey{}, "synthetic-api-key")
-	childCtx = context.WithValue(context.WithValue(childCtx, InstallationIDContextKey{}, installationID.String()), APIKeyIDContextKey{}, "synthetic-api-key")
+	rootCtx = context.WithValue(context.WithValue(rootCtx, requestcontext.InstallationIDContextKey{}, installationID.String()), requestcontext.APIKeyIDContextKey{}, "synthetic-api-key")
+	childCtx = context.WithValue(context.WithValue(childCtx, requestcontext.InstallationIDContextKey{}, installationID.String()), requestcontext.APIKeyIDContextKey{}, "synthetic-api-key")
 
 	turns := []struct {
 		child      bool

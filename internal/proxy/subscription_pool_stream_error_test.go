@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 )
@@ -41,7 +42,7 @@ func TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler(t *te
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude),
-		InstallationIDContextKey{}, "44444444-4444-4444-4444-444444444444")
+		requestcontext.InstallationIDContextKey{}, "44444444-4444-4444-4444-444444444444")
 	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -82,7 +83,7 @@ func TestProxyMessages_ManagedPoolFailureBeforeAnyBytesLeavesRenderingToHandler(
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude),
-		InstallationIDContextKey{}, "66666666-6666-6666-6666-666666666666")
+		requestcontext.InstallationIDContextKey{}, "66666666-6666-6666-6666-666666666666")
 	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))

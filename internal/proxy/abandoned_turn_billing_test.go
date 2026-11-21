@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -103,7 +104,7 @@ func TestAbandonBillsReportedUsageAcrossProxySurfaces(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
-			ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-test")
+			ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org-test")
 			repo := &capturingBillingRepo{}
 			upstream := &fakeProvider{
 				proxyErr: context.Canceled,
@@ -156,7 +157,7 @@ func TestAbandonBillingNegativeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-test")
+			ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org-test")
 			repo := &capturingBillingRepo{}
 			upstream := &fakeProvider{
 				proxyErr: tt.upstreamErr,
@@ -241,7 +242,7 @@ func TestAbandonBillingWithCanceledRequestErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancelCause(context.Background())
 			defer cancel(nil)
-			ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-test")
+			ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org-test")
 			repo := &capturingBillingRepo{}
 			upstream := &fakeProvider{
 				proxyErr: tt.proxyErr,

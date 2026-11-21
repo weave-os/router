@@ -28,7 +28,7 @@ const multiBindingModel = "qwen/qwen3-235b-a22b-2507"
 
 func excludedProvidersCtx(names ...string) context.Context {
 	return context.WithValue(context.Background(),
-		InstallationExcludedProvidersContextKey{}, names)
+		requestcontext.InstallationExcludedProvidersContextKey{}, names)
 }
 
 func keyed(names ...string) map[string]struct{} {
@@ -80,7 +80,7 @@ func TestForceModelCommand_RejectsExcludedModel(t *testing.T) {
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
 	ctx := context.WithValue(context.Background(),
-		InstallationExcludedModelsContextKey{}, []string{"claude-opus-5-5"})
+		requestcontext.InstallationExcludedModelsContextKey{}, []string{"claude-opus-5-5"})
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	require.NoError(t, (forceModelCommands{svc}).handle(ctx, rec, env,
@@ -456,7 +456,7 @@ func TestForcedModelBinding_RejectsPassthroughModelOutsideAllowlist(t *testing.T
 		WithAvailableModels(map[string]struct{}{"claude-opus-5": {}})
 
 	ctx := context.WithValue(context.Background(),
-		InstallationAllowedModelsContextKey{}, []string{"claude-opus-5"})
+		requestcontext.InstallationAllowedModelsContextKey{}, []string{"claude-opus-5"})
 
 	binding, refusal := svc.forcedModelBinding(ctx, "claude-opus-4-8", providers.ProviderAnthropic)
 
@@ -472,7 +472,7 @@ func TestForcedModelBinding_AllowsPassthroughModelInsideAllowlist(t *testing.T) 
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
 	ctx := context.WithValue(context.Background(),
-		InstallationAllowedModelsContextKey{}, []string{"claude-opus-4-8"})
+		requestcontext.InstallationAllowedModelsContextKey{}, []string{"claude-opus-4-8"})
 
 	binding, refusal := svc.forcedModelBinding(ctx, "claude-opus-4-8", providers.ProviderAnthropic)
 
@@ -549,13 +549,13 @@ func TestForcedModelBinding_GatewayExclusiveKeepsExplicitExclusion(t *testing.T)
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	ctx := context.WithValue(gatewayKeyCtx("claude-opus-5"),
-		InstallationAllowedModelsContextKey{}, []string{"claude-opus-5-5"})
+		requestcontext.InstallationAllowedModelsContextKey{}, []string{"claude-opus-5-5"})
 
 	binding, refusal := svc.forcedModelBinding(ctx, "claude-opus-5", providers.ProviderAnthropic)
 	assert.Nil(t, refusal, "the gateway, not the allowlist, bounds a force")
 	assert.Equal(t, providers.ProviderAnthropicGateway, binding)
 
-	ctx = context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{"claude-opus-5"})
+	ctx = context.WithValue(ctx, requestcontext.InstallationExcludedModelsContextKey{}, []string{"claude-opus-5"})
 	binding, refusal = svc.forcedModelBinding(ctx, "claude-opus-5", providers.ProviderAnthropic)
 	assert.Empty(t, binding)
 	assert.Contains(t, refusal.Error(), "excluded on this installation")

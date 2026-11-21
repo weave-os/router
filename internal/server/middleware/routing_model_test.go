@@ -143,8 +143,8 @@ func TestClassifierThreadsRemainExplicitlyEnrolled(t *testing.T) {
 		SelectionPolicySHA256: strings.Repeat("b", 64), SigningKey: []byte(strings.Repeat("k", 32)),
 		InstallationIDs: []uuid.UUID{installation},
 	}, store, unusedThreadClassifier{}))
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installation.String())
-	ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, "test-credential")
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installation.String())
+	ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "test-credential")
 	engine := gin.New()
 	engine.POST("/v1/router/threads", classifier.StartThreadHandler(svc))
 	for _, path := range []string{"/v1/messages", "/v1/responses"} {

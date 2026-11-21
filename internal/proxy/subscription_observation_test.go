@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
@@ -56,7 +57,7 @@ func TestPresentSubscriptionTokens_InboundBearerHarnesses(t *testing.T) {
 func TestPresentSubscriptionTokens_DisabledReportsNone(t *testing.T) {
 	h := http.Header{}
 	h.Set("Authorization", "Bearer sk-ant-oat01-live-token")
-	ctx := context.WithValue(context.Background(), InstallationSubscriptionRoutingDisabledContextKey{}, true)
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true)
 
 	codex, anthro := presentSubscriptionTokens(ctx, h)
 	assert.Empty(t, anthro, "toggle off must report no Claude sub so billing paths gate prepaid")

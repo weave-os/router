@@ -10,7 +10,7 @@ import (
 )
 
 func requestFactsFrom(ctx context.Context, headers http.Header) requestcontext.RequestFacts {
-	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)
+	externalID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 	anthropicSubscription, _ := ctx.Value(credentials.AnthropicSubscriptionContextKey{}).(string)
 	openAISubscription, _ := ctx.Value(credentials.OpenAISubscriptionContextKey{}).(string)
 	return requestcontext.RequestFacts{

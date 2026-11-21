@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/require"
 )
@@ -42,8 +43,8 @@ func paidFallbackLanes() []paidFallbackFacts {
 
 func paidFallbackBindings() []paidFallbackFacts {
 	withIncludedStateModels := func(ctx context.Context) context.Context {
-		ctx = context.WithValue(ctx, InstallationSubscriptionStateModelsEnabledContextKey{}, true)
-		return context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionStateModelsEnabledContextKey{}, true)
+		return context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	}
 	withEnterpriseSeat := func(ctx context.Context) context.Context {
 		return context.WithValue(enterpriseOnlyContext(ctx), claudeEnterpriseTurnKey{}, true)

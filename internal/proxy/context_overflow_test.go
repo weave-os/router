@@ -288,7 +288,7 @@ func TestHMMPolicyEmptiedPoolStaysNoRoutableModels(t *testing.T) {
 	upstream := &fakeProvider{}
 	svc := hmmOverflowService(providers.ProviderAnthropic, upstream, "claude-opus-4-8", "claude-haiku-4-5")
 	ctx := context.WithValue(router.WithStrategy(authedCtx(overflowInstallationID), router.StrategyHMM),
-		proxy.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-8", "claude-haiku-4-5"})
+		requestcontext.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-8", "claude-haiku-4-5"})
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`)
 
 	err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
