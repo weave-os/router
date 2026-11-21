@@ -11,6 +11,7 @@ import (
 )
 
 func WithAPIKeySpendCap(svc *billing.Service, funding credentials.CustomerFunding) gin.HandlerFunc {
+	requireCustomerFunding(funding)
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		if _, ok := proxy.AgentShadowEvalFromContext(c.Request.Context()); ok {

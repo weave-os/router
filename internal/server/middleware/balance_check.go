@@ -18,6 +18,7 @@ import (
 const TopUpURL = "https://app.weaveos.com/organization/settings/weave-router/credits"
 
 func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64, funding credentials.CustomerFunding) gin.HandlerFunc {
+	requireCustomerFunding(funding)
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		if owner, ok := billing.InternalTestOwnerFrom(c.Request.Context()); ok {

@@ -11,6 +11,7 @@ import (
 )
 
 func WithOrgMonthlySpendCap(svc *billing.Service, funding credentials.CustomerFunding) gin.HandlerFunc {
+	requireCustomerFunding(funding)
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		if _, ok := billing.InternalTestOwnerFrom(c.Request.Context()); ok {

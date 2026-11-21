@@ -19,6 +19,7 @@ const (
 )
 
 func WithDelegatedSpendCap(svc *billing.Service, funding credentials.CustomerFunding) gin.HandlerFunc {
+	requireCustomerFunding(funding)
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 		session := auth.DelegatedSessionFrom(ctx)
