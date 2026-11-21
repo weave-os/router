@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -71,6 +72,7 @@ const (
 	DispatchErrorWeaveCreditsDisabled
 	DispatchErrorSubscriptionUnavailableForTurn
 	DispatchErrorNoEligibleArm
+	DispatchErrorUntranslatableUserContent
 )
 
 type DispatchErrorClass struct {
@@ -226,14 +228,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: Chat Completions body posted to /v1/responses",
 		}, true
-	case errors.Is(err, translate.ErrAnthropicCacheControlOverflow), errors.Is(err, translate.ErrAnthropicCacheControlInvalid):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorAnthropicCacheControlInvalid,
-			Status:     http.StatusBadRequest,
-			Message:    unwrapToSentinelMessage(err),
-			LogLevel:   "warn",
-			LogMessage: "Rejected request: invalid Anthropic cache_control",
-		}, true
+	case errors.Is(err, translate.ErrAnthropicCacheControlOverflow), errors.Is(err, translate.ErrAnthropicCacheControlInvalid), errors.Is(err, translate.ErrUntranslatableUserContent):
+		return translatedRequestRejectionClass(err), true
 	case errors.Is(err, ErrTranslationIntrinsicallyIncompatible):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorTranslationIntrinsicallyIncompatible,
@@ -324,6 +320,25 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	}
 }
 
+func translatedRequestRejectionClass(err error) DispatchErrorClass {
+	if errors.Is(err, translate.ErrAnthropicCacheControlOverflow) || errors.Is(err, translate.ErrAnthropicCacheControlInvalid) {
+		return DispatchErrorClass{
+			Kind:       DispatchErrorAnthropicCacheControlInvalid,
+			Status:     http.StatusBadRequest,
+			Message:    unwrapToSentinelMessage(err),
+			LogLevel:   "warn",
+			LogMessage: "Rejected request: invalid Anthropic cache_control",
+		}
+	}
+	return DispatchErrorClass{
+		Kind:       DispatchErrorUntranslatableUserContent,
+		Status:     http.StatusBadRequest,
+		Message:    "The request contains a content part that cannot be sent to the selected provider: " + unwrapToSentinelMessage(err) + ". Remove the part or pick a provider that accepts it.",
+		LogLevel:   "warn",
+		LogMessage: "Rejected request: untranslatable user content part",
+	}
+}
+
 func unwrapToSentinelMessage(err error) string {
 	for e := err; e != nil; e = errors.Unwrap(e) {
 		child := errors.Unwrap(e)
@@ -333,6 +348,9 @@ func unwrapToSentinelMessage(err error) string {
 		if errors.Is(child, translate.ErrAnthropicCacheControlOverflow) || errors.Is(child, translate.ErrAnthropicCacheControlInvalid) {
 			return translate.CacheControlClientMessage(e)
 		}
+		if errors.Is(child, translate.ErrUntranslatableUserContent) {
+			return strings.TrimSuffix(e.Error(), ": "+child.Error())
+		}
 	}
 	return err.Error()
 }
@@ -341,7 +359,7 @@ func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
 	case DispatchErrorClassifierHistory, DispatchErrorClassifierInputTooLong:
 		return true
-	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorImageLimitExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorPassthroughModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels, DispatchErrorPlanOverrideRejected, DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused, DispatchErrorNoEligibleArm:
+	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorImageLimitExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorPassthroughModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels, DispatchErrorPlanOverrideRejected, DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused, DispatchErrorNoEligibleArm, DispatchErrorUntranslatableUserContent:
 		return true
 	default:
 		return false

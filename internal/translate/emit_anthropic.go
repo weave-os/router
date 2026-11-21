@@ -40,7 +40,10 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	var err error
 	switch e.format {
 	case FormatOpenAI:
-		body = e.buildAnthropicFromOpenAI(opts)
+		body, err = e.buildAnthropicFromOpenAI(opts)
+		if err != nil {
+			return providers.PreparedRequest{}, err
+		}
 	case FormatAnthropic:
 		body, err = e.buildAnthropicFromAnthropic(opts)
 		if err != nil {
@@ -228,7 +231,7 @@ func joinKept(beta string, keep func(string) bool) string {
 	return strings.Join(kept, ",")
 }
 
-func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) []byte {
+func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) ([]byte, error) {
 	jw := newJSONWriter()
 	jw.Obj()
 	jw.Key("model")
@@ -239,7 +242,9 @@ func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) []byte {
 		jw.Raw(r.Raw)
 	}
 
-	writeAnthropicSystemAndMessages(jw, e.body)
+	if err := writeAnthropicSystemAndMessages(jw, e.body); err != nil {
+		return nil, err
+	}
 	writeAnthropicMaxTokens(jw, e.body, opts.TargetModel, opts.Capabilities)
 	writeAnthropicStopSequences(jw, e.body)
 	writeAnthropicSamplingParams(jw, e.body, opts.Capabilities)
@@ -251,13 +256,13 @@ func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) []byte {
 		writeAnthropicToolChoice(jw, e.body, opts.Capabilities.Supports(router.CapAutoToolChoiceOnly))
 	}
 	jw.EndObj()
-	return jw.Bytes()
+	return jw.Bytes(), nil
 }
 
-func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
+func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) error {
 	messages := gjson.GetBytes(body, "messages")
 	if !messages.Exists() {
-		return
+		return nil
 	}
 
 	type pendingToolBatch struct {
@@ -290,15 +295,18 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 		pending.blocks = pending.blocks[:0]
 	}
 
+	var walkErr error
 	messages.ForEach(func(_, msg gjson.Result) bool {
 		role := msg.Get("role").String()
 		content := msg.Get("content")
 		isInstruction := role == "system" || role == "developer"
 
+		var built string
+		var err error
 		switch {
 		case isInstruction && !leading:
 			flushToolBatch()
-			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(buildAnthropicUserMessage("user", content), sourceMessageCacheControl(msg)))
+			built, err = buildAnthropicUserMessage("user", content)
 
 		case isInstruction:
 			policy := sourceMessageCacheControl(msg)
@@ -307,6 +315,7 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 				writeAnthropicTextBlock(block, text)
 				systemBlocks = append(systemBlocks, appendCacheControlRaw(string(block.Bytes()), policy))
 			}
+			return true
 
 		case role == "tool":
 			leading = false
@@ -314,19 +323,28 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 			blockRaw := buildToolResultBlock(toolCallID, content)
 			pending.active = true
 			pending.blocks = append(pending.blocks, blockRaw)
+			return true
 
 		case role == "assistant":
 			leading = false
 			flushToolBatch()
-			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(buildAnthropicAssistantMessage(msg), sourceMessageCacheControl(msg)))
+			built, err = buildAnthropicAssistantMessage(msg)
 
 		default:
 			leading = false
 			flushToolBatch()
-			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(buildAnthropicUserMessage(role, content), sourceMessageCacheControl(msg)))
+			built, err = buildAnthropicUserMessage(role, content)
 		}
+		if err != nil {
+			walkErr = err
+			return false
+		}
+		msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(built, sourceMessageCacheControl(msg)))
 		return true
 	})
+	if walkErr != nil {
+		return walkErr
+	}
 	flushToolBatch()
 
 	if len(systemBlocks) > 0 {
@@ -346,6 +364,7 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 		}
 		jw.EndArr()
 	}
+	return nil
 }
 
 func appendCacheControlRaw(block, policy string) string {
@@ -479,7 +498,7 @@ func buildToolResultBlock(toolUseID string, content gjson.Result) string {
 	return string(jw.Bytes())
 }
 
-func buildAnthropicAssistantMessage(msg gjson.Result) string {
+func buildAnthropicAssistantMessage(msg gjson.Result) (string, error) {
 	jw := newJSONWriter()
 	jw.Obj()
 	jw.Key("role")
@@ -489,9 +508,11 @@ func buildAnthropicAssistantMessage(msg gjson.Result) string {
 	if !toolCalls.Exists() || !toolCalls.IsArray() || toolCalls.Get("#").Int() == 0 {
 		content := msg.Get("content")
 		jw.Key("content")
-		writeAnthropicContentValue(jw, content)
+		if err := writeAnthropicContentValue(jw, content); err != nil {
+			return "", err
+		}
 		jw.EndObj()
-		return string(jw.Bytes())
+		return string(jw.Bytes()), nil
 	}
 
 	jw.Key("content")
@@ -528,24 +549,26 @@ func buildAnthropicAssistantMessage(msg gjson.Result) string {
 	jw.EndArr()
 
 	jw.EndObj()
-	return string(jw.Bytes())
+	return string(jw.Bytes()), nil
 }
 
-func buildAnthropicUserMessage(role string, content gjson.Result) string {
+func buildAnthropicUserMessage(role string, content gjson.Result) (string, error) {
 	jw := newJSONWriter()
 	jw.Obj()
 	jw.Key("role")
 	jw.Str(role)
 	jw.Key("content")
-	writeAnthropicContentValue(jw, content)
+	if err := writeAnthropicContentValue(jw, content); err != nil {
+		return "", err
+	}
 	jw.EndObj()
-	return string(jw.Bytes())
+	return string(jw.Bytes()), nil
 }
 
-func writeAnthropicContentValue(jw *jsonWriter, content gjson.Result) {
+func writeAnthropicContentValue(jw *jsonWriter, content gjson.Result) error {
 	if content.Type == gjson.String {
 		jw.Str(content.String())
-		return
+		return nil
 	}
 	if !content.IsArray() {
 		if content.Raw != "" {
@@ -553,52 +576,19 @@ func writeAnthropicContentValue(jw *jsonWriter, content gjson.Result) {
 		} else {
 			jw.Null()
 		}
-		return
+		return nil
 	}
+	var partErr error
 	jw.Arr()
 	content.ForEach(func(_, part gjson.Result) bool {
-		switch part.Get("type").String() {
-		case "text":
-			jw.Obj()
-			jw.Key("type")
-			jw.Str("text")
-			jw.Key("text")
-			jw.Str(part.Get("text").String())
-			jw.EndObj()
-		case "image_url":
-			urlStr := part.Get("image_url.url").String()
-			if urlStr != "" {
-				jw.Raw(buildAnthropicImageBlock(urlStr))
-			}
+		var block string
+		if block, partErr = anthropicBlockFromOpenAIPart(part); block != "" {
+			jw.Raw(block)
 		}
-		return true
+		return partErr == nil
 	})
 	jw.EndArr()
-}
-
-func buildAnthropicImageBlock(urlStr string) string {
-	jw := newJSONWriter()
-	jw.Obj()
-	jw.Key("type")
-	jw.Str("image")
-	jw.Key("source")
-	jw.Obj()
-	if mime, data, ok := parseDataURL(urlStr); ok {
-		jw.Key("type")
-		jw.Str("base64")
-		jw.Key("media_type")
-		jw.Str(mime)
-		jw.Key("data")
-		jw.Str(data)
-	} else {
-		jw.Key("type")
-		jw.Str("url")
-		jw.Key("url")
-		jw.Str(urlStr)
-	}
-	jw.EndObj()
-	jw.EndObj()
-	return string(jw.Bytes())
+	return partErr
 }
 
 func writeAnthropicMaxTokens(jw *jsonWriter, body []byte, targetModel string, capabilities router.ModelSpec) {
