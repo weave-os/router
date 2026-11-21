@@ -269,6 +269,14 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		}
 	}
 
+	var organizationPrepaidConcurrency gin.HandlerFunc
+	if billingSvc != nil {
+		organizationPrepaidConcurrency = middleware.WithOrganizationPrepaidConcurrencyLimit(
+			middleware.OrganizationPrepaidMaxInFlight,
+			middleware.OrganizationPrepaidMaxInFlightPerKey,
+		)
+	}
+
 	messagesMiddleware := []gin.HandlerFunc{
 		middleware.WithTimingEntry(),
 		middleware.WithTimeout(messagesTimeout),
@@ -281,6 +289,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		messagesMiddleware = append(messagesMiddleware,
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
+			organizationPrepaidConcurrency,
 			middleware.WithAPIKeySpendCap(billingSvc),
 			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
@@ -311,6 +320,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		chatCompletionMiddleware = append(chatCompletionMiddleware,
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
+			organizationPrepaidConcurrency,
 			middleware.WithAPIKeySpendCap(billingSvc),
 			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
