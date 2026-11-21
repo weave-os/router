@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -50,5 +51,5 @@ func TestService_SessionPin_CustomToolTurnKeepsUnsupportedPinExcluded(t *testing
 
 	require.NotNil(t, fr.capturedReq, "scorer must run once the unsupported pin is dropped")
 	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, catalog.ModelMiMoV26Pro)
-	assert.Equal(t, fresh, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, fresh, rec.Header().Get(requestcontext.HeaderRouterModel))
 }

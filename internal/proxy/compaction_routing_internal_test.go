@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
@@ -92,7 +93,7 @@ func openAICatalogModels() map[string]struct{} {
 func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 	scored := router.Decision{Provider: providers.ProviderOpenAI, Model: compactionStrategyModel, Reason: "cluster_scored"}
 	f := newCompactionRoutingFixture(t, scored)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	env, err := translate.ParseOpenAI([]byte(codexCompactionBody))
 	require.NoError(t, err)
 
@@ -116,7 +117,7 @@ func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 func TestClaudeCodeCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 	scored := router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "cluster_scored"}
 	f := newCompactionRoutingFixture(t, scored)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
 	env, err := translate.ParseAnthropic([]byte(claudeCompactionBody))
 	require.NoError(t, err)
 
@@ -137,13 +138,13 @@ func TestCompactionStaysOnSessionPin(t *testing.T) {
 		parse  func([]byte) (*translate.RequestEnvelope, error)
 		pin    router.Decision
 	}{
-		{"codex", ClientAppCodex, codexCompactionBody, translate.ParseOpenAI,
+		{"codex", requestcontext.ClientAppCodex, codexCompactionBody, translate.ParseOpenAI,
 			router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna}},
-		{"codex on a low-tier model", ClientAppCodex, codexCompactionBody, translate.ParseOpenAI,
+		{"codex on a low-tier model", requestcontext.ClientAppCodex, codexCompactionBody, translate.ParseOpenAI,
 			router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.4-mini"}},
-		{"claude code", ClientAppClaudeCode, claudeCompactionBody, translate.ParseAnthropic,
+		{"claude code", requestcontext.ClientAppClaudeCode, claudeCompactionBody, translate.ParseAnthropic,
 			router.Decision{Provider: providers.ProviderAnthropic, Model: policy.PrecompactionLargeWindowModel}},
-		{"claude code on another vendor", ClientAppClaudeCode, claudeCompactionBody, translate.ParseAnthropic,
+		{"claude code on another vendor", requestcontext.ClientAppClaudeCode, claudeCompactionBody, translate.ParseAnthropic,
 			router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -169,7 +170,7 @@ func TestCompactionStaysOnSessionPin(t *testing.T) {
 func TestCompactionIneligibleSessionPinUsesScorer(t *testing.T) {
 	scored := router.Decision{Provider: providers.ProviderOpenAI, Model: compactionStrategyModel, Reason: "cluster_scored"}
 	f := newCompactionRoutingFixture(t, scored)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	env, err := translate.ParseOpenAI([]byte(codexCompactionBody))
 	require.NoError(t, err)
 	f.pinSession(t, ctx, env, router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna})

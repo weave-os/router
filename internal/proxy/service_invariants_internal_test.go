@@ -93,7 +93,7 @@ func (f *cancellationCheckingPinStore) Upsert(ctx context.Context, p sessionpin.
 
 func TestMaybeRepinOnRefusal_WritesAfterRequestCancellation(t *testing.T) {
 	store := &cancellationCheckingPinStore{repinFakeStore: &repinFakeStore{}}
-	s := &Service{hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	s := &Service{hmmServing: hmmPorts(), pinStore: store, rescueConfig: dispatch.RescueConfig{CyberRefusalRepin: true, CyberRefusalFallbackModel: "claude-sonnet-5"}}
 	ctx, cancel := context.WithCancel(repinCtx())
 	cancel()
 

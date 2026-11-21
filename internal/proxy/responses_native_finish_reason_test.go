@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -26,7 +27,7 @@ const nativeResponsesInstallationID = "3f4c1c2e-2b4d-4c3a-9f6d-0d1a2b3c4d5e"
 func codexNativeResponsesCtx() context.Context {
 	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
 	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-123")
-	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	return context.WithValue(ctx, proxy.InstallationIDContextKey{}, nativeResponsesInstallationID)
 }
 

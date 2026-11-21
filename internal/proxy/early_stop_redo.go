@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
@@ -68,7 +69,7 @@ func lowerTierCandidates(target string, candidates []string) []string {
 func (s *Service) earlyStopRedoMode(ctx context.Context, routeRes turnLoopResult, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode {
 	mode := s.ResolveEarlyStopRedo(ctx)
 	if mode == flags.EarlyStopRedoOff || !streaming || agentShadow ||
-		ClientIdentityFrom(ctx).ClientApp != ClientAppClaudeCode ||
+		ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppClaudeCode ||
 		routeRes.TurnType != turntype.ToolResult ||
 		routeRes.HardPinned || routeRes.CallerModelPassthrough || routeRes.UsageBypass ||
 		strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) {

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/server/middleware"
@@ -52,7 +51,7 @@ func TestMaxServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testing.T) 
 
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 		request.Header.Set(middleware.RouterStrategyOverrideHeader, "rl")
-		request.Header.Set(proxy.AllowedModelsHeader, "unknown-model")
+		request.Header.Set(requestcontext.AllowedModelsHeader, "unknown-model")
 		request.Header.Set(middleware.HeaderAlpha, "not-a-number")
 		request.Header.Set(middleware.ForceEffortOverrideHeader, "invalid")
 		request.Header.Set(middleware.PolicyPinOverrideHeader, "invalid")

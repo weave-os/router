@@ -30,7 +30,15 @@ func subscriptionOnlyUnservable(ctx context.Context, provider, model string) boo
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
-	return !servingCommitted(ctx, paidFallbackBindingForModel(ctx, model), subscriptionlane.OrganizationCreditsServed)
+	return paidFallbackForbiddenForModelOnProvider(ctx, "", model)
+}
+
+func paidFallbackForbiddenForModelOnProvider(ctx context.Context, provider, model string) bool {
+	event := subscriptionlane.OrganizationCreditsServed
+	if provider != "" && paidCapacityUnfunded(ctx) {
+		event = payableServingEvent(ctx, paidFallbackEvent(usableBYOK(ctx, provider)))
+	}
+	return !servingCommitted(ctx, paidFallbackBindingForModel(ctx, model), event)
 }
 
 func subscriptionStatePaidRescueContext(ctx context.Context, model string) context.Context {
