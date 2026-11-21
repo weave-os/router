@@ -89,7 +89,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 
 func (s *Service) recordEscalationJudgeInference(ctx context.Context, installationID, requestID string, mode llmescalation.Mode, job llmescalation.Job, judgment llmescalation.Judgment, failure llmescalation.FailureCode) {
 	succeeded := failure == llmescalation.FailureNone
-	if s.telemetry == nil || installationID == "" || (!judgment.Usage.Known && !succeeded) {
+	if s.turnTelemetry.repo == nil || installationID == "" || (!judgment.Usage.Known && !succeeded) {
 		return
 	}
 	verdict := ""

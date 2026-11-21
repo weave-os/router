@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Service) WithSessionTurnClock(clock telemetry.SessionTurnClock) *Service {
-	s.turnClock = clock
+	s.turnTelemetry.turnClock = clock
 	return s
 }
 
@@ -23,13 +23,13 @@ func advancesSessionTurnClock(p InsertTelemetryParams) bool {
 	return p.TurnType == string(turntype.MainLoop) || p.TurnType == string(turntype.ToolResult)
 }
 
-func (s *Service) applyUserPromptGap(ctx context.Context, log *slog.Logger, p *InsertTelemetryParams) {
-	if s.turnClock == nil || !advancesSessionTurnClock(*p) {
+func (t turnTelemetry) applyUserPromptGap(ctx context.Context, log *slog.Logger, p *InsertTelemetryParams) {
+	if t.turnClock == nil || !advancesSessionTurnClock(*p) {
 		return
 	}
 	clockCtx, cancel := context.WithTimeout(ctx, sessionTurnClockTimeout)
 	defer cancel()
-	previous, found, err := s.turnClock.AdvanceSessionTurnClock(clockCtx, telemetry.SessionTurnClockAdvance{
+	previous, found, err := t.turnClock.AdvanceSessionTurnClock(clockCtx, telemetry.SessionTurnClockAdvance{
 		InstallationID:  p.InstallationID,
 		SessionKey:      p.SessionKey,
 		ResponseEndedAt: p.Timestamp.Add(time.Duration(p.TotalLatencyMs) * time.Millisecond),

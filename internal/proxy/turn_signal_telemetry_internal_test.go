@@ -163,7 +163,7 @@ func TestApplyUserPromptGap_TimesTypedPromptAgainstPreviousResponse(t *testing.T
 		}
 	}
 	apply := func(p InsertTelemetryParams) InsertTelemetryParams {
-		service.applyUserPromptGap(context.Background(), slog.Default(), &p)
+		service.turnTelemetry.applyUserPromptGap(context.Background(), slog.Default(), &p)
 		return p
 	}
 
@@ -193,12 +193,12 @@ func TestApplyUserPromptGap_OverlappingPreviousResponseLeavesGapNull(t *testing.
 		InstallationID: "installation-1", SpanType: "router.upstream", SessionKey: []byte("session-a"),
 		Timestamp: start, TotalLatencyMs: 60_000, TurnType: "main_loop", DecisionModel: "gpt-6-sol", OutputTokens: 120, UserPrompt: &typed,
 	}
-	service.applyUserPromptGap(context.Background(), slog.Default(), &long)
+	service.turnTelemetry.applyUserPromptGap(context.Background(), slog.Default(), &long)
 
 	overlapping := long
 	overlapping.Timestamp = start.Add(10 * time.Second)
 	overlapping.TotalLatencyMs = 1_000
-	service.applyUserPromptGap(context.Background(), slog.Default(), &overlapping)
+	service.turnTelemetry.applyUserPromptGap(context.Background(), slog.Default(), &overlapping)
 
 	assert.Nil(t, overlapping.UserPromptGapMs, "a response still running when the prompt arrived is not a wait")
 	assert.Empty(t, overlapping.UserPromptGapPriorModel)
@@ -213,7 +213,7 @@ func TestApplyUserPromptGap_FailedTurnDoesNotMoveTheClock(t *testing.T) {
 		InstallationID: "installation-1", SpanType: "router.upstream", SessionKey: []byte("session-a"),
 		Timestamp: start, TotalLatencyMs: 4_000, TurnType: "main_loop", DecisionModel: "claude-opus-5-5", OutputTokens: 120, UserPrompt: &typed,
 	}
-	service.applyUserPromptGap(context.Background(), slog.Default(), &reply)
+	service.turnTelemetry.applyUserPromptGap(context.Background(), slog.Default(), &reply)
 
 	failed := reply
 	failed.Timestamp = start.Add(10 * time.Second)
@@ -222,11 +222,11 @@ func TestApplyUserPromptGap_FailedTurnDoesNotMoveTheClock(t *testing.T) {
 	failed.OutputTokens = 0
 	failed.UpstreamStatusCode = 502
 	failed.ErrorClass = TurnErrorUpstream5xx
-	service.applyUserPromptGap(context.Background(), slog.Default(), &failed)
+	service.turnTelemetry.applyUserPromptGap(context.Background(), slog.Default(), &failed)
 
 	next := reply
 	next.Timestamp = start.Add(20 * time.Second)
-	service.applyUserPromptGap(context.Background(), slog.Default(), &next)
+	service.turnTelemetry.applyUserPromptGap(context.Background(), slog.Default(), &next)
 
 	// The 502 at +10s showed no reply, so the prompt at +20s waited 16s on opus.
 	require.NotNil(t, next.UserPromptGapMs)
@@ -254,7 +254,7 @@ func TestApplyUserPromptGap_ClockLeavesTheInsertItsBudget(t *testing.T) {
 		InstallationID: "installation-1", SpanType: "router.upstream", SessionKey: []byte("session-a"),
 		Timestamp: time.Now(), TurnType: "main_loop", DecisionModel: "claude-opus-5-5", OutputTokens: 120,
 	}
-	service.applyUserPromptGap(parent, slog.Default(), &row)
+	service.turnTelemetry.applyUserPromptGap(parent, slog.Default(), &row)
 
 	require.False(t, clock.deadline.IsZero(), "the clock must run under a deadline")
 	assert.LessOrEqual(t, clock.deadline.Sub(parentDeadline), -3*time.Second,

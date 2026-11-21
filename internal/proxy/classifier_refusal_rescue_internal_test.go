@@ -88,7 +88,7 @@ func rescueService(p *modelScriptedProvider, retry bool, fallbackModel string) (
 	svc.cyberRefusalRetry = retry
 	svc.cyberRefusalFallbackModel = fallbackModel
 	sink := newBypassCaptureTelemetry()
-	svc.telemetry = sink
+	svc.turnTelemetry.repo = sink
 	return svc, sink
 }
 

@@ -295,7 +295,7 @@ func (s *Service) bypassToAnthropic(
 
 	var extractor *telemetry.UsageExtractor
 	if s.usageRequired() || streamCost != nil {
-		extractor, respW = s.newUsageExtractor(respW, decision.Provider)
+		extractor, respW = s.turnTelemetry.newUsageExtractor(respW, decision.Provider)
 		extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) })
 	}
 

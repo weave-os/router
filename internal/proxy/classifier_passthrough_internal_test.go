@@ -200,7 +200,7 @@ func TestBypass_ClassifierPassthrough_TelemetryReason(t *testing.T) {
 	upstream := &bypassFakeProvider{respBody: "{}"}
 	svc := newBypassService(upstream)
 	sink := newBypassCaptureTelemetry()
-	svc.telemetry = sink
+	svc.turnTelemetry.repo = sink
 
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-haiku-4-5","max_tokens":5,"messages":[{"role":"user","content":"hello"}]}`))
 	require.NoError(t, err)

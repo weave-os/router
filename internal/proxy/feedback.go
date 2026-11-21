@@ -64,7 +64,7 @@ func (s *Service) SubmitFeedback(ctx context.Context, p feedback.SubmitFeedbackP
 }
 
 func (s *Service) emitFeedbackSpan(ctx context.Context, p feedback.SubmitFeedbackParams) {
-	if s.emitter == nil {
+	if s.turnTelemetry.emitter == nil {
 		return
 	}
 	now := s.clock.Now()
