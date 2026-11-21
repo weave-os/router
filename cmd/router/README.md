@@ -46,9 +46,6 @@ into `auth.Service` and `proxy.Service`. Operator-facing variables are listed in
   sub-agent targets. The per-request hard-pin resolver applies `excluded_models`
   (the hard-pin tier bypasses the scorer) and is not wired when
   `ROUTER_HARD_PIN_MODEL` is set: an operator override is never rewritten.
-- **RL strategy.** Without `ROUTER_RL_SIDECAR_URL`, `x-weave-router-strategy: rl`
-  fails closed with 503 rather than falling back to another scorer. The Modal auth
-  headers are sent only when both key and secret are set.
 - **Nil interfaces.** Optional collaborators (telemetry emitter, handover
   summarizer, routers) are declared with their interface type and assigned only
   when configured, so callers' `== nil` checks see a true nil rather than a typed

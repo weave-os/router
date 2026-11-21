@@ -7,6 +7,7 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+	"weave-os/router/internal/billing"
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/providers"
@@ -58,7 +59,7 @@ func TestSubscriptionRecoveryUnavailablePoolNeverBuysAPI(t *testing.T) {
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
-	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), in)
+	_, err := svc.dispatchWithFallback(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), in)
 	require.Error(t, err)
 	require.Zero(t, provider.calls)
 	require.NotContains(t, rec.Body.String(), "paid answer")

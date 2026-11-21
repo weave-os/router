@@ -10,9 +10,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 )
 
@@ -32,8 +34,9 @@ func TestRoutingAnnouncementSharedCompletionHistory(t *testing.T) {
 			pins.pin = sessionpin.Pin{Provider: providers.ProviderOpenAI, Model: "gpt-6-luna", LastServedModel: test.completed, PinnedUntil: time.Now().Add(time.Hour)}
 			provider := &fakeProvider{proxyResponse: responsesTextUpstream}
 			decision := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6-luna", Reason: "test"}
-			svc := proxy.NewService(&fakeRouter{decision: decision}, map[string]providers.Client{providers.ProviderOpenAI: provider},
-				nil, pins, false, providers.ProviderOpenAI, "gpt-6-luna", nil)
+			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: decision}, map[string]providers.Client{providers.ProviderOpenAI: provider},
+				nil, pins, false, providers.ProviderOpenAI, "gpt-6-luna", nil), hmm.ServingPorts())
+
 			ctx := context.WithValue(authedCtx("00000000-0000-0000-0000-000000000001"), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{
 				ClientApp: proxy.ClientAppCodex, SessionID: "synthetic-shared-conversation",
 			})

@@ -50,6 +50,7 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 		want            router.Strategy
 	}{
 		{name: "default", model: string(router.ModelAutomatic), initial: router.StrategyHMMEmbedding, status: http.StatusOK, want: router.StrategyHMMEmbedding},
+		{name: "display name", model: router.ModelAutomaticDisplayName, initial: router.StrategyHMMEmbedding, status: http.StatusOK, want: router.StrategyHMMEmbedding},
 		{name: "hmm", model: string(router.ModelHMM), available: true, status: http.StatusOK, want: router.StrategyHMM},
 		{name: "hmm beta", model: string(router.ModelHMMBeta), available: true, status: http.StatusOK, want: router.StrategyHMMBeta},
 		{name: "hmm unavailable", model: string(router.ModelHMM), status: http.StatusServiceUnavailable},
@@ -97,10 +98,11 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 				retained, err := io.ReadAll(c.Request.Body)
 				require.NoError(t, err)
 				require.Equal(t, body, string(retained))
-				model, selected := router.RoutingModelFromContext(c.Request.Context())
+				selection := router.StrategySelectionFromContext(c.Request.Context())
+				model, selected := selection.RoutingModel, selection.RoutingModelSelected()
 				require.Equal(t, router.IsRoutingModel(tc.model), selected)
 				if selected {
-					require.Equal(t, router.RoutingModel(tc.model), model)
+					require.Equal(t, router.CanonicalRoutingModel(tc.model), model)
 				}
 				c.Status(http.StatusOK)
 			})
@@ -193,7 +195,8 @@ func TestRoutingModelReadsGeminiURLModel(t *testing.T) {
 	body := `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`
 	engine.POST("/v1beta/models/:modelAction", middleware.WithClassifierThread(&proxy.Service{}, func(router.Strategy) bool { return true }), func(c *gin.Context) {
 		require.Equal(t, router.StrategyHMMQwen, router.StrategyFromContext(c.Request.Context()))
-		model, selected := router.RoutingModelFromContext(c.Request.Context())
+		selection := router.StrategySelectionFromContext(c.Request.Context())
+		model, selected := selection.RoutingModel, selection.RoutingModelSelected()
 		require.True(t, selected)
 		require.Equal(t, router.ModelQwen, model)
 		c.Status(http.StatusOK)
@@ -216,7 +219,8 @@ func TestRoutingModelGeminiURLOverridesBodyAndRejectsForceHeader(t *testing.T) {
 				engine.POST("/v1beta/models/:modelAction", middleware.WithClassifierThread(&proxy.Service{}, func(router.Strategy) bool { return true }), func(c *gin.Context) {
 					require.False(t, forced, "a routing selector cannot bypass conflicting force headers through body.model")
 					require.Equal(t, router.StrategyHMMQwen, router.StrategyFromContext(c.Request.Context()))
-					model, selected := router.RoutingModelFromContext(c.Request.Context())
+					selection := router.StrategySelectionFromContext(c.Request.Context())
+					model, selected := selection.RoutingModel, selection.RoutingModelSelected()
 					require.True(t, selected)
 					require.Equal(t, router.ModelQwen, model)
 					c.Status(http.StatusOK)

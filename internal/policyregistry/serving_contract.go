@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 type ServingTarget string

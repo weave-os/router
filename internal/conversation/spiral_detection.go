@@ -1,15 +1,10 @@
 package conversation
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"time"
 
-	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
-
-	lru "github.com/hashicorp/golang-lru/v2/expirable"
 )
 
 const (
@@ -44,31 +39,6 @@ func SpiralReasonStrings(reasons []SpiralReason) []string {
 		values[i] = string(reason)
 	}
 	return values
-}
-
-type SpiralShadowStore interface {
-	InsertSpiralShadowEvent(ctx context.Context, p SpiralShadowEvent) error
-	CountSpiralShadowEvents(ctx context.Context, sessionKey []byte, role, reason string) (count int64, err error)
-}
-
-type SpiralShadowEvent struct {
-	InstallationID     string
-	SessionKey         []byte
-	Role               string
-	RoutedModel        string
-	TurnType           string
-	Reason             string
-	ErrStreak          int32
-	ErroredResults     int32
-	ToolResults        int32
-	MaxSameFileEdits   int32
-	SameFilePathHash   string
-	RepeatFrac         float64
-	MonologueLen       int32
-	ToolCallCount      int32
-	MessageCount       int32
-	PingPongLen        int32
-	StepsSinceProgress int32
 }
 
 type SpiralSignals struct {
@@ -191,30 +161,6 @@ func SpiralReasons(s SpiralSignals) []SpiralReason {
 	return reasons
 }
 
-const (
-	spiralFiredCacheSize = 8192
-	spiralFiredCacheTTL  = time.Hour
-)
-
-type SpiralTracker struct {
-	fired *lru.LRU[string, struct{}]
-}
-
-func NewSpiralTracker() *SpiralTracker {
-	return &SpiralTracker{
-		fired: lru.NewLRU[string, struct{}](spiralFiredCacheSize, nil, spiralFiredCacheTTL),
-	}
-}
-
-func (t *SpiralTracker) Fired(key string) bool {
-	_, seen := t.fired.Get(key)
-	return seen
-}
-
-func (t *SpiralTracker) MarkFired(key string) {
-	t.fired.Add(key, struct{}{})
-}
-
-func SpiralFiredKey(sessionKey [sessionpin.SessionKeyLen]byte, role, reason string) string {
-	return string(sessionKey[:]) + "\x00" + role + "\x00" + reason
+var editToolNames = map[string]struct{}{
+	"Edit": {}, "Write": {}, "MultiEdit": {}, "NotebookEdit": {},
 }

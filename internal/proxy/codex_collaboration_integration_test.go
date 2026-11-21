@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -53,11 +54,12 @@ func TestProxyOpenAIResponses_ForcedOpusPlaintextAgentTask(t *testing.T) {
 		_, _ = io.WriteString(w, strings.NewReplacer("rescued", "task accepted", "claude-sonnet-5", "claude-opus-5-5").Replace(anthropicRescueSSE))
 	}))
 	t.Cleanup(upstream.Close)
-	svc := proxy.NewService(&fakeRouter{decision: router.Decision{
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropic, Model: "claude-opus-5-5", Reason: translate.ReasonUserForceModel,
 	}}, map[string]providers.Client{
 		providers.ProviderAnthropic: anthropic.NewClient("test-key", upstream.URL),
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5-5", nil)
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5-5", nil), hmm.ServingPorts())
+
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	parentBody := []byte(`{"model":"gpt-6.1-sol","stream":true,"input":"Delegate project test inspection","tools":[{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"spawn_agent","parameters":{"type":"object","properties":{"message":{"type":"string"}}}}]}]}`)
 	parentSink := httptest.NewRecorder()
@@ -98,9 +100,10 @@ func TestProxyOpenAIResponses_EncryptedAgentTaskKeepsNativePayload(t *testing.T)
 		_, _ = io.WriteString(w, `{"id":"resp_native","object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Task received"}]}]}`)
 	}}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6.1-sol"}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderOpenAI: native, providers.ProviderAnthropic: &fakeProvider{},
-	}, nil, nil, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil)
+	}, nil, nil, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil), hmm.ServingPorts())
+
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	body := []byte(`{"model":"gpt-6.1-sol","input":[{"type":"agent_message","author":"parent","recipient":"child","content":[{"type":"input_text","text":"Message Type: NEW_TASK\nPayload:\n"},{"type":"encrypted_content","encrypted_content":"opaque-task"}]}]}`)
 	sink := httptest.NewRecorder()
@@ -111,9 +114,10 @@ func TestProxyOpenAIResponses_EncryptedAgentTaskKeepsNativePayload(t *testing.T)
 	assert.JSONEq(t, string(body), string(native.proxyBodies[0]))
 	assert.Equal(t, providers.EndpointResponses, native.proxyEndpoints[0])
 	blockedUpstream := &fakeProvider{}
-	blockedService := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5-5"}}, map[string]providers.Client{
+	blockedService := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5-5"}}, map[string]providers.Client{
 		providers.ProviderAnthropic: blockedUpstream,
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5-5", nil)
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5-5", nil), hmm.ServingPorts())
+
 	err := blockedService.ProxyOpenAIResponses(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	require.ErrorIs(t, err, proxy.ErrTranslationCompatibleProviderUnavailable)
 	assert.Empty(t, blockedUpstream.proxyBodies, "never substitute the clear routing header for an opaque task")

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm/pinstate"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/sqlc"
@@ -195,7 +196,7 @@ func TestSessionPinMutationsCarryExpectedRoutingStrategy(t *testing.T) {
 	key := [sessionpin.SessionKeyLen]byte{10, 11, 12}
 	unscopedPinExclusions := fmt.Sprintf("NOT IN ('%s', '%s')", router.StrategyHMMBeta, router.StrategyHMMQwen)
 	db := &sessionStrategyDB{row: sessionStrategyRow{err: sql.ErrNoRows}}
-	repo := NewSessionPinRepo(db)
+	repo := NewSessionPinRepo(db, pinstate.Accessor{})
 	ctx := context.Background()
 
 	_, ok, err := repo.Consume(ctx, key, "default", router.StrategyHMMEmbedding)

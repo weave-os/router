@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 
 	"github.com/gin-gonic/gin"
@@ -25,17 +26,17 @@ func (policyCatalogRouter) Route(context.Context, router.Request) (router.Decisi
 
 func TestPolicyCatalogHandlerReportsDefaultAndCapabilities(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	service := proxy.NewService(
-		nil, nil, nil, nil, false, "", "", nil,
-	).WithPolicyStrategy(policy.StrategySpec{
-		Strategy: router.StrategyHMM,
-		Router:   policyCatalogRouter{},
-		Capabilities: policy.Capabilities{
-			SchemaVersion:          policy.SchemaVersionV1,
-			HonorsPreferredModels:  true,
-			HonorsQualityPriceBias: true,
-		},
-	}).WithPolicyStrategy(policy.StrategySpec{
+	service := proxy.WithStrategyPorts(proxy.NewService(
+		nil, nil, nil, nil, false, "", "", nil), hmm.ServingPorts()).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: router.StrategyHMM,
+			Router:   policyCatalogRouter{},
+			Capabilities: policy.Capabilities{
+				SchemaVersion:          policy.SchemaVersionV1,
+				HonorsPreferredModels:  true,
+				HonorsQualityPriceBias: true,
+			},
+		}).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: router.StrategyHMMBeta,
 		Router:   policyCatalogRouter{},
 	})

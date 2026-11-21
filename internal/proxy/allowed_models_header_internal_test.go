@@ -72,7 +72,7 @@ func TestAllowedModelsForRequest_SubsetAloneRestricts(t *testing.T) {
 }
 
 func TestExcludedModelsForRequest_SubsetExcludesComplementButPolicySetDoesNot(t *testing.T) {
-	s := &Service{availableModels: map[string]struct{}{"a": {}, "b": {}, "c": {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}, "c": {}}}
 	ctx := ctxWithRequestSubset(ctxWithAllowedModels("a", "b"), "b")
 
 	got := s.excludedModelsForRequest(ctx)
@@ -109,26 +109,26 @@ func TestRequestedAllowedModelsForTelemetry(t *testing.T) {
 }
 
 func TestReadmitForcedModel_LiftsSubsetOnlyExclusion(t *testing.T) {
-	s := &Service{availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
 	ctx := ctxWithRequestSubset(context.Background(), testSol)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
-	req := router.Request{ExcludedModels: s.excludedModelsForRequest(ctx)}
-	require.Contains(t, req.ExcludedModels, testTerra)
+	req := router.Request{Candidates: router.Candidates{ExcludedModels: s.excludedModelsForRequest(ctx)}}
+	require.Contains(t, req.Candidates.ExcludedModels, testTerra)
 
 	pin := sessionpin.Pin{Model: testTerra, Provider: providers.ProviderOpenAI}
 	got := s.readmitForcedModel(ctx, req, env, translate.RoutingFeatures{MaxTokens: 16}, pin)
 	assert.NotContains(t, got, testTerra)
 	assert.Contains(t, got, testOpus)
-	assert.Contains(t, req.ExcludedModels, testTerra, "input map must not be mutated")
+	assert.Contains(t, req.Candidates.ExcludedModels, testTerra, "input map must not be mutated")
 }
 
 func TestReadmitForcedModel_KeepsPolicyExclusion(t *testing.T) {
-	s := &Service{availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
 	ctx := ctxWithRequestSubset(ctxWithAllowedModels(testSol, testTerra), testSol)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
-	req := router.Request{ExcludedModels: s.excludedModelsForRequest(ctx)}
+	req := router.Request{Candidates: router.Candidates{ExcludedModels: s.excludedModelsForRequest(ctx)}}
 
 	pin := sessionpin.Pin{Model: testOpus, Provider: providers.ProviderAnthropic}
 	got := s.readmitForcedModel(ctx, req, env, translate.RoutingFeatures{MaxTokens: 16}, pin)
@@ -136,12 +136,12 @@ func TestReadmitForcedModel_KeepsPolicyExclusion(t *testing.T) {
 }
 
 func TestReadmitForcedModel_KeepsAdvisorPairingExclusion(t *testing.T) {
-	s := &Service{availableModels: map[string]struct{}{testSol: {}, "claude-fable-5-1": {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, "claude-fable-5-1": {}}}
 	ctx := ctxWithRequestSubset(context.Background(), testSol)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"advisor_20260301","name":"advisor","model":"claude-opus-5"}]}`))
 	require.NoError(t, err)
-	req := router.Request{ExcludedModels: s.excludedModelsForRequest(ctx)}
-	require.Contains(t, req.ExcludedModels, "claude-fable-5-1")
+	req := router.Request{Candidates: router.Candidates{ExcludedModels: s.excludedModelsForRequest(ctx)}}
+	require.Contains(t, req.Candidates.ExcludedModels, "claude-fable-5-1")
 
 	pin := sessionpin.Pin{Model: "claude-fable-5-1", Provider: providers.ProviderAnthropic}
 	got := s.readmitForcedModel(ctx, req, env, translate.RoutingFeatures{MaxTokens: 16}, pin)
@@ -149,8 +149,8 @@ func TestReadmitForcedModel_KeepsAdvisorPairingExclusion(t *testing.T) {
 }
 
 func TestReadmitForcedModel_NoSubsetIsNoOp(t *testing.T) {
-	s := &Service{availableModels: map[string]struct{}{testSol: {}, testTerra: {}}}
-	req := router.Request{ExcludedModels: map[string]struct{}{testTerra: {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}}}
+	req := router.Request{Candidates: router.Candidates{ExcludedModels: map[string]struct{}{testTerra: {}}}}
 	got := s.readmitForcedModel(context.Background(), req, nil, translate.RoutingFeatures{}, sessionpin.Pin{Model: testTerra})
 	assert.Contains(t, got, testTerra)
 }
@@ -163,15 +163,15 @@ func TestModelInRequestSubset(t *testing.T) {
 }
 
 func TestForcedModelBinding_IgnoresRequestSubset(t *testing.T) {
-	s := &Service{availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
 	ctx := ctxWithRequestSubset(ctxWithAllowedModels(testSol, testTerra), testSol)
 
-	binding, reason := s.forcedModelBinding(ctx, testTerra, providers.ProviderOpenAI)
-	assert.Empty(t, reason)
+	binding, refusal := s.forcedModelBinding(ctx, testTerra, providers.ProviderOpenAI)
+	assert.Nil(t, refusal)
 	assert.Equal(t, providers.ProviderOpenAI, binding)
 
-	_, reason = s.forcedModelBinding(ctx, testOpus, providers.ProviderAnthropic)
-	assert.NotEmpty(t, reason, "installation allowlist still binds a forced model")
+	_, refusal = s.forcedModelBinding(ctx, testOpus, providers.ProviderAnthropic)
+	assert.NotNil(t, refusal, "installation allowlist still binds a forced model")
 }
 
 // A sticky pin outside the request subset must reroute inside it; a pin
@@ -184,8 +184,8 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 			Reason:      "cluster:v0.2",
 			PinnedUntil: time.Now().Add(time.Hour),
 		}, found: true}
-		return NewService(fr, nil, nil, store, false,
-			providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		return withHMMPorts(NewService(fr, nil, nil, store, false,
+			providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 			WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic, providers.ProviderOpenAI))
 	}
 	env := forceCommandEnv(t)
@@ -194,8 +194,9 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 	fr := &tierProbeRouter{available: map[string]struct{}{testOpus: {}, "gpt-5.4-mini": {}}}
 	svc := newSvc(fr)
 	ctx := ctxWithRequestSubset(context.Background(), "gpt-5.4-mini")
-	res, err := svc.runTurnLoop(ctx, env, feats, "key-1", uuid.New(), "", nil,
-		router.Request{RequestedModel: feats.Model, ExcludedModels: svc.excludedModelsForRequest(ctx)})
+	res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "key-1", uuid.New()), "", nil,
+		router.Request{RequestedModel: feats.Model, Candidates: router.Candidates{ExcludedModels: svc.excludedModelsForRequest(ctx)}})
+
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-5.4-mini", res.Decision.Model)
 	assert.False(t, res.StickyHit)
@@ -203,8 +204,9 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 	fr = &tierProbeRouter{available: map[string]struct{}{testOpus: {}, "gpt-5.4-mini": {}}}
 	svc = newSvc(fr)
 	ctx = ctxWithRequestSubset(context.Background(), testOpus, "gpt-5.4-mini")
-	res, err = svc.runTurnLoop(ctx, env, feats, "key-1", uuid.New(), "", nil,
-		router.Request{RequestedModel: feats.Model, ExcludedModels: svc.excludedModelsForRequest(ctx)})
+	res, err = svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "key-1", uuid.New()), "", nil,
+		router.Request{RequestedModel: feats.Model, Candidates: router.Candidates{ExcludedModels: svc.excludedModelsForRequest(ctx)}})
+
 	require.NoError(t, err)
 	assert.Equal(t, testOpus, res.Decision.Model)
 }
@@ -217,10 +219,10 @@ func TestRequestAllowedModelsPresent(t *testing.T) {
 
 func TestReadmitForcedModel_GatewayBypassKeepsUnsignedHistoryGeminiExclusion(t *testing.T) {
 	const gemini = "gemini-3.1-pro-preview"
-	s := &Service{availableModels: map[string]struct{}{testOpus: {}, gemini: {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{testOpus: {}, gemini: {}}}
 	ctx := context.WithValue(gatewayKeyCtx(gemini), InstallationAllowedModelsContextKey{}, []string{testOpus})
-	req := router.Request{ExcludedModels: s.excludedModelsForRequest(ctx)}
-	require.Contains(t, req.ExcludedModels, gemini)
+	req := router.Request{Candidates: router.Candidates{ExcludedModels: s.excludedModelsForRequest(ctx)}}
+	require.Contains(t, req.Candidates.ExcludedModels, gemini)
 	pin := sessionpin.Pin{Model: gemini, Provider: providers.ProviderAnthropicGateway}
 
 	fresh, err := translate.ParseAnthropic([]byte(`{"model":"x","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))

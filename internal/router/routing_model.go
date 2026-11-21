@@ -1,7 +1,5 @@
 package router
 
-import "context"
-
 type RoutingModel string
 
 const (
@@ -11,6 +9,8 @@ const (
 	ModelQwen      RoutingModel = "weave-qwen-20261008-0001v2"
 	ModelDecision  RoutingModel = "weave-decision-model-20261019-0001v1"
 )
+
+const ModelAutomaticDisplayName = "Weave Auto"
 
 const PrimaryRoutingStrategy = StrategyHMM
 
@@ -32,21 +32,18 @@ func RoutingModelPolicyFor(model RoutingModel) (RoutingModelPolicy, bool) {
 	return selection, found
 }
 
+func CanonicalRoutingModel(model string) RoutingModel {
+	if model == ModelAutomaticDisplayName {
+		return ModelAutomatic
+	}
+	return RoutingModel(model)
+}
+
 func IsRoutingModel(model string) bool {
-	if RoutingModel(model) == ModelAutomatic {
+	canonical := CanonicalRoutingModel(model)
+	if canonical == ModelAutomatic {
 		return true
 	}
-	_, found := routingModelPolicies[RoutingModel(model)]
+	_, found := routingModelPolicies[canonical]
 	return found
-}
-
-type routingModelContextKey struct{}
-
-func WithRoutingModel(ctx context.Context, model RoutingModel) context.Context {
-	return context.WithValue(ctx, routingModelContextKey{}, model)
-}
-
-func RoutingModelFromContext(ctx context.Context) (RoutingModel, bool) {
-	model, ok := ctx.Value(routingModelContextKey{}).(RoutingModel)
-	return model, ok
 }

@@ -10,17 +10,19 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm/pinstate"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 )
 
 type SessionPins struct {
-	store sessionpin.Store
-	now   func() time.Time
+	store    sessionpin.Store
+	now      func() time.Time
+	strategy router.Strategy
 }
 
-func NewSessionPins(store sessionpin.Store, now func() time.Time) SessionPins {
-	return SessionPins{store: store, now: now}
+func NewSessionPins(store sessionpin.Store, now func() time.Time, strategy router.Strategy) SessionPins {
+	return SessionPins{store: store, now: now, strategy: strategy}
 }
 
 const PinSessionTTL = time.Hour
@@ -34,11 +36,10 @@ func PinExpiry(reason string, now time.Time) time.Time {
 	return now.Add(PinSessionTTL)
 }
 
-func PinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
+func PinMatchesEffectiveStrategy(expected router.Strategy, pin sessionpin.Pin) bool {
 	if IsUserForcedReason(pin.Reason) {
 		return true
 	}
-	expected := router.StrategyFromContext(ctx)
 	if pin.Strategy == expected {
 		return true
 	}
@@ -63,6 +64,17 @@ func IsUserForcedReason(reason string) bool {
 	return strings.HasPrefix(reason, translate.ReasonUserForceModel)
 }
 
+const ReasonUserUnforced = "user_unforced"
+
+func IsUserUnforcedPin(pin sessionpin.Pin) bool { return pin.Reason == ReasonUserUnforced }
+
+func ClearedPinReason(pin sessionpin.Pin, active bool) string {
+	if active || pin.Model != "" || pin.Provider != "" {
+		return ""
+	}
+	return pin.Reason
+}
+
 func (sp SessionPins) Load(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool) {
 	pin, active, _ := sp.LoadWithStoreState(ctx, sessionKey, role)
 	return pin, active
@@ -79,7 +91,7 @@ func (sp SessionPins) LoadWithStoreState(ctx context.Context, sessionKey [sessio
 	if !found {
 		return sessionpin.Pin{}, false, true
 	}
-	if !PinMatchesEffectiveStrategy(ctx, pin) {
+	if !PinMatchesEffectiveStrategy(sp.strategy, pin) {
 		return sessionpin.Pin{}, false, false
 	}
 	if !pin.PinnedUntil.After(sp.now()) {
@@ -98,7 +110,7 @@ func (sp SessionPins) LoadHMMHistory(ctx context.Context, sessionKey [sessionpin
 	if !found {
 		return sessionpin.Pin{}
 	}
-	if !PinMatchesEffectiveStrategy(ctx, pin) {
+	if !PinMatchesEffectiveStrategy(sp.strategy, pin) {
 		return sessionpin.Pin{}
 	}
 	return pin
@@ -130,8 +142,7 @@ func (sp SessionPins) RefreshVotes(ctx context.Context, installationID uuid.UUID
 		PairedProvider:        existing.PairedProvider,
 		PairedModel:           existing.PairedModel,
 		Reason:                chosen.Reason,
-		Strategy:              router.StrategyFromContext(ctx),
-		PolicyGroup:           existing.PolicyGroup,
+		Strategy:              sp.strategy,
 		TurnCount:             1,
 		PinnedUntil:           PinExpiry(chosen.Reason, sp.now()),
 		LastInputTokens:       existing.LastInputTokens,
@@ -141,11 +152,12 @@ func (sp SessionPins) RefreshVotes(ctx context.Context, installationID uuid.UUID
 		LastTurnEndedAt:       existing.LastTurnEndedAt,
 		LastOutputLimitAt:     existing.LastOutputLimitAt,
 		LastServedModel:       existing.LastServedModel,
-
+	}
+	sp.Upsert(ctx, pinstate.WithColumns(p, sessionpin.StrategyColumns{
+		PolicyGroup:               pinstate.Columns(existing).PolicyGroup,
 		ConsecutiveDowngradeVotes: downgradeVotes,
 		ConsecutiveUpgradeVotes:   upgradeVotes,
-	}
-	sp.Upsert(ctx, p)
+	}))
 }
 
 func (sp SessionPins) WriteNew(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, role string, chosen router.Decision) {
@@ -170,18 +182,17 @@ func (sp SessionPins) WriteNew(ctx context.Context, installationID uuid.UUID, se
 		PairedProvider: pairedProvider,
 		PairedModel:    pairedModel,
 		Reason:         chosen.Reason,
-		Strategy:       router.StrategyFromContext(ctx),
-		PolicyGroup:    DecisionPolicyGroup(chosen),
+		Strategy:       sp.strategy,
 		TurnCount:      1,
 		PinnedUntil:    PinExpiry(chosen.Reason, sp.now()),
 	}
-	sp.Upsert(ctx, p)
+	sp.Upsert(ctx, pinstate.WithColumns(p, sessionpin.StrategyColumns{PolicyGroup: DecisionPolicyGroup(chosen)}))
 }
 
 func (sp SessionPins) Upsert(ctx context.Context, p sessionpin.Pin) {
 	log := observability.FromContext(ctx)
 	if p.Strategy == "" {
-		p.Strategy = router.StrategyFromContext(ctx)
+		p.Strategy = sp.strategy
 	}
 	if err := sp.store.Upsert(context.WithoutCancel(ctx), p); err != nil {
 		log.Error("session pin upsert failed", "err", err)
@@ -219,7 +230,7 @@ func (sp SessionPins) AnchorForceModelHistory(
 		Provider:       forcedPin.Provider,
 		Model:          forcedPin.Model,
 		Reason:         forceModelHistoryReason,
-		Strategy:       router.StrategyFromContext(ctx),
+		Strategy:       sp.strategy,
 		TurnCount:      1,
 		PinnedUntil:    PinNeverExpires,
 	})

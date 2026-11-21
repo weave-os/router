@@ -1,0 +1,145 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "golden-unknown-model",
+          "model": "claude-haiku-4-5",
+          "provider": "anthropic",
+          "reason": "hmm_policy"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-haiku-4-5",
+          "credential_source": "subscription",
+          "outbound_body": {
+            "max_tokens": 64,
+            "messages": [
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "Say hi",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-haiku-4-5"
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-haiku-4-5",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-haiku-4-5"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "24",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "200000",
+          "X-Router-Cost-Input-Usd": "0.000012",
+          "X-Router-Cost-Output-Usd": "0.000035",
+          "X-Router-Cost-Usd": "0.000047",
+          "X-Router-Decision": "hmm_policy",
+          "X-Router-Model": "claude-haiku-4-5",
+          "X-Router-Provider": "anthropic"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "ok",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "claude-haiku-4-5",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 47,
+          "OrganizationID": "golden-org",
+          "RouterModel": "claude-haiku-4-5"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000012,
+          "ActualOutputCostUSD": 0.000035,
+          "CaptureMode": "off",
+          "ChosenScore": 0.8999999761581421,
+          "CredentialKeyPrefix": "sk-ant-o",
+          "CredentialKeySuffix": "atom",
+          "CredentialSource": "subscription",
+          "DecisionModel": "claude-haiku-4-5",
+          "DecisionProvider": "anthropic",
+          "DecisionReason": "hmm_policy",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 1,
+          "FinalModelFamily": "claude-haiku",
+          "FreshDecisionModel": "claude-haiku-4-5",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-haiku",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "RequestedModel": "golden-unknown-model",
+          "Role": "default",
+          "SelectionTrace": {
+            "served_group": "golden-group"
+          },
+          "SpanType": "router.upstream",
+          "StopReason": "end_turn",
+          "Strategy": "hmm_embedding",
+          "TurnType": "classifier",
+          "UpstreamFinishReason": "end_turn",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "router_atom_usage_bypass_uncatalogued_requested_model"
+}

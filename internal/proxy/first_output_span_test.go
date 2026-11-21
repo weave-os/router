@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/timing"
 
 	"github.com/stretchr/testify/assert"
@@ -59,11 +60,11 @@ func TestUpstreamSpan_FirstOutputMs_ExceedsTTFTOnReasoningStall(t *testing.T) {
 	collector := newSpanCollector(t)
 	emitter := newTestEmitter(t, collector.srv.URL)
 
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: "fireworks", Model: "deepseek/deepseek-v4-pro"}},
 		map[string]providers.Client{"fireworks": openaicompat.NewClient("test-fw-key", upstream.URL)},
-		emitter, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{"fireworks": {}})
+		emitter, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{"fireworks": {}})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))

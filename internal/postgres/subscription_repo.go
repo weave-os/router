@@ -36,9 +36,13 @@ func subscriptionOwnerPredicate(owner auth.SubscriptionOwner) (subscriberID, api
 }
 
 func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context, params auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, auth.SubscriptionUpsertKind, error) {
-	apiKeyID, err := uuid.Parse(params.Owner.APIKeyID)
-	if err != nil {
-		return nil, auth.SubscriptionUpsertUpdated, err
+	var apiKeyID pgtype.UUID
+	if params.Owner.APIKeyID != "" {
+		parsed, err := uuid.Parse(params.Owner.APIKeyID)
+		if err != nil {
+			return nil, auth.SubscriptionUpsertUpdated, err
+		}
+		apiKeyID = pgtype.UUID{Bytes: parsed, Valid: true}
 	}
 	if params.Owner.SubscriberID == "" {
 		return nil, auth.SubscriptionUpsertUpdated, auth.ErrSubscriptionAccountNotFound
@@ -56,10 +60,11 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 		row, err := dbbudget.Queries(r.tx).UpsertModelRouterSubscriptionAccountForSubscriber(ctx, sqlc.UpsertModelRouterSubscriptionAccountForSubscriberParams{
 			InstallationID: installationID, SubscriberID: subscriberID, APIKeyID: apiKeyID, Provider: string(params.Provider),
 			ExternalAccountID: params.ExternalAccountID, ProviderUserID: params.ProviderUserID, DisplayName: optionalSubscriptionAccountDisplayName(params.DisplayName), RefreshTokenCiphertext: params.RefreshToken,
+			AllowReassignment: params.VerifiedSignIn,
 		})
 		if err == nil {
 			return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID,
-				row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), subscriptionUpsertKind(row.Inserted, row.Adopted), nil
+				row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), subscriptionUpsertKind(row.Inserted, row.Adopted, row.PreviousSubscriberID != uuid.Nil && row.PreviousSubscriberID != subscriberID), nil
 		}
 		if attempt == subscriberEnrollmentMaxAttempts-1 || !isSubscriberAccountConflict(err) {
 			return nil, auth.SubscriptionUpsertUpdated, err
@@ -375,10 +380,12 @@ func (r *subscriptionAccountRepo) RecordSubscriptionCredentialRejection(ctx cont
 	return rejection, nil
 }
 
-func subscriptionUpsertKind(inserted, adopted bool) auth.SubscriptionUpsertKind {
+func subscriptionUpsertKind(inserted, adopted, reassigned bool) auth.SubscriptionUpsertKind {
 	switch {
 	case inserted:
 		return auth.SubscriptionUpsertInserted
+	case reassigned:
+		return auth.SubscriptionUpsertReassigned
 	case adopted:
 		return auth.SubscriptionUpsertAdopted
 	default:
@@ -398,14 +405,14 @@ func (r *subscriptionAccountRepo) SubscriberEnrollmentOwner(ctx context.Context,
 	if err != nil {
 		return auth.SubscriptionOwner{}, err
 	}
-	row, err := dbbudget.Queries(r.tx).GetSubscriberEnrollmentKey(ctx, subscriber)
+	row, err := dbbudget.Queries(r.tx).GetSubscriberEnrollmentOwner(ctx, subscriber)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return auth.SubscriptionOwner{}, auth.ErrSubscriptionEnrollmentKeyNotFound
+		return auth.SubscriptionOwner{}, auth.ErrSubscriptionEnrollmentMembershipNotFound
 	}
 	if err != nil {
 		return auth.SubscriptionOwner{}, err
 	}
-	return auth.SubscriptionOwner{SubscriberID: subscriberID, APIKeyID: row.APIKeyID.String(), InstallationID: row.InstallationID.String()}, nil
+	return auth.SubscriptionOwner{SubscriberID: subscriberID, APIKeyID: row.APIKeyID, InstallationID: row.InstallationID.String()}, nil
 }
 
 func (r *subscriptionAccountRepo) ListSubscriptionAccountsDueForKeepWarm(ctx context.Context, refreshedBefore time.Time, limit int32) ([]*auth.SubscriptionAccount, error) {

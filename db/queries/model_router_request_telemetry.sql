@@ -9,8 +9,7 @@
 -- rollout_id is the client-supplied x-weave-rollout-id correlation id used by
 -- eval/training harnesses to join graded rollout rewards onto decisions; NULL
 -- for all non-harness traffic.
--- session_key + role are the offline join key to router.spiral_shadow_events
--- and session_pins; NULL on rows written before the columns existed.
+-- session_key + role are the offline join key to session_pins; NULL on rows written before the columns existed.
 -- fresh_decision_model + fresh_candidate_scores capture the scorer's fresh
 -- recommendation even on STAY turns (where decision_model names the pinned
 -- model served); pin_age_sec supports min-dwell analysis. Shadow-mode
