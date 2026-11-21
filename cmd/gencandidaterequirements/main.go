@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/policyregistry"
 )
 
 func main() {
+	logconfig.Configure()
 	check := flag.Bool("check", false, "fail when the declaration is stale")
 	flag.Parse()
 

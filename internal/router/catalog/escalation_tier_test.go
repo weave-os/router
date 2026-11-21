@@ -1,4 +1,4 @@
-package hmm_test
+package catalog_test
 
 import (
 	"testing"
@@ -7,7 +7,6 @@ import (
 
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/hmm"
 )
 
 func TestEscalationTier(t *testing.T) {
@@ -18,6 +17,6 @@ func TestEscalationTier(t *testing.T) {
 		escalation.Maximum: catalog.TierHigh,
 		"":                 catalog.TierUnknown,
 	} {
-		assert.Equal(t, want, hmm.EscalationTier(group), group)
+		assert.Equal(t, want, catalog.EscalationTier(group), group)
 	}
 }
