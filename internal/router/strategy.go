@@ -10,7 +10,6 @@ var ErrStrategyUnavailable = errors.New("router: strategy unavailable")
 type Strategy string
 
 const (
-	StrategyRL            Strategy = "rl"
 	StrategyHMM           Strategy = "hmm"
 	StrategyHMMEmbedding  Strategy = "hmm_embedding"
 	StrategyHMMBeta       Strategy = "hmm_beta"
@@ -65,4 +64,13 @@ func WithStrategy(ctx context.Context, s Strategy) context.Context {
 
 func StrategyFromContext(ctx context.Context) Strategy {
 	return StrategySelectionFromContext(ctx).Effective()
+}
+
+func StrategyUnavailableError(strategy Strategy) error {
+	switch strategy {
+	case StrategyHMM, StrategyHMMEmbedding, StrategyHMMBeta, StrategyHMMQwen:
+		return ErrHMMUnavailable
+	default:
+		return ErrStrategyUnavailable
+	}
 }
