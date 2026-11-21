@@ -299,49 +299,16 @@ func (r *TelemetryRepo) GetTelemetrySummary(ctx context.Context, installationID 
 }
 
 func (r *TelemetryRepo) GetTelemetryTimeseries(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryBucket, error) {
-	id, err := uuid.Parse(installationID)
+	window, err := newTelemetryWindow(installationID, from, to)
 	if err != nil {
 		return nil, err
 	}
 	q := dbbudget.Queries(r.tx)
-	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
-	toTs := pgtype.Timestamptz{Time: to, Valid: true}
-
-	return selectTimeseriesGranularity(granularity,
-		func() ([]proxy.TelemetryBucket, error) {
-			rows, err := q.GetTelemetryTimeseriesWeekly(ctx, sqlc.GetTelemetryTimeseriesWeeklyParams{
-				InstallationID: id,
-				FromTime:       fromTs,
-				ToTime:         toTs,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return mapRows(rows, telemetryBucketFromWeeklyRow), nil
-		},
-		func() ([]proxy.TelemetryBucket, error) {
-			rows, err := q.GetTelemetryTimeseriesDaily(ctx, sqlc.GetTelemetryTimeseriesDailyParams{
-				InstallationID: id,
-				FromTime:       fromTs,
-				ToTime:         toTs,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return mapRows(rows, telemetryBucketFromDailyRow), nil
-		},
-		func() ([]proxy.TelemetryBucket, error) {
-			rows, err := q.GetTelemetryTimeseriesHourly(ctx, sqlc.GetTelemetryTimeseriesHourlyParams{
-				InstallationID: id,
-				FromTime:       fromTs,
-				ToTime:         toTs,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return mapRows(rows, telemetryBucketFromHourlyRow), nil
-		},
-	)
+	return pickGranularity(granularity,
+		windowQuery(q.GetTelemetryTimeseriesWeekly, telemetryBucketFromWeeklyRow),
+		windowQuery(q.GetTelemetryTimeseriesDaily, telemetryBucketFromDailyRow),
+		windowQuery(q.GetTelemetryTimeseriesHourly, telemetryBucketFromHourlyRow),
+	)(ctx, window)
 }
 
 func (r *TelemetryRepo) GetTelemetrySummaryAll(ctx context.Context, from, to time.Time) (proxy.TelemetrySummary, error) {
@@ -503,153 +470,110 @@ func limitHeaders(raw []byte) (map[string]string, error) {
 
 func (r *TelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryBucket, error) {
 	q := dbbudget.Queries(r.tx)
-	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
-	toTs := pgtype.Timestamptz{Time: to, Valid: true}
-
-	return selectTimeseriesGranularity(granularity,
-		func() ([]proxy.TelemetryBucket, error) {
-			rows, err := q.GetTelemetryTimeseriesWeeklyAll(ctx, sqlc.GetTelemetryTimeseriesWeeklyAllParams{
-				FromTime: fromTs,
-				ToTime:   toTs,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return mapRows(rows, telemetryBucketFromWeeklyAllRow), nil
-		},
-		func() ([]proxy.TelemetryBucket, error) {
-			rows, err := q.GetTelemetryTimeseriesDailyAll(ctx, sqlc.GetTelemetryTimeseriesDailyAllParams{
-				FromTime: fromTs,
-				ToTime:   toTs,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return mapRows(rows, telemetryBucketFromDailyAllRow), nil
-		},
-		func() ([]proxy.TelemetryBucket, error) {
-			rows, err := q.GetTelemetryTimeseriesHourlyAll(ctx, sqlc.GetTelemetryTimeseriesHourlyAllParams{
-				FromTime: fromTs,
-				ToTime:   toTs,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return mapRows(rows, telemetryBucketFromHourlyAllRow), nil
-		},
-	)
+	return pickGranularity(granularity,
+		windowAllQuery(q.GetTelemetryTimeseriesWeeklyAll, telemetryBucketFromWeeklyAllRow),
+		windowAllQuery(q.GetTelemetryTimeseriesDailyAll, telemetryBucketFromDailyAllRow),
+		windowAllQuery(q.GetTelemetryTimeseriesHourlyAll, telemetryBucketFromHourlyAllRow),
+	)(ctx, newTelemetryWindowAll(from, to))
 }
 
 func (r *TelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryModelBucket, error) {
-	id, err := uuid.Parse(installationID)
+	window, err := newTelemetryWindow(installationID, from, to)
 	if err != nil {
 		return nil, err
 	}
 	q := dbbudget.Queries(r.tx)
-	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
-	toTs := pgtype.Timestamptz{Time: to, Valid: true}
-
-	return selectModelBreakdownGranularity(granularity,
-		func() ([]proxy.TelemetryModelBucket, error) {
-			rows, err := q.GetTelemetryModelBreakdownWeekly(ctx, sqlc.GetTelemetryModelBreakdownWeeklyParams{
-				InstallationID: id,
-				FromTime:       fromTs,
-				ToTime:         toTs,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return mapRows(rows, modelBucketFromWeeklyRow), nil
-		},
-		func() ([]proxy.TelemetryModelBucket, error) {
-			rows, err := q.GetTelemetryModelBreakdownDaily(ctx, sqlc.GetTelemetryModelBreakdownDailyParams{
-				InstallationID: id,
-				FromTime:       fromTs,
-				ToTime:         toTs,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return mapRows(rows, modelBucketFromDailyRow), nil
-		},
-		func() ([]proxy.TelemetryModelBucket, error) {
-			rows, err := q.GetTelemetryModelBreakdownHourly(ctx, sqlc.GetTelemetryModelBreakdownHourlyParams{
-				InstallationID: id,
-				FromTime:       fromTs,
-				ToTime:         toTs,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return mapRows(rows, modelBucketFromHourlyRow), nil
-		},
-	)
+	return pickGranularity(granularity,
+		windowQuery(q.GetTelemetryModelBreakdownWeekly, modelBucketFromWeeklyRow),
+		windowQuery(q.GetTelemetryModelBreakdownDaily, modelBucketFromDailyRow),
+		windowQuery(q.GetTelemetryModelBreakdownHourly, modelBucketFromHourlyRow),
+	)(ctx, window)
 }
 
 func (r *TelemetryRepo) GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryModelBucket, error) {
 	q := dbbudget.Queries(r.tx)
-	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
-	toTs := pgtype.Timestamptz{Time: to, Valid: true}
-
-	return selectModelBreakdownGranularity(granularity,
-		func() ([]proxy.TelemetryModelBucket, error) {
-			rows, err := q.GetTelemetryModelBreakdownWeeklyAll(ctx, sqlc.GetTelemetryModelBreakdownWeeklyAllParams{
-				FromTime: fromTs,
-				ToTime:   toTs,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return mapRows(rows, modelBucketFromWeeklyAllRow), nil
-		},
-		func() ([]proxy.TelemetryModelBucket, error) {
-			rows, err := q.GetTelemetryModelBreakdownDailyAll(ctx, sqlc.GetTelemetryModelBreakdownDailyAllParams{
-				FromTime: fromTs,
-				ToTime:   toTs,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return mapRows(rows, modelBucketFromDailyAllRow), nil
-		},
-		func() ([]proxy.TelemetryModelBucket, error) {
-			rows, err := q.GetTelemetryModelBreakdownHourlyAll(ctx, sqlc.GetTelemetryModelBreakdownHourlyAllParams{
-				FromTime: fromTs,
-				ToTime:   toTs,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return mapRows(rows, modelBucketFromHourlyAllRow), nil
-		},
-	)
+	return pickGranularity(granularity,
+		windowAllQuery(q.GetTelemetryModelBreakdownWeeklyAll, modelBucketFromWeeklyAllRow),
+		windowAllQuery(q.GetTelemetryModelBreakdownDailyAll, modelBucketFromDailyAllRow),
+		windowAllQuery(q.GetTelemetryModelBreakdownHourlyAll, modelBucketFromHourlyAllRow),
+	)(ctx, newTelemetryWindowAll(from, to))
 }
 
-func selectModelBreakdownGranularity(
-	granularity string,
-	weekly, daily, hourly func() ([]proxy.TelemetryModelBucket, error),
-) ([]proxy.TelemetryModelBucket, error) {
-	switch granularity {
-	case "week":
-		return weekly()
-	case "day":
-		return daily()
-	default:
-		return hourly()
+type telemetryWindow struct {
+	InstallationID uuid.UUID
+	FromTime       pgtype.Timestamptz
+	ToTime         pgtype.Timestamptz
+}
+
+func newTelemetryWindow(installationID string, from, to time.Time) (telemetryWindow, error) {
+	id, err := uuid.Parse(installationID)
+	if err != nil {
+		return telemetryWindow{}, err
+	}
+	return telemetryWindow{
+		InstallationID: id,
+		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
+	}, nil
+}
+
+type telemetryWindowAll struct {
+	FromTime pgtype.Timestamptz
+	ToTime   pgtype.Timestamptz
+}
+
+func newTelemetryWindowAll(from, to time.Time) telemetryWindowAll {
+	return telemetryWindowAll{
+		FromTime: pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:   pgtype.Timestamptz{Time: to, Valid: true},
 	}
 }
 
-func selectTimeseriesGranularity(
-	granularity string,
-	weekly, daily, hourly func() ([]proxy.TelemetryBucket, error),
-) ([]proxy.TelemetryBucket, error) {
+type windowParams interface {
+	~struct {
+		InstallationID uuid.UUID
+		FromTime       pgtype.Timestamptz
+		ToTime         pgtype.Timestamptz
+	}
+}
+
+type windowAllParams interface {
+	~struct {
+		FromTime pgtype.Timestamptz
+		ToTime   pgtype.Timestamptz
+	}
+}
+
+type windowQueryFunc[W, T any] func(context.Context, W) ([]T, error)
+
+func windowQuery[P windowParams, R, T any](query func(context.Context, P) ([]R, error), convert func(R) T) windowQueryFunc[telemetryWindow, T] {
+	return func(ctx context.Context, w telemetryWindow) ([]T, error) {
+		rows, err := query(ctx, P(w))
+		if err != nil {
+			return nil, err
+		}
+		return mapRows(rows, convert), nil
+	}
+}
+
+func windowAllQuery[P windowAllParams, R, T any](query func(context.Context, P) ([]R, error), convert func(R) T) windowQueryFunc[telemetryWindowAll, T] {
+	return func(ctx context.Context, w telemetryWindowAll) ([]T, error) {
+		rows, err := query(ctx, P(w))
+		if err != nil {
+			return nil, err
+		}
+		return mapRows(rows, convert), nil
+	}
+}
+
+func pickGranularity[F any](granularity string, weekly, daily, hourly F) F {
 	switch granularity {
 	case "week":
-		return weekly()
+		return weekly
 	case "day":
-		return daily()
+		return daily
 	default:
-		return hourly()
+		return hourly
 	}
 }
 

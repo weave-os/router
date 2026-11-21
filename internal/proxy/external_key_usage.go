@@ -1,12 +1,12 @@
 package proxy
 
-import "context"
+import (
+	"context"
 
-type ExternalKeyUsageRecorder interface {
-	MarkExternalAPIKeyUsed(ctx context.Context, id string)
-}
+	"weave-os/router/internal/credentials"
+)
 
-func (s *Service) WithExternalKeyUsageRecorder(recorder ExternalKeyUsageRecorder) *Service {
+func (s *Service) WithExternalKeyUsageRecorder(recorder credentials.ExternalKeyUsageRecorder) *Service {
 	s.externalKeyUsage = recorder
 	return s
 }
