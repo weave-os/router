@@ -55,7 +55,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 type Service struct {
