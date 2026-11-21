@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -41,7 +42,7 @@ type messagesAttemptDeps struct {
 	toolValidator           *toolcheck.Validator
 }
 
-func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
+func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
 	targetNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, deps.request.Header, deps.svc.usageObserver), deps.request.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
 	targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(deps.svc), target.Provider, target.Model, targetNotice)
 	switch providers.FamilyFor(target.Provider) {
@@ -54,7 +55,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 		*deps.crossFormat = false
 		logUpstreamBody(deps.log, deps.routeRes.SessionKey, target, deps.feats, prep.Body)
 		tiered := deps.anthropicTierAttemptFor(targetOpts, prep, targetNotice)
-		return func(actx context.Context, d router.Decision, p providers.Client) error {
+		return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 			attemptOpts, err := tiered.dispatch(actx, d, p, deps.recordFastServed)
 			if err == nil || committed(deps.preludeBuf) || !providers.IsUpstreamOutputConfigFormatRejection(err) {
 				return err
@@ -77,7 +78,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 		}, nil
 	case providers.FamilyOpenAICompat:
 		*deps.crossFormat = true
-		dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses, stripPromptCacheKey bool) (func(error) error, error) {
+		dispatchOpenAICompat := func(actx context.Context, d router.Decision, p dispatch.Upstream, useResponses, stripPromptCacheKey bool) (func(error) error, error) {
 			attemptOpts := targetOpts
 			attemptOpts.TargetProvider = d.Provider
 			attemptOpts.StripPromptCacheKey = stripPromptCacheKey
@@ -157,7 +158,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 			}
 			return finalize, rawErr
 		}
-		return func(actx context.Context, d router.Decision, p providers.Client) error {
+		return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 			gatewayKey := gatewayResponsesKey(actx, d.Provider)
 			useResponses := translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
 				Provider:       d.Provider,
@@ -202,7 +203,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 		}
 		*deps.crossFormat = true
 		logUpstreamBody(deps.log, deps.routeRes.SessionKey, target, deps.feats, prep.Body)
-		dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (func(error) error, error) {
+		dispatchGemini := func(actx context.Context, d router.Decision, p dispatch.Upstream, pr providers.PreparedRequest) (func(error) error, error) {
 			*deps.fastServed = false
 			deps.setStreamCost(d, true, nil)
 			*deps.respSummary = translate.ResponseSummary{}
@@ -242,7 +243,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 			}
 			return finalize, rawErr
 		}
-		return func(actx context.Context, d router.Decision, p providers.Client) error {
+		return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 			retry := geminiToolModeAttempt{log: deps.log, buffer: deps.preludeBuf, env: deps.env, headers: deps.request.Header, opts: targetOpts}
 			return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
 				*deps.reqStats = prepared.Stats
