@@ -14,7 +14,7 @@ func (p Pin) Decision() router.Decision {
 	}
 }
 
-func (p Pin) BandPair() (large, small router.Decision) {
+func (p Pin) OrderedBandPair() (large, small router.Decision) {
 	a := p.Decision()
 	b := router.Decision{Provider: p.PairedProvider, Model: p.PairedModel, Reason: p.Reason}
 	ta, tb := catalog.TierFor(a.Model), catalog.TierFor(b.Model)

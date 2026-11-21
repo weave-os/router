@@ -3772,7 +3772,7 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 	if !ok {
 		return anchor
 	}
-	large, small := pin.BandPair()
+	large, small := pin.OrderedBandPair()
 	served := large
 	if band == bandswap.Small {
 		served = small

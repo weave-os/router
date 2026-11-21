@@ -175,7 +175,7 @@ func TestOrderBandPair_AnchoredHalfKeepsEffort(t *testing.T) {
 		Effort:         "high",
 		PairedProvider: providers.ProviderAnthropic,
 		PairedModel:    "claude-haiku-4-5",
-	}.BandPair()
+	}.OrderedBandPair()
 	assert.Equal(t, "claude-opus-4-7", large.Model)
 	assert.Equal(t, "high", large.Effort)
 	assert.Empty(t, small.Effort)
