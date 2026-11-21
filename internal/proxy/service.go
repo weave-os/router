@@ -3718,35 +3718,13 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 	})
 }
 
-func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Decision, bool) {
-	if s.policyDeadlineDefaultModel == "" {
-		return router.Decision{}, false
-	}
-	if _, excluded := req.Candidates.ExcludedModels[s.policyDeadlineDefaultModel]; excluded {
-		return router.Decision{}, false
-	}
-	if _, excluded := req.Candidates.SafetyExcludedModels[s.policyDeadlineDefaultModel]; excluded {
-		return router.Decision{}, false
-	}
-
-	providerSet := make(map[string]struct{}, s.clients.Len())
-	for _, provider := range s.clients.Names() {
-		if req.EnabledProviders != nil {
-			if _, enabled := req.EnabledProviders[provider]; !enabled {
-				continue
-			}
-		}
-		providerSet[provider] = struct{}{}
-	}
-	binding, ok := catalog.ResolveBinding(s.policyDeadlineDefaultModel, providerSet)
-	if !ok {
-		return router.Decision{}, false
-	}
+func pinDecision(p sessionpin.Pin) router.Decision {
 	return router.Decision{
-		Provider: binding.Provider,
-		Model:    s.policyDeadlineDefaultModel,
-		Reason:   policyDeadlineDefaultReason,
-	}, true
+		Provider: p.Provider,
+		Model:    p.Model,
+		Effort:   p.Effort,
+		Reason:   p.Reason,
+	}
 }
 
 func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, hasImages bool, imageCount int, enabledProviders, excludedModels map[string]struct{}) router.Decision {

@@ -75,14 +75,26 @@
       "removal_phase": "5"
     },
     {
-      "id": "target_construction|internal/proxy/service.go|Service.policyDeadlineDefaultDecision|router.Decision|1",
+      "id": "target_construction|internal/proxy/service.go|pinDecision|router.Decision|1",
       "kind": "target_construction",
       "file": "internal/proxy/service.go",
-      "line": 5040,
-      "symbol": "Service.policyDeadlineDefaultDecision",
+      "line": 4999,
+      "symbol": "pinDecision",
       "detail": "provider=<dynamic> model=<dynamic>",
       "owner": "@steventohme",
-      "rationale": "Existing policy-deadline compatibility fallback remains until failure behavior is represented by a resolved plan.",
+      "rationale": "Existing session pins are converted directly into compatibility decisions until pins become typed resolver inputs.",
+      "operation_class": "main_inference",
+      "removal_phase": "8"
+    },
+    {
+      "id": "target_construction|internal/proxy/service.go|orderBandPair|router.Decision|1",
+      "kind": "target_construction",
+      "file": "internal/proxy/service.go",
+      "line": 5123,
+      "symbol": "orderBandPair",
+      "detail": "provider=<dynamic> model=<dynamic>",
+      "owner": "@steventohme",
+      "rationale": "Existing band-pair selection creates a compatibility decision until policy alternatives own this transition.",
       "operation_class": "main_inference",
       "removal_phase": "8"
     },
