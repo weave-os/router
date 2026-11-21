@@ -64,8 +64,5 @@ func (h CompactionHandover) Run(ctx context.Context, env *translate.RequestEnvel
 }
 
 func EstimateSummaryTokens(s string) int {
-	if s == "" {
-		return 0
-	}
 	return len(s) / 4
 }

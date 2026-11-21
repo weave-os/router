@@ -21,12 +21,12 @@ type fakeHandoverSummarizer struct {
 	summary  string
 	err      error
 	calls    int
-	sawToken string
+	sawScope string
 }
 
 func (f *fakeHandoverSummarizer) Summarize(ctx context.Context, _ *translate.RequestEnvelope, _ router.Request) (string, handover.Usage, error) {
 	f.calls++
-	f.sawToken, _ = ctx.Value(summaryCtxKey{}).(string)
+	f.sawScope, _ = ctx.Value(summaryCtxKey{}).(string)
 	return f.summary, handover.Usage{InputTokens: 7}, f.err
 }
 
@@ -81,9 +81,9 @@ func TestCompactionHandoverSummarizesInScopedContext(t *testing.T) {
 	out := runHandover(t, summarizer, &fakeSummarizerAccess{allowed: true})
 	assert.False(t, out.FallbackToFullHistory)
 	assert.Equal(t, 1, summarizer.calls)
-	assert.Equal(t, "scoped", summarizer.sawToken)
+	assert.Equal(t, "scoped", summarizer.sawScope)
 	assert.Equal(t, int64(250), out.LatencyMS)
-	assert.Equal(t, conversation.EstimateSummaryTokens("earlier work summarized"), out.SummaryTokens)
+	assert.Equal(t, 5, out.SummaryTokens)
 	assert.Equal(t, 7, out.SummaryUsage.InputTokens)
 }
 
