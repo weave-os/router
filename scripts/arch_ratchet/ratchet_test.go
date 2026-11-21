@@ -432,6 +432,16 @@ func TestMeasureFileMeasuresNestedFuncLiterals(t *testing.T) {
 	assert.Equal(t, 122, metrics.funcs[2].values[metricLines])
 }
 
+func TestMeasureFileMeasuresNestedFuncLiteralsInPackageInitializers(t *testing.T) {
+	src := "package x\n\nvar handler = func() {\n\tinner := func() {\n" + statements(120) + "\t}\n\tinner()\n}\n"
+	metrics, _, err := measureFile("internal/x/nested_var.go", []byte(src))
+	require.NoError(t, err)
+	require.Len(t, metrics.funcs, 2)
+	assert.Regexp(t, `^internal/x\.handler\.func[0-9a-f]+$`, metrics.funcs[0].key)
+	assert.Regexp(t, `^internal/x\.handler\.func[0-9a-f]+$`, metrics.funcs[1].key)
+	assert.Equal(t, 122, metrics.funcs[1].values[metricLines])
+}
+
 func TestCompareFuncsCoversNestedLiteralsOfAClosureMovedToAFunction(t *testing.T) {
 	inner := "\t\tinner := func() {\n" + statements(120) + "\t\t}\n\t\tinner()\n"
 	base, _, err := measureFile("internal/x/move.go", []byte("package x\n\nfunc F() {\n\touter := func() {\n"+inner+"\t}\n\touter()\n}\n"))
