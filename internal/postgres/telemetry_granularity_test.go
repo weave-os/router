@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,11 +25,11 @@ func granularityAt(day, hour, minute int) time.Time {
 }
 
 type granularityTurn struct {
-	at                     time.Time
-	spanType, model        string
-	input, output          int32
-	requestedIn, requested float64
-	actualIn, actual       float64
+	at                        time.Time
+	spanType, model           string
+	input, output             int32
+	requestedIn, requestedOut float64
+	actualIn, actualOut       float64
 }
 
 func insertGranularityInstallation(ctx context.Context, t *testing.T, repo *postgres.TelemetryRepo, exec func(context.Context, string, ...any) error, turns []granularityTurn) uuid.UUID {
@@ -52,9 +53,9 @@ func insertGranularityInstallation(ctx context.Context, t *testing.T, repo *post
 			InputTokens:            turn.input,
 			OutputTokens:           turn.output,
 			RequestedInputCostUSD:  turn.requestedIn,
-			RequestedOutputCostUSD: turn.requested,
+			RequestedOutputCostUSD: turn.requestedOut,
 			ActualInputCostUSD:     turn.actualIn,
-			ActualOutputCostUSD:    turn.actual,
+			ActualOutputCostUSD:    turn.actualOut,
 		}))
 	}
 	return id
@@ -66,23 +67,27 @@ func insertGranularityInstallation(ctx context.Context, t *testing.T, repo *post
 // flag_definitions_test.go).
 func seedGranularityTelemetry(t *testing.T) (*postgres.TelemetryRepo, uuid.UUID) {
 	t.Helper()
-	pool := testPool(t)
 	ctx := context.Background()
+	cfg := testPool(t).Config()
+	cfg.ConnConfig.RuntimeParams["timezone"] = "UTC"
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
 	exec := func(ctx context.Context, sql string, args ...any) error {
 		_, err := pool.Exec(ctx, sql, args...)
 		return err
 	}
 	repo := postgres.NewTelemetryRepo(pool)
 	installation := insertGranularityInstallation(ctx, t, repo, exec, []granularityTurn{
-		{at: granularityAt(2, 10, 15), spanType: "router.upstream", model: "model-a", input: 100, output: 20, requestedIn: 0.5, requested: 0.25, actualIn: 0.2, actual: 0.1},
-		{at: granularityAt(2, 10, 45), spanType: "router.upstream", model: "model-b", input: 50, output: 10, requestedIn: 0.1, requested: 0.05, actualIn: 0.05, actual: 0.05},
-		{at: granularityAt(4, 8, 0), spanType: "router.upstream", model: "model-a", input: 10, output: 5, requestedIn: 0.01, requested: 0.02, actualIn: 0.01, actual: 0.01},
-		{at: granularityAt(9, 12, 0), spanType: "router.upstream", model: "model-a", input: 1, output: 1, requestedIn: 1, requested: 1, actualIn: 0.5, actual: 0.5},
-		{at: granularityAt(2, 10, 20), spanType: "router.decision", model: "model-a", input: 9, output: 9, requestedIn: 9, requested: 9, actualIn: 9, actual: 9},
-		{at: granularityAt(20, 0, 0), spanType: "router.upstream", model: "model-a", input: 9, output: 9, requestedIn: 9, requested: 9, actualIn: 9, actual: 9},
+		{at: granularityAt(2, 10, 15), spanType: "router.upstream", model: "model-a", input: 100, output: 20, requestedIn: 0.5, requestedOut: 0.25, actualIn: 0.2, actualOut: 0.1},
+		{at: granularityAt(2, 10, 45), spanType: "router.upstream", model: "model-b", input: 50, output: 10, requestedIn: 0.1, requestedOut: 0.05, actualIn: 0.05, actualOut: 0.05},
+		{at: granularityAt(4, 8, 0), spanType: "router.upstream", model: "model-a", input: 10, output: 5, requestedIn: 0.01, requestedOut: 0.02, actualIn: 0.01, actualOut: 0.01},
+		{at: granularityAt(9, 12, 0), spanType: "router.upstream", model: "model-a", input: 1, output: 1, requestedIn: 1, requestedOut: 1, actualIn: 0.5, actualOut: 0.5},
+		{at: granularityAt(2, 10, 20), spanType: "router.decision", model: "model-a", input: 9, output: 9, requestedIn: 9, requestedOut: 9, actualIn: 9, actualOut: 9},
+		{at: granularityAt(20, 0, 0), spanType: "router.upstream", model: "model-a", input: 9, output: 9, requestedIn: 9, requestedOut: 9, actualIn: 9, actualOut: 9},
 	})
 	insertGranularityInstallation(ctx, t, repo, exec, []granularityTurn{
-		{at: granularityAt(2, 11, 0), spanType: "router.upstream", model: "model-c", input: 7, output: 3, requestedIn: 0.3, requested: 0.3, actualIn: 0.2, actual: 0.2},
+		{at: granularityAt(2, 11, 0), spanType: "router.upstream", model: "model-c", input: 7, output: 3, requestedIn: 0.3, requestedOut: 0.3, actualIn: 0.2, actualOut: 0.2},
 	})
 	return repo, installation
 }
