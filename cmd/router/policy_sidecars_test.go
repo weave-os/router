@@ -91,6 +91,19 @@ func TestBuildConfiguredPolicySidecarsRejectsReservedAndInvalidConfiguration(t *
 	}
 }
 
+func TestBuildConfiguredPolicySidecarsAcceptsRetiredRLStrategyName(t *testing.T) {
+	registrations, err := buildConfiguredPolicySidecars(
+		context.Background(),
+		policySidecarSettings{endpoints: `{"rl":"https://sidecar.internal"}`, timeout: time.Second},
+		nil, nil, nil,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+
+	require.NoError(t, err)
+	require.Len(t, registrations, 1)
+	assert.Equal(t, router.Strategy("rl"), registrations[0].Strategy)
+}
+
 func TestParseConfiguredPolicySidecarAuthNormalizesStrategies(t *testing.T) {
 	authModes, err := parseConfiguredPolicySidecarSettings(
 		`{" Future-Policy ":"google-id-token"}`,

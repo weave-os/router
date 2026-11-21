@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/config"
 
@@ -19,6 +20,10 @@ const (
 	createdBy    = "make seed"
 	baseURL      = "http://localhost:8080"
 )
+
+func init() {
+	logconfig.Configure()
+}
 
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
