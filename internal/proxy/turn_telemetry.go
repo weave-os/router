@@ -9,7 +9,7 @@ import (
 type turnTelemetry struct {
 	emitter   TelemetryEmitter
 	repo      TelemetryRepository
-	turnClock SessionTurnClock
+	turnClock telemetry.SessionTurnClock
 }
 
 func (t turnTelemetry) newUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {

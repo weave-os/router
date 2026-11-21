@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"net/http"
 )
 
@@ -18,6 +19,7 @@ const (
 	TurnErrorTimeout         TurnErrorClass = "timeout"
 	TurnErrorClientCanceled  TurnErrorClass = "client_canceled"
 	TurnErrorRoutingRefused  TurnErrorClass = "routing_refused"
+	TurnErrorFundingRefused  TurnErrorClass = "funding_refused"
 	TurnErrorOther           TurnErrorClass = "other"
 	TurnErrorRefusal         TurnErrorClass = "refusal"
 	TurnErrorMaxTokens       TurnErrorClass = "max_tokens"
@@ -34,6 +36,9 @@ func classifyTurnError(err error, stopReason string, invalidToolArgsBlocks int) 
 		}
 		if status := upstreamStatus(err); status != 0 {
 			return classifyUpstreamStatus(status)
+		}
+		if class, ok := fundingRefusalTurnClass(err); ok {
+			return class
 		}
 		switch classifyStreamFailure(err, "") {
 		case streamFailureIdleWatchdog, streamFailureOutputStallWatchdog, streamFailureSlowThroughputWatchdog:
@@ -76,5 +81,26 @@ func classifyUpstreamStatus(status int) TurnErrorClass {
 		return TurnErrorUpstream4xx
 	default:
 		return TurnErrorOther
+	}
+}
+
+func fundingRefusalTurnClass(err error) (TurnErrorClass, bool) {
+	cls, ok := ClassifyDispatchError(err)
+	if !ok {
+		return "", false
+	}
+	switch cls.Kind {
+	case DispatchErrorSubscriptionPoolThrottled:
+		return TurnErrorRateLimited, true
+	case DispatchErrorSubscriptionPoolExhausted:
+		if errors.Is(err, errLinkedSeatsThrottled) {
+			return TurnErrorRateLimited, true
+		}
+		return TurnErrorFundingRefused, true
+	case DispatchErrorCreditsExhausted, DispatchErrorSpendCapReached, DispatchErrorUserSpendLimitReached,
+		DispatchErrorWeaveCreditsDisabled, DispatchErrorSubscriptionUnavailableForTurn, DispatchErrorClaudeEnterpriseOnly:
+		return TurnErrorFundingRefused, true
+	default:
+		return "", false
 	}
 }

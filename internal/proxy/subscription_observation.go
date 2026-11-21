@@ -110,6 +110,21 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 	}
 }
 
+func RequestHasCustomerFunding(ctx context.Context, headers http.Header, routePath string, byokFeeOwed bool) bool {
+	if RequestPresentsCoveringSubscription(ctx, headers, routePath) {
+		return true
+	}
+	if byokFeeOwed {
+		return false
+	}
+	for provider := range BuildCredentialsMap(externalKeysFromContext(ctx)) {
+		if usableBYOK(ctx, provider) != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) context.Context {
 	ctx = s.withClaudeSubscriptionProfile(ctx, headers)
 	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
