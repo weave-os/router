@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/router/turntype"
@@ -22,41 +21,7 @@ const feedbackSourceLink = "link"
 
 var ErrFeedbackUnavailable = errors.New("proxy: feedback repository not configured")
 
-type FeedbackContext struct {
-	RequestID      string
-	ChosenModel    string
-	ChosenProvider string
-	ClientApp      string
-	RoutedAt       time.Time
-	Rating         string
-	Comment        *string
-}
-
-type UpsertFeedbackParams struct {
-	InstallationID string
-	ExternalID     string
-	RequestID      string
-	Rating         string
-	Comment        *string
-	Source         string
-	RouterUserID   string
-}
-
-type SubmitFeedbackParams struct {
-	InstallationID string
-	ExternalID     string
-	RequestID      string
-	RouterUserID   string
-	Rating         string
-	Comment        *string
-}
-
-type FeedbackRepository interface {
-	Upsert(ctx context.Context, p UpsertFeedbackParams) error
-	GetContext(ctx context.Context, installationID, requestID string) (FeedbackContext, error)
-}
-
-func (s *Service) WithFeedback(repo FeedbackRepository, signer *feedback.Signer, baseURL string) *Service {
+func (s *Service) WithFeedback(repo feedback.FeedbackRepository, signer *feedback.Signer, baseURL string) *Service {
 	s.feedbackRepo = repo
 	s.feedbackSigner = signer
 	s.feedbackBaseURL = strings.TrimRight(baseURL, "/")
@@ -71,18 +36,18 @@ func (s *Service) VerifyFeedbackToken(token string) (feedback.Claims, error) {
 	return s.feedbackSigner.Verify(token)
 }
 
-func (s *Service) GetFeedbackContext(ctx context.Context, installationID, requestID string) (FeedbackContext, error) {
+func (s *Service) GetFeedbackContext(ctx context.Context, installationID, requestID string) (feedback.FeedbackContext, error) {
 	if s.feedbackRepo == nil {
-		return FeedbackContext{}, ErrFeedbackUnavailable
+		return feedback.FeedbackContext{}, ErrFeedbackUnavailable
 	}
 	return s.feedbackRepo.GetContext(ctx, installationID, requestID)
 }
 
-func (s *Service) SubmitFeedback(ctx context.Context, p SubmitFeedbackParams) error {
+func (s *Service) SubmitFeedback(ctx context.Context, p feedback.SubmitFeedbackParams) error {
 	if s.feedbackRepo == nil {
 		return ErrFeedbackUnavailable
 	}
-	err := s.feedbackRepo.Upsert(ctx, UpsertFeedbackParams{
+	err := s.feedbackRepo.Upsert(ctx, feedback.UpsertFeedbackParams{
 		InstallationID: p.InstallationID,
 		ExternalID:     p.ExternalID,
 		RequestID:      p.RequestID,
@@ -98,7 +63,7 @@ func (s *Service) SubmitFeedback(ctx context.Context, p SubmitFeedbackParams) er
 	return nil
 }
 
-func (s *Service) emitFeedbackSpan(ctx context.Context, p SubmitFeedbackParams) {
+func (s *Service) emitFeedbackSpan(ctx context.Context, p feedback.SubmitFeedbackParams) {
 	if s.turnTelemetry.emitter == nil {
 		return
 	}

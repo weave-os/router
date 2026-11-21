@@ -150,7 +150,7 @@ type Service struct {
 	billing                      *billing.Service
 	retrySleep                   func(context.Context, time.Duration) error
 	clock                        auth.Clock
-	feedbackRepo                 FeedbackRepository
+	feedbackRepo                 feedback.FeedbackRepository
 	feedbackSigner               *feedback.Signer
 	piHandoffSecret              []byte
 	feedbackBaseURL              string
@@ -3240,18 +3240,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		s.maybeRepinOnRefusal(ctx, strategy, refusalObs, routeRes.SessionKey, stickyStateRole(routeRes), decision)
 	}
 
-	for _, iss := range respSummary.ToolCallIssues {
-		log.Info("router.tool_call_invalid",
-			"tool_name", iss.ToolName,
-			"failure_bucket", string(iss.Bucket),
-			"detail", iss.Detail,
-			"repaired", iss.Repaired,
-			"repair_actions", iss.Actions,
-			"model", decision.Model,
-			"provider", finalProvider,
-			"session_key_prefix", conversation.ShortSessionKey(routeRes.SessionKey),
-		)
-	}
+	logToolCallIssues(log, respSummary.ToolCallIssues, decision.Model, finalProvider, routeRes.SessionKey)
 
 	if preludeBuf.Committed() {
 		streamCut.noteCut(proxyErr)
@@ -5285,18 +5274,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		s.repinOffRefusingModel(ctx, strategy, routeRes.SessionKey, stickyStateRole(routeRes), rescue.primaryDecision, providers.CyberPolicyErrorCode, rescue.primaryDecision.Provider)
 	}
 
-	for _, iss := range respSummary.ToolCallIssues {
-		log.Info("router.tool_call_invalid",
-			"tool_name", iss.ToolName,
-			"failure_bucket", string(iss.Bucket),
-			"detail", iss.Detail,
-			"repaired", iss.Repaired,
-			"repair_actions", iss.Actions,
-			"model", decision.Model,
-			"provider", finalProvider,
-			"session_key_prefix", conversation.ShortSessionKey(routeRes.SessionKey),
-		)
-	}
+	logToolCallIssues(log, respSummary.ToolCallIssues, decision.Model, finalProvider, routeRes.SessionKey)
 
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
 	log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", rescue.primaryProvider, "primary_model", rescue.primaryModel, "fallback_attempts", winnerIdx, "failover_used", rescue.failoverUsed, "failover_attempted", rescue.failoverAttempted, "subscription_failover", rescue.codexFailoverUsed || rescue.claudeFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), respSummary.UpstreamFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(facts.Client), "subscription_tier", servedSubscriptionTier}, append(append(armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI), plannerLogFields(routeRes)...), rateLimit.CompletionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
