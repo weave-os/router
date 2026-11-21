@@ -46,18 +46,6 @@ func addToSet(set map[string]struct{}, model string) map[string]struct{} {
 	return out
 }
 
-func installationIDFromContext(ctx context.Context) uuid.UUID {
-	raw, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
-	if raw == "" {
-		return uuid.Nil
-	}
-	id, err := uuid.Parse(raw)
-	if err != nil {
-		return uuid.Nil
-	}
-	return id
-}
-
 func applyPinEvidence(ports continuity.StrategyPorts, res *turnLoopResult, pin sessionpin.Pin, now time.Time) {
 	res.PinModel = pin.Model
 	res.PinProvider = pin.Provider
