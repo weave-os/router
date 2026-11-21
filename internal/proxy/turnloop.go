@@ -238,10 +238,6 @@ func isHMMDecision(ports continuity.StrategyPorts, dec router.Decision) bool {
 	return ports.Ownership.IsDecision(dec)
 }
 
-const (
-	nativeWebSearchPassthroughReason = "native_web_search_passthrough"
-)
-
 const policyDeadlineFallbackReason = "policy_deadline_last_known_good"
 
 const unscorableHMMStickyReason = "hmm_no_user_boundary_sticky"
@@ -687,29 +683,12 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 
-		passthroughModel := s.baselineFor(ctx, req.RequestedModel)
-		_, excluded := req.Candidates.ExcludedModels[passthroughModel]
-		_, safetyExcluded := req.Candidates.SafetyExcludedModels[passthroughModel]
-		_, allowlisted := req.Candidates.AllowedModels[passthroughModel]
-		allowed := req.Candidates.AllowedModels == nil || allowlisted
-		binding, bindingFound := catalog.ResolveBindingWithCustom(
-			passthroughModel,
-			req.EnabledProviders,
-			req.CustomBindings,
-		)
-		if !excluded && !safetyExcluded && allowed && bindingFound && binding.Provider == providers.ProviderAnthropic {
+		if decision, ok := candidates.NativeWebSearchPassthrough(req, s.baselineFor(ctx, req.RequestedModel)); ok {
 			res.SessionKey = threadSessionKey
-			res.Decision = router.Decision{
-				Provider: binding.Provider,
-				Model:    passthroughModel,
-				Reason:   nativeWebSearchPassthroughReason,
-			}
+			res.Decision = decision
 			res.HardPinned = true
-			res.PinTier = nativeWebSearchPassthroughReason
-			log.Info("Native web-search sub-turn passed through to requested model",
-				"model", passthroughModel,
-				"provider", binding.Provider,
-			)
+			res.PinTier = candidates.NativeWebSearchPassthroughReason
+			log.Info("Native web-search sub-turn passed through to requested model", "model", decision.Model, "provider", decision.Provider)
 			return res, nil
 		}
 	}
