@@ -2755,8 +2755,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				log.Warn("Retrying Anthropic request without output_config.format after upstream rejected it",
 					"model", d.Model,
-					"provider", d.Provider,
-					"request_id", facts.RequestID)
+					"provider", d.Provider)
 				if preludeBuf != nil {
 					preludeBuf.Discard()
 				}
@@ -2861,8 +2860,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					s.gatewayCaps.RememberLacksResponses(gatewayKey)
 					log.Warn("Gateway rejected the Responses API; retrying on chat/completions",
 						"model", d.Model,
-						"decision_provider", d.Provider,
-						"request_id", facts.RequestID)
+						"decision_provider", d.Provider)
 					if preludeBuf != nil {
 						preludeBuf.Discard()
 					}
@@ -2874,8 +2872,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					s.gatewayCaps.RememberRejectsPromptCacheKey(gatewayKey)
 					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
 						"model", d.Model,
-						"decision_provider", d.Provider,
-						"request_id", facts.RequestID)
+						"decision_provider", d.Provider)
 					if preludeBuf != nil {
 						preludeBuf.Discard()
 					}
