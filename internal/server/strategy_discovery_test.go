@@ -59,9 +59,8 @@ func TestHMMRosterRouteRequiresRosterSources(t *testing.T) {
 }
 
 func TestTaskDomainPreviewRouteRequiresPreviewer(t *testing.T) {
-	t.Setenv("ROUTER_INTERNAL_SERVICE_TOKEN", "internal-fixture-token")
 	const route = "POST /internal/v1/task-domain/preview"
-	assert.NotContains(t, routeSet(registerDiscovery(t, server.Features{})), route,
+	assert.NotContains(t, routeSet(registerDiscovery(t, server.Features{InternalServiceToken: "internal-fixture-token"})), route,
 		"without a previewer the preview route stays unmounted")
-	assert.Contains(t, routeSet(registerDiscovery(t, server.Features{TaskDomainPreview: selection.TaskDomainPreviewer{}})), route)
+	assert.Contains(t, routeSet(registerDiscovery(t, server.Features{InternalServiceToken: "internal-fixture-token", TaskDomainPreview: selection.TaskDomainPreviewer{}})), route)
 }
