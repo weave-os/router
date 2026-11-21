@@ -93,7 +93,6 @@ type Service struct {
 	sessionStrategyStore         sessionstrategy.Store
 	classifierSessions           *classifierSessions
 	lifecycle                    *conversation.Lifecycle
-	compaction                   *conversation.CompactionTracker
 	prefixTrimFreeSwitch         bool
 	escapeNormalize              bool
 	hardPinExplore               bool
@@ -1006,7 +1005,6 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		lifecycle:                      conversation.NewLifecycle(),
 		searchUse:                      newSearchUseTracker(),
 		searchRequirementDecayTurns:    DefaultSearchRequirementDecayTurns,
-		compaction:                     conversation.NewCompactionTracker(),
 		prefixTrimFreeSwitch:           true,
 		turnSignalCaptureEnabled:       true,
 		ccOrchToolsCrossVendor:         true,
@@ -2516,7 +2514,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	if !agentShadowMode && !callerModelPassthroughActive(ctx) {
-		if _, recoveryErr := applyClientCompactionRecovery(ctx, env, clientBudget, tt, req.ConversationMessages); recoveryErr != nil {
+		if _, recoveryErr := conversation.ApplyClientCompactionRecovery(ctx, env, clientBudget, tt, req.ConversationMessages, DefaultCompactionMaxTokens, claudeCodeDefaultWindow); recoveryErr != nil {
 			return recoveryErr
 		}
 	}
