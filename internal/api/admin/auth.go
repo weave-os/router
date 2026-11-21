@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"os"
 	"time"
 
 	"weave-os/router/internal/auth"
@@ -35,7 +34,7 @@ type meResponse struct {
 	Subject       string `json:"subject,omitempty"`
 }
 
-func LoginHandler(authSvc *auth.Service) gin.HandlerFunc {
+func LoginHandler(authSvc *auth.Service, cfg Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !authSvc.AdminLoginEnabled() {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
@@ -69,20 +68,20 @@ func LoginHandler(authSvc *auth.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "session_issue_failed"})
 			return
 		}
-		setAdminSessionCookie(c, token, expiresAt)
+		setAdminSessionCookie(c, token, expiresAt, cfg.secureCookie())
 		observability.FromGin(c).Info("Admin login succeeded")
 		c.JSON(http.StatusOK, loginResponse{OK: true, ExpiresAt: expiresAt})
 	}
 }
 
-func LogoutHandler() gin.HandlerFunc {
+func LogoutHandler(cfg Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		clearAdminSessionCookie(c)
+		clearAdminSessionCookie(c, cfg.secureCookie())
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }
 
-func MeHandler(authSvc *auth.Service) gin.HandlerFunc {
+func MeHandler(authSvc *auth.Service, cfg Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !authSvc.AdminLoginEnabled() {
 			c.JSON(http.StatusOK, meResponse{Authenticated: false})
@@ -98,7 +97,7 @@ func MeHandler(authSvc *auth.Service) gin.HandlerFunc {
 			if !errors.Is(err, auth.ErrAdminSessionInvalid) {
 				observability.FromGin(c).Error("Admin session verify errored", "err", err)
 			}
-			clearAdminSessionCookie(c)
+			clearAdminSessionCookie(c, cfg.secureCookie())
 			c.JSON(http.StatusOK, meResponse{Authenticated: false})
 			return
 		}
@@ -106,9 +105,7 @@ func MeHandler(authSvc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-var cookieSecure = os.Getenv("ROUTER_COOKIE_INSECURE") != "true"
-
-func setAdminSessionCookie(c *gin.Context, token string, expiresAt time.Time) {
+func setAdminSessionCookie(c *gin.Context, token string, expiresAt time.Time, cookieSecure bool) {
 	maxAge := int(time.Until(expiresAt).Seconds())
 	if maxAge < 0 {
 		maxAge = 0
@@ -117,7 +114,7 @@ func setAdminSessionCookie(c *gin.Context, token string, expiresAt time.Time) {
 	c.SetCookie(auth.AdminSessionCookieName, token, maxAge, "/", "", cookieSecure, true)
 }
 
-func clearAdminSessionCookie(c *gin.Context) {
+func clearAdminSessionCookie(c *gin.Context, cookieSecure bool) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(auth.AdminSessionCookieName, "", -1, "/", "", cookieSecure, true)
 }
