@@ -41,18 +41,18 @@ func TestSubscriptionStatePoolOverloadHoldsSessionOffModel(t *testing.T) {
 		rec := httptest.NewRecorder()
 		buffer := newPreludeBuffer(rec)
 		var winner router.Decision
-		_, err := svc.dispatchWithFallback(ctx, failoverInputs{
-			w: rec, buf: buffer, subscriptionStateRequest: &req,
-			subscriptionStateWinnerProvider: new(string),
-			initialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
-			purpose:                         inference.PurposeAnthropicMessages,
-			buildAlternative: func(router.Decision) (dispatchAttempt, error) {
+		_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+			Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
+			SubscriptionStateWinnerProvider: new(string),
+			InitialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
+			Purpose:                         inference.PurposeAnthropicMessages,
+			BuildAlternative: func(router.Decision) (dispatch.UpstreamAttempt, error) {
 				return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 					buffer.Seal()
 					return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 				}, nil
 			},
-			onAlternative: func(decision router.Decision) { winner = decision },
+			OnAlternative: func(decision router.Decision) { winner = decision },
 		})
 		require.NoError(t, err)
 		return winner

@@ -1847,7 +1847,7 @@ func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strateg
 func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {
 	registered, ok := s.strategies[strategy]
 	if !ok || registered.router == nil {
-		unavailable := defaultStrategyUnavailable(strategy)
+		unavailable := router.StrategyUnavailableError(strategy)
 		if ok && registered.unavailable != nil {
 			unavailable = registered.unavailable
 		}
@@ -1884,17 +1884,6 @@ func policyRolloutIDFromContext(ctx context.Context) string {
 		return rolloutID
 	}
 	return ClientIdentityFrom(ctx).RolloutID
-}
-
-func defaultStrategyUnavailable(strategy router.Strategy) error {
-	switch strategy {
-	case router.StrategyRL:
-		return router.ErrRLPolicyUnavailable
-	case router.StrategyHMM, router.StrategyHMMEmbedding, router.StrategyHMMBeta, router.StrategyHMMQwen:
-		return router.ErrHMMUnavailable
-	default:
-		return router.ErrStrategyUnavailable
-	}
 }
 
 func (s *Service) Route(ctx context.Context, req router.Request) (router.Decision, error) {
@@ -1994,7 +1983,7 @@ func (s *Service) anthropicNativeAttempt(
 	notice translate.RouterNotice,
 	setExtractor func(*telemetry.UsageExtractor),
 	setStreamCost func(router.Decision, bool, func() bool),
-) dispatchAttempt {
+) dispatch.UpstreamAttempt {
 	return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 		requestCacheTTL1h := func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) }
 		setStreamCost(d, false, requestCacheTTL1h)
@@ -2523,7 +2512,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
-	var compactionHandoverOutcome handoverOutcome
+	var compactionHandoverOutcome dispatch.HandoverOutcome
 	if !agentShadowMode && !subscriptionStateModelsEnabled(ctx) && !routeRes.AuthoritativePerTurn && decision.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.Handover.Invoked && routeRes.PrefixTrimmed {
 		log.Info("Context trimming detected on non-Anthropic route; rewriting context with handover summary",
 			"message_count", feats.MessageCount,
@@ -2610,7 +2599,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		AppendWorkspaceSystem:             s.workspaceSystemAppendApplies(ctx, body, env, routeRes.TurnType),
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
-	effortServed.apply(&opts)
+	effortServed.Apply(&opts)
 
 	if s.claudeSubscriptionExhausted(ctx, r.Header) {
 		ctx = withSuppressedClaudeSubscription(ctx)
@@ -2728,7 +2717,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	recordFastServed := func(fast bool) { fastServed = fast }
 
-	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
+	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
 		targetNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, r.Header, s.usageObserver), r.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
 		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
 		switch providers.FamilyFor(target.Provider) {
@@ -2952,7 +2941,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	rescue := &messagesRescue{
 		rescueChain: &rescueChain{
-			svc: s, strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.usageObserver,
+			rescuePorts: rescuePortsFor(s), strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.usageObserver,
 			r:                r,
 			log:              log,
 			env:              env,
@@ -3605,7 +3594,7 @@ func isAuthoritativePinHoldMismatch(res turnLoopResult, served router.Decision) 
 	}
 }
 
-func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, decision router.Decision, effort effortResolution, finalProvider string, servedFast bool, estimatedInputTokens, inputTokens, outputTokens, cacheCreation, cacheRead int, usageMods catalog.UsageModifiers, routeMs, proxyMs int64, proxyErr error, response *policyOutcomeResponse) {
+func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, decision router.Decision, effort dispatch.EffortResolution, finalProvider string, servedFast bool, estimatedInputTokens, inputTokens, outputTokens, cacheCreation, cacheRead int, usageMods catalog.UsageModifiers, routeMs, proxyMs int64, proxyErr error, response *policyOutcomeResponse) {
 	routeDecision, routeMetadata, reporter, ok := s.policyOutcomeRoute(res, decision)
 	if !ok {
 		return
@@ -4611,7 +4600,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		EnableExtendedContext:    shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
-	effortServed.apply(&opts)
+	effortServed.Apply(&opts)
 
 	if s.codexSubscriptionExhausted(ctx, r.Header) {
 		nudge := codexSubscriptionReconnectNudge(ctx, r.Header, s.usageObserver)
@@ -4791,7 +4780,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	cyberRetryArmed := false
 	preOutputRescueArmed := false
 	cyberRefusalSeen := false
-	buildProviderAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
+	buildProviderAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
 		targetNotice := routerNoticeForDecision(withOwnCodexRejectionNudge(ctx, r.Header, s.usageObserver), r.Header, target, targetMarker)
 		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
 		if isResponses {
@@ -5148,7 +5137,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	rescue := &chatRescue{
 		rescueChain: &rescueChain{
-			svc: s, strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock,
+			rescuePorts: rescuePortsFor(s), strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock,
 			r:                r,
 			log:              log,
 			env:              env,
