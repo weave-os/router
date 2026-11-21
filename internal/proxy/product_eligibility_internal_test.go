@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
@@ -150,7 +151,7 @@ func TestUsageBypassDisengagesForAnIneligibleModel(t *testing.T) {
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
 	svc := &Service{hmmServing: hmmPorts(), usageObserver: obs}
-	ctx := context.WithValue(maxScopedContext(), AnthropicSubscriptionContextKey{}, token)
+	ctx := context.WithValue(maxScopedContext(), credentials.AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 
 	_, engaged := svc.usageBypassDecision(ctx, http.Header{}, router.Request{

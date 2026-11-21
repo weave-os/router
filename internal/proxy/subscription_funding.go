@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -47,7 +48,7 @@ func WithManagedSubscriptionCandidates(ctx context.Context, accounts []*auth.Sub
 		enrolled[account.Provider] = struct{}{}
 	}
 	ctx = context.WithValue(ctx, managedSubscriptionCandidatesKey{}, candidates)
-	return context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, enrolled)
+	return context.WithValue(ctx, credentials.ManagedSubscriptionProvidersContextKey{}, enrolled)
 }
 
 func subscriptionPoolForModel(target inference.Target) (subscriptions.Provider, bool) {
@@ -94,7 +95,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 		claudeTurn, _ := callCtx.Value(claudeSubscriptionTurnKey{}).(bool)
 		presentedPlan, _ := callCtx.Value(claudeSubscriptionPlanKey{}).(providers.SubscriptionPlan)
 		unverified := claudeSubscriptionPlan(callCtx) == providers.SubscriptionPlanUnknown && (claudeTurn || compatible && pool == subscriptions.ProviderClaude) || claudeTurn && presentedPlan == providers.SubscriptionPlanUnknown
-		if state, _ := callCtx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+		if state, _ := callCtx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 			unverified = unverified || state.ClaudePlanUnverified
 		}
 		if claudeEnterpriseEnabled(callCtx) && unverified && !triedSubscriptionFallsBackToCredits(callCtx) {
@@ -190,7 +191,7 @@ func callerPlanRefusal(ctx context.Context, pool subscriptions.Provider, callerQ
 }
 
 func triedSubscriptionFallsBackToCredits(ctx context.Context) bool {
-	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if state == nil || !state.SubscriptionAttempted || state.CallerCredentialRejected || billing.WeaveCreditsDeniedFromContext(ctx) {
 		return false
 	}
@@ -199,7 +200,7 @@ func triedSubscriptionFallsBackToCredits(ctx context.Context) bool {
 }
 
 func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provider, token string, now time.Time) bool {
-	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && state.QuotaExhaustedProviders[pool].After(now) {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && state.QuotaExhaustedProviders[pool].After(now) {
 		return true
 	}
 	if s.usageObserver != nil {
@@ -228,7 +229,7 @@ func (s *Service) markSubscriptionPoolUnavailable(ctx context.Context, pool subs
 	if callerModelPassthroughActive(ctx) {
 		return
 	}
-	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if state == nil {
 		return
 	}
@@ -276,7 +277,7 @@ func (s *Service) subscriptionPoolUnavailable(ctx context.Context, provider, mod
 }
 
 func subscriptionProviderUnavailable(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
-	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	return state != nil && state.UnavailableProviders[pool].After(now)
 }
 
@@ -345,7 +346,7 @@ func managedSeatCanCover(ctx context.Context, pool subscriptions.Provider, now t
 }
 
 func managedAccountThrottled(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
-	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		if state.ThrottledAccounts[candidate.accountID].After(now) {
 			return true
 		}
@@ -376,7 +377,7 @@ func includedQuotaObservedSpent(observer *usage.Observer, candidate managedSubsc
 }
 
 func recordedQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
-	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		if state.QuotaExhaustedAccounts[candidate.accountID].After(now) {
 			return true
 		}
@@ -399,7 +400,7 @@ func missingQuotaSnapshotRefusal(ctx context.Context, pool subscriptions.Provide
 	if snapshotPresent || !billing.WeaveCreditsDeniedFromContext(ctx) {
 		return nil
 	}
-	enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
+	enrolled, _ := ctx.Value(credentials.ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
 	if _, present := enrolled[auth.SubscriptionProvider(pool)]; present {
 		return subscriptionPoolUnavailableBecause(ctx, "enrolled pool has no quota snapshot")
 	}

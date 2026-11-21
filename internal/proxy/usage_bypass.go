@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -88,7 +89,7 @@ func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req rou
 }
 
 func (s *Service) anthropicFallbackKeyAvailable(ctx context.Context) bool {
-	if byok := BuildCredentialsMap(externalKeysFromContext(ctx)); byok != nil {
+	if byok := BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
 		if _, ok := byok[providers.ProviderAnthropic]; ok {
 			return true
 		}

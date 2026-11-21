@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -126,7 +127,7 @@ func canonicalTelemetryModelFamily(model string) string {
 func applySubscriptionWinnerTelemetry(ctx context.Context, telemetry *InsertTelemetryParams) {
 	telemetry.FinalModelFamily = canonicalTelemetryModelFamily(telemetry.DecisionModel)
 	telemetry.IntendedModelFamily = canonicalTelemetryModelFamily(telemetry.RequestedModel)
-	winningUsage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	winningUsage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if winningUsage == nil {
 		return
 	}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
@@ -19,23 +20,11 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
-type ManagedSubscriptionProvidersContextKey struct{}
-
-type ManagedSubscriptionEnrollmentUnavailableContextKey struct{}
-
-type ManagedSubscriptionUsageContextKey struct{}
-
-type SubscriptionOwnerContextKey struct{}
-
-func WithSubscriptionOwner(ctx context.Context, owner auth.SubscriptionOwner) context.Context {
-	return context.WithValue(ctx, SubscriptionOwnerContextKey{}, owner)
-}
-
 func subscriptionOwnerFromContext(ctx context.Context) auth.SubscriptionOwner {
 	if _, ok := requestcontext.InternalTestIdentityFrom(ctx); ok {
 		return auth.SubscriptionOwner{}
 	}
-	if owner, ok := ctx.Value(SubscriptionOwnerContextKey{}).(auth.SubscriptionOwner); ok && owner.Valid() {
+	if owner, ok := ctx.Value(credentials.SubscriptionOwnerContextKey{}).(auth.SubscriptionOwner); ok && owner.Valid() {
 		return owner
 	}
 	return auth.SubscriptionOwner{APIKeyID: apiKeyIDFromContext(ctx)}
@@ -57,7 +46,7 @@ func managedSubscriptionEnrolled(ctx context.Context, provider subscriptions.Pro
 	if subscriptionAPIOnly(ctx) || subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
 		return false
 	}
-	enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
+	enrolled, _ := ctx.Value(credentials.ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
 	_, ok := enrolled[auth.SubscriptionProvider(provider)]
 	return ok
 }
@@ -71,7 +60,7 @@ func managedSubscriptionCanServe(ctx context.Context, provider, model string) bo
 }
 
 func managedSubscriptionEnrollmentUnavailable(ctx context.Context) bool {
-	unavailable, _ := ctx.Value(ManagedSubscriptionEnrollmentUnavailableContextKey{}).(bool)
+	unavailable, _ := ctx.Value(credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}).(bool)
 	return unavailable
 }
 
@@ -110,7 +99,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	defer diagnostics.log(ctx, poolProvider, model)
 
 	owner := subscriptionOwnerFromContext(ctx)
-	if winner, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); winner != nil {
+	if winner, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); winner != nil {
 		for pair := range winner.AttemptedAccounts {
 			if strings.HasSuffix(pair, "\x00"+model) {
 				owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, strings.TrimSuffix(pair, "\x00"+model))
@@ -180,7 +169,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 				continue
 			}
 		}
-		if winner, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); winner != nil {
+		if winner, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); winner != nil {
 			if _, attempted := winner.AttemptedAccounts[lease.AccountID+"\x00"+model]; attempted {
 				lease.Release()
 				owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
@@ -221,7 +210,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		credentialCtx := context.WithValue(ctx, CredentialsContextKey{}, creds)
 		if poolProvider == subscriptions.ProviderClaude {
 			credentialCtx = s.withClaudeSubscriptionProfile(credentialCtx, nil)
-			if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && claudeSubscriptionPlan(credentialCtx) == providers.SubscriptionPlanUnknown {
+			if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && claudeSubscriptionPlan(credentialCtx) == providers.SubscriptionPlanUnknown {
 				state.ClaudePlanUnverified = true
 			}
 		}
@@ -464,6 +453,6 @@ func linkedSubscriptionResetAt(snapshot usage.Snapshot, now time.Time) time.Time
 }
 
 func subscriptionCredentialFallbackUsed(ctx context.Context) bool {
-	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	return state != nil && state.Finished && state.SubscriptionAttempted && (state.WinningCredentials == nil || !state.WinningCredentials.OAuth)
 }

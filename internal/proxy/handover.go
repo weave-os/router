@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"time"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
@@ -381,7 +382,7 @@ func (s *Service) runCompactionHandover(ctx context.Context, env *translate.Requ
 }
 
 func summarizerCredsFor(ctx context.Context, provider string, headers http.Header) *Credentials {
-	if billing.ByokFeeUnpayable(ctx) && BuildCredentialsMap(externalKeysFromContext(ctx))[provider] != nil {
+	if billing.ByokFeeUnpayable(ctx) && BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[provider] != nil {
 		return nil
 	}
 	return resolveSummarizerCreds(ctx, provider, headers)

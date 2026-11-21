@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
@@ -503,7 +504,7 @@ func TestForcedModelBinding_RefreshesRetiredProviderOnSavedPin(t *testing.T) {
 }
 
 func gatewayKeyCtx(model string) context.Context {
-	return context.WithValue(context.Background(), ExternalAPIKeysContextKey{},
+	return context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{},
 		[]*auth.ExternalAPIKey{{
 			Provider:     providers.ProviderAnthropicGateway,
 			Plaintext:    []byte("pat"),

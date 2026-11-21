@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -207,7 +208,7 @@ func goldenStreamScenarios(ingress string) []goldenScenario {
 }
 
 func goldenSubscriptionCtx(ctx context.Context) context.Context {
-	return context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, goldenSubscription)
+	return context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, goldenSubscription)
 }
 
 // exhaustSubscription records a spent weekly window for the golden token.

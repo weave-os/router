@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/subscriptionlane"
 
@@ -27,8 +28,8 @@ func (f planBindingFacts) context() context.Context {
 		ctx = context.WithValue(enterpriseOnlyContext(ctx), claudeEnterpriseTurnKey{}, true)
 	}
 	if f.capRefused {
-		ctx = context.WithValue(ctx, ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
-		ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
+		ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-customer"), FundingPriority: auth.FundingPriorityPlanFirst},
 		})
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
@@ -440,7 +441,7 @@ func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) 
 
 	ctx := context.WithValue(
 		authedCtx("11111111-1111-1111-1111-111111111111"),
-		proxy.AnthropicSubscriptionContextKey{},
+		credentials.AnthropicSubscriptionContextKey{},
 		"sk-ant-oat01-subscription-token",
 	)
 	rec := httptest.NewRecorder()

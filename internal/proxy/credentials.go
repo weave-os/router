@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 )
@@ -27,7 +28,7 @@ func CredentialsFromContext(ctx context.Context) *Credentials {
 	if override, set := ctx.Value(CredentialsContextKey{}).(*Credentials); set && override == nil {
 		return nil
 	}
-	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.Finished {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.Finished {
 		return usage.WinningCredentials
 	}
 	return requestcontext.CredentialsFromContext(ctx)
@@ -49,11 +50,9 @@ func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 	requestcontext.ApplyIdentityHeader(ctx, upstream)
 }
 
-type ExternalAPIKeysContextKey struct{}
-
 func byokFirst(ctx context.Context, provider string) bool {
 	keyFirst := false
-	for _, key := range externalKeysFromContext(ctx) {
+	for _, key := range credentials.ExternalKeysFromContext(ctx) {
 		if key.Provider == provider && (len(key.Plaintext) > 0 || key.CredentialError != nil) {
 			keyFirst = key.FundingPriority == auth.FundingPriorityKeyFirst
 		}
@@ -111,4 +110,20 @@ func codexSubscriptionCreds(token, accountID string) *Credentials {
 
 func clearCredentials(ctx context.Context) context.Context {
 	return context.WithValue(ctx, CredentialsContextKey{}, (*Credentials)(nil))
+}
+
+func resolveSummarizerCreds(ctx context.Context, provider string, headers http.Header) *Credentials {
+	if provider == "" {
+		return nil
+	}
+	if byok := BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
+		if creds, ok := byok[provider]; ok {
+			return creds
+		}
+	}
+	creds := ExtractClientCredentials(provider, headers)
+	if creds != nil && creds.OAuth {
+		return nil
+	}
+	return creds
 }

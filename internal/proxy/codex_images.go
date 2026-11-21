@@ -54,7 +54,7 @@ func (c CodexImages) ForwardWithCallerCredential(ctx context.Context, headers ht
 	if !ok {
 		return fmt.Errorf("OpenAI provider does not support Codex image requests")
 	}
-	if len(credentials.GatewayProviders(externalKeysFromContext(ctx))) > 0 {
+	if len(credentials.GatewayProviders(credentials.ExternalKeysFromContext(ctx))) > 0 {
 		return ErrCodexImagesUnavailableWithGateway
 	}
 	if creds := codexImageCallerCredential(ctx, headers); creds != nil {

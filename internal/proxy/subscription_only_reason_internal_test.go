@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -131,7 +132,7 @@ func TestSpendCapKeyWarningShowsOncePerConversation(t *testing.T) {
 }
 
 func TestSpendCapWarningNamesTheLinkedPlanItWillLease(t *testing.T) {
-	ctx := context.WithValue(spendCapOnCustomerKey(), ManagedSubscriptionProvidersContextKey{},
+	ctx := context.WithValue(spendCapOnCustomerKey(), credentials.ManagedSubscriptionProvidersContextKey{},
 		map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProvider(subscriptions.ProviderClaude): {}})
 	assert.Equal(t, subscriptionSpendCapWarningMarker,
 		routerNoticeForRequest(ctx, http.Header{}, subscriptions.ProviderClaude, "claude-haiku-4-5", "").Text,
