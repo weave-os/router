@@ -18,7 +18,6 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 
-	"weave-os/router/internal/config"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/version"
 )
@@ -31,23 +30,29 @@ var (
 	meterProvider  *sdkmetric.MeterProvider
 )
 
-func Init() {
-	initOnce.Do(initLocked)
+type Config struct {
+	Endpoint      string
+	DeploymentEnv string
+	Insecure      bool
 }
 
-func initLocked() {
+func Init(cfg Config) {
+	initOnce.Do(func() { initLocked(cfg) })
+}
+
+func initLocked(cfg Config) {
 	log := observability.Get()
 
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
-	endpoint := config.GetOr("WV_APM_OTLP_ENDPOINT", "")
+	endpoint := cfg.Endpoint
 	if endpoint == "" {
 		log.Info("APM disabled: WV_APM_OTLP_ENDPOINT unset")
 		return
 	}
 
 	ctx := context.Background()
-	deployEnv := config.GetOr("ROUTER_DEPLOYMENT_ENV", config.GetOr("ENV", "dev"))
+	deployEnv := cfg.DeploymentEnv
 
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
@@ -63,7 +68,7 @@ func initLocked() {
 		return
 	}
 
-	insecure := config.GetOr("WV_APM_OTLP_INSECURE", "false") == "true"
+	insecure := cfg.Insecure
 
 	traceExporter, err := newTraceExporter(ctx, endpoint, insecure)
 	if err != nil {
