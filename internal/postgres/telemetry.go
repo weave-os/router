@@ -41,7 +41,6 @@ func NewTelemetryRepo(tx sqlc.DBTX) *TelemetryRepo {
 }
 
 var _ proxy.TelemetryRepository = (*TelemetryRepo)(nil)
-var _ proxy.InferenceAttemptStore = (*TelemetryRepo)(nil)
 
 func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.InsertTelemetryParams) error {
 	id, err := uuid.Parse(p.InstallationID)

@@ -41,7 +41,7 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 		sessionKey := deriveSessionKeyForRequest(ctx, env, "test-key")
 		if n == 5 {
 			store.failCommit = true
-			svc.compaction.CheckAndRecord(sessionKey, installation, role, 9, 0)
+			svc.lifecycle.Compaction().CheckAndRecord(sessionKey, installation, role, 9, 0)
 			require.True(t, svc.searchUse.observe(string(sessionKey[:]), 0, DefaultSearchRequirementDecayTurns))
 		}
 		res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "test-key", installation), "", http.Header{}, router.Request{

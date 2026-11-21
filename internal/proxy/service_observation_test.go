@@ -466,7 +466,7 @@ func TestProxyMessages_NoMetadataOmitsClusterFields(t *testing.T) {
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
 		Reason:   "pin",
-		// Metadata intentionally nil; matches pinDecision shape.
+		// Metadata intentionally nil; matches sessionpin.Pin.Decision shape.
 	}
 	telem := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
