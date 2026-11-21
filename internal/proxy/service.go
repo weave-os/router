@@ -3675,17 +3675,8 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 	})
 }
 
-func pinDecision(p sessionpin.Pin) router.Decision {
-	return router.Decision{
-		Provider: p.Provider,
-		Model:    p.Model,
-		Effort:   p.Effort,
-		Reason:   p.Reason,
-	}
-}
-
 func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, hasImages bool, imageCount int, enabledProviders, excludedModels map[string]struct{}) router.Decision {
-	anchor := pinDecision(pin)
+	anchor := pin.Decision()
 	if s.bandSwap == nil || pin.PairedModel == "" || turnType != turntype.MainLoop {
 		return anchor
 	}
@@ -3696,7 +3687,7 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 	if !ok {
 		return anchor
 	}
-	large, small := orderBandPair(pin)
+	large, small := pin.OrderedBandPair()
 	served := large
 	if band == bandswap.Small {
 		served = small
@@ -3732,30 +3723,6 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 		"paired_model", pin.PairedModel,
 	)
 	return served
-}
-
-func orderBandPair(pin sessionpin.Pin) (large, small router.Decision) {
-	a := pinDecision(pin)
-	b := router.Decision{Provider: pin.PairedProvider, Model: pin.PairedModel, Reason: pin.Reason}
-	ta, tb := catalog.TierFor(a.Model), catalog.TierFor(b.Model)
-	if ta != tb {
-		if ta > tb {
-			return a, b
-		}
-		return b, a
-	}
-	if primaryInputPrice(a.Model) >= primaryInputPrice(b.Model) {
-		return a, b
-	}
-	return b, a
-}
-
-func primaryInputPrice(model string) float64 {
-	pricing, ok := catalog.PrimaryPriceFor(model)
-	if !ok {
-		return 0
-	}
-	return pricing.InputUSDPer1M
 }
 
 func pinAge(p sessionpin.Pin, now time.Time) int64 {

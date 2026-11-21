@@ -6,7 +6,7 @@ import (
 )
 
 func (res *turnLoopResult) serveForceModelPin(forceModelPin sessionpin.Pin) {
-	res.Decision = pinDecision(forceModelPin)
+	res.Decision = forceModelPin.Decision()
 	res.Decision.Reason = translate.ReasonUserForceModel
 	res.UserForced = true
 	res.StickyHit = true

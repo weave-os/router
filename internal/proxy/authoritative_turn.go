@@ -42,7 +42,7 @@ func serveAuthoritativeTurn(ctx context.Context, s *Service, res *turnLoopResult
 	s.logAuthorityCacheShadow(ctx, *res)
 	if res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.DemotedModel() {
 		if in.pinFound && candidates.AutomaticPinEligible(in.pin, in.req) {
-			decision := pinDecision(in.pin)
+			decision := in.pin.Decision()
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = string(pinTierAuthoritativeExcludedPin)
