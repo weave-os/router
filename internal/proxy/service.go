@@ -2123,20 +2123,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	ctx, log, sessionKey = bindRequestLogger(ctx, env, facts.APIKeyID, facts.RequestID, "anthropic_messages")
 	log.Debug("Resolved client context budget", "budget_evidence", clientBudget.Evidence, "client_version", clientBudget.Version, "model_variant_1m", clientBudget.ModelVariant1M, "inbound_context_1m", clientBudget.InboundContext1M, "default_window", clientBudget.DefaultWindow, "default_compact_threshold", clientBudget.DefaultCompactThreshold)
-	if err := env.StripCommandOutcomes(); err != nil {
-		return fmt.Errorf("strip command outcomes: %w", err)
-	}
-	if removed, err := env.StripHistoricalCommands(); err != nil {
-		return fmt.Errorf("strip historical router commands: %w", err)
-	} else if removed > 0 {
-		log.Info("Stripped historical router commands from Anthropic history", "removed_messages", removed)
-	}
-	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
-		log.Info("Stripped router-feedback artifacts from Anthropic history", "removed_messages", removed)
-	}
-	if removed := env.StripBetaArtifacts(); removed > 0 {
-		ctx = withBetaArtifactHistory(ctx)
-		log.Info("Stripped beta artifacts from Anthropic history", "removed_messages", removed)
+	if ctx, err = stripClientHistory(ctx, log, env, "Anthropic"); err != nil {
+		return err
 	}
 
 	feats := env.RoutingFeatures()
@@ -4039,20 +4027,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	ctx, log, sessionKey = bindRequestLogger(ctx, env, facts.APIKeyID, facts.RequestID, "openai_chat_completions")
-	if err := env.StripCommandOutcomes(); err != nil {
-		return fmt.Errorf("strip command outcomes: %w", err)
-	}
-	if removed, err := env.StripHistoricalCommands(); err != nil {
-		return fmt.Errorf("strip historical router commands: %w", err)
-	} else if removed > 0 {
-		log.Info("Stripped historical router commands from OpenAI history", "removed_messages", removed)
-	}
-	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
-		log.Info("Stripped router-feedback artifacts from OpenAI history", "removed_messages", removed)
-	}
-	if removed := env.StripBetaArtifacts(); removed > 0 {
-		ctx = withBetaArtifactHistory(ctx)
-		log.Info("Stripped beta artifacts from OpenAI history", "removed_messages", removed)
+	if ctx, err = stripClientHistory(ctx, log, env, "OpenAI"); err != nil {
+		return err
 	}
 	codexTitleGen, _ := ctx.Value(codexTitleGenerationContextKey{}).(bool)
 	feats := env.RoutingFeatures()
