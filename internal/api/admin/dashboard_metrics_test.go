@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 func TestFactPointsCostTypeRepricesOnlyRouterPickedAPITurns(t *testing.T) {
 	bucket := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	facts := []proxy.TelemetryDashboardFact{
+	facts := []turnrecord.TelemetryDashboardFact{
 		{Bucket: bucket, DecisionModel: "claude-sonnet-5", DecisionType: string(dashboardDecisionRouterPick), RequestCount: 1, InputTokens: 1_000_000, ActualCostUSD: 1},
 		{Bucket: bucket, DecisionModel: "claude-sonnet-5", DecisionType: "forced", RequestCount: 1, InputTokens: 1_000_000, ActualCostUSD: 2},
 		{Bucket: bucket, DecisionModel: "claude-sonnet-5", DecisionType: string(dashboardDecisionRouterPick), SubscriptionServed: true, RequestCount: 1, InputTokens: 1_000_000, ActualCostUSD: 5},
@@ -33,7 +33,7 @@ func TestFactPointsCostTypeRepricesOnlyRouterPickedAPITurns(t *testing.T) {
 
 func TestFactPointsTotalCollapsesBuckets(t *testing.T) {
 	first := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	facts := []proxy.TelemetryDashboardFact{
+	facts := []turnrecord.TelemetryDashboardFact{
 		{Bucket: first, DecisionModel: "a", RequestCount: 2},
 		{Bucket: first.AddDate(0, 0, 1), DecisionModel: "a", RequestCount: 3},
 		{Bucket: first, DecisionModel: "b", SubscriptionServed: true, RequestCount: 4},
@@ -50,7 +50,7 @@ func TestFactPointsTotalCollapsesBuckets(t *testing.T) {
 }
 
 func TestFactsInGroupKeepsOnlyThatLabel(t *testing.T) {
-	facts := []proxy.TelemetryDashboardFact{
+	facts := []turnrecord.TelemetryDashboardFact{
 		{DecisionType: string(dashboardDecisionRouterPick), ActualCostUSD: 1},
 		{DecisionType: string(dashboardDecisionPassthrough), ActualCostUSD: 2},
 		{DecisionType: "forced", ActualCostUSD: 4},
@@ -68,7 +68,7 @@ func TestFactsInGroupKeepsOnlyThatLabel(t *testing.T) {
 }
 
 func TestListPriceSpendIgnoresLongContextTierForBucketSums(t *testing.T) {
-	facts := []proxy.TelemetryDashboardFact{
+	facts := []turnrecord.TelemetryDashboardFact{
 		{DecisionModel: "claude-haiku-5-5", RequestCount: 20, InputTokens: 1_000_000},
 	}
 

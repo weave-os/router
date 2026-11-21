@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,7 +54,7 @@ func TestBypassTelemetryRecordsOutcomeAndIncomingTools(t *testing.T) {
 			assert.False(t, *row.UserPrompt)
 			require.JSONEq(t, `{"Bash":{"calls":1,"errors":1}}`, string(row.LatestToolCallCounts))
 			if rejected {
-				assert.Equal(t, proxy.TurnErrorInvalidRequest, row.ErrorClass)
+				assert.Equal(t, turnrecord.TurnErrorInvalidRequest, row.ErrorClass)
 				assert.Equal(t, int32(http.StatusBadRequest), row.UpstreamStatusCode)
 			} else {
 				assert.Empty(t, row.ErrorClass)

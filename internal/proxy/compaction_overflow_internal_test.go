@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 // cortexPromptTooLong is the 71-byte 400 Cortex's AI gateway
@@ -103,7 +104,7 @@ func TestGatewayCompactionContextOverflowWithNothingFittingIsProviderFailure(t *
 	assert.GreaterOrEqual(t, class.Status, http.StatusInternalServerError)
 	assert.NotContains(t, class.Message, "Compact the conversation")
 	assert.NotContains(t, rec.Body.String(), "Compact the conversation")
-	assert.Equal(t, FailureOwnerProvider, dispatchErrorKindOwner(class.Kind))
+	assert.Equal(t, turnrecord.FailureOwnerProvider, dispatchErrorKindOwner(class.Kind))
 }
 
 // A non-compaction turn keeps the native prompt-too-long so the client compacts.

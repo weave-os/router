@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -199,7 +200,7 @@ func TestBypass_ClassifierRefusal_DoesNotTryModelsSubscriptionNeverServed(t *tes
 	assert.JSONEq(t, rescueRefusal(rescueRefusingModel), rec.Body.String())
 }
 
-func rescueTelemetryRow(t *testing.T, sink *bypassCaptureTelemetry) InsertTelemetryParams {
+func rescueTelemetryRow(t *testing.T, sink *bypassCaptureTelemetry) turnrecord.InsertTelemetryParams {
 	t.Helper()
 	select {
 	case <-sink.notify:

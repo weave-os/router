@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
 
@@ -526,7 +527,7 @@ func TestSubscriptionTargetMarker_UnchangedModelKeepsRoutedMarker(t *testing.T) 
 }
 
 func TestSubscriptionTargetMarker_SwitchedModelIsWordedAsRescue(t *testing.T) {
-	ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(cortexAttempt("gpt-6-luna", cortexStatusError(529, `{}`, nil), TurnErrorRateLimited)))
+	ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(cortexAttempt("gpt-6-luna", cortexStatusError(529, `{}`, nil), turnrecord.TurnErrorRateLimited)))
 	picked := router.Decision{Model: "gpt-6-luna", Provider: "openai"}
 	target := router.Decision{Model: "gpt-6.1-sol", Provider: "openai"}
 	res := turnLoopResult{Decision: picked}
@@ -541,7 +542,7 @@ func TestSubscriptionTargetMarker_SwitchedModelIsWordedAsRescue(t *testing.T) {
 }
 
 func TestSubscriptionTargetMarker_RotationBackToPickRestoresRoutedMarker(t *testing.T) {
-	ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(cortexAttempt("gpt-6-luna", cortexStatusError(529, `{}`, nil), TurnErrorRateLimited)))
+	ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(cortexAttempt("gpt-6-luna", cortexStatusError(529, `{}`, nil), turnrecord.TurnErrorRateLimited)))
 	picked := router.Decision{Model: "gpt-6-luna", Provider: "openai"}
 	sibling := router.Decision{Model: "gpt-6.1-sol", Provider: "openai"}
 	res := turnLoopResult{Decision: picked, CallerModelPassthrough: true}
@@ -563,7 +564,7 @@ func TestSubscriptionTargetMarker_UndispatchedPickIsNotCalledOverloaded(t *testi
 		"a pick that was never dispatched did not fail, so the badge must not blame it")
 
 	failed := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderOpenAI, CatalogID: "xiaomi/mimo-v2.6-pro"}, Err: errors.New("boom"),
-		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorUpstream5xx)}}
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(turnrecord.TurnErrorUpstream5xx)}}
 	traced := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(failed))
 	assert.Contains(t, subscriptionTargetMarker(hmm.ServingPorts(), traced, http.Header{}, res, picked, target, routingMarkerFor(res)), "switched after xiaomi/mimo-v2.6-pro",
 		"a pick that did fail is still named as the failed model")

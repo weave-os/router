@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -755,7 +756,7 @@ func TestService_RouterFeedbackCommand_SequenceResolvesTelemetryTurn(t *testing.
 	store.pin = sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", LastServedModel: "claude-haiku-4-5"}
 	feedback := &fakeFeedbackStore{}
 	telem := newCaptureTelemetry()
-	telem.seqResult = proxy.TelemetryTurnResult{RequestID: "req-abc", DecisionModel: "claude-opus-4-7", RouteID: "hmm:xyz"}
+	telem.seqResult = turnrecord.TelemetryTurnResult{RequestID: "req-abc", DecisionModel: "claude-opus-4-7", RouteID: "hmm:xyz"}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
 	svc := newPinSvcWithTelemetry(fr, store, telem).WithRouterFeedbackStore(feedback)
 
@@ -883,7 +884,7 @@ func TestService_RouterFeedbackCommand_SequenceNoteOnlySkipsRequestFeedbackUpser
 	store := newFakePinStore()
 	feedback := &fakeFeedbackStore{}
 	telem := newCaptureTelemetry()
-	telem.seqResult = proxy.TelemetryTurnResult{RequestID: "req-note-only", DecisionModel: "claude-opus-4-7"}
+	telem.seqResult = turnrecord.TelemetryTurnResult{RequestID: "req-note-only", DecisionModel: "claude-opus-4-7"}
 	repo := &recordingFeedbackRepo{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
 	svc := newPinSvcWithTelemetry(fr, store, telem).WithRouterFeedbackStore(feedback).WithFeedback(repo, nil, "")
@@ -909,7 +910,7 @@ func TestService_RouterFeedbackCommand_SequenceWithRatingUpsertsRequestFeedback(
 	store := newFakePinStore()
 	feedback := &fakeFeedbackStore{}
 	telem := newCaptureTelemetry()
-	telem.seqResult = proxy.TelemetryTurnResult{RequestID: "req-rated", DecisionModel: "claude-opus-4-7"}
+	telem.seqResult = turnrecord.TelemetryTurnResult{RequestID: "req-rated", DecisionModel: "claude-opus-4-7"}
 	repo := &recordingFeedbackRepo{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
 	svc := newPinSvcWithTelemetry(fr, store, telem).WithRouterFeedbackStore(feedback).WithFeedback(repo, nil, "")
@@ -938,7 +939,7 @@ func TestService_RouterFeedbackCommand_SequenceResolvesStrategyRoutesToItsReport
 	store := newFakePinStore()
 	feedback := &fakeFeedbackStore{}
 	telem := newCaptureTelemetry()
-	telem.seqResult = proxy.TelemetryTurnResult{
+	telem.seqResult = turnrecord.TelemetryTurnResult{
 		RequestID:     "req-resolved-on-RL",
 		DecisionModel: "claude-opus-4-7",
 		Strategy:      "rl",
@@ -975,7 +976,7 @@ func TestService_RouterFeedbackCommand_SequenceRejectsHMMDeltaWithResolvedStrate
 	store := newFakePinStore()
 	feedback := &fakeFeedbackStore{}
 	telem := newCaptureTelemetry()
-	telem.seqResult = proxy.TelemetryTurnResult{
+	telem.seqResult = turnrecord.TelemetryTurnResult{
 		RequestID:     "req-resolved-hmm",
 		DecisionModel: "claude-opus-4-7",
 		Strategy:      "hmm_embedding",
@@ -1016,7 +1017,7 @@ func TestService_RouterFeedbackCommand_NegativeOnePreservesTrainingDelta(t *test
 	store := newFakePinStore()
 	feedback := &fakeFeedbackStore{}
 	telem := newCaptureTelemetry()
-	telem.seqResult = proxy.TelemetryTurnResult{RequestID: "req-prev", DecisionModel: "claude-haiku-4-5", Strategy: "hmm_embedding"}
+	telem.seqResult = turnrecord.TelemetryTurnResult{RequestID: "req-prev", DecisionModel: "claude-haiku-4-5", Strategy: "hmm_embedding"}
 	hmmReporter := &fakePolicyFeedbackRouter{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster"}}
 	svc := newPinSvcWithTelemetry(fr, store, telem).
@@ -1055,7 +1056,7 @@ func TestService_RouterFeedbackCommand_ClusterResolvedTurnSkipsPolicyFeedback(t 
 	store := newFakePinStore()
 	feedback := &fakeFeedbackStore{}
 	telem := newCaptureTelemetry()
-	telem.seqResult = proxy.TelemetryTurnResult{
+	telem.seqResult = turnrecord.TelemetryTurnResult{
 		RequestID:     "req-cluster-turn",
 		DecisionModel: "claude-haiku-4-5",
 		Strategy:      "cluster",

@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/llmescalation"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
 )
@@ -60,7 +61,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 	inputCost := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead, pricing, usage.Provider, usageMods)
 	outputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(usage.InputTokens, usage.CacheCreation, usage.CacheRead, usage.Provider), usage.OutputTokens, pricing, usageMods)
 
-	s.fireTelemetry(ctx, InsertTelemetryParams{
+	s.fireTelemetry(ctx, turnrecord.InsertTelemetryParams{
 		InstallationID:         installationID.String(),
 		APIKeyID:               apiKeyID,
 		RequestID:              auxRequestID,
@@ -106,7 +107,7 @@ func (s *Service) recordEscalationJudgeInference(ctx context.Context, installati
 	if judgment.CostSource == llmescalation.CostSourceProviderReported {
 		inputCost, outputCost = judgment.CostUSD, 0
 	}
-	s.fireTelemetry(ctx, InsertTelemetryParams{
+	s.fireTelemetry(ctx, turnrecord.InsertTelemetryParams{
 		InstallationID:           installationID,
 		RequestID:                requestID + "_escalation_judge_" + job.ID,
 		SpanType:                 SpanTypePlatformAuxiliaryInference,

@@ -6,16 +6,8 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
-)
-
-type FailureOwner string
-
-const (
-	FailureOwnerProvider FailureOwner = "provider"
-	FailureOwnerRouter   FailureOwner = "router"
-	FailureOwnerClient   FailureOwner = "client"
-	FailureOwnerUnknown  FailureOwner = "unknown"
 )
 
 type failureOwnerInput struct {
@@ -26,34 +18,34 @@ type failureOwnerInput struct {
 	RejectedFieldUnchanged bool
 }
 
-func classifyFailureOwner(in failureOwnerInput) FailureOwner {
+func classifyFailureOwner(in failureOwnerInput) turnrecord.FailureOwner {
 	err := in.Err
 	if err == nil {
 		return ""
 	}
 	if isUpstreamWatchdogError(err) || isStreamTerminalMissing(err) || providers.IsUpstreamCyberPolicyRefusal(err) {
-		return FailureOwnerProvider
+		return turnrecord.FailureOwnerProvider
 	}
 	if errors.Is(err, context.Canceled) || isOwnLoginRejection(err) {
-		return FailureOwnerClient
+		return turnrecord.FailureOwnerClient
 	}
 	if errors.Is(err, translate.ErrCustomToolArguments) {
-		return FailureOwnerProvider
+		return turnrecord.FailureOwnerProvider
 	}
 	if errors.Is(err, errResponsesPassthroughStuck) {
-		return FailureOwnerRouter
+		return turnrecord.FailureOwnerRouter
 	}
 	if errors.Is(err, errCallerPlanThrottled) {
-		return FailureOwnerClient
+		return turnrecord.FailureOwnerClient
 	}
 	if cls, ok := ClassifyDispatchError(err); ok && cls.Kind != DispatchErrorUpstreamStatus {
 		switch {
 		case cls.Kind == DispatchErrorHandoff && errors.Is(err, ErrHandoffUnavailable):
-			return FailureOwnerRouter
+			return turnrecord.FailureOwnerRouter
 		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && (upstreamStatus(err) == http.StatusTooManyRequests || errors.Is(err, errLinkedSeatsThrottled)):
-			return FailureOwnerProvider
+			return turnrecord.FailureOwnerProvider
 		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && errors.Is(err, errLinkedSeatsUnusable):
-			return FailureOwnerClient
+			return turnrecord.FailureOwnerClient
 		}
 		return dispatchErrorKindOwner(cls.Kind)
 	}
@@ -62,7 +54,7 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 		status = upstreamStatus(err)
 	}
 	if status == http.StatusBadRequest && in.RejectedFieldUnchanged && !providers.IsUpstreamCredentialRefusal(err) {
-		return FailureOwnerClient
+		return turnrecord.FailureOwnerClient
 	}
 	if status != 0 {
 		return upstreamStatusOwner(status, err, in.BodyTranslated, in.CustomerCredential)
@@ -70,10 +62,10 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	return streamFailureOwner(classifyStreamFailure(err, ""))
 }
 
-func upstreamStatusOwner(status int, err error, bodyTranslated, customerCredential bool) FailureOwner {
-	credentialOwner := FailureOwnerRouter
+func upstreamStatusOwner(status int, err error, bodyTranslated, customerCredential bool) turnrecord.FailureOwner {
+	credentialOwner := turnrecord.FailureOwnerRouter
 	if customerCredential {
-		credentialOwner = FailureOwnerClient
+		credentialOwner = turnrecord.FailureOwnerClient
 	}
 	switch {
 	case providers.IsUpstreamProviderBillingBlocked(err), providers.IsUpstreamCredentialRefusal(err):
@@ -81,33 +73,33 @@ func upstreamStatusOwner(status int, err error, bodyTranslated, customerCredenti
 	case status == http.StatusUnauthorized, status == http.StatusForbidden, status == http.StatusPaymentRequired:
 		return credentialOwner
 	case status == http.StatusNotFound:
-		return FailureOwnerRouter
+		return turnrecord.FailureOwnerRouter
 	case status == http.StatusBadRequest, status == http.StatusRequestEntityTooLarge, status == http.StatusUnprocessableEntity:
 		if bodyTranslated {
-			return FailureOwnerRouter
+			return turnrecord.FailureOwnerRouter
 		}
-		return FailureOwnerProvider
+		return turnrecord.FailureOwnerProvider
 	case status == http.StatusTooManyRequests, status == http.StatusRequestTimeout, status >= 500:
-		return FailureOwnerProvider
+		return turnrecord.FailureOwnerProvider
 	default:
-		return FailureOwnerUnknown
+		return turnrecord.FailureOwnerUnknown
 	}
 }
 
-func streamFailureOwner(class streamFailureClass) FailureOwner {
+func streamFailureOwner(class streamFailureClass) turnrecord.FailureOwner {
 	switch class {
 	case streamFailureUpstreamEOF, streamFailureUpstreamReset, streamFailureIdleWatchdog,
 		streamFailureOutputStallWatchdog, streamFailureSlowThroughputWatchdog, streamFailureUpstreamErrorFrame,
 		streamFailureUpstreamIncomplete, streamFailureUpstreamEmpty, streamFailureUpstreamTimeout, streamFailureDeadline:
-		return FailureOwnerProvider
+		return turnrecord.FailureOwnerProvider
 	case streamFailureClientCanceled:
-		return FailureOwnerClient
+		return turnrecord.FailureOwnerClient
 	default:
-		return FailureOwnerUnknown
+		return turnrecord.FailureOwnerUnknown
 	}
 }
 
-func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
+func dispatchErrorKindOwner(kind DispatchErrorKind) turnrecord.FailureOwner {
 	switch kind {
 	case DispatchErrorSubscriptionPoolExhausted, DispatchErrorNotImplemented, DispatchErrorProviderNotConfigured, DispatchErrorAnthropicFederationUnavailable, DispatchErrorRLPolicyUnavailable,
 		DispatchErrorHMMUnavailable, DispatchErrorPolicyUnavailable,
@@ -116,9 +108,9 @@ func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 		DispatchErrorSpendLimitUnavailable, DispatchErrorSubscriptionPoolUnavailable,
 		DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorTranslationProviderUnavailable,
 		DispatchErrorRoutedModelIncompatible, DispatchErrorNoEligibleArm:
-		return FailureOwnerRouter
+		return turnrecord.FailureOwnerRouter
 	case DispatchErrorCompactionUnservable, DispatchErrorSubscriptionPoolThrottled:
-		return FailureOwnerProvider
+		return turnrecord.FailureOwnerProvider
 	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorContextWindowExceeded, DispatchErrorImageLimitExceeded,
 		DispatchErrorInvalidRoutingKnobs, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded,
 		DispatchErrorForcedModelUnknown, DispatchErrorPassthroughModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy,
@@ -128,28 +120,28 @@ func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 		DispatchErrorAllowlistEmptiesPool, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels,
 		DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused, DispatchErrorClaudeEnterpriseOnly,
 		DispatchErrorWeaveCreditsDisabled, DispatchErrorSubscriptionUnavailableForTurn:
-		return FailureOwnerClient
+		return turnrecord.FailureOwnerClient
 	default:
-		return FailureOwnerUnknown
+		return turnrecord.FailureOwnerUnknown
 	}
 }
 
-func turnFailureOwnerAfterFinish(ctx context.Context, err error, class TurnErrorClass, upstreamFinishReason string) FailureOwner {
+func turnFailureOwnerAfterFinish(ctx context.Context, err error, class turnrecord.TurnErrorClass, upstreamFinishReason string) turnrecord.FailureOwner {
 	if upstreamFinishReason != "" && isStreamTerminalMissing(err) {
-		return FailureOwnerRouter
+		return turnrecord.FailureOwnerRouter
 	}
 	return turnFailureOwnerFor(ctx, err, class)
 }
 
-func turnFailureOwner(class TurnErrorClass) FailureOwner {
+func turnFailureOwner(class turnrecord.TurnErrorClass) turnrecord.FailureOwner {
 	switch class {
-	case "", TurnErrorMaxTokens:
+	case "", turnrecord.TurnErrorMaxTokens:
 		return ""
-	case TurnErrorRefusal, TurnErrorInvalidToolArgs:
-		return FailureOwnerProvider
-	case TurnErrorRoutingRefused:
-		return FailureOwnerRouter
+	case turnrecord.TurnErrorRefusal, turnrecord.TurnErrorInvalidToolArgs:
+		return turnrecord.FailureOwnerProvider
+	case turnrecord.TurnErrorRoutingRefused:
+		return turnrecord.FailureOwnerRouter
 	default:
-		return FailureOwnerUnknown
+		return turnrecord.FailureOwnerUnknown
 	}
 }
