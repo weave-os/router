@@ -147,7 +147,7 @@ func geminiErrorStatus(cls ingress.DispatchErrorClass) string {
 		return "FAILED_PRECONDITION"
 	case ingress.DispatchErrorInvalidRoutingKnobs, ingress.DispatchErrorPlanOverrideRejected:
 		return "INVALID_ARGUMENT"
-	case ingress.DispatchErrorRLPolicyUnavailable, ingress.DispatchErrorHMMUnavailable, ingress.DispatchErrorDecisionModelUnavailable, ingress.DispatchErrorPolicyUnavailable, ingress.DispatchErrorClusterUnavailable, ingress.DispatchErrorPlanUnresolvable:
+	case ingress.DispatchErrorHMMUnavailable, ingress.DispatchErrorDecisionModelUnavailable, ingress.DispatchErrorPolicyUnavailable, ingress.DispatchErrorClusterUnavailable, ingress.DispatchErrorPlanUnresolvable:
 		return "UNAVAILABLE"
 	default:
 		return "UPSTREAM_ERROR"

@@ -20,7 +20,7 @@ const (
 	DispatchErrorContextWindowExceeded
 	DispatchErrorImageLimitExceeded
 	DispatchErrorInvalidRoutingKnobs
-	DispatchErrorRLPolicyUnavailable
+	_
 	DispatchErrorHMMUnavailable
 	DispatchErrorPolicyUnavailable
 	DispatchErrorClusterUnavailable

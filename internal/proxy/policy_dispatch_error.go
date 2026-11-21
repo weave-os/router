@@ -10,15 +10,6 @@ import (
 
 func classifyPolicyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 	switch {
-	case errors.Is(err, router.ErrRLPolicyUnavailable):
-		return ingress.DispatchErrorClass{
-			Kind:       ingress.DispatchErrorRLPolicyUnavailable,
-			Status:     http.StatusServiceUnavailable,
-			Message:    "Router unavailable: RL policy router failed and no fallback is configured.",
-			RetryAfter: true,
-			LogLevel:   "error",
-			LogMessage: "RL routing unavailable",
-		}, true
 	case errors.Is(err, router.ErrDecisionModelUnavailable):
 		return ingress.DispatchErrorClass{
 			Kind:       ingress.DispatchErrorDecisionModelUnavailable,

@@ -110,7 +110,7 @@ func streamFailureOwner(class streamFailureClass) FailureOwner {
 
 func dispatchErrorKindOwner(kind ingress.DispatchErrorKind) FailureOwner {
 	switch kind {
-	case ingress.DispatchErrorSubscriptionPoolExhausted, ingress.DispatchErrorNotImplemented, ingress.DispatchErrorProviderNotConfigured, ingress.DispatchErrorAnthropicFederationUnavailable, ingress.DispatchErrorRLPolicyUnavailable,
+	case ingress.DispatchErrorSubscriptionPoolExhausted, ingress.DispatchErrorNotImplemented, ingress.DispatchErrorProviderNotConfigured, ingress.DispatchErrorAnthropicFederationUnavailable,
 		ingress.DispatchErrorHMMUnavailable, ingress.DispatchErrorPolicyUnavailable,
 		ingress.DispatchErrorClusterUnavailable, ingress.DispatchErrorDecisionModelUnavailable, ingress.DispatchErrorClassifierUnavailable,
 		ingress.DispatchErrorPolicyPinUnavailable, ingress.DispatchErrorPlanTargetMismatch, ingress.DispatchErrorPlanUnresolvable,

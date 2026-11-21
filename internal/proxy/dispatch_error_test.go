@@ -208,7 +208,7 @@ func TestClassifyDispatchError_AllowlistEmptiesPoolPrecedesNoEligibleProvider(t 
 }
 
 func TestClassifyDispatchError_RLAndHMMUnavailableRetry(t *testing.T) {
-	for _, err := range []error{router.ErrRLPolicyUnavailable, hmm.ErrHMMUnavailable, decisionmodel.ErrUnavailable} {
+	for _, err := range []error{hmm.ErrHMMUnavailable, decisionmodel.ErrUnavailable} {
 		cls, ok := proxy.ClassifyDispatchError(err)
 		require.True(t, ok, "expected %v to be classified", err)
 		assert.Equal(t, http.StatusServiceUnavailable, cls.Status)

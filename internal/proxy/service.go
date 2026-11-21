@@ -1847,7 +1847,7 @@ func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strateg
 func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {
 	registered, ok := s.strategies[strategy]
 	if !ok || registered.router == nil {
-		unavailable := defaultStrategyUnavailable(strategy)
+		unavailable := router.StrategyUnavailableError(strategy)
 		if ok && registered.unavailable != nil {
 			unavailable = registered.unavailable
 		}
@@ -1884,17 +1884,6 @@ func policyRolloutIDFromContext(ctx context.Context) string {
 		return rolloutID
 	}
 	return ClientIdentityFrom(ctx).RolloutID
-}
-
-func defaultStrategyUnavailable(strategy router.Strategy) error {
-	switch strategy {
-	case router.StrategyRL:
-		return router.ErrRLPolicyUnavailable
-	case router.StrategyHMM, router.StrategyHMMEmbedding, router.StrategyHMMBeta, router.StrategyHMMQwen:
-		return router.ErrHMMUnavailable
-	default:
-		return router.ErrStrategyUnavailable
-	}
 }
 
 func (s *Service) Route(ctx context.Context, req router.Request) (router.Decision, error) {
