@@ -103,7 +103,7 @@ type Service struct {
 	subAgentProvider             string
 	subAgentModel                string
 	telemetry                    TelemetryRepository
-	turnClock                    SessionTurnClock
+	turnClock                    telemetry.SessionTurnClock
 	captureMode                  ContentCaptureMode
 	captureMaxBytes              int
 	redactor                     Redactor
