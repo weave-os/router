@@ -1914,7 +1914,7 @@ func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http
 
 func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName string, body []byte, w http.ResponseWriter, r *http.Request) error {
 	log := observability.FromContext(ctx)
-	p, err := s.provider(providerName)
+	p, err := s.clients.Upstream(providerName)
 	if err != nil {
 		return err
 	}
