@@ -36,6 +36,10 @@ func openAICompatConfigFromEnv() openaicompat.Config {
 	}
 }
 
+func init() {
+	configureUpstreamHTTP()
+}
+
 func configureUpstreamHTTP() {
 	httputil.Configure(upstreamHTTPConfigFromEnv())
 	anthropic.Configure(anthropicConfigFromEnv())
