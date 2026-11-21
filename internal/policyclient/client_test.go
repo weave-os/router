@@ -471,70 +471,6 @@ func TestClientOmitsV2CandidateFieldsFromV1(t *testing.T) {
 	}
 }
 
-func TestClientPostsArmProviderMapForV2(t *testing.T) {
-	var got routeRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		assert.NoError(t, json.NewDecoder(request.Body).Decode(&got))
-		_ = json.NewEncoder(w).Encode(routeResponse{
-			SchemaVersion:    policy.SchemaVersionV2,
-			SelectedArmID:    "arm-fireworks",
-			SelectedRosterID: "deepseek/deepseek-v4-pro",
-		})
-	}))
-	defer server.Close()
-
-	_, err := New(server.URL, server.Client(), 0).Decide(context.Background(), policy.Query{
-		SchemaVersion: policy.SchemaVersionV2,
-		Candidates: []policy.Candidate{
-			{
-				ArmID:        "arm-fireworks",
-				RosterID:     "deepseek/deepseek-v4-pro",
-				CatalogID:    "deepseek/deepseek-v4-pro",
-				Provider:     providers.ProviderFireworks,
-				BindingIndex: 0,
-			},
-			{
-				ArmID:        "arm-makora",
-				RosterID:     "deepseek/deepseek-v4-pro",
-				CatalogID:    "deepseek/deepseek-v4-pro",
-				Provider:     providers.ProviderMakora,
-				BindingIndex: 1,
-			},
-		},
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, map[string]string{
-		"arm-fireworks": providers.ProviderFireworks,
-		"arm-makora":    providers.ProviderMakora,
-	}, got.CandidateProviders)
-	assert.Equal(t, []string{"arm-fireworks", "arm-makora"}, got.CandidateModels)
-	require.NotNil(t, got.Candidates[0].BindingIndex)
-	assert.Equal(t, 0, *got.Candidates[0].BindingIndex)
-	assert.Equal(t, "arm-fireworks", got.Candidates[0].ArmID)
-}
-
-func TestClientPreviewAcceptsV2Schema(t *testing.T) {
-	var got routeRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		assert.NoError(t, json.NewDecoder(request.Body).Decode(&got))
-		_ = json.NewEncoder(w).Encode(previewResponse{
-			SchemaVersion: policy.SchemaVersionV2,
-		})
-	}))
-	defer server.Close()
-
-	result, err := New(server.URL, server.Client(), 0).Preview(context.Background(), policy.Query{
-		SchemaVersion: policy.SchemaVersionV2,
-		ExecutionMode: policy.ExecutionModePreview,
-		Candidates:    []policy.Candidate{{ArmID: "arm-a", RosterID: "model-a"}},
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, policy.SchemaVersionV2, got.SchemaVersion)
-	assert.Equal(t, policy.SchemaVersionV2, result.SchemaVersion)
-}
-
 func TestClientAcceptsLegacyRouteResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"model": "anthropic/claude-opus-4-8"})
@@ -595,6 +531,39 @@ func TestClientPreviewPostsNonLearningRequestAndReturnsEveryArm(t *testing.T) {
 	assert.Equal(t, []string{"arm-a", "arm-b"}, result.EligibleRosterIDs)
 	assert.Equal(t, "sha256:artifact", result.PolicyArtifactSHA256)
 	assert.Equal(t, "sha256:roster", result.RosterSHA256)
+}
+
+func TestBearerUsesPolicyTimeoutForDefaultHTTPClient(t *testing.T) {
+	configured := NewBearer("https://sidecar.example.test", "fixture-token", nil, 3*time.Second)
+	assert.Equal(t, 3*time.Second, configured.client.Timeout)
+
+	defaults := NewBearer("https://sidecar.example.test", "fixture-token", nil, 0)
+	assert.Equal(t, DefaultTimeout, defaults.client.Timeout)
+}
+
+func TestPinnedPreviewRejectsWrongResponseIdentity(t *testing.T) {
+	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	for _, tc := range []struct {
+		name, routeID, digest string
+	}{
+		{"wrong route", "another-route", digest},
+		{"wrong digest", "preview-1", "another-digest"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				assert.Equal(t, "/preview", request.URL.Path)
+				_ = json.NewEncoder(w).Encode(previewResponse{
+					SchemaVersion: policy.SchemaVersionV1, RouteID: tc.routeID, PolicySHA256: tc.digest,
+				})
+			}))
+			defer server.Close()
+			client := New(server.URL, server.Client(), 0, WithExpectedPolicySHA256(digest))
+			_, err := client.Preview(context.Background(), policy.Query{
+				RouteID: "preview-1", ExecutionMode: policy.ExecutionModePreview,
+			})
+			require.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
+		})
+	}
 }
 
 func TestClientPreviewRequiresPreviewExecutionMode(t *testing.T) {
@@ -904,7 +873,7 @@ func TestExhaustedLadderPrefersTheSidecarStatusOverATruncatedAttempt(t *testing.
 }
 
 func TestClientCapabilities(t *testing.T) {
-	for _, schemaVersion := range []string{policy.SchemaVersionV1, policy.SchemaVersionV2} {
+	for _, schemaVersion := range []string{policy.SchemaVersionV1, policy.SchemaVersionV4} {
 		t.Run(schemaVersion, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 				assert.Equal(t, "/capabilities", request.URL.Path)

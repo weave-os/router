@@ -13,9 +13,9 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
@@ -91,9 +91,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		logInboundRequestDiagnostics(log, env)
 	}
 
-	subAgentHint := r.Header.Get("x-weave-subagent-type")
+	subAgentHint, strategy := r.Header.Get("x-weave-subagent-type"), router.StrategyFromContext(ctx)
 
-	forceCluster, forceErr := applyForceClusterHeader(ctx, r)
+	forceCluster, forceErr := applyForceClusterHeader(s.strategyPorts, ctx, strategy, r)
 	if forceErr != nil {
 		return forceErr
 	}
@@ -108,7 +108,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if feats.MaxTokens > outputReserve {
 		outputReserve = feats.MaxTokens
 	}
-	prefiltered := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
+	prefiltered := candidates.Prefilter(candidates.PrefilterRequest{
 		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserve, Eligibility: eligibility,
 		Excluded: excluded, Available: s.availableModels,
 		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()),
@@ -118,38 +118,32 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
 	routeRequest := router.Request{
-		RequestedModel:                feats.Model,
-		ForceCluster:                  forceCluster,
-		EstimatedInputTokens:          feats.Tokens,
-		HasTools:                      feats.HasTools,
-		HasImages:                     feats.HasImages,
-		ImageCount:                    feats.ImageCount,
-		TranslationRequirements:       env.TranslationRequirements(router.EndpointGeminiGenerate),
-		ReasoningConfigurationSHA256:  env.ReasoningConfigurationSHA256(),
-		ToolConfigurationSHA256:       env.ToolConfigurationSHA256(),
-		PromptText:                    routingPromptText,
-		ConversationMessages:          routingMessages,
-		AvailableTools:                availableToolsForRouting(env),
-		Tools:                         toolsForRouting(env),
-		ClientSessionID:               clientSessionIDForRequest(ctx, env),
-		EnabledProviders:              enabledProviders,
-		CustomBindings:                eligibility.CustomBindings,
-		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
-		ExcludedModels:                excluded,
-		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          prefiltered.Safety,
-		ContextWindowExcludedModels:   prefiltered.ContextWindowOnly,
-		ImageLimitExcludedModels:      modelSet(prefiltered.ImageLimited),
-		UnsignedHistoryExcludedModels: modelSet(prefiltered.UnsignedHistory),
-		OverflowAdmittedModels:        modelSet(prefiltered.OverflowAdmitted),
-		PreferredModels:               s.preferredModelsForRequest(ctx),
-		RoutingKnobs:                  router.RoutingKnobsFromContext(ctx),
-		ClusterArmOverrides:           clusterArmOverridesForRequest(ctx),
-		ProductEligibility:            entitlement.ModelBoundaryFromContext(ctx),
+		RequestedModel:               feats.Model,
+		ForceCluster:                 forceCluster,
+		EstimatedInputTokens:         feats.Tokens,
+		HasTools:                     feats.HasTools,
+		HasImages:                    feats.HasImages,
+		ImageCount:                   feats.ImageCount,
+		TranslationRequirements:      env.TranslationRequirements(router.EndpointGeminiGenerate),
+		ReasoningConfigurationSHA256: env.ReasoningConfigurationSHA256(),
+		ToolConfigurationSHA256:      env.ToolConfigurationSHA256(),
+		PromptText:                   routingPromptText,
+		ConversationMessages:         routingMessages,
+		AvailableTools:               availableToolsForRouting(env),
+		Tools:                        toolsForRouting(env),
+		ClientSessionID:              clientSessionIDForRequest(ctx, env),
+		EnabledProviders:             enabledProviders,
+		CustomBindings:               eligibility.CustomBindings,
+		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
+		Candidates:                   prefilteredCandidates(ctx, excluded, prefiltered),
+		PreferredModels:              s.preferredModelsForRequest(ctx),
+		RoutingKnobs:                 router.RoutingKnobsFromContext(ctx),
+		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
+		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
 	}
 	routeStart := s.clock.Now()
-	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)
-	routeRes, err := s.runTurnLoop(routeCtx, env, feats, facts.APIKeyID, facts.InstallationID, subAgentHint, r.Header, routeRequest)
+	routeCtx, routeSpan := startRoutingSpan(ctx, strategy, routeRequest)
+	routeRes, err := s.runTurnLoop(routeCtx, env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
 	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
@@ -159,7 +153,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
 	if err != nil {
 		log.Error("Routing failed for Gemini request", "err", err, "route_ms", routeMs, "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
-		s.recordPolicyPinRouteFailure(ctx, facts.RequestID, requestStart, feats.Model, routeRes.TurnType, inboundUserPrompt, err)
+		s.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy}, routeRes.TurnType, inboundUserPrompt, err)
 		return err
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
@@ -183,7 +177,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision
-	s.firePolicyShadowForServingDecision(ctx, decision, routeRequest)
+	s.firePolicyShadowForServingDecision(ctx, strategy, decision, routeRequest)
 	tt := routeRes.TurnType
 	stickyHit := routeRes.StickyHit
 	pinTier := routeRes.PinTier
@@ -275,7 +269,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 	preludeBuf := newPreludeBuffer(contentSink)
-	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
+	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(s.strategyPorts, ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
 	muteSlowStartFor(ctx, routeRes)
 	bindings := s.resolveBindingsForDispatch(ctx, decision)
 	primaryDecision := decision
@@ -376,7 +370,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	applyEffortAttrs(geminiUpstreamBuilder, effortServed)
 	s.applySubscriptionSpanTelemetry(ctx, geminiUpstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, geminiUpstreamBuilder)
-	geminiObs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
+	geminiObs := buildObservationContext(s.strategyPorts, ctx, strategy, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
 	geminiObs.applySpanAttrs(geminiUpstreamBuilder)
 	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.upstream",
@@ -465,14 +459,14 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			CredentialKeySuffix:    credentialKeySuffix,
 			CredentialSource:       credentialSource,
 		}
-		applyServedGroupTelemetry(ctx, &telemetryParams, routeRes, decision)
+		applyServedGroupTelemetry(s.strategyPorts, ctx, &telemetryParams, routeRes, decision)
 		applyPlannerTelemetry(&telemetryParams, routeRes)
 		applyEffortTelemetry(&telemetryParams, effortServed)
 		applyAuthorityShadowTelemetry(&telemetryParams, routeRes)
 		applyBlindExperimentTelemetry(ctx, &telemetryParams, &routeRes)
 		applyPolicyPinTelemetry(ctx, &telemetryParams, decision.Metadata)
 		applySubscriberTelemetry(ctx, &telemetryParams)
-		applyAgreementShadowTelemetry(ctx, &telemetryParams, routeRes)
+		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &telemetryParams, routeRes)
 		subscriberTelemetry = &telemetryParams
 	}
 
@@ -494,16 +488,16 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	primaryFailureDemoted := ""
 	var primaryFailureDemotionReason sessionpin.DemotionReason
 	if !routeRes.CallerModelPassthrough {
-		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
-		armDemoted = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(preludeBuf), routeRes.HardPinned, proxyErr, decision.Model, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
+		armDemoted = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(preludeBuf), routeRes.HardPinned, proxyErr, decision.Model, decision.Reason, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 		if armDemoted != "" {
 			armDemotionReason = sessionpin.DemotionReasonCommittedStreamFailure
 		}
 		if providers.IsResponseHeaderTimeout(primaryFailureErr) && (proxyErr != nil || decision.Model != primaryDecision.Model) {
-			primaryFailureDemoted, primaryFailureDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, false, routeRes.HardPinned, primaryFailureErr, primaryDecision, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			primaryFailureDemoted, primaryFailureDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, false, routeRes.HardPinned, primaryFailureErr, primaryDecision, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 		}
 		if proxyErr != nil {
-			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, false, committed(preludeBuf), routeRes.HardPinned, primaryFailureErr, primaryDecision, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, false, committed(preludeBuf), routeRes.HardPinned, primaryFailureErr, primaryDecision, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 			if unrescuedStallDemoted != "" {
 				armDemoted = unrescuedStallDemoted
 				armDemotionReason = sessionpin.DemotionReasonUnrescuedStall

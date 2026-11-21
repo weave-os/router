@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 )
 
@@ -64,7 +65,7 @@ func TestForceModelCommand_PinKeyIsDerivedFromUnstrippedOpeningMessage(t *testin
 		t.Run(tc.name, func(t *testing.T) {
 			store := newKeyRecordingPinStore()
 			fr := &fakeRouter{decision: router.Decision{Provider: tc.provider, Model: tc.model, Reason: "cluster"}}
-			svc := proxy.NewService(fr, map[string]providers.Client{tc.provider: &fakeProvider{}}, nil, store, false, tc.provider, tc.model, nil)
+			svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{tc.provider: &fakeProvider{}}, nil, store, false, tc.provider, tc.model, nil), hmm.ServingPorts())
 			ctx := authedCtx(uuid.New().String())
 
 			for i, body := range []string{tc.turnOne, tc.turnTwo} {

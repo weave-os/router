@@ -1,0 +1,433 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_responses",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "auto",
+          "excluded": [
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-5",
+            "gpt-5-chat",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.4-nano",
+            "gpt-5.4-pro",
+            "gpt-5.5",
+            "gpt-5.5-mini",
+            "gpt-5.5-nano",
+            "gpt-5.5-pro",
+            "gpt-5.6-luna-pro",
+            "gpt-5.6-sol-pro"
+          ],
+          "model": "gpt-5.6-sol",
+          "provider": "openai",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "openai",
+          "wire_model": "gpt-5.6-sol",
+          "endpoint": "responses",
+          "credential_source": "codex_subscription",
+          "credential": {
+            "label": "codex-seat",
+            "source": "codex_subscription",
+            "oauth": true,
+            "account": "golden-provider-codex-seat"
+          },
+          "outbound_body": {
+            "input": [
+              {
+                "content": "Use plain language.",
+                "role": "developer",
+                "type": "message"
+              },
+              {
+                "content": [
+                  {
+                    "text": "What is in the report?",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user",
+                "type": "message"
+              },
+              {
+                "arguments": "{}",
+                "call_id": "call_report",
+                "name": "read_report",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_report",
+                "output": "The report has three pages.",
+                "type": "function_call_output"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Summarize the result in one sentence.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "developer",
+                "type": "message"
+              }
+            ],
+            "instructions": "Help with the example.",
+            "model": "gpt-5.6-sol",
+            "stream": true,
+            "tools": [
+              {
+                "name": "read_report",
+                "parameters": {
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-responses",
+            "PolicyRevision": "3",
+            "Purpose": "openai_responses",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gpt-5.6-sol",
+            "Provider": "openai",
+            "UpstreamID": "gpt-5.6-sol"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "157",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1050000",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "gpt-5.6-sol",
+          "X-Router-Provider": "openai"
+        },
+        "events": [
+          {
+            "event": "response.created",
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "model": "gpt-5.6-sol",
+                "object": "response",
+                "status": "in_progress"
+              },
+              "sequence_number": 0,
+              "type": "response.created"
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 1,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 2,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → a Weave router spend cap has been reached, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled.\n\n",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 3,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 4,
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → a Weave router spend cap has been reached, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled.\n\n",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → a Weave router spend cap has been reached, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled.\n\n",
+                "type": "output_text"
+              },
+              "sequence_number": 5,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → a Weave router spend cap has been reached, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled.\n\n",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 6,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 1,
+              "sequence_number": 7,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "example response",
+              "item_id": "msg-upstream",
+              "output_index": 1,
+              "sequence_number": 8,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "example response",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 1,
+              "sequence_number": 9,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "event": "response.completed",
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "model": "gpt-5.6-sol",
+                "object": "response",
+                "output": [
+                  {
+                    "content": [
+                      {
+                        "annotations": [],
+                        "text": "⁣⁠⁣⁠✦ **Weave Router** → a Weave router spend cap has been reached, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled.\n\n",
+                        "type": "output_text"
+                      }
+                    ],
+                    "id": "\u003cid\u003e",
+                    "role": "assistant",
+                    "status": "completed",
+                    "type": "message"
+                  },
+                  {
+                    "content": [
+                      {
+                        "annotations": [],
+                        "text": "example response",
+                        "type": "output_text"
+                      }
+                    ],
+                    "id": "\u003cid\u003e",
+                    "role": "assistant",
+                    "status": "completed",
+                    "type": "message"
+                  }
+                ],
+                "status": "completed",
+                "usage": {
+                  "input_tokens": 12,
+                  "output_tokens": 7,
+                  "total_tokens": 19
+                }
+              },
+              "sequence_number": 10,
+              "type": "response.completed"
+            }
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "gpt-5.6-sol",
+            "Provider": "openai",
+            "Reason": "golden_route",
+            "Role": "default",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "gpt-5.6-sol",
+            "ServedProvider": "openai",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 188,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gpt-5.6-sol"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000048,
+          "ActualOutputCostUSD": 0.00014,
+          "CaptureMode": "off",
+          "ClientApp": "opencode",
+          "ContextSnapshot": {
+            "context_window": 1050000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 157,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "auto",
+            "served_model": "gpt-5.6-sol",
+            "version": 1
+          },
+          "CredentialSource": "codex_subscription",
+          "DecisionModel": "gpt-5.6-sol",
+          "DecisionProvider": "openai",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 32,
+          "FinalModelFamily": "gpt-sol",
+          "FreshDecisionModel": "gpt-5.6-sol",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gpt-sol",
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedModel": "auto",
+          "Role": "default",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SessionID": "ses_golden",
+          "SpanType": "router.upstream",
+          "StopReason": "stop",
+          "Strategy": "hmm_embedding",
+          "SubscriptionAccountID": "codex-seat",
+          "SubscriptionOwnerID": "golden-owner",
+          "SubscriptionTier": "personal",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200
+        }
+      ]
+    }
+  ],
+  "scenario": "opencode_codex_seat_at_spend_cap"
+}

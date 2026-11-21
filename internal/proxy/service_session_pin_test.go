@@ -17,6 +17,8 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -225,7 +227,7 @@ func assertOnlyHMMHistoryUpserts(t *testing.T, store *fakePinStore) {
 }
 
 func newPinSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil,
@@ -233,12 +235,12 @@ func newPinSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 }
 
 func newPinSvcWithTelemetry(fr *fakeRouter, store *fakePinStore, telemetry proxy.TelemetryRepository) *proxy.Service {
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil,
@@ -246,8 +248,8 @@ func newPinSvcWithTelemetry(fr *fakeRouter, store *fakePinStore, telemetry proxy
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		telemetry,
-	)
+		telemetry), hmm.ServingPorts())
+
 }
 
 func authedCtx(installationID string) context.Context {
@@ -357,7 +359,7 @@ func TestService_NativeSearchResultHistoryFiltersPolicyCandidatesInGo(t *testing
 		Model:    "claude-opus-4-8",
 		Reason:   "hmm_policy",
 	}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
@@ -368,8 +370,8 @@ func TestService_NativeSearchResultHistoryFiltersPolicyCandidatesInGo(t *testing
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithScopedSearchRequirement(true, proxy.DefaultSearchRequirementDecayTurns)
+		nil), hmm.ServingPorts()).
+		WithScopedSearchRequirement(true, proxy.DefaultSearchRequirementDecayTurns)
 	body := []byte(`{
 		"model":"claude-opus-4-8",
 		"tools":[{"type":"web_search_20250305","name":"web_search"}],
@@ -450,7 +452,7 @@ func TestService_SessionPin_ImageTurnEvictsTextOnlyPin(t *testing.T) {
 
 	require.NotNil(t, fr.capturedReq, "scorer must run after the text-only pin is dropped")
 	assert.True(t, fr.capturedReq.HasImages, "routing request must carry the image signal")
-	_, excluded := fr.capturedReq.ExcludedModels["z-ai/glm-5.1"]
+	_, excluded := fr.capturedReq.Candidates.ExcludedModels["z-ai/glm-5.1"]
 	assert.False(t, excluded, "pin must be dropped, not hard-excluded; the scorer's image filter drops it softly")
 	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel),
 		"served model must be the image-capable fresh decision, not the text-only pin")
@@ -607,11 +609,11 @@ func TestService_HardPin_TitleGen_AppliesExcludedModels(t *testing.T) {
 		providers.ProviderAnthropic: &fakeProvider{proxyResponse: okResp},
 		providers.ProviderGoogle:    &fakeProvider{proxyResponse: okResp},
 	}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr, providerMap, nil, store, false,
-		providers.ProviderGoogle, excludedModel, // boot-time pin is the excluded model
-		nil,
-	).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
+		providers.ProviderGoogle, excludedModel,
+		nil), hmm.ServingPorts()).
+		WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()),
 		proxy.InstallationExcludedModelsContextKey{}, []string{excludedModel})
@@ -649,7 +651,7 @@ func TestService_CompactionWithoutSessionPinIsScored(t *testing.T) {
 func TestService_HardPin_ExploreRoutesToHaikuWhenFlagOn(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil,
@@ -657,8 +659,7 @@ func TestService_HardPin_ExploreRoutesToHaikuWhenFlagOn(t *testing.T) {
 		true,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	// The legacy hardPinExplore default only applies to non-HMM strategies.
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyRL)
@@ -684,7 +685,7 @@ func TestService_HardPin_HMMExploreBypassesBootHardPin(t *testing.T) {
 		Reason:   "hmm_policy:tool_execution(label=explore)",
 		Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMM)},
 	}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil,
@@ -692,8 +693,8 @@ func TestService_HardPin_HMMExploreBypassesBootHardPin(t *testing.T) {
 		true,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithHMMRouter(fr)
+		nil), hmm.ServingPorts()).
+		WithHMMRouter(fr)
 
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyHMM)
 	rec := httptest.NewRecorder()
@@ -763,7 +764,7 @@ func TestService_HardPin_SubAgentOverrideRoutesIndependentlyOfHardPin(t *testing
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 	}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic:  &fakeProvider{},
@@ -771,11 +772,11 @@ func TestService_HardPin_SubAgentOverrideRoutesIndependentlyOfHardPin(t *testing
 		},
 		nil,
 		store,
-		false, // hardPinExplore=false: override alone must still hard-pin
+		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithSubAgentOverride(providers.ProviderOpenRouter, "local/qwen3-coder")
+		nil), hmm.ServingPorts()).
+		WithSubAgentOverride(providers.ProviderOpenRouter, "local/qwen3-coder")
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -794,7 +795,7 @@ func TestService_HardPin_SubAgentOverrideRoutesIndependentlyOfHardPin(t *testing
 func TestService_HardPin_SubAgentOverrideLeavesMainLoopUnaffected(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic:  &fakeProvider{},
@@ -805,8 +806,8 @@ func TestService_HardPin_SubAgentOverrideLeavesMainLoopUnaffected(t *testing.T) 
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithSubAgentOverride(providers.ProviderOpenRouter, "local/qwen3-coder")
+		nil), hmm.ServingPorts()).
+		WithSubAgentOverride(providers.ProviderOpenRouter, "local/qwen3-coder")
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -822,16 +823,15 @@ func TestService_HardPin_SubAgentOverrideLeavesMainLoopUnaffected(t *testing.T) 
 func TestService_HardPin_NoSubAgentOverrideUsesSharedHardPin(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil,
 		store,
-		true, // hardPinExplore=true, no override configured
+		true,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	// The legacy hardPinExplore default only applies to non-HMM strategies.
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyRL)
@@ -851,16 +851,16 @@ func TestService_HardPin_NoSubAgentOverrideUsesSharedHardPin(t *testing.T) {
 func TestService_HardPin_PartialSubAgentOverrideFallsThroughToScorer(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil,
 		store,
-		false, // hardPinExplore=false
+		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithSubAgentOverride("", "nonempty-model") // provider empty: incomplete override
+		nil), hmm.ServingPorts()).
+		WithSubAgentOverride("", "nonempty-model") // provider empty: incomplete override
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -886,7 +886,7 @@ func TestService_HardPin_SubAgentOverrideAppliesUnderHMMStrategy(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 	}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic:  &fakeProvider{},
@@ -897,8 +897,8 @@ func TestService_HardPin_SubAgentOverrideAppliesUnderHMMStrategy(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithSubAgentOverride(providers.ProviderOpenRouter, "local/qwen3-coder").WithHMMRouter(fr)
+		nil), hmm.ServingPorts()).
+		WithSubAgentOverride(providers.ProviderOpenRouter, "local/qwen3-coder").WithHMMRouter(fr)
 
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyHMM)
 	rec := httptest.NewRecorder()
@@ -920,7 +920,7 @@ func TestService_HMMStrategy_SubAgentTurnIsClassifiedWithoutOverride(t *testing.
 		Reason:   "hmm_policy:classifier_select(label=medium)",
 		Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMM)},
 	}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil,
@@ -928,8 +928,8 @@ func TestService_HMMStrategy_SubAgentTurnIsClassifiedWithoutOverride(t *testing.
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithHMMRouter(fr)
+		nil), hmm.ServingPorts()).
+		WithHMMRouter(fr)
 
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyHMM)
 	rec := httptest.NewRecorder()
@@ -946,18 +946,17 @@ func TestService_HMMStrategy_SubAgentTurnIsClassifiedWithoutOverride(t *testing.
 func TestService_HardPin_SubAgentOverrideIneligibleProviderErrors(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		// Only Anthropic registered — the override names OpenRouter, which
-		// EnabledProviders (derived from registered providers) won't contain.
+
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithSubAgentOverride(providers.ProviderOpenRouter, "local/qwen3-coder")
+		nil), hmm.ServingPorts()).
+		WithSubAgentOverride(providers.ProviderOpenRouter, "local/qwen3-coder")
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -979,7 +978,7 @@ const openAIPinTestBody = `{
 }`
 
 func newOpenAIPinSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
@@ -987,8 +986,8 @@ func newOpenAIPinSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 		},
 		nil, store,
 		false, providers.ProviderAnthropic, "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 }
 
 // OpenAI ingress: Tier-2 pin hit keeps the pinned model under the
@@ -1156,10 +1155,10 @@ func TestService_SessionPin_OpenAIResponses_OpenCodeForceModelCommandFromToolOut
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 	}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderAnthropic: &fakeProvider{},
 		providers.ProviderOpenAI:    openAIProvider,
-	}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
 	rec := httptest.NewRecorder()
@@ -1255,7 +1254,7 @@ func TestService_SessionPin_OpenAI_ToolResultShortCircuit(t *testing.T) {
 		PinnedUntil: time.Now().Add(30 * time.Minute),
 	}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "fresh"}}
-	svc := newOpenAIPinSvc(fr, store).WithScoreToolResultTurns(false)
+	svc := newOpenAIPinSvc(fr, store).EditContinuityConfig(func(c *continuity.Config) { c.ScoreToolResultTurns = false })
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -1269,7 +1268,7 @@ func TestService_SessionPin_OpenAI_ToolResultShortCircuit(t *testing.T) {
 // newOpenAIHardPinSvc keeps the hard-pin target on OpenAI so the path stays
 // same-format (cross-format translation needs a real response body).
 func newOpenAIHardPinSvc(fr *fakeRouter, store *fakePinStore, hardPinExplore bool) *proxy.Service {
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
@@ -1279,8 +1278,8 @@ func newOpenAIHardPinSvc(fr *fakeRouter, store *fakePinStore, hardPinExplore boo
 		hardPinExplore,
 		providers.ProviderOpenAI,
 		"gpt-4o-mini",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 }
 
 // Regression guard: Claude Code's compaction phrase is Claude-Code-only, but
@@ -1331,7 +1330,7 @@ func TestService_HardPin_BypassesTierCeiling(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Reason: "cluster:v0.37"}}
 
 	// Hard-pin is opus; inbound model is haiku — hard pin wins regardless.
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil,
@@ -1339,8 +1338,7 @@ func TestService_HardPin_BypassesTierCeiling(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-opus-4-7",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -1440,29 +1438,6 @@ func TestService_ForcedPin_ReasonStaysUserForced(t *testing.T) {
 	assert.Equal(t, translate.ReasonUserForceModel, rec.Header().Get(proxy.HeaderRouterDecision), "forced pin keeps the plain user_forced reason")
 }
 
-// A loop_escalation pin is treated like /force-model: bypasses the scorer.
-func TestService_LoopEscalationPin_HonoredAsImmutableSticky(t *testing.T) {
-	store := newFakePinStore()
-	store.hasPin = true
-	store.pin = sessionpin.Pin{
-		Provider:    providers.ProviderAnthropic,
-		Model:       "claude-opus-4-8",
-		Reason:      translate.ReasonLoopEscalation,
-		PinnedUntil: time.Now().Add(30 * time.Minute),
-	}
-	// Scorer would pick a cheap model; the escalation pin must win.
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.65"}}
-	svc := newPinSvc(fr, store)
-
-	ctx := authedCtx(uuid.New().String())
-	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
-
-	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel), "escalation pin must keep the session on opus")
-	assert.Equal(t, translate.ReasonLoopEscalation, rec.Header().Get(proxy.HeaderRouterDecision), "escalation pin must report loop_escalation, not the scorer reason")
-}
-
 // buildCyclicLoopBody builds a wide re-read cycle (same files re-Read, no
 // edits) — enough to trip conversation.DetectCyclicToolCallLoop.
 func buildCyclicLoopBody(t *testing.T, nFiles, total int) []byte {
@@ -1487,29 +1462,6 @@ func buildCyclicLoopBody(t *testing.T, nFiles, total int) []byte {
 
 // A user's explicit /force-model choice outranks auto-escalation: a cyclic
 // loop must not replace the user_forced pin with opus.
-func TestService_LoopEscalation_DoesNotOverwriteUserForcedPin(t *testing.T) {
-	store := newFakePinStore()
-	store.hasPin = true
-	store.pin = sessionpin.Pin{
-		Provider:    providers.ProviderAnthropic,
-		Model:       "claude-haiku-4-5",
-		Reason:      translate.ReasonUserForceModel,
-		PinnedUntil: time.Now().Add(30 * time.Minute),
-	}
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.65"}}
-	svc := newPinSvc(fr, store)
-
-	ctx := authedCtx(uuid.New().String())
-	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(ctx, buildCyclicLoopBody(t, 5, 26), rec, httpReq))
-
-	for _, p := range store.upserts {
-		assert.NotEqual(t, translate.ReasonLoopEscalation, p.Reason, "escalation must not overwrite a user_forced pin")
-	}
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "session stays on the user's forced model, not opus")
-}
-
 // A forced pin whose provider isn't in EnabledProviders must not be served —
 // otherwise the router dispatches to a provider the request has no creds for.
 func TestService_UserForcedPin_IneligibleProviderFallsThrough(t *testing.T) {
@@ -1545,10 +1497,10 @@ func TestService_ClaudeOAuthDoesNotRestrictForcedOpenAIPinWithoutSubscriptionOnl
 	}
 	fr := &fakeRouter{err: errors.New("forced pin must bypass the scorer")}
 	openAI := ccTaskToolProvider()
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderAnthropic: &fakeProvider{},
 		providers.ProviderOpenAI:    openAI,
-	}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderAnthropic: {},
 			providers.ProviderOpenAI:    {},
@@ -1647,11 +1599,11 @@ func TestService_HardPin_TitleGen_GatewayExclusive_ResolvesAlias(t *testing.T) {
 			_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}`)
 		}},
 	}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr, providerMap, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
-		nil,
-	).WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
+		nil), hmm.ServingPorts()).
+		WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
 
 	ctx := authedCtxWithGatewayKey(uuid.New().String(), aliasedModel)
 	rec := httptest.NewRecorder()
@@ -1673,11 +1625,11 @@ func TestService_HardPin_TitleGen_GatewayExclusive_NoAliasReportsConfigError(t *
 	resolver := func(proxy.HardPinRequest) (string, string, bool) { return "", "", false }
 
 	providerMap := map[string]providers.Client{providers.ProviderOpenAIGateway: &fakeProvider{}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr, providerMap, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
-		nil,
-	).WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
+		nil), hmm.ServingPorts()).
+		WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
 
 	ctx := authedCtxWithGatewayKey(uuid.New().String(), "")
 	rec := httptest.NewRecorder()
@@ -1733,13 +1685,12 @@ func TestService_SessionPin_ForcedPinDropped_SurfacesInMarker(t *testing.T) {
 			_, _ = io.WriteString(w, "data: "+frame+"\n\n")
 		}
 	}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderOpenAI: openAI},
 		nil, store,
 		false, providers.ProviderOpenAI, "gpt-4o-mini",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()

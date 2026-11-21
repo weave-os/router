@@ -92,7 +92,7 @@ func TestQuotaVerificationFailureNeverBuysPaidCapacity(t *testing.T) {
 					if funding.reason != "" {
 						ctx = billing.WithSubscriptionOnly(ctx, funding.reason)
 					}
-					err := svc.ProxyOpenAIResponses(ctx, []byte(body), httptest.NewRecorder(), request)
+					err := svc.ProxyOpenAIResponses(billing.WithWeaveCreditsDenied(ctx), []byte(body), httptest.NewRecorder(), request)
 					require.Positive(t, preflightCalls.Load())
 					require.Zero(t, includedCalls.Load())
 					require.Zero(t, paidCalls.Load(), "uncertainty must not buy inference")

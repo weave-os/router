@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -37,7 +38,7 @@ func (r *sessionCostRepo) GetSessionCost(_ context.Context, installationID, sess
 
 func sessionCostEngine(t *testing.T, repo proxy.TelemetryRepository, installation *auth.Installation) *gin.Engine {
 	t.Helper()
-	svc := proxy.NewService(nil, nil, nil, nil, false, "", "", repo)
+	svc := proxy.WithStrategyPorts(proxy.NewService(nil, nil, nil, nil, false, "", "", repo), hmm.ServingPorts())
 	engine := gin.New()
 	engine.GET("/v1/sessions/:session_id/cost", func(c *gin.Context) {
 		if installation != nil {

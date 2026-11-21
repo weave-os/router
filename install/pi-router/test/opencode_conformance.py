@@ -28,6 +28,17 @@ def stop_process_group(process: subprocess.Popen) -> None:
     process.wait(timeout=5)
 
 
+def is_title_request(request: dict) -> bool:
+    if request["instructions"].startswith("You are a title generator"):
+        return True
+    return any(
+        item.get("role") == "developer"
+        and isinstance(item.get("content"), str)
+        and item["content"].startswith("You name conversations so the user can find them later")
+        for item in request["input"]
+    )
+
+
 class OpenCodeV2Conformance(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -143,7 +154,7 @@ class OpenCodeV2Conformance(unittest.TestCase):
         self.assert_finished(events)
         session = events[0]["sessionID"]
         self.assertEqual({request["session_id"] for request in requests}, {session})
-        title_requests = [request for request in requests if request["instructions"].startswith("You are a title generator")]
+        title_requests = [request for request in requests if is_title_request(request)]
         self.assertTrue(title_requests, requests)
         self.assertFalse(title_requests[0]["weave_agent"])
 
@@ -161,7 +172,7 @@ class OpenCodeV2Conformance(unittest.TestCase):
 
     def test_title_request_uses_native_payload_only(self) -> None:
         _, requests = self.run_turn("Return the title marker")
-        titles = [request for request in requests if request["instructions"].startswith("You are a title generator")]
+        titles = [request for request in requests if is_title_request(request)]
         self.assertTrue(titles, requests)
         self.assertNotIn("tools", titles[0]["body_keys"])
         self.assertNotIn("x-weave-opencode-agent", titles[0]["header_names"])

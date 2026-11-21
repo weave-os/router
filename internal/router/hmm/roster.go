@@ -5,11 +5,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// Deprecated: silent-drop let inert roster arms skew production routing; replaced
-// by fail-loud validation (rosterdata.Load / ValidateRosterIDs). Still used by the
-// admin roster view; removed once that reads the declarative roster.
-// See docs/HMM_GO_SELECTION.md.
-func DeployedModelsForRosterIDs(rosterIDs []string) []router.DeployedEntry {
+func DeployedEntriesSkippingUnknownArms(rosterIDs []string) []router.DeployedEntry {
 	inverse := make(map[string]catalog.Model, len(catalog.Models))
 	for _, m := range catalog.Models {
 		rosterID := rosterIDFor(m)

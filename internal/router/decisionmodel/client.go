@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"weave-os/router/internal/router"
 )
 
 const Model = "typesafe/jev-1.13"
@@ -166,4 +167,4 @@ func (c *Client) Classify(ctx context.Context, state State, ids []QuestionID) (m
 	return decoded.Answers, nil
 }
 
-var ErrUnavailable = errors.New("decision model classifier unavailable")
+var ErrUnavailable = router.ErrDecisionModelUnavailable

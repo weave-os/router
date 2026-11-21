@@ -114,6 +114,8 @@ export PATH="$PATH:$HOME/.weave/bin"
 HOSTED_BASE_URL="https://router.weaveos.com"
 # Pre-rebrand hosted endpoint; still vouched for in settings written by older installs.
 LEGACY_HOSTED_BASE_URL="https://router.workweave.ai"
+# Where a hosted user gets a key; the same page the no-argument npx command opens.
+HOSTED_KEY_SETUP_URL="https://router.workweave.ai/start"
 DEFAULT_BASE_URL="${WEAVE_ROUTER_URL:-$HOSTED_BASE_URL}"
 # npm package name is supplied by the Node wrapper; direct shell installs keep
 # the current package name; WEAVE_ROUTER_NPM_PACKAGE remains an escape hatch for
@@ -384,6 +386,7 @@ Set up
   $npx setup --claude --codex   install for both (one key prompt)
   $npx --opencode | --pi        install for opencode or pi
   $npx --copilot                add Weave Router to Copilot CLI's /model picker
+  $npx --copilot --vscode       add Weave Router to VS Code Copilot Chat
   $npx --claude-desktop         route Claude Desktop's Code tab and Cowork (local proxy)
 
 Every day
@@ -4756,6 +4759,26 @@ if [ "$target" = "claude-desktop" ] && [ "$base_url_explicit" != "true" ] && [ -
   [ -z "$installed_base" ] || base_url="$(strip_trailing_slashes "$installed_base")"
 fi
 
+# An explicit --base-url (or WEAVE_ROUTER_URL) still reuses the Claude Code
+# key, but only from a CLI install that already points at that same endpoint:
+# a key must never be sent to a router it wasn't installed against. A CLI
+# install on a different endpoint is reported (endpoint only) so the user can
+# see why the key wasn't picked up.
+desktop_cli_other_base=""
+if [ "$target" = "claude-desktop" ] && { [ "$base_url_explicit" = "true" ] || [ -n "${WEAVE_ROUTER_URL:-}" ]; }; then
+  for cli_settings_file in "$settings_base/.claude/settings.json" "$settings_base/.claude/.weave-parked.json"; do
+    cli_base="$(json_get "$cli_settings_file" '.env.ANTHROPIC_BASE_URL')"
+    router_shaped_url "$cli_base" || continue
+    cli_base="$(strip_trailing_slashes "$cli_base")"
+    if [ "$cli_base" = "$(strip_trailing_slashes "$base_url")" ]; then
+      desktop_cli_key="$(read_claude_key "$cli_settings_file")"
+      desktop_cli_other_base=""
+      break
+    fi
+    [ -n "$desktop_cli_other_base" ] || desktop_cli_other_base="$cli_base"
+  done
+fi
+
 if [ "$mode" = "install" ]; then
   [ "$quiet" = "true" ] || info "scope=${C_BOLD}${scope}${C_RESET}  target=${C_BOLD}${target}${C_RESET}  base_url=${C_BOLD}${base_url}${C_RESET}"
 else
@@ -4771,6 +4794,19 @@ fi
 # friction. --rotate-key skips the read-back so a new key can replace the old.
 # read_installed_key itself is defined above, next to the other settings readers.
 
+# key_setup_url prints where a person gets a key for the given router endpoint.
+# A Weave-hosted endpoint is an API host, not a page anyone can use, so point at
+# the hosted setup page instead; a self-hosted router serves its own key page.
+key_setup_url() {
+  local host="${1#*://}"
+  host="${host%%/*}"
+  case "$host" in
+    router.weaveos.com|*.router.weaveos.com|router.workweave.ai|*.router.workweave.ai)
+      printf '%s' "$HOSTED_KEY_SETUP_URL" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 # prompt_for_key reads a key from the controlling terminal into $api_key. Only
 # ever called on an interactive install; callers check first.
 prompt_for_key() {
@@ -4780,7 +4816,11 @@ prompt_for_key() {
   # _spin_cleanup (installed globally above) already restores stty echo on
   # any exit path, so we don't need a separate trap here — that would
   # overwrite the spinner cleanup and leak the cursor / child PID on Ctrl-C.
-  printf "%sGet your Weave Router API key at %s%s\n" "$C_BRAND" "$base_url" "$C_RESET"
+  if [ -n "$desktop_cli_other_base" ]; then
+    printf "%sYour Claude Code install points at %s, not %s, so its key wasn't reused.%s\n" "$C_DIM" "$desktop_cli_other_base" "$base_url" "$C_RESET"
+    printf "%sDrop --base-url to reuse that install's endpoint and key.%s\n" "$C_DIM" "$C_RESET"
+  fi
+  printf "%sGet your Weave Router API key at %s%s\n" "$C_BRAND" "$(key_setup_url "$base_url")" "$C_RESET"
   printf "%sPaste your key here (rk_…):%s " "$C_DIM" "$C_RESET"
   stty -echo </dev/tty 2>/dev/null || true
   read -r api_key </dev/tty
@@ -4815,6 +4855,9 @@ elif [ "$non_interactive" = "true" ]; then
     err "--rotate-key needs either a prompt or WEAVE_ROUTER_KEY, and neither is available. Export the new key and re-run."
   else
     err "--non-interactive set but WEAVE_ROUTER_KEY is empty and no installed key was found. Export it and re-run."
+  fi
+  if [ -n "$desktop_cli_other_base" ]; then
+    printf "  Your Claude Code install points at %s, not %s, so its key wasn't reused. Drop --base-url to reuse that install's endpoint and key.\n" "$desktop_cli_other_base" "$base_url" >&2
   fi
   exit 1
 else
@@ -7101,9 +7144,36 @@ export PATH="$PATH:$HOME/.weave/bin"
 # stopped before it reaches a model, so checking the router never spends a
 # turn. The settings env (router URL and key header) is inherited by hooks, and
 # the session's last statusline render is cached by the statusline below.
+# The router keeps the last usage it observed on this user's own Claude/Codex
+# login; the client never sends its provider token to ask for it.
+weave_router_status_seats() {
+  command -v curl >/dev/null 2>&1 || return 0
+  local url="${ANTHROPIC_BASE_URL%/}" root header_file body header
+  local forwarded='^X-Weave-(Router-Key|User-Email|User-Name):[[:space:]]*[^"\[:cntrl:]]+$'
+  case "$url" in file://*) ;; *) url="$url/v1/display-settings" ;; esac
+  root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router"
+  mkdir -p "$root" && chmod 700 "$root" || return 0
+  header_file="$(mktemp "$root/.status-headers.XXXXXX")" || return 0
+  chmod 600 "$header_file"
+  while IFS= read -r header; do
+    [[ "$header" =~ $forwarded ]] \
+      && printf 'header = "%s"\n' "$header" >>"$header_file"
+  done <<<"${ANTHROPIC_CUSTOM_HEADERS:-}"
+  body="$(curl -fsS --max-time 3 -K "$header_file" "$url" 2>/dev/null)"
+  rm -f "$header_file"
+  [ -n "$body" ] || return 0
+  jq -r '
+    def span: if . == 10080 then "week" elif . % 1440 == 0 then "\(. / 1440)d" elif . % 60 == 0 then "\(. / 60)h" else "\(.)m" end;
+    def window($minutes; $used): if ($minutes // 0) > 0 then "\($minutes | span) \($used // 0 | floor)%" else empty end;
+    .own_seats[]? | select(.provider == "claude" or .provider == "codex")
+    | [window(.primary_window_minutes; .primary_used_percent), window(.secondary_window_minutes; .secondary_used_percent)] as $windows
+    | select($windows | length > 0)
+    | "Your \(if .provider == "claude" then "Claude" else "Codex" end) seat: \($windows | join(" · ")) (as of \(.observed_at[11:16]) UTC)"' <<<"$body" 2>/dev/null
+}
+
 weave_router_status_hook() {
   command -v jq >/dev/null 2>&1 || return 0
-  local payload prompt session line="" root report scope_suffix=""
+  local payload prompt session line="" root report scope_suffix="" seats=""
   [ "$#" -eq 0 ] || scope_suffix="$(printf ' %q' "$@")"
   payload="$(cat)"
   prompt="$(jq -r '.prompt // empty' <<<"$payload" 2>/dev/null)" || return 0
@@ -7122,6 +7192,10 @@ weave_router_status_hook() {
   if [[ "$session" =~ ^[A-Za-z0-9._-]{1,128}$ && -f "$root/$session.line" ]]; then
     line="$(head -c 512 "$root/$session.line" | head -n 1)"
   fi
+  if [[ -n "${ANTHROPIC_BASE_URL:-}" && "${ANTHROPIC_CUSTOM_HEADERS:-}" == *"X-Weave-Router-Key:"* ]]; then
+    seats="$(weave_router_status_seats)"
+  fi
+  [ -z "$seats" ] || report="$report"$'\n'"$seats"
   if [[ -n "$line" ]]; then
     report="$report"$'\n'"This session: $line"
   else
@@ -7674,6 +7748,7 @@ prices='{
     "gemini-3.7-flash":                 0.0015,
     "gemini-3.8-flash":                 0.0015,
     "gemini-4-argon":                   0.002,
+    "gemini-4-neon":                    0.003,
     "google/gemma-4-26b-a4b-it":        0.00015,
     "gpt-4.1":                          0.002,
     "gpt-4.1-mini":                     0.0004,
@@ -7777,6 +7852,7 @@ prices='{
     "gemini-3.7-flash":                 0.0075,
     "gemini-3.8-flash":                 0.0075,
     "gemini-4-argon":                   0.01,
+    "gemini-4-neon":                    0.015,
     "google/gemma-4-26b-a4b-it":        0.0006,
     "gpt-4.1":                          0.008,
     "gpt-4.1-mini":                     0.0016,
@@ -7880,6 +7956,7 @@ prices='{
     "gemini-3.7-flash":                 0.1,
     "gemini-3.8-flash":                 0.1,
     "gemini-4-argon":                   0.1,
+    "gemini-4-neon":                    0.05,
     "google/gemma-4-26b-a4b-it":        0.1,
     "gpt-4.1":                          0.25,
     "gpt-4.1-mini":                     0.25,

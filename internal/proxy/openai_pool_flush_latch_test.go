@@ -35,7 +35,7 @@ func TestProxyOpenAIChatCompletion_ManagedPoolFailureIsRenderedOnce(t *testing.T
 			Body:   []byte(`{"error":{"type":"rate_limit_error","message":"quota exhausted"}}`),
 		}},
 	}}
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		fixedRouter{decision: router.Decision{
 			Provider: providers.ProviderOpenAI,
 			Model:    "gpt-5.6-sol",
@@ -45,8 +45,8 @@ func TestProxyOpenAIChatCompletion_ManagedPoolFailureIsRenderedOnce(t *testing.T
 			providers.ProviderOpenAI:    openAI,
 			providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic},
 		},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithManagedSubscriptions(leaser).
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderOpenAI:    {},
 			providers.ProviderAnthropic: {},

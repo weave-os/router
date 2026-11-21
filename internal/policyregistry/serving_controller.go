@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	routerpolicy "weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/rosterdata"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 

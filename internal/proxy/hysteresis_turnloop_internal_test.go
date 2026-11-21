@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -63,7 +64,7 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 					},
 				},
 			}}
-			svc := NewService(
+			svc := withHMMPorts(NewService(
 				nil,
 				nil,
 				nil,
@@ -71,12 +72,12 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 				false,
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
-				nil,
-			).WithPolicyStrategy(policy.StrategySpec{
-				Strategy:     strategy,
-				Router:       policyRouter,
-				Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1},
-			})
+				nil)).
+				WithPolicyStrategy(policy.StrategySpec{
+					Strategy:     strategy,
+					Router:       policyRouter,
+					Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1},
+				})
 			env, err := translate.ParseAnthropic(
 				[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 			)
@@ -87,9 +88,9 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 			result, err := svc.runTurnLoop(
 				ctx,
 				env,
-				features,
-				"api-key",
-				uuid.New(),
+				features, testTurnRequest(
+					ctx, "api-key", uuid.New()),
+
 				"",
 				http.Header{},
 				router.Request{
@@ -97,13 +98,12 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 					EstimatedInputTokens: features.Tokens,
 					HasTools:             features.HasTools,
 					ConversationMessages: conversationMessagesForRouting(env),
-				},
-			)
+				})
 
 			require.NoError(t, err)
 			assert.Equal(t, pinnedModel, result.Decision.Model)
 			assert.Equal(t, test.wantEffort, result.Decision.Effort)
-			assert.Equal(t, test.wantHeld, strings.Contains(result.PlannerDecision.Reason, effortHysteresisReason),
+			assert.Equal(t, test.wantHeld, strings.Contains(result.PlannerDecision.Reason, hmm.EffortHysteresisReason),
 				"a hold must stay legible in the planner reason")
 		})
 	}

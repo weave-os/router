@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/router"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,15 +27,16 @@ func codexCtx(sessionID string) context.Context {
 // forwards a leading slash. The ack must name the form that actually works.
 func TestForceModelCommand_CodexAckNamesTheDollarForm(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.handleForceModelCommand(codexCtx("sess-1"), rec, env,
-		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(codexCtx("sess-1")), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+
+		DeriveSessionKey(env, "key-1"), 10))
 
 	body := rec.Body.String()
 	require.Contains(t, body, "force-model applied")
@@ -44,8 +47,8 @@ func TestForceModelCommand_CodexAckNamesTheDollarForm(t *testing.T) {
 // Claude Code expands and forwards slash commands, so it must keep them.
 func TestForceModelCommand_ClaudeCodeAckKeepsTheSlashForm(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
 	env := forceCommandEnv(t)
@@ -53,8 +56,9 @@ func TestForceModelCommand_ClaudeCodeAckKeepsTheSlashForm(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{},
 		ClientIdentity{ClientApp: ClientAppClaudeCode})
 	require.NoError(t, svc.handleForceModelCommand(ctx, rec, env,
-		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+
+		DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Contains(t, rec.Body.String(), "/unforce-model")
 }
@@ -65,8 +69,8 @@ func TestForceModelCommand_ClaudeCodeAckKeepsTheSlashForm(t *testing.T) {
 // upstream and no pin store touched.
 func TestRouterSessionCommand_AnswersSyntheticallyFromRequestIdentity(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()

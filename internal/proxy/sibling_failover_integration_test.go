@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -91,17 +92,17 @@ func TestProxyMessages_OverloadedModelDegradesToSameClusterCandidate(t *testing.
 	defer fireworks.Close()
 
 	store := newFakePinStore()
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: siblingClusterDecision("")},
 		map[string]providers.Client{
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworks.URL),
 		},
-		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry(),
-	).WithDeploymentKeyedProviders(map[string]struct{}{
-		providers.ProviderAnthropic: {},
-		providers.ProviderFireworks: {},
-	}).WithRetrySleep(noRetrySleep)
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry()), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderFireworks: {},
+		}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -184,17 +185,17 @@ func newRankedRescueFixture(t *testing.T) *rankedRescueFixture {
 			},
 		},
 	}
-	f.svc = proxy.NewService(
+	f.svc = proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
 		map[string]providers.Client{
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworks.URL),
 		},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{
-		providers.ProviderAnthropic: {},
-		providers.ProviderFireworks: {},
-	}).WithRetrySleep(noRetrySleep)
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderFireworks: {},
+		}).WithRetrySleep(noRetrySleep)
 	return f
 }
 
@@ -265,17 +266,17 @@ func TestProxyMessages_OverloadAfterCommitKeepsServingModel(t *testing.T) {
 	}))
 	defer fireworks.Close()
 
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: siblingClusterDecision("")},
 		map[string]providers.Client{
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworks.URL),
 		},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{
-		providers.ProviderAnthropic: {},
-		providers.ProviderFireworks: {},
-	}).WithRetrySleep(noRetrySleep)
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderFireworks: {},
+		}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -313,17 +314,17 @@ func TestProxyMessages_ForceModelOverloadDoesNotDegrade(t *testing.T) {
 	}))
 	defer fireworks.Close()
 
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: siblingClusterDecision(translate.ReasonUserForceModel)},
 		map[string]providers.Client{
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworks.URL),
 		},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{
-		providers.ProviderAnthropic: {},
-		providers.ProviderFireworks: {},
-	}).WithRetrySleep(noRetrySleep)
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderFireworks: {},
+		}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -354,7 +355,7 @@ func TestProxyMessages_OverloadWithoutCandidatesSurfacesUpstreamError(t *testing
 	}))
 	defer anthropicUpstream.Close()
 
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{
 			Provider: providers.ProviderAnthropic,
 			Model:    "claude-opus-4-8",
@@ -363,8 +364,8 @@ func TestProxyMessages_OverloadWithoutCandidatesSurfacesUpstreamError(t *testing
 		map[string]providers.Client{
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 		},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
@@ -424,17 +425,17 @@ func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) 
 	}))
 	defer fireworks.Close()
 
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: siblingClusterDecision("")},
 		map[string]providers.Client{
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworks.URL),
 		},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{
-		providers.ProviderAnthropic: {},
-		providers.ProviderFireworks: {},
-	}).WithRetrySleep(noRetrySleep).
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderFireworks: {},
+		}).WithRetrySleep(noRetrySleep).
 		WithUsageObserver(usage.NewObserver([]byte("rollover-overload-quota-salt"), time.Hour, time.Now))
 
 	ctx := context.WithValue(

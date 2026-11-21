@@ -20,7 +20,7 @@ func (f taskResolverFunc) Resolve(ctx context.Context, input taskdomain.Input) t
 	return f(ctx, input)
 }
 
-const taskTestComplexity = `{"schema_version":"policy_router_v3","predicted_label":"low","class_probabilities":{"low":1},"ranked_fallback":[{"group":"low","probability":1}]}`
+const taskTestComplexity = `{"schema_version":"policy_router_v1","model":"low","predicted_label":"low","class_probabilities":{"low":1}}`
 
 func TestTaskAndComplexityStartTogetherAndJoin(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

@@ -7,13 +7,14 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
-	"weave-os/router/internal/translate"
 )
 
 type subscriptionStateAllowedModelsKey struct{}
@@ -27,31 +28,31 @@ func subscriptionStateModelsEnabled(ctx context.Context) bool {
 }
 
 func (s *Service) subscriptionStateRequest(ctx context.Context, req router.Request, models []string) (context.Context, router.Request) {
-	req = readmitForcedContextEstimate(req, req.ForceModel)
+	req = candidates.ReadmitForcedContextEstimate(req, req.ForceModel)
 	allowed := make(map[string]struct{})
 	for _, model := range models {
-		if _, excluded := req.ExcludedModels[model]; excluded {
+		if _, excluded := req.Candidates.ExcludedModels[model]; excluded {
 			continue
 		}
-		if _, excluded := req.AutomaticExcludedModels[model]; excluded && model != req.ForceModel {
+		if _, excluded := req.Candidates.AutomaticExcludedModels[model]; excluded && model != req.ForceModel {
 			continue
 		}
-		if _, excluded := req.SafetyExcludedModels[model]; excluded {
+		if _, excluded := req.Candidates.SafetyExcludedModels[model]; excluded {
 			continue
 		}
-		if _, excluded := req.UnsignedHistoryExcludedModels[model]; excluded {
+		if _, excluded := req.Candidates.UnsignedHistoryExcludedModels[model]; excluded {
 			continue
 		}
-		if req.AllowedModels != nil && model != req.ForceModel {
-			if _, permitted := req.AllowedModels[model]; !permitted {
+		if req.Candidates.AllowedModels != nil && model != req.ForceModel {
+			if _, permitted := req.Candidates.AllowedModels[model]; !permitted {
 				continue
 			}
 		}
 		allowed[model] = struct{}{}
 	}
 	ctx = context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, allowed)
-	req.AllowedModels = allowed
-	req.ExcludedModels = mergeExcludedModels(req.ExcludedModels, s.excludedModelsForRequest(ctx))
+	req.Candidates.AllowedModels = allowed
+	req.Candidates.ExcludedModels = candidates.MergeExcludedModels(req.Candidates.ExcludedModels, s.excludedModelsForRequest(ctx))
 	return ctx, req
 }
 
@@ -68,7 +69,7 @@ func (s *Service) memberPickPaidContext(ctx context.Context, req router.Request,
 		return ctx, false
 	}
 	paidCtx, paidReq := s.subscriptionStateRequest(ctx, req, paidModels)
-	if _, admitted := paidReq.AllowedModels[pick.Model]; !admitted {
+	if _, admitted := paidReq.Candidates.AllowedModels[pick.Model]; !admitted {
 		return ctx, false
 	}
 	paidCtx = withIncludedLaneExhausted(paidCtx)
@@ -112,11 +113,11 @@ func readmitSessionStrikes(ctx context.Context, request *router.Request) bool {
 	if len(readmit) == 0 {
 		return false
 	}
-	excluded := maps.Clone(request.AutomaticExcludedModels)
+	excluded := maps.Clone(request.Candidates.AutomaticExcludedModels)
 	for _, model := range readmit {
 		delete(excluded, model)
 	}
-	request.AutomaticExcludedModels = excluded
+	request.Candidates.AutomaticExcludedModels = excluded
 	return true
 }
 
@@ -139,8 +140,8 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			sessionUnavailableModels[model] = struct{}{}
 		}
 	}
-	request.AutomaticExcludedModels = mergeExcludedModels(request.AutomaticExcludedModels, sessionUnavailableModels)
-	if in.initialDecision.Reason == translate.ReasonUserForceModel {
+	request.Candidates.AutomaticExcludedModels = candidates.MergeExcludedModels(request.Candidates.AutomaticExcludedModels, sessionUnavailableModels)
+	if in.initialDecision.UserForcedModel() {
 		request.ForceModel = in.initialDecision.Model
 	}
 	in.subscriptionStateRequest = nil
@@ -155,16 +156,19 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		in.origin == policy.OverrideSourceDeployment || in.origin == policy.OverrideSourceRequest
 	readmitted := false
 	var includedFailure error
+	var throttleWaited time.Duration
+	var spentCodexModels map[string]struct{}
 	for len(includedModels) > 0 && rotationBudget.remaining > 0 {
 		attemptModels := includedModels
 		if !hasFixedTarget {
 			attemptModels = s.withoutHeldSubscriptionModels(ctx, includedModels)
 		}
 		attemptCtx, attemptReq := s.subscriptionStateRequest(ctx, request, attemptModels)
-		if len(attemptReq.AllowedModels) == 0 && len(attemptModels) < len(includedModels) {
+		if len(attemptReq.Candidates.AllowedModels) == 0 && len(attemptModels) < len(includedModels) {
 			attemptCtx, attemptReq = s.subscriptionStateRequest(ctx, request, includedModels)
 		}
 		attemptCtx = withSubscriptionAttempt(attemptCtx)
+		attemptReq.Candidates.ExcludedModels = candidates.MergeExcludedModels(attemptReq.Candidates.ExcludedModels, spentCodexModels)
 		attemptReq.EnabledProviders = make(map[string]struct{})
 		excludedProviders := s.excludedProvidersForRequest(ctx)
 		for provider := range request.EnabledProviders {
@@ -182,7 +186,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 				target.Metadata = nil
 			}
 		}
-		_, permitted := attemptReq.AllowedModels[target.Model]
+		_, permitted := attemptReq.Candidates.AllowedModels[target.Model]
 		permitted = permitted && s.supportsSubscriptionTransport(target.Provider)
 		if !permitted && !hasFixedTarget {
 			var err error
@@ -198,7 +202,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 				return -1, err
 			}
 		}
-		if _, permitted := attemptReq.AllowedModels[target.Model]; !permitted || !s.supportsSubscriptionTransport(target.Provider) {
+		if _, permitted := attemptReq.Candidates.AllowedModels[target.Model]; !permitted || !s.supportsSubscriptionTransport(target.Provider) {
 			break
 		}
 		winner, err := s.dispatchSubscriptionStateTarget(attemptCtx, in, target, true)
@@ -206,8 +210,11 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			return winner, err
 		}
 		if !isSubscriptionPoolError(err) && !subscriptionLaneRefused(err) && !providers.IsRetryable(err) &&
-			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicSubscriptionThirdPartyRefused(err) {
+			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicClientAppRefused(ctx, err) {
 			return winner, err
+		}
+		if !anotherSeatPoolCanServe(ctx, seatAdmissionOf(s), includedModels, target) && waitOutShortSeatThrottle(ctx, target.Provider, target.Model, err, s.clock.Now(), s.retrySleep, &throttleWaited) {
+			continue
 		}
 		includedFailure = includedFailureAfter(includedFailure, err, ownCodexLoginRejected(ctx, in.subscriptionStateHeaders, s.usageObserver))
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
@@ -215,18 +222,12 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		if !hasFixedTarget {
 			s.holdSessionOffSubscriptionPool(ctx, target.Provider, target.Model)
 		}
-		remainingModels := includedModels[:0]
-		for _, model := range includedModels {
-			if model != target.Model {
-				remainingModels = append(remainingModels, model)
-			}
-		}
-		includedModels = remainingModels
+		includedModels, spentCodexModels = dropFailedIncludedModels(includedModels, target.Model, spentCodexModels, codexPlanSpentForTurn(ctx, in.subscriptionStateHeaders, s.usageObserver, target.Provider, err, s.codexSubscriptionExhausted(ctx, in.subscriptionStateHeaders)))
 		if hasFixedTarget {
 			break
 		}
 	}
-	if err := includedLaneVerdict(s.sessionHolds.withUnservedHoldsReleased(ctx)); err != nil {
+	if err := includedLaneVerdict(s.sessionHolds.withUnservedHoldsReleased(ctx, request.EnabledProviders)); err != nil {
 		return -1, flushIncludedLaneVerdict(in, err)
 	}
 	if ctx.Err() != nil {
@@ -245,12 +246,12 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		if hasFixedTarget {
 			return -1, attributeCodexLoginRejection(cmp.Or(includedFailure, refusal))
 		}
-		if _, permitted := paidReq.AllowedModels[target.Model]; permitted {
-			request.ExcludedModels = mergeExcludedModels(request.ExcludedModels, map[string]struct{}{target.Model: {}})
+		if _, permitted := paidReq.Candidates.AllowedModels[target.Model]; permitted {
+			request.Candidates.ExcludedModels = candidates.MergeExcludedModels(request.Candidates.ExcludedModels, map[string]struct{}{target.Model: {}})
 			paidCtx, paidReq = s.subscriptionStateRequest(paidCtx, request, paidModels)
 		}
-		if len(paidReq.AllowedModels) == 0 {
-			return -1, includedFailureOr(includedFailure, router.ErrAllowlistEmptiesPool)
+		if len(paidReq.Candidates.AllowedModels) == 0 {
+			return -1, emptyPaidPoolErr(ctx, includedFailure, s.clock.Now())
 		}
 		var err error
 		target, err = s.Route(paidCtx, paidReq)
@@ -287,8 +288,8 @@ func (s *Service) includedSubscriptionModels(ctx context.Context, req router.Req
 	}
 	models := make([]string, 0, len(candidates))
 	for _, model := range candidates {
-		if req.AllowedModels != nil && model != req.ForceModel {
-			if _, permitted := req.AllowedModels[model]; !permitted {
+		if req.Candidates.AllowedModels != nil && model != req.ForceModel {
+			if _, permitted := req.Candidates.AllowedModels[model]; !permitted {
 				continue
 			}
 		}
@@ -300,7 +301,7 @@ func (s *Service) includedSubscriptionModels(ctx context.Context, req router.Req
 }
 
 func (s *Service) subscriptionStatePaidTargetRefusal(ctx context.Context, headers http.Header, paidReq router.Request, target router.Decision) error {
-	if _, permitted := paidReq.AllowedModels[target.Model]; !permitted {
+	if _, permitted := paidReq.Candidates.AllowedModels[target.Model]; !permitted {
 		return router.ErrAllowlistEmptiesPool
 	}
 	resolvedCredentials := s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, headers)

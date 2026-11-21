@@ -9,10 +9,6 @@ import (
 
 const SchemaVersionV1 = "policy_router_v1"
 
-const SchemaVersionV2 = "policy_router_v2"
-
-const SchemaVersionV3 = "policy_router_v3"
-
 const SchemaVersionV4 = "policy_router_v4"
 
 const SchemaVersionV5 = "policy_router_v5"
@@ -210,7 +206,7 @@ type RosterSnapshot struct {
 }
 
 type RosterSource interface {
-	ClusterRoster(ctx context.Context) (RosterSnapshot, error)
+	ClusterRoster(ctx context.Context, strategy router.Strategy) (RosterSnapshot, error)
 }
 
 type Decider interface {

@@ -12,7 +12,9 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -116,7 +118,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				Reason:   "authoritative-test_policy",
 			}}
 			summarizer := &authoritativeHandoverSummarizer{}
-			svc := NewService(
+			svc := withHMMPorts(NewService(
 				nil,
 				nil,
 				nil,
@@ -124,14 +126,13 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				false,
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
-				nil,
-			).WithScoreToolResultTurns(false).
-				WithPlanner(planner.EVConfig{
-					ThresholdUSD:           1_000_000,
-					ExpectedRemainingTurns: 3,
+				nil)).
+				EditContinuityConfig(func(c *continuity.Config) {
+					c.ScoreToolResultTurns = false
+					c.Planner = planner.EVConfig{ThresholdUSD: 1_000_000, ExpectedRemainingTurns: 3}
 				}).
 				WithSummarizer(summarizer).
-				WithHMMDowngradeHysteresisTurns(0).
+				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 				WithPolicyStrategy(policy.StrategySpec{
 					Strategy: strategy,
 					Router:   policyRouter,
@@ -155,13 +156,12 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 			result, err := svc.runTurnLoop(
 				ctx,
 				env,
-				features,
-				"api-key",
-				uuid.New(),
+				features, testTurnRequest(
+					ctx, "api-key", uuid.New()),
+
 				"",
 				http.Header{},
-				req,
-			)
+				req)
 
 			require.NoError(t, err)
 			assert.True(t, result.AuthoritativePerTurn)
@@ -172,7 +172,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 			assert.False(t, result.Handover.Invoked)
 			assert.Equal(t, 0, summarizer.calls)
 			require.Len(t, policyRouter.requests, 1)
-			turnContext := policyRouter.requests[0].PolicyTurnContext
+			turnContext := policyRouter.requests[0].Session.PolicyTurnContext
 			require.NotNil(t, turnContext)
 			assert.Equal(t, test.historyTruncated, turnContext.HistoryTruncated)
 			if test.pinFound {
@@ -215,7 +215,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-opus-4-8",
 	}}
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
@@ -223,8 +223,8 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithHMMDowngradeHysteresisTurns(0).WithPolicyStrategy(policy.StrategySpec{
+		nil)).
+		EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   policyRouter,
 		Capabilities: policy.Capabilities{
@@ -240,16 +240,15 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 	result, err := svc.runTurnLoop(
 		router.WithStrategy(context.Background(), strategy),
 		env,
-		features,
-		"api-key",
-		uuid.New(),
+		features, testTurnRequest(
+			router.WithStrategy(context.Background(), strategy), "api-key", uuid.New()),
+
 		"",
 		http.Header{},
 		router.Request{
 			RequestedModel:       features.Model,
 			ConversationMessages: conversationMessagesForRouting(env),
-		},
-	)
+		})
 
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-4-7", result.Decision.Model)
@@ -258,7 +257,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 }
 
 func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
-	strategy := router.Strategy("authoritative-test")
+	strategy := router.StrategyHMMEmbedding
 	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"fix the failing test"}]}`)
 
 	tests := []struct {
@@ -395,7 +394,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				PinnedUntil: time.Now().Add(time.Hour),
 			}
 			policyRouter := &authoritativeTestRouter{decision: test.fresh}
-			svc := NewService(
+			svc := withHMMPorts(NewService(
 				nil,
 				nil,
 				nil,
@@ -403,8 +402,8 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				false,
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
-				nil,
-			).WithHMMDowngradeHysteresisTurns(0).WithPolicyStrategy(policy.StrategySpec{
+				nil)).
+				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
 				Strategy: strategy,
 				Router:   policyRouter,
 				Capabilities: policy.Capabilities{
@@ -413,7 +412,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				},
 			})
 			if test.gateOff {
-				svc = svc.WithAuthoritativeUpgradeGate(false)
+				svc = svc.EditHMMConfig(func(c *hmm.Config) { c.UpgradeGate = false })
 			}
 			env, err := translate.ParseAnthropic(body)
 			require.NoError(t, err)
@@ -422,16 +421,15 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 			result, err := svc.runTurnLoop(
 				router.WithStrategy(context.Background(), strategy),
 				env,
-				features,
-				"api-key",
-				uuid.New(),
+				features, testTurnRequest(
+					router.WithStrategy(context.Background(), strategy), "api-key", uuid.New()),
+
 				"",
 				http.Header{},
 				router.Request{
 					RequestedModel:       features.Model,
 					ConversationMessages: conversationMessagesForRouting(env),
-				},
-			)
+				})
 
 			require.NoError(t, err)
 			assert.True(t, result.AuthoritativePerTurn)

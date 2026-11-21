@@ -1,8 +1,8 @@
 package hmm
 
 import (
+	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/policy"
 )
 

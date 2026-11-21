@@ -119,7 +119,7 @@ func TestHighTaskEscalatesOnlyAfterFastModel(t *testing.T) {
 func TestUnavailableModelFallsBackThroughLineup(t *testing.T) {
 	classifier := &scriptedClassifier{answers: map[decisionmodel.QuestionID]decisionmodel.Choice{decisionmodel.QuestionTaskComplexity: decisionmodel.ChoiceLow, decisionmodel.QuestionCallComplexity: decisionmodel.ChoiceHigh}}
 	req := request("", 1)
-	req.ExcludedModels = map[string]struct{}{"z-ai/glm-5.3": {}}
+	req.Candidates.ExcludedModels = map[string]struct{}{"z-ai/glm-5.3": {}}
 	decision, err := decisionmodel.New(classifier).Route(context.Background(), req)
 	require.NoError(t, err)
 	require.Equal(t, "claude-opus-4-8", decision.Model)
@@ -129,15 +129,15 @@ func TestJudgmentFallbackToTopDoesNotEscalate(t *testing.T) {
 	classifier := &scriptedClassifier{answers: map[decisionmodel.QuestionID]decisionmodel.Choice{decisionmodel.QuestionTaskComplexity: decisionmodel.ChoiceLow, decisionmodel.QuestionCallComplexity: decisionmodel.ChoiceHigh}}
 	decisionRouter := decisionmodel.New(classifier)
 	first := request("", 1)
-	first.ExcludedModels = map[string]struct{}{"z-ai/glm-5.3": {}}
+	first.Candidates.ExcludedModels = map[string]struct{}{"z-ai/glm-5.3": {}}
 	decision, err := decisionRouter.Route(context.Background(), first)
 	require.NoError(t, err)
 	require.Equal(t, "claude-opus-4-8", decision.Model)
 
 	classifier.answers[decisionmodel.QuestionCallComplexity] = decisionmodel.ChoiceLow
 	second := request("", 2)
-	second.ExcludedModels = first.ExcludedModels
-	second.PolicyTurnContext = &router.PolicyTurnContext{PreviousServedModel: decision.Model}
+	second.Candidates.ExcludedModels = first.Candidates.ExcludedModels
+	second.Session.PolicyTurnContext = &router.PolicyTurnContext{PreviousServedModel: decision.Model}
 	decision, err = decisionRouter.Route(context.Background(), second)
 	require.NoError(t, err)
 	require.Equal(t, "claude-haiku-4-5", decision.Model)
@@ -187,7 +187,7 @@ func TestGatewayInstallationWithoutAliasIsUnavailable(t *testing.T) {
 func TestAutomaticExclusionFallsBackWithinLineup(t *testing.T) {
 	classifier := &scriptedClassifier{answers: map[decisionmodel.QuestionID]decisionmodel.Choice{decisionmodel.QuestionTaskComplexity: decisionmodel.ChoiceHigh, decisionmodel.QuestionCallComplexity: decisionmodel.ChoiceLow}}
 	req := request("", 1)
-	req.AutomaticExcludedModels = map[string]struct{}{"claude-haiku-4-5": {}}
+	req.Candidates.AutomaticExcludedModels = map[string]struct{}{"claude-haiku-4-5": {}}
 	decision, err := decisionmodel.New(classifier).Route(context.Background(), req)
 	require.NoError(t, err)
 	require.Equal(t, "claude-opus-4-8", decision.Model)

@@ -18,11 +18,12 @@ import (
 )
 
 type SessionPinRepo struct {
-	tx sqlc.DBTX
+	tx      sqlc.DBTX
+	columns sessionpin.StrategyColumnAccessor
 }
 
-func NewSessionPinRepo(tx sqlc.DBTX) *SessionPinRepo {
-	return &SessionPinRepo{tx: tx}
+func NewSessionPinRepo(tx sqlc.DBTX, columns sessionpin.StrategyColumnAccessor) *SessionPinRepo {
+	return &SessionPinRepo{tx: tx, columns: columns}
 }
 
 var _ sessionpin.Store = (*SessionPinRepo)(nil)
@@ -43,7 +44,7 @@ func (r *SessionPinRepo) Get(ctx context.Context, sessionKey [sessionpin.Session
 		}
 		return sessionpin.Pin{}, false, err
 	}
-	return toSessionPin(row), true, nil
+	return r.pinFromRow(row), true, nil
 }
 
 func (r *SessionPinRepo) Consume(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (sessionpin.Pin, bool, error) {
@@ -59,11 +60,12 @@ func (r *SessionPinRepo) Consume(ctx context.Context, sessionKey [sessionpin.Ses
 		}
 		return sessionpin.Pin{}, false, err
 	}
-	return toSessionPin(row), true, nil
+	return r.pinFromRow(row), true, nil
 }
 
 func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 	q := dbbudget.Queries(r.tx)
+	columns := r.columns.Columns(p)
 	return q.UpsertSessionPin(ctx, sqlc.UpsertSessionPinParams{
 		SessionKey:                p.SessionKey[:],
 		Role:                      p.Role,
@@ -76,11 +78,11 @@ func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 		PairedModel:               p.PairedModel,
 		DecisionReason:            p.Reason,
 		RoutingStrategy:           string(p.Strategy),
-		PolicyGroup:               p.PolicyGroup,
+		PolicyGroup:               columns.PolicyGroup,
 		TurnCount:                 int32(p.TurnCount),
 		PinnedUntil:               pgtype.Timestamp{Time: p.PinnedUntil.UTC(), Valid: true},
-		ConsecutiveDowngradeVotes: int32(p.ConsecutiveDowngradeVotes),
-		ConsecutiveUpgradeVotes:   int32(p.ConsecutiveUpgradeVotes),
+		ConsecutiveDowngradeVotes: int32(columns.ConsecutiveDowngradeVotes),
+		ConsecutiveUpgradeVotes:   int32(columns.ConsecutiveUpgradeVotes),
 	})
 }
 
@@ -266,6 +268,14 @@ func (r *SessionPinRepo) SweepExpired(ctx context.Context) error {
 	return q.SweepAgreementShadowStates(ctx)
 }
 
+func (r *SessionPinRepo) pinFromRow(row sqlc.RouterSessionPin) sessionpin.Pin {
+	return r.columns.WithColumns(toSessionPin(row), sessionpin.StrategyColumns{
+		PolicyGroup:               row.PolicyGroup,
+		ConsecutiveDowngradeVotes: int(row.ConsecutiveDowngradeVotes),
+		ConsecutiveUpgradeVotes:   int(row.ConsecutiveUpgradeVotes),
+	})
+}
+
 func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 	pin := sessionpin.Pin{
 		Role:                      row.Role,
@@ -278,7 +288,6 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		PairedModel:               row.PairedModel,
 		Reason:                    row.DecisionReason,
 		Strategy:                  router.Strategy(row.RoutingStrategy),
-		PolicyGroup:               row.PolicyGroup,
 		TurnCount:                 int(row.TurnCount),
 		PinnedUntil:               timestampOrZero(row.PinnedUntil),
 		FirstPinnedAt:             timestampOrZero(row.FirstPinnedAt),
@@ -293,8 +302,6 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		HasEverSwitched:           row.HasEverSwitched,
 		ConsecutiveUpstreamErrors: int(row.ConsecutiveUpstreamErrors),
 		ConsecutiveOverloadErrors: int(row.ConsecutiveOverloadErrors),
-		ConsecutiveDowngradeVotes: int(row.ConsecutiveDowngradeVotes),
-		ConsecutiveUpgradeVotes:   int(row.ConsecutiveUpgradeVotes),
 		DisabledProviders:         row.DisabledProviders,
 		DemotedModels:             row.DemotedModels,
 		DemotionCooldowns:         demotionCooldowns(row.DemotionCooldowns),

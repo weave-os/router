@@ -53,7 +53,7 @@ func strategyCtx() context.Context {
 func TestSessionPinsLoadWithStoreState(t *testing.T) {
 	ctx := strategyCtx()
 	store := newMemPinStore()
-	pins := routingpolicy.NewSessionPins(store, time.Now)
+	pins := routingpolicy.NewSessionPins(store, time.Now, router.StrategyFromContext(ctx))
 
 	_, active, noStoredState := pins.LoadWithStoreState(ctx, sessionKey, "main")
 	assert.False(t, active)
@@ -82,7 +82,7 @@ func TestSessionPinsLoadWithStoreState(t *testing.T) {
 func TestSessionPinsWriteNewAndRefresh(t *testing.T) {
 	ctx := strategyCtx()
 	store := newMemPinStore()
-	pins := routingpolicy.NewSessionPins(store, time.Now)
+	pins := routingpolicy.NewSessionPins(store, time.Now, router.StrategyFromContext(ctx))
 	installation := uuid.New()
 
 	pins.WriteNew(ctx, uuid.Nil, sessionKey, "main", router.Decision{Model: "m"})
@@ -116,7 +116,7 @@ func TestSessionPinsForcedPinsNeverExpire(t *testing.T) {
 	assert.Equal(t, now.Add(routingpolicy.PinSessionTTL), routingpolicy.PinExpiry("cluster", now))
 
 	store := newMemPinStore()
-	pins := routingpolicy.NewSessionPins(store, time.Now)
+	pins := routingpolicy.NewSessionPins(store, time.Now, router.StrategyFromContext(strategyCtx()))
 	pins.AnchorForceModelHistory(strategyCtx(), uuid.New(), sessionKey, "", sessionpin.Pin{Provider: "p", Model: "forced"})
 	history, ok := store.pins[pinKey{sessionKey, routingpolicy.ForceModelHistoryRole("")}]
 	require.True(t, ok)
@@ -127,7 +127,7 @@ func TestSessionPinsForcedPinsNeverExpire(t *testing.T) {
 func TestSessionPinsLoadHMMHistory(t *testing.T) {
 	ctx := strategyCtx()
 	store := newMemPinStore()
-	pins := routingpolicy.NewSessionPins(store, time.Now)
+	pins := routingpolicy.NewSessionPins(store, time.Now, router.StrategyFromContext(ctx))
 	store.pins[pinKey{sessionKey, routingpolicy.HMMHistoryRole("")}] = sessionpin.Pin{Model: "prior", Strategy: "hmm", PinnedUntil: time.Now().Add(-time.Hour)}
 
 	assert.Equal(t, "prior", pins.LoadHMMHistory(ctx, sessionKey, "").Model, "history survives pin expiry")

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+	"weave-os/router/internal/billing"
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
@@ -33,7 +34,7 @@ func TestSubscriptionFundingPaidDispatchRequiresQuotaProof(t *testing.T) {
 		{name: "no compatible pool", accounts: []*auth.SubscriptionAccount{{ID: "codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}}, allowed: true},
 		{name: "unknown quota", accounts: []*auth.SubscriptionAccount{{ID: "claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}}},
 		{name: "active quota", accounts: []*auth.SubscriptionAccount{{ID: "claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}}},
-		{name: "cooldown is not exhaustion", accounts: []*auth.SubscriptionAccount{{ID: "claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &resetAt}}},
+		{name: "long seat cooldown funds credits", accounts: []*auth.SubscriptionAccount{{ID: "claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &resetAt}}, allowed: true},
 		{name: "reconnect-required seat cannot block API", accounts: []*auth.SubscriptionAccount{{ID: "claude", Provider: auth.SubscriptionProviderClaude, State: auth.SubscriptionAccountStateReconnectRequired}}, allowed: true},
 		{name: "disabled seat cannot block API", accounts: []*auth.SubscriptionAccount{{ID: "claude", Provider: auth.SubscriptionProviderClaude, State: auth.SubscriptionAccountStateDisabled}}, allowed: true},
 		{name: "dead seat beside exhausted seat", accounts: []*auth.SubscriptionAccount{
@@ -190,8 +191,6 @@ func TestSubscriptionFundingProviderFailureAuthorizesPaidRescue(t *testing.T) {
 func TestSubscriptionFundingOperationalFailuresNeverAuthorizeAPI(t *testing.T) {
 	for _, failure := range []error{
 		&providers.UpstreamErrorResponse{Status: http.StatusUnauthorized},
-		&providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"rate_limit_error"}}`)},
-		&providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: []byte(`{"error":{"type":"invalid_request_error","message":"Third-party apps now draw from your extra usage, not your plan limits"}}`)},
 	} {
 		t.Run(failure.Error(), func(t *testing.T) {
 			upstream := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{err: failure}, {writeBytes: []byte("unexpected paid answer")}}}
@@ -233,11 +232,11 @@ func TestSubscriptionFundingObservedQuotaAndAdmissionSnapshotAreDetached(t *test
 	ctx := WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), []*auth.SubscriptionAccount{account})
 	account.State = auth.SubscriptionAccountStateExhausted
 	svc := newServiceWithProviders(t, nil)
-	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, "", "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable)
 	observer := usage.NewObserver([]byte("synthetic-salt"), time.Minute, time.Now)
 	observer.Record(observer.Key([]byte("subscription-account:seat")), usage.Snapshot{Primary: usage.Window{UsedPercent: 1, WindowMinutes: 300, ResetAt: resetAt}})
 	svc.WithUsageObserver(observer)
-	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, "", "", clientAppRefusalFunding{}))
+	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{}))
 }
 
 func TestSubscriptionAdmissionBudgetChargesLeasingNotInference(t *testing.T) {
@@ -284,11 +283,11 @@ func TestSubscriptionFundingExpiredShortWindowCannotAuthorizeAPI(t *testing.T) {
 					observer.Record(key, usage.Snapshot{Secondary: usage.Window{UsedPercent: 0.6, WindowMinutes: 10080}})
 				}
 				now = observedAt.Add(4 * time.Hour)
-				require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, directToken, "", clientAppRefusalFunding{}))
+				require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, directToken, "", clientAppRefusalFunding{}))
 				now = observedAt.Add(6 * time.Hour)
 				_, cached := observer.Snapshot(key)
 				require.True(t, cached, "the weekly reading intentionally keeps this snapshot cached")
-				require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, directToken, "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
+				require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, directToken, "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
 					"a stale short-window cap is not current quota proof")
 			})
 		}
@@ -322,11 +321,18 @@ func TestSubscriptionFundingDirectTokenOverageIsQuotaProof(t *testing.T) {
 	observer.Record(observer.Key([]byte("synthetic-direct-token")), usage.Snapshot{OverageInUse: true, UnifiedResetAt: now.Add(time.Hour)})
 	svc := newServiceWithProviders(t, nil).WithUsageObserver(observer)
 	svc.clock = func() time.Time { return now }
-	require.NoError(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, "", "synthetic-direct-token", clientAppRefusalFunding{}))
+	require.NoError(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, inference.Target{}, "", "synthetic-direct-token", clientAppRefusalFunding{}))
 	now = now.Add(2 * time.Hour)
-	require.ErrorIs(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, "", "synthetic-direct-token", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
+	require.ErrorIs(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, inference.Target{}, "", "synthetic-direct-token", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
 		"overage past the plan reset is not current quota proof")
 	observer.Record(observer.Key([]byte("synthetic-undated-token")), usage.Snapshot{OverageInUse: true})
-	require.ErrorIs(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, "", "synthetic-undated-token", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
+	require.ErrorIs(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, inference.Target{}, "", "synthetic-undated-token", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
 		"overage without a reported plan reset cannot authorize paid inference indefinitely")
+}
+
+func TestEnrolledPoolWithoutQuotaSnapshotFundsCredits(t *testing.T) {
+	ctx := context.WithValue(context.Background(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	svc := newServiceWithProviders(t, nil)
+	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{}))
+	require.ErrorIs(t, svc.authorizeSubscriptionAPI(billing.WithWeaveCreditsDenied(ctx), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable)
 }

@@ -1,7 +1,6 @@
 # Legacy worker compatibility fixture
 
-This boots the real worker in both `selfhosted` and `managed`
-modes against an already-migrated, disposable loopback Postgres database.
+This boots the real worker in `selfhosted` mode against an already-migrated, disposable loopback Postgres database.
 It starts its own loopback Pub/Sub gRPC fixture and serves the stub HMM
 classifier and baked policy release from `smoke/hmmstub`, because workers boot
 on the `hmm_embedding` default. No real provider or cloud credentials are
@@ -18,12 +17,11 @@ The command creates random installations/keys and retains its worker logs in
 the OS temporary directory. It never prints the raw fixture routing key.
 
 The checks require readiness, successful shared-key authentication, the Codex
-model-list response, a successful self-hosted route decision, and the managed
-prepaid-credit gate. The self-hosted leg deliberately carries invalid
-managed-serving configuration while the assertion key is absent, proving the
-feature stays dormant. The managed leg is an unstamped legacy worker and sets
-no `ROUTER_SERVING_*` variable at all, because in `managed` mode any such
-variable being set without `ROUTER_SERVING_ASSERTION_KEY` refuses to boot.
+model-list response and a successful self-hosted route decision. It sets no
+`ROUTER_SERVING_*` variable: `ROUTER_SERVING_TARGET` enables the serving runtime
+in either deployment mode, so this unstamped legacy worker must boot without it.
+There is no managed leg: a managed worker refuses the local-dev
+`ROUTER_POLICY_RELEASE_DIR` reader and must boot from `ROUTER_SERVING_TARGET`.
 
 `.github/workflows/test.yml` builds both workers with `CGO_ENABLED=0`,
 denies the fixture database role access to all new managed-serving tables,

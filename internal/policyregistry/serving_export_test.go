@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 func (s *servingMemoryStore) ReadPolicyPayload(ctx context.Context, ref policyregistry.ObjectRef) ([]byte, error) {

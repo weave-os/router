@@ -118,6 +118,7 @@ var forceModelAliases = unversionedAliasesFollowLatestFamilyRelease(map[string]s
 	"gemini-3-5-flash-lite":    "gemini-3.5-flash-lite",
 	"gemini-3-7-flash":         "gemini-3.7-flash",
 	"gemini-3-8-flash":         "gemini-3.8-flash",
+	"neon":                     catalog.ModelIDGemini4Neon.String(),
 	"deepseek":                 "deepseek/deepseek-v4.1-flash",
 	"deepseek-pro":             "deepseek/deepseek-v4-pro-0813",
 	"deepseek-flash":           "deepseek/deepseek-v4.1-flash",

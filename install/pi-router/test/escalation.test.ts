@@ -16,6 +16,7 @@ function harness(version?: string) {
 	let preparations = 0;
 	let compactOptions: any;
 	let selection: unknown = lowRoute;
+	let preparationResponse: Response | undefined;
 	const pi = {
 		appendEntry: (customType: string, data: unknown) => branch.push({ type: "custom", customType, data }),
 		on: (name: string, callback: (event: any, ctx: ExtensionContext) => any) => {
@@ -36,11 +37,12 @@ function harness(version?: string) {
 	const pending = registerEscalationCompaction(pi, (async (_url, options) => {
 		preparations++;
 		preparedPayloads.push(JSON.parse(options!.body as string));
-		return { ok: true, json: async () => selection } as Response;
+		return preparationResponse ?? new Response(JSON.stringify(selection));
 	}) as typeof fetch, version);
 	return {
 		ctx, messages, errors, pending, branch, preparedPayloads,
 		select: (route: unknown) => { selection = route; },
+		respond: (response: Response) => { preparationResponse = response; },
 		aborted: () => aborted,
 		preparations: () => preparations,
 		complete: () => compactOptions.onComplete(),
@@ -80,6 +82,30 @@ test("handoff response validation rejects incomplete tickets and tolerates unkno
 	assert.throws(() => parsePreparedRoute({ model: "model-large" }));
 	assert.throws(() => parsePreparedRoute({ ...highRoute, session_token: undefined }));
 	assert.equal((parsePreparedRoute({ ...highRoute, complexity: "future-class" }) as typeof highRoute).complexity, undefined);
+});
+
+test("handoff reports the router's billing refusal", async (t) => {
+	enable(t);
+	const h = harness();
+	h.respond(new Response(JSON.stringify({
+		type: "error", error: { type: "billing_error", message: "Your organization has reached its monthly Weave Router spend limit." },
+	}), { status: 402 }));
+
+	await h.emit("before_provider_request", { payload: { messages: [] } });
+
+	assert.equal(h.aborted(), 1);
+	assert.deepEqual(h.errors, ["Weave handoff failed: Route preparation returned HTTP 402: Your organization has reached its monthly Weave Router spend limit."]);
+});
+
+test("handoff reports the HTTP status when no structured error is available", async (t) => {
+	enable(t);
+	const h = harness();
+	h.respond(new Response("Bad gateway", { status: 502 }));
+
+	await h.emit("before_provider_request", { payload: { messages: [] } });
+
+	assert.equal(h.aborted(), 1);
+	assert.deepEqual(h.errors, ["Weave handoff failed: Route preparation returned HTTP 502"]);
 });
 
 test("older Pi warns at startup and preserves routing without handoff preparation", async (t) => {

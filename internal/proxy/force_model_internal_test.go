@@ -645,3 +645,10 @@ func TestUnversionedAliasesFollowNewestFamilyRelease(t *testing.T) {
 	assert.Equal(t, "gpt-6.1-sol", forceModelAliases["gpt-6-1-sol"], "versioned aliases stay exact")
 	assert.Equal(t, "gpt-6-astra", forceModelAliases["gpt-6"], "versioned aliases stay exact")
 }
+
+func TestResolveForceModel_NeonAlias(t *testing.T) {
+	gotID, gotProvider, gotKnown := resolveForceModel("neon")
+	assert.Equal(t, "gemini-4-neon", gotID)
+	assert.Equal(t, providers.ProviderGoogle, gotProvider)
+	assert.True(t, gotKnown)
+}

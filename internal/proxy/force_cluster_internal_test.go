@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,7 @@ func forceClusterRequest(t *testing.T, value string) *http.Request {
 }
 
 func TestApplyForceClusterHeader_AbsentIsNoOp(t *testing.T) {
-	label, err := applyForceClusterHeader(context.Background(), forceClusterRequest(t, ""))
+	label, err := applyForceClusterHeader(hmm.ServingPorts(), context.Background(), router.StrategyFromContext(context.Background()), forceClusterRequest(t, ""))
 
 	require.NoError(t, err)
 	assert.Empty(t, label)
@@ -34,7 +35,7 @@ func TestApplyForceClusterHeader_AbsentIsNoOp(t *testing.T) {
 func TestApplyForceClusterHeader_PlanOwnedRequestIgnoresHeader(t *testing.T) {
 	ctx := router.WithStrategy(planOwnedContext(), router.StrategyHMM)
 
-	label, err := applyForceClusterHeader(ctx, forceClusterRequest(t, "maximum"))
+	label, err := applyForceClusterHeader(hmm.ServingPorts(), ctx, router.StrategyFromContext(ctx), forceClusterRequest(t, "maximum"))
 
 	require.NoError(t, err)
 	assert.Empty(t, label)
@@ -45,7 +46,7 @@ func TestApplyForceClusterHeader_ThreadsLabelOnHMMStrategy(t *testing.T) {
 		t.Run(string(strategy), func(t *testing.T) {
 			ctx := router.WithStrategy(context.Background(), strategy)
 
-			label, err := applyForceClusterHeader(ctx, forceClusterRequest(t, "  Maximum  "))
+			label, err := applyForceClusterHeader(hmm.ServingPorts(), ctx, router.StrategyFromContext(ctx), forceClusterRequest(t, "  Maximum  "))
 
 			require.NoError(t, err, "eligibility is only knowable after the sidecar answers")
 			assert.Equal(t, "maximum", label, "the label is trimmed and lowercased, not validated here")
@@ -58,7 +59,7 @@ func TestApplyForceClusterHeader_ThreadsLabelOnHMMStrategy(t *testing.T) {
 func TestApplyForceClusterHeader_RejectsNonSidecarStrategy(t *testing.T) {
 	ctx := router.WithStrategy(context.Background(), router.StrategyRL)
 
-	label, err := applyForceClusterHeader(ctx, forceClusterRequest(t, "maximum"))
+	label, err := applyForceClusterHeader(hmm.ServingPorts(), ctx, router.StrategyFromContext(ctx), forceClusterRequest(t, "maximum"))
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrForcedClusterUnsupportedStrategy)
@@ -76,8 +77,8 @@ func TestApplyForceClusterHeader_RejectsNonSidecarStrategy(t *testing.T) {
 func TestProxyMessages_ForceClusterOnNonSidecarStrategyRejects(t *testing.T) {
 	fr := &stripFailureRouter{}
 	fp := &stripFailureProvider{}
-	svc := NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	body := `{"model":"claude-opus-4-8","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`
 	rec := httptest.NewRecorder()
@@ -112,8 +113,8 @@ func TestProxyMessages_ForceClusterReachesRouterRequest(t *testing.T) {
 		Reason:   "hmm_policy:force_cluster",
 	}}
 	fp := &stripFailureProvider{}
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: fr})
 
 	// Tools + a real max_tokens keep the turn off the classifier/probe hard-pin

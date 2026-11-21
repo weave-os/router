@@ -15,7 +15,7 @@ import (
 )
 
 func TestClientPreservesNullableMarginAcrossSchemas(t *testing.T) {
-	for _, schema := range []string{"", policy.SchemaVersionV1, policy.SchemaVersionV2, policy.SchemaVersionV3, policy.SchemaVersionV4} {
+	for _, schema := range []string{"", policy.SchemaVersionV1, policy.SchemaVersionV4} {
 		for _, tc := range []struct {
 			name   string
 			margin *float64
@@ -33,10 +33,6 @@ func TestClientPreservesNullableMarginAcrossSchemas(t *testing.T) {
 						assert.NoError(t, json.Unmarshal(encoded, &payload))
 					} else {
 						payload = map[string]any{"schema_version": schema, "model": "test-model"}
-						if schema == policy.SchemaVersionV3 {
-							delete(payload, "model")
-							payload["ranked_fallback"] = []policy.PreviewGroup{{Group: "test-group"}}
-						}
 					}
 					delete(payload, "classifier_margin")
 					if tc.margin != nil {

@@ -111,7 +111,7 @@ func TestClassifierRequestV4TurnFactsAlwaysPresent(t *testing.T) {
 
 func TestLegacyRouteRequestCarriesGoOwnedTurnFacts(t *testing.T) {
 	query := turnFactsQuery()
-	query.SchemaVersion = policy.SchemaVersionV3
+	query.SchemaVersion = policy.SchemaVersionV1
 	body, err := marshalRouteRequest(query)
 	require.NoError(t, err)
 	var wire map[string]json.RawMessage

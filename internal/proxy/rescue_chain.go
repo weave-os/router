@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
@@ -11,7 +12,7 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 )
@@ -40,14 +41,15 @@ type rescueServices interface {
 	earlyStopRedoTarget(ctx context.Context, served router.Decision, est, sigSavings, outputReserve int) (router.Decision, bool)
 	redoEarlyStop(ctx context.Context, redo earlyStopRedo) (redone bool, err error)
 	ResolveCyberRefusalRetry(ctx context.Context) bool
-	isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bool
-	cyberRefusalRetryTarget(ctx context.Context, failed router.Decision, sessionKey [sessionpin.SessionKeyLen]byte, role string, est, sigSavings, outputReserve int) (router.Decision, bool)
+	isHardPinnedTurn(ctx context.Context, strategy router.Strategy, tt turntype.TurnType) bool
+	cyberRefusalRetryTarget(ctx context.Context, failed router.Decision, target sessionTarget, role string, est, sigSavings, outputReserve int) (router.Decision, bool)
 	openaiFallbackKeyAvailable(ctx context.Context) bool
 	recordCodexQuotaExhaustion(ctx context.Context, headers http.Header, err error)
 }
 
 type rescueChain struct {
 	svc              rescueServices
+	strategyPorts    continuity.StrategyPorts
 	seats            seatAdmission
 	clock            auth.Clock
 	usageObserver    *usage.Observer
@@ -154,7 +156,7 @@ func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 		}(),
 		buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
 			alternativeOpts, _ := switchedAttemptOptions(ctx, c.opts, target, routeRes.EscalateEffort, s.resolveEffort)
-			alternativeMarker := subscriptionTargetMarker(ctx, r.Header, routeRes, c.primaryDecision, target, c.pickedMarker)
+			alternativeMarker := subscriptionTargetMarker(c.strategyPorts, ctx, r.Header, routeRes, c.primaryDecision, target, c.pickedMarker)
 			alternativeCtx := s.resolveCredentials(ctx, target.Provider, target.Model, r.Header)
 			return c.buildAttempt(target, alternativeOpts, alternativeMarker, alternativeCtx)
 		},
@@ -162,10 +164,10 @@ func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 			overloadedModel := c.decision.Model
 			c.decision = target
 			c.bindings = s.resolveBindingsForDispatch(ctx, target)
-			c.marker = siblingMarkerFor(ctx, r.Header, routeRes, overloadedModel, target.Model)
+			c.marker = siblingMarkerFor(c.strategyPorts, ctx, r.Header, routeRes, overloadedModel, target.Model)
 		},
 		onSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
-			c.marker = subscriptionTargetMarker(ctx, r.Header, routeRes, c.primaryDecision, target, c.pickedMarker)
+			c.marker = subscriptionTargetMarker(c.strategyPorts, ctx, r.Header, routeRes, c.primaryDecision, target, c.pickedMarker)
 			c.decision = target
 			c.bindings = targetBindings
 		},
@@ -233,7 +235,7 @@ func (c *rescueChain) dispatchSibling(ctx context.Context, siblingDecision route
 	siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 	siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 	siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
-	siblingMarker := withRescueDetail(siblingMarkerFor(ctx, r.Header, routeRes, c.decision.Model, siblingDecision.Model), lastFailureDetail(attemptTraceFromContext(ctx)))
+	siblingMarker := withRescueDetail(siblingMarkerFor(c.strategyPorts, ctx, r.Header, routeRes, c.decision.Model, siblingDecision.Model), lastFailureDetail(attemptTraceFromContext(ctx)))
 	siblingAttempt, siblingBuildErr := c.buildAttempt(siblingDecision, siblingOpts, siblingMarker, siblingCtx)
 	if siblingBuildErr != nil {
 		log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",

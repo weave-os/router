@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDeployedModelsForRosterIDs_MapsRosterSlugsToCatalogEntries(t *testing.T) {
+func TestDeployedEntriesSkippingUnknownArms_MapsRosterSlugsToCatalogEntries(t *testing.T) {
 	// Roster slugs are provider-prefixed (openai/…); entries carry bare
 	// catalog IDs and primary provider, matching the cluster source shape.
-	got := hmm.DeployedModelsForRosterIDs([]string{
+	got := hmm.DeployedEntriesSkippingUnknownArms([]string{
 		"openai/gpt-5.6-sol",
 		"openai/gpt-5.6-sol-pro",
 		"openai/gpt-5.6-luna-pro",
@@ -42,17 +42,25 @@ func TestDeployedModelsForRosterIDs_MapsRosterSlugsToCatalogEntries(t *testing.T
 	assert.NotEmpty(t, byModel["deepseek/deepseek-v4-flash"])
 }
 
-func TestDeployedModelsForRosterIDs_PreservesOrderAndDropsUnknown(t *testing.T) {
-	got := hmm.DeployedModelsForRosterIDs([]string{
+func TestDeployedEntriesSkippingUnknownArms_PreservesOrderAndCollapsesDuplicates(t *testing.T) {
+	got := hmm.DeployedEntriesSkippingUnknownArms([]string{
+		"openai/gpt-5.6-sol-pro",
 		"openai/gpt-5.6-sol",
-		"not/a-real-roster-id",
-		"openai/gpt-5.6-sol", // duplicate: only the first survives
+		"openai/gpt-5.6-sol:high",
 	})
 
+	require.Len(t, got, 2)
+	assert.Equal(t, "gpt-5.6-sol-pro", got[0].Model)
+	assert.Equal(t, "gpt-5.6-sol", got[1].Model)
+}
+
+func TestDeployedEntriesSkippingUnknownArms_SkipsArmsWithoutCatalogModel(t *testing.T) {
+	got := hmm.DeployedEntriesSkippingUnknownArms([]string{"openai/gpt-5.6-sol", "not/a-real-roster-id"})
 	require.Len(t, got, 1)
 	assert.Equal(t, "gpt-5.6-sol", got[0].Model)
 }
 
-func TestDeployedModelsForRosterIDs_EmptyInput(t *testing.T) {
-	assert.Empty(t, hmm.DeployedModelsForRosterIDs(nil))
+func TestDeployedEntriesSkippingUnknownArms_EmptyInput(t *testing.T) {
+	got := hmm.DeployedEntriesSkippingUnknownArms(nil)
+	assert.Empty(t, got)
 }
