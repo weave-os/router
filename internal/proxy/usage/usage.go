@@ -42,6 +42,10 @@ type Snapshot struct {
 	ObservedAt          time.Time
 }
 
+func (s Snapshot) OverageWithoutIncludedWindows() bool {
+	return s.OverageInUse && !s.Primary.present() && !s.Secondary.present()
+}
+
 func (s Snapshot) hasData() bool {
 	return s.OverageInUse || s.RepresentativeClaim != "" || s.Primary.present() || s.Secondary.present()
 }
