@@ -124,7 +124,7 @@ func (s *Service) handleRouterFeedbackCommand(
 	}
 	if telemetryRequestID != "" && rating != "" && s.feedbackRepo != nil {
 		comment := feedbackText
-		upsertParams := UpsertFeedbackParams{
+		upsertParams := feedback.UpsertFeedbackParams{
 			InstallationID: target.installationID.String(),
 			ExternalID:     externalID,
 			RequestID:      telemetryRequestID,

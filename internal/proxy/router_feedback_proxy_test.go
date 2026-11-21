@@ -729,18 +729,18 @@ func TestService_RouterFeedbackCommand_ThumbsDownShortcutWithNote(t *testing.T) 
 
 type recordingFeedbackRepo struct {
 	mu      sync.Mutex
-	upserts []proxy.UpsertFeedbackParams
+	upserts []feedback.UpsertFeedbackParams
 }
 
-func (f *recordingFeedbackRepo) Upsert(_ context.Context, p proxy.UpsertFeedbackParams) error {
+func (f *recordingFeedbackRepo) Upsert(_ context.Context, p feedback.UpsertFeedbackParams) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.upserts = append(f.upserts, p)
 	return nil
 }
 
-func (f *recordingFeedbackRepo) GetContext(_ context.Context, _, _ string) (proxy.FeedbackContext, error) {
-	return proxy.FeedbackContext{}, nil
+func (f *recordingFeedbackRepo) GetContext(_ context.Context, _, _ string) (feedback.FeedbackContext, error) {
+	return feedback.FeedbackContext{}, nil
 }
 
 func TestService_RouterFeedbackCommand_SequenceResolvesTelemetryTurn(t *testing.T) {
