@@ -270,7 +270,9 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 		jw.Raw(r.Raw)
 	}
 
-	writeOpenAISystemAndMessagesFromAnthropic(jw, body, opts)
+	if err := writeOpenAISystemAndMessagesFromAnthropic(jw, body, opts); err != nil {
+		return nil, stats, err
+	}
 
 	if r := gjson.GetBytes(body, "stop_sequences"); r.Exists() &&
 		!opts.Capabilities.Supports(router.CapReasoning) {
@@ -317,20 +319,7 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 		jw.EndObj()
 	}
 
-	if targetIsOpenRouter(opts) {
-		if hint := openRouterProviderHint(opts.TargetModel); hint != nil {
-			if hintBytes, err := json.Marshal(hint); err == nil {
-				jw.Key("provider")
-				jw.RawBytes(hintBytes)
-			}
-		}
-		if reasoning := openRouterReasoningHint(opts.TargetModel); reasoning != nil {
-			if reasoningBytes, err := json.Marshal(reasoning); err == nil {
-				jw.Key("reasoning")
-				jw.RawBytes(reasoningBytes)
-			}
-		}
-	}
+	writeOpenRouterHintsFromAnthropic(jw, opts)
 
 	jw.EndObj()
 	body, err = applyQwen3SamplersIfNeeded(jw.Bytes(), opts)
@@ -412,7 +401,25 @@ func applyQwen3SamplersIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
 	return body, nil
 }
 
-func writeOpenAISystemAndMessagesFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) {
+func writeOpenRouterHintsFromAnthropic(jw *jsonWriter, opts EmitOptions) {
+	if !targetIsOpenRouter(opts) {
+		return
+	}
+	if hint := openRouterProviderHint(opts.TargetModel); hint != nil {
+		if hintBytes, err := json.Marshal(hint); err == nil {
+			jw.Key("provider")
+			jw.RawBytes(hintBytes)
+		}
+	}
+	if reasoning := openRouterReasoningHint(opts.TargetModel); reasoning != nil {
+		if reasoningBytes, err := json.Marshal(reasoning); err == nil {
+			jw.Key("reasoning")
+			jw.RawBytes(reasoningBytes)
+		}
+	}
+}
+
+func writeOpenAISystemAndMessagesFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) error {
 	systemText := flattenAnthropicSystemGJSON(gjson.GetBytes(body, "system"))
 	if targetIsOpenRouter(opts) && hasNonEmptyTools(body) {
 		if reminder := openRouterSystemReminder(opts.TargetModel); reminder != "" {
@@ -436,18 +443,23 @@ func writeOpenAISystemAndMessagesFromAnthropic(jw *jsonWriter, body []byte, opts
 		jw.EndObj()
 	}
 
+	var walkErr error
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		role := msg.Get("role").String()
 		switch role {
 		case "assistant":
 			writeOpenAIAssistantFromAnthropic(jw, msg)
 		default:
-			writeOpenAIUserFromAnthropic(jw, msg)
+			if err := writeOpenAIUserFromAnthropic(jw, msg); err != nil {
+				walkErr = err
+				return false
+			}
 		}
 		return true
 	})
 
 	jw.EndArr()
+	return walkErr
 }
 
 func flattenAnthropicSystemGJSON(system gjson.Result) string {
@@ -556,7 +568,7 @@ func buildOpenAIToolCall(block gjson.Result) string {
 	return string(inner.Bytes())
 }
 
-func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
+func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) error {
 	content := msg.Get("content")
 	switch content.Type {
 	case gjson.String:
@@ -566,18 +578,59 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 		jw.Key("content")
 		jw.Raw(content.Raw)
 		jw.EndObj()
-		return
+		return nil
 	case gjson.JSON:
 		if !content.IsArray() {
-			return
+			return nil
 		}
 	default:
-		return
+		return nil
 	}
 
-	var toolResultRaws []string
-	var userPartRaws []string
+	if anthropicContentHasContainerUpload(content) {
+		return fmt.Errorf("anthropic→openai: container_upload: %w", ErrUntranslatableUserContent)
+	}
 
+	toolResultRaws, userPartRaws, err := collectOpenAIMessagesFromAnthropicUserBlocks(content)
+	if err != nil {
+		return err
+	}
+
+	for _, raw := range toolResultRaws {
+		jw.Raw(raw)
+	}
+
+	if len(userPartRaws) == 0 {
+		return nil
+	}
+
+	if len(userPartRaws) == 1 {
+		p := gjson.Parse(userPartRaws[0])
+		if p.Get("type").String() == "text" {
+			jw.Obj()
+			jw.Key("role")
+			jw.Str("user")
+			jw.Key("content")
+			jw.Str(p.Get("text").String())
+			jw.EndObj()
+			return nil
+		}
+	}
+
+	jw.Obj()
+	jw.Key("role")
+	jw.Str("user")
+	jw.Key("content")
+	jw.Arr()
+	for _, raw := range userPartRaws {
+		jw.Raw(raw)
+	}
+	jw.EndArr()
+	jw.EndObj()
+	return nil
+}
+
+func collectOpenAIMessagesFromAnthropicUserBlocks(content gjson.Result) (toolResultRaws, userPartRaws []string, err error) {
 	content.ForEach(func(_, block gjson.Result) bool {
 		switch block.Get("type").String() {
 		case "tool_result":
@@ -603,41 +656,17 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 			if part := buildOpenAIImagePart(block); part != "" {
 				userPartRaws = append(userPartRaws, part)
 			}
+		case "document":
+			part := buildOpenAIFilePartFromBase64PDFDocument(block)
+			if part == "" {
+				err = fmt.Errorf("anthropic→openai: document without base64 PDF source: %w", ErrUntranslatableUserContent)
+				return false
+			}
+			userPartRaws = append(userPartRaws, part)
 		}
 		return true
 	})
-
-	for _, raw := range toolResultRaws {
-		jw.Raw(raw)
-	}
-
-	if len(userPartRaws) == 0 {
-		return
-	}
-
-	if len(userPartRaws) == 1 {
-		p := gjson.Parse(userPartRaws[0])
-		if p.Get("type").String() == "text" {
-			jw.Obj()
-			jw.Key("role")
-			jw.Str("user")
-			jw.Key("content")
-			jw.Str(p.Get("text").String())
-			jw.EndObj()
-			return
-		}
-	}
-
-	jw.Obj()
-	jw.Key("role")
-	jw.Str("user")
-	jw.Key("content")
-	jw.Arr()
-	for _, raw := range userPartRaws {
-		jw.Raw(raw)
-	}
-	jw.EndArr()
-	jw.EndObj()
+	return toolResultRaws, userPartRaws, err
 }
 
 func buildOpenAIToolResultMessage(block gjson.Result) string {
@@ -649,43 +678,6 @@ func buildOpenAIToolResultMessage(block gjson.Result) string {
 	inner.Str(clampOpenAIToolCallID(block.Get("tool_use_id").String()))
 	inner.Key("content")
 	inner.Str(toolResultContentGJSON(block.Get("content")))
-	inner.EndObj()
-	return string(inner.Bytes())
-}
-
-func buildOpenAIImagePart(block gjson.Result) string {
-	src := block.Get("source")
-	if !src.Exists() {
-		return ""
-	}
-	inner := newJSONWriter()
-	inner.Obj()
-	inner.Key("type")
-	inner.Str("image_url")
-	inner.Key("image_url")
-	inner.Obj()
-	inner.Key("url")
-	switch src.Get("type").String() {
-	case "base64":
-		mediaType := src.Get("media_type").String()
-		if mediaType == "" {
-			mediaType = "image/jpeg"
-		}
-		data := src.Get("data").String()
-		if data == "" {
-			return ""
-		}
-		inner.Str("data:" + mediaType + ";base64," + data)
-	case "url":
-		urlStr := src.Get("url").String()
-		if urlStr == "" {
-			return ""
-		}
-		inner.Str(urlStr)
-	default:
-		return ""
-	}
-	inner.EndObj()
 	inner.EndObj()
 	return string(inner.Bytes())
 }
