@@ -2,12 +2,14 @@ package sessionpin_test
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/sessionpin"
 )
 
@@ -66,4 +68,12 @@ func TestGatedByFlag_DefaultAndEnabledRequestsUseTheStore(t *testing.T) {
 			assert.Equal(t, 1, base.upserts)
 		})
 	}
+}
+
+func TestEnabled_UpstreamGatewayWithoutSessionIsUnpinned(t *testing.T) {
+	headerless := requestcontext.WithUpstreamGateway(context.Background(), nil, http.Header{})
+	assert.False(t, sessionpin.Enabled(headerless), "a gateway turn without a session header must not read or write pins")
+
+	withSession := requestcontext.WithUpstreamGateway(context.Background(), nil, http.Header{requestcontext.ClaudeCodeSessionHeader: {"gateway-session"}})
+	assert.True(t, sessionpin.Enabled(withSession))
 }
