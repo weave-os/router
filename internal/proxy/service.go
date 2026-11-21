@@ -3126,14 +3126,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			UnifiedLimitHeaders:      unifiedLimitHeadersJSON(ctx),
 			CodexLimitHeaders:        codexLimitHeadersJSON(ctx),
 		}
-		applyServedGroupTelemetry(s.strategyPorts, ctx, &tel, routeRes, decision)
-		applyPlannerTelemetry(&tel, routeRes)
-		applyEffortTelemetry(&tel, effortServed)
-		applyAuthorityShadowTelemetry(&tel, routeRes)
-		applyBlindExperimentTelemetry(ctx, &tel, &routeRes)
-		applyPolicyPinTelemetry(ctx, &tel, decision.Metadata)
-		applySubscriberTelemetry(ctx, &tel)
-		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &tel, routeRes)
+		applyServedTurnTelemetry(ctx, s.strategyPorts, &tel, routeRes, decision, effortServed)
 		signalTurn := tt == turntype.MainLoop || tt == turntype.ToolResult
 		applyTurnSignalTelemetry(&tel, inboundSpiralSignals, inboundSpiralReasons,
 			inboundSpiralComputed && signalTurn,
@@ -3151,11 +3144,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 	if subscriberTelemetry != nil {
-		if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
-			applySubscriberSettlementTelemetry(subscriberSettlement, subscriberTelemetry)
-		} else {
-			markSubscriberTelemetryUnsettled(subscriberTelemetry)
-		}
+		applyTelemetrySettlement(subscriberTelemetry, turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead), subscriberSettlement)
 		s.fireTelemetry(ctx, *subscriberTelemetry)
 	}
 
@@ -5163,19 +5152,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			UnifiedLimitHeaders:      unifiedLimitHeadersJSON(ctx),
 			CodexLimitHeaders:        codexLimitHeadersJSON(ctx),
 		}
-		applyServedGroupTelemetry(s.strategyPorts, ctx, &telOAI, routeRes, decision)
-		applyPlannerTelemetry(&telOAI, routeRes)
-		applyEffortTelemetry(&telOAI, effortServed)
-		applyAuthorityShadowTelemetry(&telOAI, routeRes)
-		applyBlindExperimentTelemetry(ctx, &telOAI, &routeRes)
-		applyPolicyPinTelemetry(ctx, &telOAI, decision.Metadata)
-		applySubscriberTelemetry(ctx, &telOAI)
-		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &telOAI, routeRes)
-		if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
-			applySubscriberSettlementTelemetry(subscriberSettlement, &telOAI)
-		} else {
-			markSubscriberTelemetryUnsettled(&telOAI)
-		}
+		applyServedTurnTelemetry(ctx, s.strategyPorts, &telOAI, routeRes, decision, effortServed)
+		applyTelemetrySettlement(&telOAI, turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead), subscriberSettlement)
 		s.fireTelemetry(ctx, telOAI)
 	}
 

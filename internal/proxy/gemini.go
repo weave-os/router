@@ -385,14 +385,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			CredentialKeySuffix:    credentialKeySuffix,
 			CredentialSource:       credentialSource,
 		}
-		applyServedGroupTelemetry(s.strategyPorts, ctx, &telemetryParams, routeRes, decision)
-		applyPlannerTelemetry(&telemetryParams, routeRes)
-		applyEffortTelemetry(&telemetryParams, effortServed)
-		applyAuthorityShadowTelemetry(&telemetryParams, routeRes)
-		applyBlindExperimentTelemetry(ctx, &telemetryParams, &routeRes)
-		applyPolicyPinTelemetry(ctx, &telemetryParams, decision.Metadata)
-		applySubscriberTelemetry(ctx, &telemetryParams)
-		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &telemetryParams, routeRes)
+		applyServedTurnTelemetry(ctx, s.strategyPorts, &telemetryParams, routeRes, decision, effortServed)
 		subscriberTelemetry = &telemetryParams
 	}
 
@@ -401,11 +394,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		subscriberSettlement = s.emitBilling(ctx, facts.RequestID, facts.ExternalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead, usageMods)
 	}
 	if subscriberTelemetry != nil {
-		if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
-			applySubscriberSettlementTelemetry(subscriberSettlement, subscriberTelemetry)
-		} else {
-			markSubscriberTelemetryUnsettled(subscriberTelemetry)
-		}
+		applyTelemetrySettlement(subscriberTelemetry, turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead), subscriberSettlement)
 		s.fireTelemetry(ctx, *subscriberTelemetry)
 	}
 
