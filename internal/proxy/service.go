@@ -3050,7 +3050,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
 	}
 	upstreamBuilder, obs := recordUpstreamSpan(ctx, s.clock, upstreamSpan{
-		taskArmSurface: true, taskArm: taskArm, respSummary: respSummary, refusal: refusalObs, fastServed: fastServed, crossFormat: crossFormat,
+		extendedAttrs: true, taskArm: taskArm, respSummary: respSummary, refusal: refusalObs, fastServed: fastServed, crossFormat: crossFormat,
 		facts: facts, feats: feats, decision: decision, provider: finalProvider, routeRes: &routeRes, sessionKey: sessionKey,
 		extractor: extractor, inputTokens: in, outputTokens: out, cacheCreation: cacheCreation, cacheRead: cacheRead, usageMods: usageMods,
 		requestedInputCost: requestedInputCost, baselineWarmPrefill: baselineWarmPrefill, reqPricing: reqPricing, actPricing: actPricing,
@@ -5177,7 +5177,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 	openaiUpstreamBuilder, openaiObs := recordUpstreamSpan(ctx, s.clock, upstreamSpan{
-		taskArmSurface: true, taskArm: taskArm, respSummary: respSummary, fastServed: fastServed, crossFormat: crossFormat,
+		extendedAttrs: true, taskArm: taskArm, respSummary: respSummary, fastServed: fastServed, crossFormat: crossFormat,
 		facts: facts, feats: feats, decision: decision, provider: finalProvider, routeRes: &routeRes, sessionKey: sessionKey,
 		extractor: extractor, inputTokens: in, outputTokens: out, cacheCreation: cacheCreation, cacheRead: cacheRead, usageMods: usageMods,
 		requestedInputCost: requestedInputCost, baselineWarmPrefill: baselineWarmPrefill, reqPricing: reqPricing, actPricing: actPricing,

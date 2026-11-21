@@ -24,7 +24,7 @@ type upstreamSpanDispatch struct {
 }
 
 type upstreamSpan struct {
-	taskArmSurface      bool
+	extendedAttrs       bool
 	facts               requestcontext.RequestFacts
 	feats               translate.RoutingFeatures
 	decision            router.Decision
@@ -68,7 +68,7 @@ func recordUpstreamSpan(ctx context.Context, clock auth.Clock, span upstreamSpan
 	applyPlannerAttrs(builder, *span.routeRes)
 	applyRoutingStateAttrs(builder, *span.routeRes, span.decision.ServedIdentity(), span.sessionKey)
 	applyCallerRoutingAttrs(ctx, builder)
-	if span.taskArmSurface {
+	if span.extendedAttrs {
 		applyExperimentAttrs(ctx, builder, span.routeRes, span.taskArm, span.feats.Model, span.decision.Model)
 	} else {
 		applyBlindExperimentOutcomeAttrs(ctx, builder, span.routeRes, span.feats.Model, span.decision.Model)
@@ -93,7 +93,7 @@ func upstreamSpanAttrs(ctx context.Context, clock auth.Clock, span upstreamSpan)
 	builder := telemetry.NewAttrBuilder(41).
 		String("request_id", facts.RequestID).
 		String("external_id", facts.ExternalID)
-	if span.taskArmSurface {
+	if span.extendedAttrs {
 		builder.String("router_user_id", auth.UserIDFrom(ctx))
 	}
 	builder.
@@ -108,7 +108,7 @@ func upstreamSpanAttrs(ctx context.Context, clock auth.Clock, span upstreamSpan)
 		String("decision.provider", span.provider).
 		String("decision.reason", decision.Reason).
 		String("routing.turn_type", string(span.routeRes.TurnType))
-	if span.taskArmSurface {
+	if span.extendedAttrs {
 		builder.
 			String("upstream.finish_reason", span.respSummary.UpstreamFinishReason).
 			String("upstream.stop_reason", span.respSummary.StopReason)
@@ -123,7 +123,7 @@ func upstreamSpanAttrs(ctx context.Context, clock auth.Clock, span upstreamSpan)
 		Int64("usage.output_tokens", int64(span.outputTokens)).
 		Int64("usage.cache_creation_input_tokens", int64(span.cacheCreation)).
 		Int64("usage.cache_read_input_tokens", int64(span.cacheRead))
-	if span.taskArmSurface {
+	if span.extendedAttrs {
 		builder.
 			Int64("usage.cache_creation_1h_input_tokens", int64(span.usageMods.CacheCreation1h)).
 			String("usage.speed", string(span.extractor.Speed())).
@@ -136,7 +136,7 @@ func upstreamSpanAttrs(ctx context.Context, clock auth.Clock, span upstreamSpan)
 		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(span.inputTokens, span.cacheCreation, span.cacheRead, span.actPricing, decision.Provider, span.usageMods)).
 		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(promptTokens, span.outputTokens, span.actPricing, span.usageMods)).
 		Bool("cost.subscription_served", span.subscriptionServed)
-	if span.taskArmSurface {
+	if span.extendedAttrs {
 		builder.Bool("cost.fast_mode", span.fastServed)
 	}
 	builder.
