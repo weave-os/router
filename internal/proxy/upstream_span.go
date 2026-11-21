@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -52,7 +53,7 @@ type upstreamSpan struct {
 	proxyErr            error
 	crossFormat         bool
 	dispatch            *upstreamSpanDispatch
-	effortServed        effortResolution
+	effortServed        dispatch.EffortResolution
 	captureMode         ContentCaptureMode
 	strategyPorts       continuity.StrategyPorts
 	strategy            router.Strategy
