@@ -32,7 +32,7 @@ check() { if [ "$2" = "$3" ]; then ok "$1"; else no "$1" "$2" "$3"; fi; }
 
 printf 'packaging\n'
 
-node --test "$npm_dir/windows.test.js"
+node --test "$npm_dir/windows.test.js" "$npm_dir/vscode.test.js"
 
 tarball="$(cd "$npm_dir" && npm pack --pack-destination "$work" 2>/dev/null | tail -1)"
 [ -f "$work/$tarball" ] || { echo "npm pack produced no tarball" >&2; exit 1; }
@@ -43,7 +43,7 @@ root="$pkg/package"
 
 # The registry itself must ship: install.sh sources it at runtime, so a tarball
 # without it is an installer that cannot resolve a single directive.
-for asset in registry.sh directives.tsv install.sh uninstall.sh cc-statusline.sh codex-status.sh bin.js windows.js; do
+for asset in registry.sh directives.tsv install.sh uninstall.sh cc-statusline.sh codex-status.sh bin.js windows.js vscode.js; do
   if [ -f "$root/$asset" ]; then ok "the tarball ships $asset"; else no "the tarball ships $asset" "present" "missing"; fi
 done
 
@@ -133,6 +133,12 @@ check "the canonical no-argument entrypoint opens the hosted start page" \
   "https://app.weaveos.com/start" "$(cat "$browser_log" 2>/dev/null || true)"
 check "the no-argument entrypoint says which page it opened" "yes" \
   "$(grep -Fq 'opening https://app.weaveos.com/start' <<<"$entrypoint_output" && echo yes || echo no)"
+
+WEAVE_ROUTER_URL="" NODE_PATH="$npm_dir/node_modules" \
+  node "$root/bin.js" --copilot --vscode --profile-dir "$work/vscode-profile" >/dev/null
+check "the packed entrypoint installs the VS Code Custom Endpoint model" \
+  "https://router.weaveos.com/v1/messages" \
+  "$(jq -r '.[0].models[0].url' "$work/vscode-profile/chatLanguageModels.json")"
 
 # Drive bin.js exactly as `npx @weave-os/router` does. A tarball missing any
 # runtime asset fails here even though every string assertion above passed.

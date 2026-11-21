@@ -12,12 +12,13 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 )
 
-const authoritativeDowngradeStrategy = router.Strategy("authoritative-downgrade-test")
+const authoritativeDowngradeStrategy = router.StrategyHMMEmbedding
 
 var authoritativeDowngradeBody = []byte(
 	`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"fix the failing test"}]}`,
@@ -26,7 +27,7 @@ var authoritativeDowngradeBody = []byte(
 // authoritativeDowngradeService wires an authoritative policy whose fresh pick
 // is fixed, over a pin store seeded with pin.
 func authoritativeDowngradeService(store *stubPinStore, fresh router.Decision) *Service {
-	return NewService(
+	return withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
@@ -34,15 +35,15 @@ func authoritativeDowngradeService(store *stubPinStore, fresh router.Decision) *
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithPolicyStrategy(policy.StrategySpec{
-		Strategy: authoritativeDowngradeStrategy,
-		Router:   &authoritativeTestRouter{decision: fresh},
-		Capabilities: policy.Capabilities{
-			SchemaVersion:                 policy.SchemaVersionV1,
-			AuthoritativePerTurnSelection: true,
-		},
-	})
+		nil)).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: authoritativeDowngradeStrategy,
+			Router:   &authoritativeTestRouter{decision: fresh},
+			Capabilities: policy.Capabilities{
+				SchemaVersion:                 policy.SchemaVersionV1,
+				AuthoritativePerTurnSelection: true,
+			},
+		})
 }
 
 func runAuthoritativeDowngradeTurn(t *testing.T, svc *Service) turnLoopResult {
@@ -54,16 +55,16 @@ func runAuthoritativeDowngradeTurn(t *testing.T, svc *Service) turnLoopResult {
 	result, err := svc.runTurnLoop(
 		router.WithStrategy(context.Background(), authoritativeDowngradeStrategy),
 		env,
-		features,
-		"api-key",
-		uuid.New(),
+		features, testTurnRequest(
+			router.WithStrategy(context.Background(), authoritativeDowngradeStrategy), "api-key", uuid.New()),
+
 		"",
 		http.Header{},
 		router.Request{
 			RequestedModel:       features.Model,
 			ConversationMessages: conversationMessagesForRouting(env),
-		},
-	)
+		})
+
 	require.NoError(t, err)
 	assert.True(t, result.AuthoritativePerTurn)
 	return result
@@ -200,13 +201,13 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			store := newStubPinStore()
-			store.getFound = true
-			store.getPin = authoritativeDowngradePin(test.pinModel, test.priorVotes)
+			store := &stubPinStore{getFound: true, getPin: authoritativeDowngradePin(test.pinModel, test.priorVotes)}
 			svc := authoritativeDowngradeService(store, test.fresh).
-				WithAuthoritativeDowngradeGate(test.downgradeGate).
-				WithHMMDowngradeHysteresisTurns(test.hysteresisTurns).
-				WithHMMDowngradeHysteresisShadowTurns(2)
+				EditHMMConfig(func(c *hmm.Config) {
+					c.DowngradeGate = test.downgradeGate
+					c.DowngradeHysteresisTurns = test.hysteresisTurns
+					c.DowngradeHysteresisShadowTurns = 2
+				})
 
 			result := runAuthoritativeDowngradeTurn(t, svc)
 
@@ -310,8 +311,10 @@ func TestAuthoritativeDowngradeShadow(t *testing.T) {
 			store.getFound = true
 			store.getPin = authoritativeDowngradePin(test.pinModel, 0)
 			svc := authoritativeDowngradeService(store, test.fresh).
-				WithHMMDowngradeHysteresisTurns(0).
-				WithHMMDowngradeHysteresisShadowTurns(test.shadowTurns)
+				EditHMMConfig(func(c *hmm.Config) {
+					c.DowngradeHysteresisTurns = 0
+					c.DowngradeHysteresisShadowTurns = test.shadowTurns
+				})
 
 			result := runAuthoritativeDowngradeTurn(t, svc)
 
@@ -380,7 +383,7 @@ func TestAuthoritativeDowngradeHysteresisAcrossTurns(t *testing.T) {
 		store := newStubPinStore()
 		store.getFound = true
 		store.getPin = pin
-		svc := authoritativeDowngradeService(store, turn.fresh).WithHMMDowngradeHysteresisTurns(3)
+		svc := authoritativeDowngradeService(store, turn.fresh).EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 3 })
 
 		result := runAuthoritativeDowngradeTurn(t, svc)
 

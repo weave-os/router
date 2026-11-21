@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	candidatefilter "weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -94,7 +95,7 @@ func (s *Service) excludeObservedOverflowModels(ctx context.Context, req router.
 	cortexGateways := cortexGatewayProvidersForRequest(ctx)
 	var overWindow []string
 	for model := range candidates {
-		if _, excluded := req.ExcludedModels[model]; excluded {
+		if _, excluded := req.Candidates.ExcludedModels[model]; excluded {
 			continue
 		}
 		provider, bound := gatewayProviderFor(model, req.CustomBindings, req.GatewayProviders)
@@ -121,10 +122,10 @@ func (s *Service) excludeObservedOverflowModels(ctx context.Context, req router.
 		"excluded_models", strings.Join(overWindow, ","),
 	)
 	for _, model := range overWindow {
-		req.ExcludedModels = excludingModel(req.ExcludedModels, model)
-		req.ContextWindowExcludedModels = addToSet(req.ContextWindowExcludedModels, model)
-		req.SafetyExcludedModels = addToSet(req.SafetyExcludedModels, model)
+		req.Candidates.ExcludedModels = candidatefilter.ExcludingModel(req.Candidates.ExcludedModels, model)
+		req.Candidates.ContextWindowExcludedModels = addToSet(req.Candidates.ContextWindowExcludedModels, model)
+		req.Candidates.SafetyExcludedModels = addToSet(req.Candidates.SafetyExcludedModels, model)
 	}
-	req.OverflowAdmittedModels = withoutModels(req.OverflowAdmittedModels, overWindow)
+	req.Candidates.OverflowAdmittedModels = candidatefilter.WithoutModels(req.Candidates.OverflowAdmittedModels, overWindow)
 	return req, overWindow
 }

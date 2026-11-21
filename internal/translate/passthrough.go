@@ -2,11 +2,14 @@ package translate
 
 import (
 	"fmt"
-	"github.com/tidwall/gjson"
 	"net/http"
 	"strings"
 
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
+
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
 )
 
 func (e *RequestEnvelope) PrepareAnthropicPassthrough(in http.Header) (providers.PreparedRequest, error) {
@@ -25,10 +28,6 @@ func (e *RequestEnvelope) PrepareAnthropicPassthrough(in http.Header) (providers
 		return providers.PreparedRequest{}, fmt.Errorf("place system messages: %w", err)
 	}
 	return providers.PreparedRequest{Body: body, Headers: AnthropicPassthroughHeadersForBody(in, body)}, nil
-}
-
-func AnthropicPassthroughHeaders(in http.Header) http.Header {
-	return AnthropicPassthroughHeadersForBody(in, nil)
 }
 
 func AnthropicPassthroughHeadersForBody(in http.Header, body []byte) http.Header {
@@ -54,16 +53,88 @@ func stripThinkingBetas(beta string) string {
 	})
 }
 
-func (e *RequestEnvelope) PrepareAnthropicVerbatim(in http.Header) providers.PreparedRequest {
+func (e *RequestEnvelope) PrepareAnthropicVerbatim(in http.Header, opts EmitOptions) (providers.PreparedRequest, error) {
 	h := make(http.Header)
 	h.Set("anthropic-version", in.Get("anthropic-version"))
 	if h.Get("anthropic-version") == "" {
 		h.Set("anthropic-version", "2023-06-01")
 	}
-	if beta := in.Get("anthropic-beta"); beta != "" {
+	beta := in.Get("anthropic-beta")
+	body, err := withModelThinkingOff(e.body, opts.Capabilities.Reasoning().ThinkingOff)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
+	if verbatimServerSideFallback(body, opts) {
+		if body, err = sjson.SetBytes(body, "fallbacks", "default"); err != nil {
+			return providers.PreparedRequest{}, fmt.Errorf("set fallbacks: %w", err)
+		}
+		beta = ensureBetaToken(beta, serverSideFallbackBeta)
+	}
+	if beta != "" {
 		h.Set("anthropic-beta", beta)
 	}
-	return providers.PreparedRequest{Body: e.body, Headers: h}
+	return providers.PreparedRequest{Body: body, Headers: h}, nil
+}
+
+func (e *RequestEnvelope) WithClientThinking(body []byte) ([]byte, error) {
+	for _, key := range []string{"thinking", "output_config"} {
+		var err error
+		if v := gjson.GetBytes(e.body, key); v.Exists() {
+			body, err = sjson.SetRawBytes(body, key, []byte(v.Raw))
+		} else {
+			body, err = sjson.DeleteBytes(body, key)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("restore %s: %w", key, err)
+		}
+	}
+	return body, nil
+}
+
+func withModelThinkingOff(body []byte, off router.ThinkingOff) ([]byte, error) {
+	if off == router.ThinkingOffDisabled || gjson.GetBytes(body, "thinking.type").String() != "disabled" {
+		return body, nil
+	}
+	if off == router.ThinkingOffBetweenTools {
+		return setThinkingType(body, "between_tools")
+	}
+	body, err := setThinkingType(body, "adaptive")
+	if err != nil || gjson.GetBytes(body, "output_config.effort").Exists() {
+		return body, err
+	}
+	if body, err = sjson.SetBytes(body, "output_config.effort", effortLow); err != nil {
+		return nil, fmt.Errorf("set output_config.effort: %w", err)
+	}
+	return body, nil
+}
+
+func setThinkingType(body []byte, thinkingType string) ([]byte, error) {
+	out, err := sjson.SetRawBytes(body, "thinking", []byte(`{"type":"`+thinkingType+`"}`))
+	if err != nil {
+		return nil, fmt.Errorf("set thinking: %w", err)
+	}
+	return out, nil
+}
+
+func ExtendedContextBeta(beta string, opts EmitOptions) string {
+	if opts.EnableExtendedContext && opts.Capabilities.Supports(router.CapExtendedContext) {
+		return ensureBetaToken(beta, context1MBeta)
+	}
+	return beta
+}
+
+func ServerSideFallbackBeta(beta string, body []byte) string {
+	if gjson.GetBytes(body, "fallbacks").Exists() {
+		return ensureBetaToken(beta, serverSideFallbackBeta)
+	}
+	return beta
+}
+
+func verbatimServerSideFallback(body []byte, opts EmitOptions) bool {
+	return opts.EnableServerSideFallback &&
+		opts.TargetProvider == providers.ProviderAnthropic &&
+		opts.Capabilities.Supports(router.CapServerSideFallback) &&
+		!gjson.GetBytes(body, "fallbacks").Exists()
 }
 
 func (e *RequestEnvelope) PrepareOpenAIVerbatim(opts EmitOptions) (providers.PreparedRequest, bool) {

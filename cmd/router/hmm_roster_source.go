@@ -116,7 +116,7 @@ func (s *hmmRosterSource) refresh(ctx context.Context) ([]router.DeployedEntry, 
 	}
 
 	s.warnRosterDiagnostics(ctx, rosterIDs)
-	mapped := hmm.DeployedModelsForRosterIDs(rosterIDs)
+	mapped := hmm.DeployedEntriesSkippingUnknownArms(rosterIDs)
 	s.mu.Lock()
 	s.cached = mapped
 	s.cachedPolicy = policy

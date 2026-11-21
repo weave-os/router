@@ -200,7 +200,7 @@ func TestDispatchPlanned_RecordsAttemptProvenance(t *testing.T) {
 		providers.ProviderFireworks: primary, providers.ProviderOpenRouter: fallback,
 	}), dispatch.WithAttemptSink(sink))
 	require.NoError(t, err)
-	s := (&Service{}).WithInferenceExecutor(executor)
+	s := (&Service{hmmServing: hmmPorts()}).WithInferenceExecutor(executor)
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)

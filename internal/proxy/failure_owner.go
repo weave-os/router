@@ -50,8 +50,10 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 		switch {
 		case cls.Kind == DispatchErrorHandoff && errors.Is(err, ErrHandoffUnavailable):
 			return FailureOwnerRouter
-		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && upstreamStatus(err) == http.StatusTooManyRequests:
+		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && (upstreamStatus(err) == http.StatusTooManyRequests || errors.Is(err, errLinkedSeatsThrottled)):
 			return FailureOwnerProvider
+		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && errors.Is(err, errLinkedSeatsUnusable):
+			return FailureOwnerClient
 		}
 		return dispatchErrorKindOwner(cls.Kind)
 	}

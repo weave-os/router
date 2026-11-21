@@ -8,8 +8,6 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/router/hmm/rosterdata"
-	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/taskdomain"
 
 	"github.com/gin-gonic/gin"
@@ -20,58 +18,41 @@ const (
 	maxTaskDomainPreviewItems = 64
 )
 
-type TaskDomainPreviewStatus string
+type TaskDomainPreviewStatus = taskdomain.PreviewStatus
 
 const (
-	TaskDomainPreviewReady            TaskDomainPreviewStatus = "ready"
-	TaskDomainPreviewInvalidRequest   TaskDomainPreviewStatus = "invalid_request"
-	TaskDomainPreviewEvidenceRejected TaskDomainPreviewStatus = "evidence_rejected"
-	TaskDomainPreviewFailed           TaskDomainPreviewStatus = "failed"
+	TaskDomainPreviewReady            = taskdomain.PreviewReady
+	TaskDomainPreviewInvalidRequest   = taskdomain.PreviewInvalidRequest
+	TaskDomainPreviewEvidenceRejected = taskdomain.PreviewEvidenceRejected
+	TaskDomainPreviewFailed           = taskdomain.PreviewFailed
 )
 
-type taskDomainPreviewItemRequest struct {
-	Policy                json.RawMessage     `json:"policy"`
-	Evidence              json.RawMessage     `json:"evidence"`
-	Cluster               string              `json:"cluster"`
-	Harness               string              `json:"harness"`
-	SubscriptionProviders []string            `json:"subscription_providers,omitempty"`
-	Domains               []taskdomain.Domain `json:"domains"`
-}
-
 type taskDomainPreviewRequest struct {
-	Items []taskDomainPreviewItemRequest `json:"items"`
-}
-
-type taskDomainPreviewItem struct {
-	Status                  TaskDomainPreviewStatus  `json:"status"`
-	RosterSHA256            string                   `json:"roster_sha256,omitempty"`
-	EvidenceSHA256          string                   `json:"evidence_sha256,omitempty"`
-	BenchmarkSnapshotSHA256 string                   `json:"benchmark_snapshot_sha256,omitempty"`
-	BenchmarkIngestDate     string                   `json:"benchmark_ingest_date,omitempty"`
-	Preview                 *selection.DomainPreview `json:"preview,omitempty"`
+	Items []taskdomain.PreviewRequest `json:"items"`
 }
 
 type taskDomainPreviewResponse struct {
 	RecipeVersion   string                   `json:"recipe_version"`
 	RecipeInfluence float64                  `json:"recipe_influence"`
-	Recipes         []selection.DomainRecipe `json:"recipes"`
-	Items           []taskDomainPreviewItem  `json:"items"`
+	Recipes         any                      `json:"recipes"`
+	Items           []taskdomain.PreviewItem `json:"items"`
 }
 
-func InternalTaskDomainPreviewHandler() gin.HandlerFunc {
+func InternalTaskDomainPreviewHandler(previewer taskdomain.Previewer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req taskDomainPreviewRequest
 		if err := decodeTaskDomainPreviewRequest(c, &req); err != nil || len(req.Items) == 0 || len(req.Items) > maxTaskDomainPreviewItems {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "between 1 and 64 preview items are required"})
 			return
 		}
+		recipes := previewer.PreviewRecipes()
 		response := taskDomainPreviewResponse{
-			RecipeVersion: selection.DomainRecipeVersion, RecipeInfluence: selection.DomainInfluence, Recipes: selection.DomainRecipes(),
-			Items: make([]taskDomainPreviewItem, 0, len(req.Items)),
+			RecipeVersion: recipes.Version, RecipeInfluence: recipes.Influence, Recipes: recipes.Recipes,
+			Items: make([]taskdomain.PreviewItem, 0, len(req.Items)),
 		}
 		unscored := make(map[TaskDomainPreviewStatus]int)
 		for _, item := range req.Items {
-			previewed := previewTaskDomainItem(c, item)
+			previewed := previewTaskDomainItem(c, previewer, item)
 			if previewed.Status != TaskDomainPreviewReady {
 				unscored[previewed.Status]++
 			}
@@ -104,8 +85,8 @@ func decodeTaskDomainPreviewRequest(c *gin.Context, req *taskDomainPreviewReques
 	return nil
 }
 
-func previewTaskDomainItem(c *gin.Context, req taskDomainPreviewItemRequest) taskDomainPreviewItem {
-	invalid := taskDomainPreviewItem{Status: TaskDomainPreviewInvalidRequest}
+func previewTaskDomainItem(c *gin.Context, previewer taskdomain.Previewer, req taskdomain.PreviewRequest) taskdomain.PreviewItem {
+	invalid := taskdomain.PreviewItem{Status: TaskDomainPreviewInvalidRequest}
 	if len(req.Policy) == 0 || len(req.Evidence) == 0 || req.Cluster == "" {
 		return invalid
 	}
@@ -116,30 +97,5 @@ func previewTaskDomainItem(c *gin.Context, req taskDomainPreviewItemRequest) tas
 		}
 		profile[domain] = true
 	}
-	roster, err := rosterdata.Parse(req.Policy)
-	if err != nil {
-		return invalid
-	}
-	roster.SHA256 = rosterdata.SHA256Hex(req.Policy)
-	item := taskDomainPreviewItem{RosterSHA256: roster.SHA256, EvidenceSHA256: rosterdata.SHA256Hex(req.Evidence)}
-	if _, exists := roster.Clusters[req.Cluster]; !exists {
-		item.Status = TaskDomainPreviewInvalidRequest
-		return item
-	}
-	evidence, err := selection.ParseDomainEvidence(req.Evidence, roster)
-	if err != nil {
-		observability.FromGin(c).Debug("Task-domain evidence rejected for preview", "roster_sha256", roster.SHA256, "err", err)
-		item.Status = TaskDomainPreviewEvidenceRejected
-		return item
-	}
-	preview, err := selection.PreviewDomainRanking(roster, evidence, req.Cluster, req.Harness, req.SubscriptionProviders, profile)
-	if err != nil {
-		observability.FromGin(c).Debug("Task-domain preview failed", "roster_sha256", roster.SHA256, "cluster", req.Cluster, "err", err)
-		item.Status = TaskDomainPreviewFailed
-		return item
-	}
-	item.Status = TaskDomainPreviewReady
-	item.BenchmarkSnapshotSHA256, item.BenchmarkIngestDate = evidence.BenchmarkSnapshotSHA256, evidence.BenchmarkIngestDate
-	item.Preview = &preview
-	return item
+	return previewer.Preview(observability.FromGin(c), req, profile)
 }

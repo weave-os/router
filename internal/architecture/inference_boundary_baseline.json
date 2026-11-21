@@ -51,18 +51,6 @@
       "removal_phase": "8"
     },
     {
-      "id": "feature_target_constant|internal/proxy/loop_detection.go|proxy.package|escalateModel|1",
-      "kind": "feature_target_constant",
-      "file": "internal/proxy/loop_detection.go",
-      "line": 19,
-      "symbol": "proxy.package",
-      "detail": "escalateModel=claude-opus-5",
-      "owner": "@steventohme",
-      "rationale": "Existing loop-rescue target remains feature-owned until public-surface fallback becomes a typed policy transition.",
-      "operation_class": "main_inference",
-      "removal_phase": "8"
-    },
-    {
       "id": "provider_map|internal/proxy/service.go|NewService|providers.Client|1",
       "kind": "provider_map",
       "file": "internal/proxy/service.go",

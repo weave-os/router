@@ -418,7 +418,7 @@ func TestPlanResolverResolvesUntieredPrecompactionSummarizer(t *testing.T) {
 	for _, model := range []string{"claude-fable-5", "claude-opus-4-8"} {
 		plan, err := plans.Resolve(policy.ResolutionRequest{
 			Purpose:       policy.PurposePrecompactionSummary,
-			RouterRequest: router.Request{AllowedModels: modelSet(model)},
+			RouterRequest: router.Request{Candidates: router.Candidates{AllowedModels: modelSet(model)}},
 			Overrides: []policy.TargetOverride{{
 				Source:    policy.OverrideSourceSession,
 				CatalogID: model,

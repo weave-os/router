@@ -6,8 +6,7 @@ import (
 	"slices"
 
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/armid"
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 type StrategyPolicy struct {
@@ -35,7 +34,7 @@ func loadStrategyPolicies(ctx context.Context, store ServingStore, composition C
 		if roster.SchemaVersion != composition.Requirements.PolicySchema || !slices.Equal(roster.ClassOrder, composition.Classifier.Identity.ClassOrder) {
 			return nil, fmt.Errorf("%s strategy policy does not match classifier schema and taxonomy", strategy)
 		}
-		if diagnostics := armid.ValidateRosterIDs(roster.AllArms()); len(diagnostics) != 0 {
+		if diagnostics := roster.CatalogDiagnostics(); len(diagnostics) != 0 {
 			return nil, fmt.Errorf("%s strategy policy is incompatible with the router catalog: %v", strategy, diagnostics)
 		}
 		loaded[strategy] = StrategyPolicy{Reference: reference, Roster: roster}

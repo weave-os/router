@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/translate"
 )
 
@@ -44,7 +44,7 @@ func TestSafetyExcludedModelsIncludesAdvisorOutranking(t *testing.T) {
 	require.NoError(t, err)
 
 	_, advisorOutranking := excludeAdvisorOutrankingModels(env, nil, available)
-	assert.Equal(t, map[string]struct{}{"claude-fable-5-1": {}}, routingpolicy.SafetyExcludedModels(env, 0, nil, nil, available, advisorOutranking))
+	assert.Equal(t, map[string]struct{}{"claude-fable-5-1": {}}, candidates.SafetyExcludedModels(env, 0, nil, nil, available, advisorOutranking))
 }
 
 func TestAdvisorRejectsModel(t *testing.T) {

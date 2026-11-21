@@ -81,6 +81,15 @@ func TestHMMRosterSource_RefetchesWhenActivePolicyChanges(t *testing.T) {
 	assert.Equal(t, int64(2), fetch.calls.Load())
 }
 
+func TestHMMRosterSource_SkipsUnknownArmWithoutCache(t *testing.T) {
+	src := newHMMRosterSource(&stubRosterFetcher{ids: []string{"newvendor/model-x", "openai/gpt-5.6-sol"}}, 0)
+
+	entries, err := src.HMMDeployedModels(context.Background())
+	require.NoError(t, err, "the admin deployed-models view must not fail on an unknown arm")
+	require.Len(t, entries, 1)
+	assert.Equal(t, "gpt-5.6-sol", entries[0].Model)
+}
+
 // countingHandler counts records at or above WARN; slog.Handler for tests.
 type countingHandler struct {
 	warns atomic.Int64

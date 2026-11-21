@@ -17,11 +17,12 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// A /force-model turn whose Codex seats are all rate-limited must report the
-// throttle (retryable 429), not an organization allowlist problem (400).
-func TestSubscriptionStateForcedModelThrottledPoolKeeps429(t *testing.T) {
-	openAI := &fakeClient{name: providers.ProviderOpenAI}
-	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenAI: openAI}, nil, nil, false, "", "", nil).
+// A /force-model turn whose Codex seats are all rate-limited past the short
+// wait must not fail as an organization allowlist problem (400): Weave credits
+// serve the forced model instead.
+func TestSubscriptionStateForcedModelThrottledPoolFundsCredits(t *testing.T) {
+	openAI := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("paid answer")}}}
+	svc := withHMMPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenAI: openAI}, nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{})
 	seats := []*auth.SubscriptionAccount{activeCodexAccount("seat-1"), activeCodexAccount("seat-2")}
 	ctx := WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(managedSubscriptionContext(auth.SubscriptionProviderCodex)), seats)
@@ -31,7 +32,7 @@ func TestSubscriptionStateForcedModelThrottledPoolKeeps429(t *testing.T) {
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateCodexModel})
 	ctx = withTurnFailures(ctx)
-	req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
+	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
 	inputs := dispatch.FailoverInputs{
@@ -49,7 +50,6 @@ func TestSubscriptionStateForcedModelThrottledPoolKeeps429(t *testing.T) {
 
 	_, err := svc.dispatchWithFallback(ctx, inputs)
 
-	require.NotErrorIs(t, err, router.ErrAllowlistEmptiesPool, "a throttled pool is not an allowlist problem")
-	requireThrottledRefusal(t, err)
-	require.Zero(t, openAI.calls, "a throttled pool must not reach paid capacity")
+	require.NoError(t, err, "a throttled pool is not an allowlist problem and must not fail the turn")
+	require.Equal(t, 1, openAI.calls, "the forced model is served once on Weave credits")
 }

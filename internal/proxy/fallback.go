@@ -55,7 +55,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in dispatch.Failover
 		return -1, err
 	}
 	if len(in.Bindings) == 0 {
-		if in.InitialDecision.Reason == translate.ReasonUserForceModel {
+		if in.InitialDecision.UserForcedModel() {
 			err := &providers.UpstreamErrorResponse{
 				Status: http.StatusServiceUnavailable,
 				Body: []byte(fmt.Sprintf(`{"error":{"message":%q,"type":"api_error"}}`,
@@ -116,7 +116,7 @@ func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision route
 		Decision:   decision,
 		ImageCount: requestImageCountFromContext(ctx),
 		UserForced: isUserForcedReason(decision.Reason),
-		ForceModel: decision.Reason == translate.ReasonUserForceModel,
+		ForceModel: decision.UserForcedModel(),
 	}
 	if s.shouldFailover(ctx) && s.credentials.KeyedProviders != nil {
 		req.DeploymentKeyedProviders = s.credentials.KeyedProviders

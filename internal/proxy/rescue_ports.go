@@ -7,7 +7,6 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 )
 
@@ -109,10 +108,10 @@ func (p rescueRoutingPort) ResolveCyberRefusalRetry(ctx context.Context) bool {
 	return p.s.ResolveCyberRefusalRetry(ctx)
 }
 
-func (p rescueRoutingPort) IsHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bool {
-	return p.s.isHardPinnedTurn(ctx, tt)
+func (p rescueRoutingPort) IsHardPinnedTurn(ctx context.Context, strategy router.Strategy, tt turntype.TurnType) bool {
+	return p.s.isHardPinnedTurn(ctx, strategy, tt)
 }
 
-func (p rescueRoutingPort) CyberRefusalRetryTarget(ctx context.Context, failed router.Decision, sessionKey [sessionpin.SessionKeyLen]byte, role string, est, sigSavings, outputReserve int) (router.Decision, bool) {
-	return p.s.cyberRefusalRetryTarget(ctx, failed, sessionKey, role, est, sigSavings, outputReserve)
+func (p rescueRoutingPort) CyberRefusalRetryTarget(ctx context.Context, failed router.Decision, target dispatch.RescueSessionTarget, role string, est, sigSavings, outputReserve int) (router.Decision, bool) {
+	return p.s.cyberRefusalRetryTarget(ctx, failed, sessionTarget{strategy: target.Strategy, installationID: target.InstallationID, sessionKey: target.SessionKey}, role, est, sigSavings, outputReserve)
 }

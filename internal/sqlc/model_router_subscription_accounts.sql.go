@@ -310,49 +310,62 @@ func (q *Queries) GetModelRouterSubscriptionCredentialRecord(ctx context.Context
 	return i, err
 }
 
-const getSubscriberEnrollmentKey = `-- name: GetSubscriberEnrollmentKey :one
-SELECT k.id AS api_key_id, k.installation_id
-FROM router.model_router_api_keys AS k
-JOIN router.credential_subjects AS subject ON subject.id = k.credential_subject_id
-JOIN router.credential_subject_installations AS access
-  ON access.subject_id = subject.id AND access.installation_id = k.installation_id
-JOIN router.model_router_installations AS installation ON installation.id = k.installation_id
-WHERE k.credential_subject_id = $1::uuid
-  AND k.deleted_at IS NULL
+const getSubscriberEnrollmentOwner = `-- name: GetSubscriberEnrollmentOwner :one
+SELECT access.installation_id, COALESCE(enrollment_key.id::text, '')::text AS api_key_id
+FROM router.credential_subjects AS subject
+JOIN router.credential_subject_installations AS access ON access.subject_id = subject.id
+JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
+LEFT JOIN LATERAL (
+  SELECT k.id
+  FROM router.model_router_api_keys AS k
+  WHERE k.credential_subject_id = subject.id
+    AND k.installation_id = access.installation_id
+    AND k.deleted_at IS NULL
+  ORDER BY k.created_at DESC, k.id
+  LIMIT 1
+) AS enrollment_key ON TRUE
+WHERE subject.id = $1::uuid
   AND installation.deleted_at IS NULL
   AND subject.projection_complete
   AND subject.revoked_at IS NULL
   AND access.access_enabled
-ORDER BY k.created_at DESC, k.id
+ORDER BY (enrollment_key.id IS NULL), access.installation_id
 LIMIT 1
 `
 
-type GetSubscriberEnrollmentKeyRow struct {
-	APIKeyID       uuid.UUID
+type GetSubscriberEnrollmentOwnerRow struct {
 	InstallationID uuid.UUID
+	APIKeyID       string
 }
 
-// Browser reconnect has no request key, so it enrolls through the subscriber's
-// newest active personal routing key whose installation access is enabled.
+// Browser enrollment has no request key. Active installation membership alone
+// authorizes it; the subscriber's newest live key there, if any, is kept as
+// attribution.
 //
-//	SELECT k.id AS api_key_id, k.installation_id
-//	FROM router.model_router_api_keys AS k
-//	JOIN router.credential_subjects AS subject ON subject.id = k.credential_subject_id
-//	JOIN router.credential_subject_installations AS access
-//	  ON access.subject_id = subject.id AND access.installation_id = k.installation_id
-//	JOIN router.model_router_installations AS installation ON installation.id = k.installation_id
-//	WHERE k.credential_subject_id = $1::uuid
-//	  AND k.deleted_at IS NULL
+//	SELECT access.installation_id, COALESCE(enrollment_key.id::text, '')::text AS api_key_id
+//	FROM router.credential_subjects AS subject
+//	JOIN router.credential_subject_installations AS access ON access.subject_id = subject.id
+//	JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
+//	LEFT JOIN LATERAL (
+//	  SELECT k.id
+//	  FROM router.model_router_api_keys AS k
+//	  WHERE k.credential_subject_id = subject.id
+//	    AND k.installation_id = access.installation_id
+//	    AND k.deleted_at IS NULL
+//	  ORDER BY k.created_at DESC, k.id
+//	  LIMIT 1
+//	) AS enrollment_key ON TRUE
+//	WHERE subject.id = $1::uuid
 //	  AND installation.deleted_at IS NULL
 //	  AND subject.projection_complete
 //	  AND subject.revoked_at IS NULL
 //	  AND access.access_enabled
-//	ORDER BY k.created_at DESC, k.id
+//	ORDER BY (enrollment_key.id IS NULL), access.installation_id
 //	LIMIT 1
-func (q *Queries) GetSubscriberEnrollmentKey(ctx context.Context, subscriberID uuid.UUID) (GetSubscriberEnrollmentKeyRow, error) {
-	row := q.db.QueryRow(ctx, getSubscriberEnrollmentKey, subscriberID)
-	var i GetSubscriberEnrollmentKeyRow
-	err := row.Scan(&i.APIKeyID, &i.InstallationID)
+func (q *Queries) GetSubscriberEnrollmentOwner(ctx context.Context, subscriberID uuid.UUID) (GetSubscriberEnrollmentOwnerRow, error) {
+	row := q.db.QueryRow(ctx, getSubscriberEnrollmentOwner, subscriberID)
+	var i GetSubscriberEnrollmentOwnerRow
+	err := row.Scan(&i.InstallationID, &i.APIKeyID)
 	return i, err
 }
 
@@ -604,7 +617,7 @@ WHERE (account.provider <> 'codex' OR account.provider_user_id IS NOT NULL)
        AND EXISTS (
         SELECT 1 FROM router.model_router_subscription_account_installations AS registration
         WHERE registration.installation_id = installation.id AND registration.subscription_account_id = account.id)))
-ORDER BY (account.subscriber_id = $1::uuid) DESC NULLS LAST, account.created_at, account.id
+ORDER BY account.created_at, account.id
 FOR SHARE OF account
 `
 
@@ -676,7 +689,7 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 //	       AND EXISTS (
 //	        SELECT 1 FROM router.model_router_subscription_account_installations AS registration
 //	        WHERE registration.installation_id = installation.id AND registration.subscription_account_id = account.id)))
-//	ORDER BY (account.subscriber_id = $1::uuid) DESC NULLS LAST, account.created_at, account.id
+//	ORDER BY account.created_at, account.id
 //	FOR SHARE OF account
 func (q *Queries) ListModelRouterSubscriptionCandidates(ctx context.Context, arg ListModelRouterSubscriptionCandidatesParams) ([]ListModelRouterSubscriptionCandidatesRow, error) {
 	rows, err := q.db.Query(ctx, listModelRouterSubscriptionCandidates, arg.SubscriberID, arg.APIKeyID, arg.InstallationID)
@@ -1396,22 +1409,31 @@ WITH owned AS (
                 JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
                 WHERE subject.id = $3::uuid AND subject.projection_complete AND subject.revoked_at IS NULL
                   AND access.installation_id = $4::uuid AND access.access_enabled AND installation.deleted_at IS NULL)
-    AND subscriber_id = $3::uuid
-    AND ($1::varchar <> 'codex' OR (NULLIF($5::text, '') IS NOT NULL AND (provider_user_id = $5::text OR provider_user_id IS NULL)))
+    AND (subscriber_id = $3::uuid
+         OR ($5::boolean
+             AND subscriber_id IS NOT NULL
+             AND ($1::varchar <> 'codex' OR provider_user_id = $6::text)
+             AND EXISTS (SELECT 1 FROM router.model_router_subscription_account_installations AS seat
+                         WHERE seat.subscription_account_id = model_router_subscription_accounts.id
+                           AND seat.installation_id = $4::uuid)
+             AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_account_installations AS seat
+                             WHERE seat.subscription_account_id = model_router_subscription_accounts.id
+                               AND seat.installation_id <> $4::uuid)))
+    AND ($1::varchar <> 'codex' OR (NULLIF($6::text, '') IS NOT NULL AND (provider_user_id = $6::text OR provider_user_id IS NULL)))
     AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_accounts AS other
                     WHERE other.provider = $1::varchar AND other.external_account_id = $2::varchar
                       AND other.id <> model_router_subscription_accounts.id
-                      AND ($1::varchar <> 'codex' OR other.provider_user_id = $5::text))
-  ORDER BY (provider_user_id IS NULL), created_at, id
+                      AND ($1::varchar <> 'codex' OR other.provider_user_id = $6::text))
+  ORDER BY (subscriber_id <> $3::uuid), (provider_user_id IS NULL), created_at, id
   LIMIT 1
   FOR UPDATE
 ),
 adopted AS (
   UPDATE router.model_router_subscription_accounts
   SET subscriber_id = $3::uuid,
-      provider_user_id = NULLIF($5::text, ''),
-      refresh_token_ciphertext = $6::bytea,
-      display_name = COALESCE($7::text, display_name),
+      provider_user_id = NULLIF($6::text, ''),
+      refresh_token_ciphertext = $7::bytea,
+      display_name = COALESCE($8::text, display_name),
       enabled = TRUE,
       health_state = 'unknown',
       cooldown_until = NULL,
@@ -1433,14 +1455,14 @@ inserted AS (
   INSERT INTO router.model_router_subscription_accounts (
     subscriber_id, api_key_id, provider, external_account_id, provider_user_id, refresh_token_ciphertext, display_name
   )
-  SELECT $3::uuid, $8::uuid, $1::varchar,
-         $2::varchar, NULLIF($5::text, ''), $6::bytea,
-         $7::text
-  WHERE ($1::varchar <> 'codex' OR NULLIF($5::text, '') IS NOT NULL)
+  SELECT $3::uuid, $9::uuid, $1::varchar,
+         $2::varchar, NULLIF($6::text, ''), $7::bytea,
+         $8::text
+  WHERE ($1::varchar <> 'codex' OR NULLIF($6::text, '') IS NOT NULL)
     AND NOT EXISTS (SELECT 1 FROM owned)
     AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_accounts AS physical
                     WHERE physical.provider = $1::varchar AND physical.external_account_id = $2::varchar
-                      AND ($1::varchar <> 'codex' OR physical.provider_user_id = $5::text))
+                      AND ($1::varchar <> 'codex' OR physical.provider_user_id = $6::text))
     AND EXISTS (SELECT 1 FROM router.credential_subjects AS subject
                 JOIN router.credential_subject_installations AS access ON access.subject_id = subject.id
                 JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
@@ -1459,13 +1481,15 @@ registered AS (
 SELECT id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
        refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
        FALSE::boolean AS inserted,
-       (SELECT subscriber_id IS NULL FROM owned)::boolean AS adopted
+       (SELECT subscriber_id IS NULL FROM owned)::boolean AS adopted,
+       (SELECT subscriber_id FROM owned)::uuid AS previous_subscriber_id
 FROM adopted
 UNION ALL
 SELECT id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
        refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
        inserted::boolean,
-       FALSE::boolean AS adopted
+       FALSE::boolean AS adopted,
+       NULL::uuid AS previous_subscriber_id
 FROM inserted
 `
 
@@ -1474,10 +1498,11 @@ type UpsertModelRouterSubscriptionAccountForSubscriberParams struct {
 	ExternalAccountID      string
 	SubscriberID           uuid.UUID
 	InstallationID         uuid.UUID
+	AllowReassignment      bool
 	ProviderUserID         string
 	RefreshTokenCiphertext []byte
 	DisplayName            *string
-	APIKeyID               uuid.UUID
+	APIKeyID               pgtype.UUID
 }
 
 type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
@@ -1495,11 +1520,15 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 	CreatedAt              pgtype.Timestamp
 	Inserted               bool
 	Adopted                bool
+	PreviousSubscriberID   uuid.UUID
 }
 
-// Enrollment updates only the same verified owner. Codex seats are provider
-// users within a workspace; fresh verified enrollment may repair an owned
-// workspace-only legacy row but never adopts another owner or an unassigned row.
+// Enrollment updates the same verified owner. A server-side provider sign-in
+// (@allow_reassignment) also reassigns another owner's seat when the seat serves
+// only this installation, so a seat stored under the wrong member moves to the
+// member who signs in with it. Client-supplied tokens never move a seat.
+// Codex seats are provider users within a workspace; fresh verified enrollment
+// may repair an owned workspace-only legacy row but never adopts an unassigned row.
 //
 //	WITH owned AS (
 //	  SELECT id, subscriber_id
@@ -1511,22 +1540,31 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 //	                JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
 //	                WHERE subject.id = $3::uuid AND subject.projection_complete AND subject.revoked_at IS NULL
 //	                  AND access.installation_id = $4::uuid AND access.access_enabled AND installation.deleted_at IS NULL)
-//	    AND subscriber_id = $3::uuid
-//	    AND ($1::varchar <> 'codex' OR (NULLIF($5::text, '') IS NOT NULL AND (provider_user_id = $5::text OR provider_user_id IS NULL)))
+//	    AND (subscriber_id = $3::uuid
+//	         OR ($5::boolean
+//	             AND subscriber_id IS NOT NULL
+//	             AND ($1::varchar <> 'codex' OR provider_user_id = $6::text)
+//	             AND EXISTS (SELECT 1 FROM router.model_router_subscription_account_installations AS seat
+//	                         WHERE seat.subscription_account_id = model_router_subscription_accounts.id
+//	                           AND seat.installation_id = $4::uuid)
+//	             AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_account_installations AS seat
+//	                             WHERE seat.subscription_account_id = model_router_subscription_accounts.id
+//	                               AND seat.installation_id <> $4::uuid)))
+//	    AND ($1::varchar <> 'codex' OR (NULLIF($6::text, '') IS NOT NULL AND (provider_user_id = $6::text OR provider_user_id IS NULL)))
 //	    AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_accounts AS other
 //	                    WHERE other.provider = $1::varchar AND other.external_account_id = $2::varchar
 //	                      AND other.id <> model_router_subscription_accounts.id
-//	                      AND ($1::varchar <> 'codex' OR other.provider_user_id = $5::text))
-//	  ORDER BY (provider_user_id IS NULL), created_at, id
+//	                      AND ($1::varchar <> 'codex' OR other.provider_user_id = $6::text))
+//	  ORDER BY (subscriber_id <> $3::uuid), (provider_user_id IS NULL), created_at, id
 //	  LIMIT 1
 //	  FOR UPDATE
 //	),
 //	adopted AS (
 //	  UPDATE router.model_router_subscription_accounts
 //	  SET subscriber_id = $3::uuid,
-//	      provider_user_id = NULLIF($5::text, ''),
-//	      refresh_token_ciphertext = $6::bytea,
-//	      display_name = COALESCE($7::text, display_name),
+//	      provider_user_id = NULLIF($6::text, ''),
+//	      refresh_token_ciphertext = $7::bytea,
+//	      display_name = COALESCE($8::text, display_name),
 //	      enabled = TRUE,
 //	      health_state = 'unknown',
 //	      cooldown_until = NULL,
@@ -1548,14 +1586,14 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 //	  INSERT INTO router.model_router_subscription_accounts (
 //	    subscriber_id, api_key_id, provider, external_account_id, provider_user_id, refresh_token_ciphertext, display_name
 //	  )
-//	  SELECT $3::uuid, $8::uuid, $1::varchar,
-//	         $2::varchar, NULLIF($5::text, ''), $6::bytea,
-//	         $7::text
-//	  WHERE ($1::varchar <> 'codex' OR NULLIF($5::text, '') IS NOT NULL)
+//	  SELECT $3::uuid, $9::uuid, $1::varchar,
+//	         $2::varchar, NULLIF($6::text, ''), $7::bytea,
+//	         $8::text
+//	  WHERE ($1::varchar <> 'codex' OR NULLIF($6::text, '') IS NOT NULL)
 //	    AND NOT EXISTS (SELECT 1 FROM owned)
 //	    AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_accounts AS physical
 //	                    WHERE physical.provider = $1::varchar AND physical.external_account_id = $2::varchar
-//	                      AND ($1::varchar <> 'codex' OR physical.provider_user_id = $5::text))
+//	                      AND ($1::varchar <> 'codex' OR physical.provider_user_id = $6::text))
 //	    AND EXISTS (SELECT 1 FROM router.credential_subjects AS subject
 //	                JOIN router.credential_subject_installations AS access ON access.subject_id = subject.id
 //	                JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
@@ -1574,13 +1612,15 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 //	SELECT id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
 //	       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
 //	       FALSE::boolean AS inserted,
-//	       (SELECT subscriber_id IS NULL FROM owned)::boolean AS adopted
+//	       (SELECT subscriber_id IS NULL FROM owned)::boolean AS adopted,
+//	       (SELECT subscriber_id FROM owned)::uuid AS previous_subscriber_id
 //	FROM adopted
 //	UNION ALL
 //	SELECT id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
 //	       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
 //	       inserted::boolean,
-//	       FALSE::boolean AS adopted
+//	       FALSE::boolean AS adopted,
+//	       NULL::uuid AS previous_subscriber_id
 //	FROM inserted
 func (q *Queries) UpsertModelRouterSubscriptionAccountForSubscriber(ctx context.Context, arg UpsertModelRouterSubscriptionAccountForSubscriberParams) (UpsertModelRouterSubscriptionAccountForSubscriberRow, error) {
 	row := q.db.QueryRow(ctx, upsertModelRouterSubscriptionAccountForSubscriber,
@@ -1588,6 +1628,7 @@ func (q *Queries) UpsertModelRouterSubscriptionAccountForSubscriber(ctx context.
 		arg.ExternalAccountID,
 		arg.SubscriberID,
 		arg.InstallationID,
+		arg.AllowReassignment,
 		arg.ProviderUserID,
 		arg.RefreshTokenCiphertext,
 		arg.DisplayName,
@@ -1609,6 +1650,7 @@ func (q *Queries) UpsertModelRouterSubscriptionAccountForSubscriber(ctx context.
 		&i.CreatedAt,
 		&i.Inserted,
 		&i.Adopted,
+		&i.PreviousSubscriberID,
 	)
 	return i, err
 }

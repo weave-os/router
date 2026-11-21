@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
@@ -60,10 +61,11 @@ func (m *messagesRescue) armBaseline(ctx context.Context) {
 		modelInRequestSubset(ctx, m.baselineModel)
 	m.baselineViable = !m.agentShadowMode &&
 		!routeRes.CallerModelPassthrough &&
-		m.decision.Reason != translate.ReasonUserForceModel &&
+		!m.decision.UserForcedModel() &&
 		m.routing.ShouldFailover(ctx) &&
 		!paidFallbackForbiddenForModel(ctx, m.baselineModel) &&
 		!anthropicExcluded &&
+		!weaveCreditsCannotFund(ctx, providers.ProviderAnthropic) &&
 		baselineAllowed &&
 		m.decision.Provider != providers.ProviderAnthropic &&
 		m.baselineModel != m.decision.Model &&
@@ -82,7 +84,7 @@ func (m *messagesRescue) armSubscriptionRetry(ctx context.Context) {
 }
 
 func (m *messagesRescue) armRescues(ctx context.Context) context.Context {
-	return m.armSiblings(ctx, m.agentShadowMode || m.routeRes.CallerModelPassthrough || m.decision.Reason == translate.ReasonUserForceModel)
+	return m.armSiblings(ctx, m.agentShadowMode || m.routeRes.CallerModelPassthrough || m.decision.UserForcedModel())
 }
 
 func (m *messagesRescue) armEarlyStop(ctx context.Context) {
@@ -171,7 +173,7 @@ func (m *messagesRescue) redoIfStoppedEarly(ctx context.Context) {
 					redoOpts, redoEffort := switchedAttemptOptions(ctx, opts, target, routeRes.EscalateEffort, s.resolveEffort)
 					redoCtx := m.credentials.ResolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, target.Provider), target.Model), target.Provider, target.Model, r.Header)
 					redoOpts.FastMode = fastModeForAttempt(redoCtx, target.Model, target.Provider)
-					redoMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, markerReasonEarlyStop, target.Model), target.Model, markerReasonEarlyStop))
+					redoMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(m.strategyPorts, ctx, routeRes, siblingRoutingMarkerFor(routeRes, markerReasonEarlyStop, target.Model), target.Model, markerReasonEarlyStop))
 					redoAttempt, buildErr := m.buildAttempt(target, redoOpts, redoMarker, redoCtx)
 					return redoAttempt, m.routing.ResolveBindingsForDispatch(redoCtx, target), redoMarker, redoEffort, redoCtx, buildErr
 				},

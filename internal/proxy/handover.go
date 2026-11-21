@@ -131,7 +131,9 @@ func (c compactionHandoverSummarizer) Summarize(ctx context.Context, env *transl
 func summarizerRequest(scope router.Request, env *translate.RequestEnvelope) router.Request {
 	request := router.Request{
 		EnabledProviders: scope.EnabledProviders,
-		ExcludedModels:   scope.ExcludedModels,
+		Candidates: router.Candidates{
+			ExcludedModels: scope.Candidates.ExcludedModels,
+		},
 		GatewayProviders: scope.GatewayProviders,
 		CustomBindings:   scope.CustomBindings,
 	}
@@ -148,13 +150,13 @@ func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.Resolut
 	if subscriptionStateModelsEnabled(ctx) {
 		paidCtx := context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
 		allowed := allowedModelsForRequest(paidCtx)
-		request.RouterRequest.ExcludedModels = cloneStringSet(request.RouterRequest.ExcludedModels)
-		if request.RouterRequest.ExcludedModels == nil {
-			request.RouterRequest.ExcludedModels = make(map[string]struct{})
+		request.RouterRequest.Candidates.ExcludedModels = cloneStringSet(request.RouterRequest.Candidates.ExcludedModels)
+		if request.RouterRequest.Candidates.ExcludedModels == nil {
+			request.RouterRequest.Candidates.ExcludedModels = make(map[string]struct{})
 		}
 		for _, model := range catalog.Models {
 			if _, permitted := allowed[model.ID]; !permitted {
-				request.RouterRequest.ExcludedModels[model.ID] = struct{}{}
+				request.RouterRequest.Candidates.ExcludedModels[model.ID] = struct{}{}
 			}
 		}
 	}

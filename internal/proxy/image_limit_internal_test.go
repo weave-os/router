@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"testing"
+
 	"weave-os/router/internal/credentials"
 
 	"github.com/stretchr/testify/assert"
@@ -15,7 +16,7 @@ import (
 
 func TestResolveBindingsForDispatchHonorsImageCount(t *testing.T) {
 	model := "xiaomi/mimo-v2.6-pro"
-	s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{
+	s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{
 		providers.ProviderDeepInfra:  {},
 		providers.ProviderOpenRouter: {},
 	}}}
@@ -32,7 +33,7 @@ func TestResolveBindingsForDispatchHonorsImageCount(t *testing.T) {
 
 func TestResolveBindingsForDispatchKeepsExplicitForceWhenNoEligibleBinding(t *testing.T) {
 	model := "xiaomi/mimo-v2.6-pro"
-	s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderDeepInfra: {}}}}
+	s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderDeepInfra: {}}}}
 	bindings := s.resolveBindingsForDispatch(
 		withRequestImageCount(context.Background(), 17),
 		router.Decision{Model: model, Provider: providers.ProviderDeepInfra, Reason: translate.ReasonUserForceModel},
@@ -63,7 +64,7 @@ func TestSiblingRescueSkipsBindingOverImageLimit(t *testing.T) {
 }
 
 func TestOpenRouterOverflowBindingsAllowsUncappedImageCount(t *testing.T) {
-	s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenRouter: {}}}}
+	s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenRouter: {}}}}
 	decision := router.Decision{Model: "xiaomi/mimo-v2.6-pro", Provider: providers.ProviderOpenRouter}
 	large := s.openRouterOverflowBindings(withRequestImageCount(context.Background(), 17), decision)
 	require.Len(t, large, 1)

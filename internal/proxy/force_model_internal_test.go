@@ -53,7 +53,7 @@ func TestResolveForceModel(t *testing.T) {
 		{
 			name:         "alias gpt",
 			input:        "gpt",
-			wantID:       "gpt-6.1-sol",
+			wantID:       "gpt-6.2-sol",
 			wantProvider: providers.ProviderOpenAI,
 			wantKnown:    true,
 		},
@@ -72,9 +72,9 @@ func TestResolveForceModel(t *testing.T) {
 			wantKnown:    true,
 		},
 		{
-			name:         "sol follows 6.1",
+			name:         "sol follows newest Sol",
 			input:        "sol",
-			wantID:       "gpt-6.1-sol",
+			wantID:       "gpt-6.2-sol",
 			wantProvider: providers.ProviderOpenAI,
 			wantKnown:    true,
 		},
@@ -207,7 +207,7 @@ func TestResolveForceModel(t *testing.T) {
 		{
 			name:         "alias kimi current release",
 			input:        "kimi",
-			wantID:       "moonshotai/kimi-k3",
+			wantID:       "moonshotai/kimi-k3.1",
 			wantProvider: providers.ProviderFireworks,
 			wantKnown:    true,
 		},
@@ -507,7 +507,7 @@ func TestResolveForceModel_ObservedSpellings(t *testing.T) {
 		{"gemini-3-1-pro-preview", "gemini-3.1-pro-preview", ""},
 		{"glm 5.3", "z-ai/glm-5.3", ""},
 		{"kimi-k2-7", "moonshotai/kimi-k2.7", ""},
-		{"astra high", "gpt-6-astra", "high"},
+		{"astra high", "gpt-6.2-astra", "high"},
 		{"gpt-6-sol-max", "gpt-6-sol", "max"},
 		{"gpt-6-astra-max", "gpt-6-astra", "max"},
 		{"opus 5.5 xhigh", "claude-opus-5-5", "xhigh"},
@@ -629,4 +629,26 @@ func TestSuggestForceModel_SuggestionsResolve(t *testing.T) {
 			assert.True(t, known, "suggestion %q must resolve", s)
 		})
 	}
+}
+
+func TestUnversionedAliasesFollowNewestFamilyRelease(t *testing.T) {
+	for alias, want := range map[string]string{
+		"sol":    "gpt-6.2-sol",
+		"gpt":    "gpt-6.2-sol",
+		"openai": "gpt-6.2-sol",
+		"astra":  "gpt-6.2-astra",
+		"terra":  "gpt-6.1-terra",
+		"kimi":   "moonshotai/kimi-k3.1",
+	} {
+		assert.Equal(t, want, forceModelAliases[alias], alias)
+	}
+	assert.Equal(t, "gpt-6.1-sol", forceModelAliases["gpt-6-1-sol"], "versioned aliases stay exact")
+	assert.Equal(t, "gpt-6-astra", forceModelAliases["gpt-6"], "versioned aliases stay exact")
+}
+
+func TestResolveForceModel_NeonAlias(t *testing.T) {
+	gotID, gotProvider, gotKnown := resolveForceModel("neon")
+	assert.Equal(t, "gemini-4-neon", gotID)
+	assert.Equal(t, providers.ProviderGoogle, gotProvider)
+	assert.True(t, gotKnown)
 }

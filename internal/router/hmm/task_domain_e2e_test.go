@@ -37,7 +37,7 @@ func TestHTTPRouterCarriesTaskOutcomeThroughGoSelection(t *testing.T) {
 	}))
 	defer server.Close()
 	task := taskdomain.Outcome{Status: taskdomain.Ready, ReleaseSHA256: strings.Repeat("b", 64), EvidenceSHA256: strings.Repeat("c", 64), Profile: taskdomain.Profile{taskdomain.UI: false, taskdomain.Logic: false, taskdomain.Data: false, taskdomain.Infra: true, taskdomain.Docs: false}}
-	routed := New(policyclient.New(server.URL, server.Client(), 0, policyclient.WithTaskDomain(taskOutcomeResolver{task})), map[string]struct{}{providers.ProviderFireworks: {}})
+	routed := NewForStrategy(router.StrategyHMM, policyclient.New(server.URL, server.Client(), 0, policyclient.WithTaskDomain(taskOutcomeResolver{task})), map[string]struct{}{providers.ProviderFireworks: {}})
 	routed.WithArmSelector(func(_ context.Context, input policy.SelectionInput) (policy.SelectionPick, error) {
 		require.NotNil(t, input.TaskDomain)
 		assert.Equal(t, task, *input.TaskDomain)

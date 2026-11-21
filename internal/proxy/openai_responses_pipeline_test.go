@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
@@ -40,11 +41,11 @@ const chatCacheableTurnBody = `{"model":"auto","stream":false,"max_tokens":4096,
   "reasoning_effort":"medium"}`
 
 func openAIChatServiceWithDecision(provider providers.Client, decision router.Decision) *proxy.Service {
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
-	)
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+
 }
 
 // Usage lives in the Responses payload, not in a chat.completion, so the ledger
@@ -95,14 +96,14 @@ func TestService_ProxyMessages_HandoverSwitchToOpenAIEmitsResponses(t *testing.T
 		Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "cluster:v0.2",
 	}}
 	summarizer := &fakeSummarizer{summary: "HANDOVER SUMMARY MARKER"}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderOpenAI:    openAI,
 		},
-		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithSummarizer(summarizer)
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithSummarizer(summarizer)
 
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.New().String()), largeBody(t), rec,
@@ -134,14 +135,14 @@ func TestService_ProxyOpenAIChatCompletion_HandoverUsesResponsesEndpoint(t *test
 		Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "cluster:v0.2",
 	}}
 	summarizer := &fakeSummarizer{summary: "HANDOVER SUMMARY MARKER"}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderOpenAI:    openAI,
 		},
-		nil, store, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
-	).WithSummarizer(summarizer)
+		nil, store, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts()).
+		WithSummarizer(summarizer)
 	body := `{"model":"auto","stream":true,"max_tokens":256,"messages":[{"role":"user","content":"` + strings.Repeat("aaaa ", 8000) + `"}],"tools":[{"type":"function","function":{"name":"noop","parameters":{"type":"object"}}}],"reasoning_effort":"medium"}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))

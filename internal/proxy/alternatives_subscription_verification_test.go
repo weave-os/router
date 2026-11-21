@@ -71,7 +71,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 			client.SetCodexBaseURL(server.URL)
 			resolverRequest := router.Request{HasTools: true}
 			if scenario.excluded {
-				resolverRequest.ExcludedModels = map[string]struct{}{alternative: {}}
+				resolverRequest.Candidates.ExcludedModels = map[string]struct{}{alternative: {}}
 			}
 			if scenario.contextLimited {
 				resolverRequest.EstimatedInputTokens = catalog.ContextWindowFor(alternative) + 1
@@ -88,8 +88,9 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 			if scenario.sessionPinned {
 				pins = &overwritingPinStore{pin: sessionpin.Pin{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires}, found: true}
 			}
-			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: metadata, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, pins, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: metadata, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, pins, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 			ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+			ctx = withWeaveCreditsDeniedWhen(ctx, refusesWithCreditsOff(scenario.max, scenario.alternative))
 			if scenario.max {
 				ctx = entitlement.WithProductScope(ctx, entitlement.PlanMax)
 			}
@@ -123,7 +124,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 				require.Equal(t, "alternative-account", winner.SubscriptionAccountID)
 				require.Equal(t, "synthetic-owner", winner.SubscriptionOwnerID)
 			} else {
-				require.Error(t, dispatchErr, "model denial or an ineligible alternative does not prove quota exhaustion")
+				require.Error(t, dispatchErr, "with credits off, model denial or an ineligible alternative does not buy API capacity")
 				require.Equal(t, []string{"Bearer alternative-seat"}, bearers)
 				require.NotContains(t, rec.Body.String(), "alternative answer")
 				require.False(t, servedOnSubscription(ctx))
@@ -134,12 +135,14 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 
 func TestVerificationAlternativesHonorHardRequestExclusions(t *testing.T) {
 	client := openai.NewClient("synthetic-api-key", "http://127.0.0.1:1")
-	svc := NewService(staticRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)
+	svc := withHMMPorts(NewService(staticRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil))
 	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
 	selected := router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: &router.RoutingMetadata{CandidateModels: []string{codexCoveredModel, "gpt-6-sol", "gpt-6.1-sol"}}}
 	request := router.Request{
-		SafetyExcludedModels:          map[string]struct{}{"gpt-6-sol": {}},
-		UnsignedHistoryExcludedModels: map[string]struct{}{"gpt-6.1-sol": {}},
+		Candidates: router.Candidates{
+			SafetyExcludedModels:          map[string]struct{}{"gpt-6-sol": {}},
+			UnsignedHistoryExcludedModels: map[string]struct{}{"gpt-6.1-sol": {}},
+		},
 	}
 	require.Empty(t, svc.subscriptionAlternativeDecisions(ctx, request, selected))
 	request = router.Request{}
@@ -148,4 +151,8 @@ func TestVerificationAlternativesHonorHardRequestExclusions(t *testing.T) {
 		models = append(models, alternative.Model)
 	}
 	require.Equal(t, []string{"gpt-6-sol", "gpt-6.1-sol"}, models)
+}
+
+func refusesWithCreditsOff(max, alternative bool) bool {
+	return !max && !alternative
 }

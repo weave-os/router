@@ -293,41 +293,19 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 	messages.ForEach(func(_, msg gjson.Result) bool {
 		role := msg.Get("role").String()
 		content := msg.Get("content")
+		isInstruction := role == "system" || role == "developer"
 
 		switch {
-		case role == "system" && !leading:
+		case isInstruction && !leading:
 			flushToolBatch()
 			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(buildAnthropicUserMessage("user", content), sourceMessageCacheControl(msg)))
 
-		case role == "system":
+		case isInstruction:
 			policy := sourceMessageCacheControl(msg)
-			if content.Type == gjson.String {
-				if s := content.String(); s != "" {
-					sb := newJSONWriter()
-					sb.Obj()
-					sb.Key("type")
-					sb.Str("text")
-					sb.Key("text")
-					sb.Str(s)
-					sb.EndObj()
-					systemBlocks = append(systemBlocks, appendCacheControlRaw(string(sb.Bytes()), policy))
-				}
-			} else if content.IsArray() {
-				content.ForEach(func(_, part gjson.Result) bool {
-					if part.Get("type").String() == "text" {
-						if t := part.Get("text").String(); t != "" {
-							sb := newJSONWriter()
-							sb.Obj()
-							sb.Key("type")
-							sb.Str("text")
-							sb.Key("text")
-							sb.Str(t)
-							sb.EndObj()
-							systemBlocks = append(systemBlocks, appendCacheControlRaw(string(sb.Bytes()), policy))
-						}
-					}
-					return true
-				})
+			for _, text := range anthropicSystemTexts(content) {
+				block := newJSONWriter()
+				writeAnthropicTextBlock(block, text)
+				systemBlocks = append(systemBlocks, appendCacheControlRaw(string(block.Bytes()), policy))
 			}
 
 		case role == "tool":

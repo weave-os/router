@@ -5,9 +5,8 @@ import (
 	"errors"
 
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/armid"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 func (c *ServingRuntimeCache) PrepareWorker(ctx context.Context, identity WorkerIdentity, ref ObjectRef) (*Snapshot, error) {
@@ -33,7 +32,7 @@ func (c *ServingRuntimeCache) PrepareWorker(ctx context.Context, identity Worker
 		if err := identity.ValidateBinding(prepared.Target, prepared.Binding); err != nil {
 			return nil, err
 		}
-		if diagnostics := armid.ValidateRosterIDs(prepared.Policy.AllArms()); len(diagnostics) != 0 {
+		if diagnostics := prepared.Policy.CatalogDiagnostics(); len(diagnostics) != 0 {
 			return nil, errors.New("prepared policy contains arms absent from the worker catalog")
 		}
 		if profileKey == "" {
@@ -45,28 +44,28 @@ func (c *ServingRuntimeCache) PrepareWorker(ctx context.Context, identity Worker
 
 type AdmittedRosterSource struct{}
 
-func (AdmittedRosterSource) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
+func (AdmittedRosterSource) DistributionRoster(ctx context.Context, strategy router.Strategy) (*rosterdata.Roster, error) {
 	snapshot := ServingSnapshotFromContext(ctx)
 	if snapshot == nil || snapshot.Policy == nil {
 		return nil, ErrNoActivePolicy
 	}
-	roster, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
+	roster, _ := snapshot.policyForStrategy(strategy)
 	return roster, nil
 }
 
-func (AdmittedRosterSource) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, error) {
+func (AdmittedRosterSource) ClusterRoster(ctx context.Context, strategy router.Strategy) (policy.RosterSnapshot, error) {
 	snapshot := ServingSnapshotFromContext(ctx)
 	if snapshot == nil {
 		return policy.RosterSnapshot{}, ErrNoActivePolicy
 	}
-	return snapshotRoster(snapshot, router.StrategyFromContext(ctx)), nil
+	return snapshotRoster(snapshot, strategy), nil
 }
 
-func (AdmittedRosterSource) Roster(ctx context.Context) ([]string, error) {
+func (AdmittedRosterSource) Roster(ctx context.Context, strategy router.Strategy) ([]string, error) {
 	snapshot := ServingSnapshotFromContext(ctx)
 	if snapshot == nil {
 		return nil, ErrNoActivePolicy
 	}
-	roster, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
+	roster, _ := snapshot.policyForStrategy(strategy)
 	return roster.AllArms(), nil
 }

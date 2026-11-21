@@ -13,7 +13,7 @@
         "body": {
           "content": [
             {
-              "text": "✦ **Weave Router** → force-model: \"not-a-real-model\" isn't a recognized model · keeping automatic routing. Use a model ID or shorthand, e.g. opus, claude-opus-5-5, gpt-6.1-sol, or gemini-3.1-pro-preview.\n\n",
+              "text": "✦ **Weave Router** → force-model: \"not-a-real-model\" isn't a recognized model · keeping automatic routing. Use a model ID or shorthand, e.g. opus, claude-opus-5-5, gpt-6.2-sol, or gemini-3.1-pro-preview.\n\n",
               "type": "text"
             }
           ],

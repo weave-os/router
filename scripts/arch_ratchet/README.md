@@ -25,7 +25,8 @@ Measurement rules (pinned in `ratchet_test.go`):
 - A function new to the diff passes as moved when it claims a distinct removed
   function at least as large on every metric it exceeds, preferring one with the same
   name, otherwise the smallest that covers it. Each removed function covers at most
-  one move.
+  one move. Exact moves (same name, same body, same metrics) are paired first, so a
+  larger unrelated addition cannot take a moved function's match.
 - File totals are summed over the changed files, so moving a line between files is
   neutral and adding one is not.
 - The proxy surface counts `proxy.Service`'s fields and methods and the distinct keys
