@@ -34,7 +34,7 @@ func ClaudeSubscriptionObservedExhausted(observed SubscriptionUsage, token strin
 }
 
 func ClaudePlanFromUsage(plan providers.SubscriptionPlan, observed SubscriptionUsage, token []byte) providers.SubscriptionPlan {
-	if plan != providers.SubscriptionPlanUnknown || observed == nil || len(token) == 0 {
+	if plan != providers.SubscriptionPlanUnknown || len(token) == 0 {
 		return plan
 	}
 	if snap, ok := observed.Snapshot(observed.Key(token)); ok && snap.OverageWithoutIncludedWindows() {

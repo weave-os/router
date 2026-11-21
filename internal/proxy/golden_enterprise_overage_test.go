@@ -35,8 +35,6 @@ var goldenPlanOverageSnapshot = usage.Snapshot{
 	RepresentativeClaim: usage.AnthropicClaimOverage, OverageInUse: true,
 }
 
-// observedOverage records snap for the caller's login and answers Claude
-// profile lookups with plans.
 func observedOverage(snap usage.Snapshot, plans providers.SubscriptionPlanReader) func(*proxy.Service, *goldenHarness) *proxy.Service {
 	return func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 		obs := usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now)
