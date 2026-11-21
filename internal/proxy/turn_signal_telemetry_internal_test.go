@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -132,20 +133,20 @@ func TestApplyTurnSignalTelemetry_NilParamsIsNoOp(t *testing.T) {
 }
 
 type memorySessionTurnClock struct {
-	finishes map[string]SessionTurnClockReading
+	finishes map[string]telemetry.SessionTurnClockReading
 }
 
-func (c *memorySessionTurnClock) AdvanceSessionTurnClock(_ context.Context, advance SessionTurnClockAdvance) (SessionTurnClockReading, bool, error) {
+func (c *memorySessionTurnClock) AdvanceSessionTurnClock(_ context.Context, advance telemetry.SessionTurnClockAdvance) (telemetry.SessionTurnClockReading, bool, error) {
 	key := advance.InstallationID + string(advance.SessionKey)
 	previous, found := c.finishes[key]
 	if !found || previous.ResponseEndedAt.Before(advance.ResponseEndedAt) {
-		c.finishes[key] = SessionTurnClockReading{ResponseEndedAt: advance.ResponseEndedAt, ServedModel: advance.ServedModel}
+		c.finishes[key] = telemetry.SessionTurnClockReading{ResponseEndedAt: advance.ResponseEndedAt, ServedModel: advance.ServedModel}
 	}
 	return previous, found, nil
 }
 
 func TestApplyUserPromptGap_TimesTypedPromptAgainstPreviousResponse(t *testing.T) {
-	clock := &memorySessionTurnClock{finishes: map[string]SessionTurnClockReading{}}
+	clock := &memorySessionTurnClock{finishes: map[string]telemetry.SessionTurnClockReading{}}
 	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	start := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	turn := func(offset time.Duration, latencyMs int64, turnType string, model string, typed bool) InsertTelemetryParams {
@@ -184,7 +185,7 @@ func TestApplyUserPromptGap_TimesTypedPromptAgainstPreviousResponse(t *testing.T
 }
 
 func TestApplyUserPromptGap_OverlappingPreviousResponseLeavesGapNull(t *testing.T) {
-	clock := &memorySessionTurnClock{finishes: map[string]SessionTurnClockReading{}}
+	clock := &memorySessionTurnClock{finishes: map[string]telemetry.SessionTurnClockReading{}}
 	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	start := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	typed := true
@@ -204,7 +205,7 @@ func TestApplyUserPromptGap_OverlappingPreviousResponseLeavesGapNull(t *testing.
 }
 
 func TestApplyUserPromptGap_FailedTurnDoesNotMoveTheClock(t *testing.T) {
-	clock := &memorySessionTurnClock{finishes: map[string]SessionTurnClockReading{}}
+	clock := &memorySessionTurnClock{finishes: map[string]telemetry.SessionTurnClockReading{}}
 	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	start := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	typed := true
@@ -238,9 +239,9 @@ type deadlineRecordingClock struct {
 	deadline time.Time
 }
 
-func (c *deadlineRecordingClock) AdvanceSessionTurnClock(ctx context.Context, _ SessionTurnClockAdvance) (SessionTurnClockReading, bool, error) {
+func (c *deadlineRecordingClock) AdvanceSessionTurnClock(ctx context.Context, _ telemetry.SessionTurnClockAdvance) (telemetry.SessionTurnClockReading, bool, error) {
 	c.deadline, _ = ctx.Deadline()
-	return SessionTurnClockReading{}, false, nil
+	return telemetry.SessionTurnClockReading{}, false, nil
 }
 
 func TestApplyUserPromptGap_ClockLeavesTheInsertItsBudget(t *testing.T) {
