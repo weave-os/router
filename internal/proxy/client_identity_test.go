@@ -96,7 +96,7 @@ func TestInternalTestIdentitySkipsAssignedUserRouting(t *testing.T) {
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, nil).WithRoutingPolicies(routingPolicies, nil)
 	assignedContext, err := authService.WithRoutingPolicy(ctx, "installation")
 	require.NoError(t, err)
-	resolvedContext, err := proxy.ResolveRoutingAssignment(assignedContext, authService, &auth.Installation{ID: "installation"})
+	resolvedContext, err := auth.ResolveRoutingAssignment(assignedContext, authService, &auth.Installation{ID: "installation"}, requestcontext.CallerFrom(assignedContext))
 	require.NoError(t, err)
 	require.Same(t, assignedContext, resolvedContext)
 	require.Zero(t, routingPolicies.assignmentReads)
@@ -179,7 +179,7 @@ func TestResolveUserFromContext_AccountUUIDOnlyReachesUpsert(t *testing.T) {
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{
 		AccountID: "2c2aace8-82e9-4cb1-8d1f-2f822da43177",
 	})
-	ctx = proxy.ResolveUserFromContext(ctx, svc, inst, nil)
+	ctx = auth.ResolveUserFromContext(ctx, svc, inst, nil, requestcontext.CallerFrom(ctx))
 
 	assert.Empty(t, repo.emailUpserts, "no email signal: must not hit the email-keyed upsert")
 	require.Len(t, repo.accountUpserts, 1, "account_uuid alone must still reach UpsertByAccountUUID")
@@ -195,7 +195,7 @@ func TestResolveUserFromContext_EmailOnlyReachesEmailUpsert(t *testing.T) {
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{
 		Email: "alice@example.com",
 	})
-	ctx = proxy.ResolveUserFromContext(ctx, svc, inst, nil)
+	ctx = auth.ResolveUserFromContext(ctx, svc, inst, nil, requestcontext.CallerFrom(ctx))
 
 	require.Len(t, repo.emailUpserts, 1)
 	assert.Empty(t, repo.accountUpserts)
@@ -280,7 +280,7 @@ func TestResolveUserFromContext_BothMissingIsNoOp(t *testing.T) {
 	inst := &auth.Installation{ID: "inst-1"}
 
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{})
-	ctx = proxy.ResolveUserFromContext(ctx, svc, inst, nil)
+	ctx = auth.ResolveUserFromContext(ctx, svc, inst, nil, requestcontext.CallerFrom(ctx))
 
 	assert.Empty(t, repo.emailUpserts)
 	assert.Empty(t, repo.accountUpserts)
@@ -374,7 +374,7 @@ func TestResolveUserFromContext_NoClientIdentityAttributesToPersonalKeyOwner(t *
 	key := &auth.APIKey{ID: "key-1", InstallationID: "inst-1", CredentialSubjectID: "61f77e74-0000-4000-8000-000000000001"}
 
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{DisplayName: "Alice Liddell"})
-	ctx = proxy.ResolveUserFromContext(ctx, svc, inst, key)
+	ctx = auth.ResolveUserFromContext(ctx, svc, inst, key, requestcontext.CallerFrom(ctx))
 
 	assert.Empty(t, repo.emailUpserts)
 	assert.Empty(t, repo.accountUpserts)
@@ -393,7 +393,7 @@ func TestResolveUserFromContext_NoClientIdentityOnSharedKeyAttributesToPerKeyUse
 	key := &auth.APIKey{ID: "61f77e74-0000-4000-8000-0000000000aa", InstallationID: "inst-1"}
 
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{})
-	ctx = proxy.ResolveUserFromContext(ctx, svc, inst, key)
+	ctx = auth.ResolveUserFromContext(ctx, svc, inst, key, requestcontext.CallerFrom(ctx))
 
 	assert.Empty(t, repo.subjectUpserts)
 	require.Len(t, repo.unidentifiedUpserts, 1)
@@ -409,7 +409,7 @@ func TestResolveUserFromContext_ClientIdentityBeatsPersonalKeyOwner(t *testing.T
 	key := &auth.APIKey{ID: "key-1", InstallationID: "inst-1", CredentialSubjectID: "61f77e74-0000-4000-8000-000000000001"}
 
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{Email: "alice@example.com"})
-	ctx = proxy.ResolveUserFromContext(ctx, svc, inst, key)
+	ctx = auth.ResolveUserFromContext(ctx, svc, inst, key, requestcontext.CallerFrom(ctx))
 
 	require.Len(t, repo.emailUpserts, 1)
 	assert.Empty(t, repo.subjectUpserts)

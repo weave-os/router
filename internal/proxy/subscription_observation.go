@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 
 	"weave-os/router/internal/observability"
@@ -70,6 +71,9 @@ func restrictToSubscriptionProviders(ctx context.Context, headers http.Header, e
 }
 
 func restrictToCustomerFundedProviders(ctx context.Context, headers http.Header, enabled map[string]struct{}) map[string]struct{} {
+	if billing.ByokFeeUnpayable(ctx) {
+		return restrictToSubscriptionProviders(ctx, headers, enabled)
+	}
 	return restrictToProviders(enabled, customerFundedProviders(ctx, headers))
 }
 
@@ -106,6 +110,21 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 	default:
 		return false
 	}
+}
+
+func RequestHasCustomerFunding(ctx context.Context, headers http.Header, routePath string, byokFeeOwed bool) bool {
+	if RequestPresentsCoveringSubscription(ctx, headers, routePath) {
+		return true
+	}
+	if byokFeeOwed {
+		return false
+	}
+	for provider := range BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)) {
+		if usableBYOK(ctx, provider) != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) context.Context {

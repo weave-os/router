@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -218,4 +219,40 @@ func TestOrgMonthlySpendCap_ExemptsSubscriberAllowanceCoveredRequest(t *testing.
 	w, reached, _ := runOrgMonthlyCapSub(t, setInstall, "", repo)
 	assert.True(t, reached, "an allowance-covered turn is not gated on the org monthly spend cap")
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestOrgMonthlySpendCap_KeyOnlyCallerAtCap(t *testing.T) {
+	// At a zero fee rate the customer's key funds the turn past a reached cap;
+	// with a fee above zero the organization cannot pay it, so admission refuses.
+	for name, tc := range map[string]struct {
+		feeRate  float64
+		wantCode int
+	}{
+		"zero_fee":    {wantCode: http.StatusOK},
+		"fee_charged": {feeRate: 0.05, wantCode: http.StatusPaymentRequired},
+	} {
+		t.Run(name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			svc := billing.NewService(&stubBillingRepo{orgMonthSpent: 1_000_000, orgMonthLimit: capPtr(1_000_000)}).WithByokFeeRate(tc.feeRate)
+			keys := []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")}}
+			engine := gin.New()
+			var reason billing.SubscriptionOnlyReason
+			engine.GET("/v1/messages", func(c *gin.Context) {
+				withInstallation(c, "org-keys")
+				c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), credentials.ExternalAPIKeysContextKey{}, keys))
+				middleware.WithOrgMonthlySpendCap(svc)(c)
+				if c.IsAborted() {
+					return
+				}
+				reason, _ = billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
+				c.Status(http.StatusOK)
+			})
+			w := httptest.NewRecorder()
+			engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil))
+			assert.Equal(t, tc.wantCode, w.Code)
+			if tc.wantCode == http.StatusOK {
+				assert.Equal(t, billing.SubscriptionOnlySpendCapReached, reason)
+			}
+		})
+	}
 }
