@@ -58,13 +58,8 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-type TelemetryEmitter interface {
-	NewRecorder() telemetry.Recorder
-	NewUsageExtractor(http.ResponseWriter, string) (*telemetry.UsageExtractor, http.ResponseWriter)
-}
-
 type Service struct {
-	externalKeyUsage    ExternalKeyUsageRecorder
+	externalKeyUsage    credentials.ExternalKeyUsageRecorder
 	recoveryProbeMu     sync.Mutex
 	recoveryProbeLeases map[string]localRecoveryProbeLease
 	nextRecoveryProbeID uint64
@@ -83,7 +78,7 @@ type Service struct {
 	scopedSearchRequirement      bool
 	searchRequirementDecayTurns  int
 	searchUse                    *searchUseTracker
-	emitter                      TelemetryEmitter
+	emitter                      telemetry.Emitter
 	translationMetrics           telemetry.TranslationMetrics
 	pinStore                     sessionpin.Store
 	escalation                   *floor.Helper
@@ -93,7 +88,6 @@ type Service struct {
 	sessionStrategyStore         sessionstrategy.Store
 	classifierSessions           *classifierSessions
 	lifecycle                    *conversation.Lifecycle
-	compaction                   *conversation.CompactionTracker
 	prefixTrimFreeSwitch         bool
 	escapeNormalize              bool
 	hardPinExplore               bool
@@ -104,7 +98,7 @@ type Service struct {
 	subAgentProvider             string
 	subAgentModel                string
 	telemetry                    TelemetryRepository
-	turnClock                    SessionTurnClock
+	turnClock                    telemetry.SessionTurnClock
 	captureMode                  ContentCaptureMode
 	captureMaxBytes              int
 	redactor                     Redactor
@@ -153,7 +147,7 @@ type Service struct {
 	billing                      *billing.Service
 	retrySleep                   func(context.Context, time.Duration) error
 	clock                        auth.Clock
-	feedbackRepo                 FeedbackRepository
+	feedbackRepo                 feedback.FeedbackRepository
 	feedbackSigner               *feedback.Signer
 	piHandoffSecret              []byte
 	feedbackBaseURL              string
@@ -945,7 +939,7 @@ func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 	return false
 }
 
-func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
+func NewService(r router.Router, providerMap map[string]providers.Client, emitter telemetry.Emitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetryRepo TelemetryRepository) *Service {
 	s := &Service{
 		clients:                        dispatch.NewClients(providerMap),
 		translationCompatibilityMode:   TranslationCompatibilityShadow,
@@ -955,14 +949,13 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		lifecycle:                      conversation.NewLifecycle(),
 		searchUse:                      newSearchUseTracker(),
 		searchRequirementDecayTurns:    DefaultSearchRequirementDecayTurns,
-		compaction:                     conversation.NewCompactionTracker(),
 		prefixTrimFreeSwitch:           true,
 		turnSignalCaptureEnabled:       true,
 		ccOrchToolsCrossVendor:         true,
 		hardPinExplore:                 hardPinExplore,
 		hardPinProvider:                hardPinProvider,
 		hardPinModel:                   hardPinModel,
-		telemetry:                      telemetry,
+		telemetry:                      telemetryRepo,
 		continuityConfig:               continuity.DefaultConfig(),
 		hmmServing:                     hmmServing{hmmConfig: continuity.DefaultAuthoritativeConfig()},
 		cyberRefusalRepin:              true,
@@ -2027,16 +2020,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	ctx = context.WithValue(ctx, nativeSearchLoggerContextKey{}, observability.FromContext(ctx))
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
-	switch gjson.GetBytes(body, "thread.type").String() {
-	case translate.MessageThreadContinue:
+	body, threadContinued, threadErr := s.ingress.Anthropic.StripMessageThread(body, r.Header)
+	if threadErr != nil {
+		return fmt.Errorf("strip message thread: %w", threadErr)
+	}
+	if threadContinued {
 		observability.FromContext(ctx).Info("Rejecting message-thread continue; client resends full history")
-		return writeMessageThreadUnsupported(w)
-	case translate.MessageThreadCreate:
-		var threadErr error
-		if body, threadErr = sjson.DeleteBytes(body, "thread"); threadErr != nil {
-			return fmt.Errorf("strip message thread: %w", threadErr)
-		}
-		translate.StripMessageThreadsBeta(r.Header)
+		return ingress.WriteMessageThreadUnsupported(w)
 	}
 	ctx, returnErr = withTurnInput(ctx, s, body, r.Header, router.EndpointAnthropicMessages)
 	if returnErr != nil {
@@ -2453,7 +2443,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	if !agentShadowMode && !callerModelPassthroughActive(ctx) {
-		if _, recoveryErr := applyClientCompactionRecovery(ctx, env, clientBudget, tt, req.ConversationMessages); recoveryErr != nil {
+		if _, recoveryErr := conversation.ApplyClientCompactionRecovery(ctx, env, clientBudget, tt, req.ConversationMessages, DefaultCompactionMaxTokens, claudeCodeDefaultWindow); recoveryErr != nil {
 			return recoveryErr
 		}
 	}
@@ -3204,18 +3194,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		s.maybeRepinOnRefusal(ctx, strategy, refusalObs, routeRes.SessionKey, stickyStateRole(routeRes), decision)
 	}
 
-	for _, iss := range respSummary.ToolCallIssues {
-		log.Info("router.tool_call_invalid",
-			"tool_name", iss.ToolName,
-			"failure_bucket", string(iss.Bucket),
-			"detail", iss.Detail,
-			"repaired", iss.Repaired,
-			"repair_actions", iss.Actions,
-			"model", decision.Model,
-			"provider", finalProvider,
-			"session_key_prefix", conversation.ShortSessionKey(routeRes.SessionKey),
-		)
-	}
+	logToolCallIssues(log, respSummary.ToolCallIssues, decision.Model, finalProvider, routeRes.SessionKey)
 
 	if preludeBuf.Committed() {
 		streamCut.noteCut(proxyErr)
@@ -3626,17 +3605,8 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 	})
 }
 
-func pinDecision(p sessionpin.Pin) router.Decision {
-	return router.Decision{
-		Provider: p.Provider,
-		Model:    p.Model,
-		Effort:   p.Effort,
-		Reason:   p.Reason,
-	}
-}
-
 func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, hasImages bool, imageCount int, enabledProviders, excludedModels map[string]struct{}) router.Decision {
-	anchor := pinDecision(pin)
+	anchor := pin.Decision()
 	if s.bandSwap == nil || pin.PairedModel == "" || turnType != turntype.MainLoop {
 		return anchor
 	}
@@ -3647,7 +3617,7 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 	if !ok {
 		return anchor
 	}
-	large, small := orderBandPair(pin)
+	large, small := pin.OrderedBandPair()
 	served := large
 	if band == bandswap.Small {
 		served = small
@@ -3683,30 +3653,6 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 		"paired_model", pin.PairedModel,
 	)
 	return served
-}
-
-func orderBandPair(pin sessionpin.Pin) (large, small router.Decision) {
-	a := pinDecision(pin)
-	b := router.Decision{Provider: pin.PairedProvider, Model: pin.PairedModel, Reason: pin.Reason}
-	ta, tb := catalog.TierFor(a.Model), catalog.TierFor(b.Model)
-	if ta != tb {
-		if ta > tb {
-			return a, b
-		}
-		return b, a
-	}
-	if primaryInputPrice(a.Model) >= primaryInputPrice(b.Model) {
-		return a, b
-	}
-	return b, a
-}
-
-func primaryInputPrice(model string) float64 {
-	pricing, ok := catalog.PrimaryPriceFor(model)
-	if !ok {
-		return 0
-	}
-	return pricing.InputUSDPer1M
 }
 
 func pinAge(p sessionpin.Pin, now time.Time) int64 {
@@ -5282,18 +5228,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		s.repinOffRefusingModel(ctx, strategy, routeRes.SessionKey, stickyStateRole(routeRes), rescue.primaryDecision, providers.CyberPolicyErrorCode, rescue.primaryDecision.Provider)
 	}
 
-	for _, iss := range respSummary.ToolCallIssues {
-		log.Info("router.tool_call_invalid",
-			"tool_name", iss.ToolName,
-			"failure_bucket", string(iss.Bucket),
-			"detail", iss.Detail,
-			"repaired", iss.Repaired,
-			"repair_actions", iss.Actions,
-			"model", decision.Model,
-			"provider", finalProvider,
-			"session_key_prefix", conversation.ShortSessionKey(routeRes.SessionKey),
-		)
-	}
+	logToolCallIssues(log, respSummary.ToolCallIssues, decision.Model, finalProvider, routeRes.SessionKey)
 
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
 	log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", rescue.primaryProvider, "primary_model", rescue.primaryModel, "fallback_attempts", winnerIdx, "failover_used", rescue.failoverUsed, "failover_attempted", rescue.failoverAttempted, "subscription_failover", rescue.codexFailoverUsed || rescue.claudeFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), respSummary.UpstreamFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(facts.Client), "subscription_tier", servedSubscriptionTier}, append(append(armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI), plannerLogFields(routeRes)...), rateLimit.CompletionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)

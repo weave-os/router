@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/gitcontext"
+	"weave-os/router/internal/telemetry"
 )
 
 type TelemetryRepository interface {
@@ -34,15 +35,6 @@ type TelemetryRepository interface {
 	GetTelemetrySubscriptionPoolSeats(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]TelemetrySubscriptionSeat, error)
 	GetTelemetryDashboardDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]TelemetryDrillDownRow, error)
 	GetTelemetryDashboardIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryIndividualFact, error)
-}
-
-type InferenceAttemptStore interface {
-	InsertInferenceAttempt(ctx context.Context, p InsertInferenceAttemptParams) error
-}
-
-type InsertInferenceAttemptParams struct {
-	InstallationID string
-	Event          inference.AttemptEvent
 }
 
 type SessionCost struct {
@@ -525,7 +517,7 @@ func int32Ptr(v int32) *int32 {
 }
 
 type attemptSink struct {
-	store  InferenceAttemptStore
+	store  telemetry.InferenceAttemptStore
 	logger *slog.Logger
 }
 
@@ -537,7 +529,7 @@ func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptE
 	if installationID == "" {
 		return
 	}
-	if err := s.store.InsertInferenceAttempt(context.WithoutCancel(ctx), InsertInferenceAttemptParams{
+	if err := s.store.InsertInferenceAttempt(context.WithoutCancel(ctx), telemetry.InsertInferenceAttemptParams{
 		InstallationID: installationID,
 		Event:          event,
 	}); err != nil && s.logger != nil {
@@ -548,7 +540,7 @@ func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptE
 	}
 }
 
-func NewAttemptSink(store InferenceAttemptStore, logger *slog.Logger) dispatch.AttemptSink {
+func NewAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Logger) dispatch.AttemptSink {
 	return attemptSink{store: store, logger: logger}
 }
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -63,9 +64,9 @@ func (s *Service) handleRouterFeedbackCommand(
 
 	ack := newCommandAcknowledgment(translate.CommandRouterFeedback)
 	ack.clientApp = ClientIdentityFrom(ctx).ClientApp
-	feedback := strings.TrimSpace(cmd.Feedback)
+	feedbackText := strings.TrimSpace(cmd.Feedback)
 	rating := cmd.Rating
-	if rating == "" && feedback == "" {
+	if rating == "" && feedbackText == "" {
 		ack.feedback = feedbackEmpty
 		ack.outcome.Disposition = translate.CommandRejected
 		if synthetic {
@@ -132,7 +133,7 @@ func (s *Service) handleRouterFeedbackCommand(
 			ServedModel:    servedModel,
 			Rating:         rating,
 			SuggestedLabel: cmd.SuggestedLabel,
-			Feedback:       persistedFeedbackText(rating, feedback),
+			Feedback:       persistedFeedbackText(rating, feedbackText),
 			Source:         RouterFeedbackSourceUser,
 			RequestID:      telemetryRequestID,
 			RouteID:        telemetryRouteID,
@@ -143,8 +144,8 @@ func (s *Service) handleRouterFeedbackCommand(
 		}
 	}
 	if telemetryRequestID != "" && rating != "" && s.feedbackRepo != nil {
-		comment := feedback
-		upsertParams := UpsertFeedbackParams{
+		comment := feedbackText
+		upsertParams := feedback.UpsertFeedbackParams{
 			InstallationID: target.installationID.String(),
 			ExternalID:     externalID,
 			RequestID:      telemetryRequestID,
@@ -167,7 +168,7 @@ func (s *Service) handleRouterFeedbackCommand(
 		if (cmd.Sequence == 0 || cmd.Sequence == -1) && s.strategyPorts.Ownership.Owns(target.strategy) && trainingAllowed {
 			trainingDelta = routerFeedbackTrainingDelta(env)
 		}
-		s.reportRouterFeedback(ctx, registered.feedback, target.strategy, externalID, target.installationID, target.sessionKey, role, routerUserID, clientID, env.Model(), servedModel, rating, feedback, cmd.SuggestedLabel, RouterFeedbackSourceUser, trainingDelta, telemetryRequestID, telemetryRouteID)
+		s.reportRouterFeedback(ctx, registered.feedback, target.strategy, externalID, target.installationID, target.sessionKey, role, routerUserID, clientID, env.Model(), servedModel, rating, feedbackText, cmd.SuggestedLabel, RouterFeedbackSourceUser, trainingDelta, telemetryRequestID, telemetryRouteID)
 	}
 
 	now := s.clock.Now()
@@ -183,7 +184,7 @@ func (s *Service) handleRouterFeedbackCommand(
 		String("feedback.role", role).
 		String("feedback.rating", rating).
 		Int64("feedback.sequence", int64(cmd.Sequence)).
-		String("feedback.text", feedback).
+		String("feedback.text", feedbackText).
 		String("feedback.source", RouterFeedbackSourceUser)
 	if telemetryRequestID != "" {
 		attrs = attrs.String("feedback.request_id", telemetryRequestID)
@@ -201,7 +202,7 @@ func (s *Service) handleRouterFeedbackCommand(
 
 	log.Info("router.feedback.command",
 		"rating", rating,
-		"feedback", feedback,
+		"feedback", feedbackText,
 		"served_model", servedModel,
 		"requested_model", env.Model(),
 		"role", role,
