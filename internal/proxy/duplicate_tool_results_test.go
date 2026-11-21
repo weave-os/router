@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 )
@@ -32,7 +33,7 @@ const codexNotifyTurnBody = `{"model":"gpt-5.6-sol","input":[` +
 	`],"tools":[{"type":"custom","name":"exec"}]}`
 
 func codexClientCtx() context.Context {
-	return context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	return context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 }
 
 func TestProxyOpenAIResponses_CodexDuplicateToolOutputsReachAnthropicOnce(t *testing.T) {

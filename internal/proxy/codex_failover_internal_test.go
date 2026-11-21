@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -366,7 +367,7 @@ func TestCodexRescue_FailedRetryWritesNothingIntoACommittedResponsesStream(t *te
 
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 	require.Error(t, err)
 

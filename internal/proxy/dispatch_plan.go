@@ -100,12 +100,12 @@ func (s *Service) dispatchPlanned(ctx context.Context, in dispatch.FailoverInput
 		}
 		for account := 0; ; account++ {
 			if !committed(in.Prelude) {
-				in.Writer.Header().Set(HeaderRouterProvider, decision.Provider)
-				in.Writer.Header().Set(HeaderRouterModel, decision.Model)
-				in.Writer.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+				in.Writer.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
+				in.Writer.Header().Set(requestcontext.HeaderRouterModel, decision.Model)
+				in.Writer.Header().Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 				if attempt.Index > 0 {
-					in.Writer.Header().Set(HeaderRouterFallbackFrom, in.Bindings[0].Provider)
-					in.Writer.Header().Set(HeaderRouterFallbackAttempt, attemptIdxLabel(attempt.Index))
+					in.Writer.Header().Set(requestcontext.HeaderRouterFallbackFrom, in.Bindings[0].Provider)
+					in.Writer.Header().Set(requestcontext.HeaderRouterFallbackAttempt, attemptIdxLabel(attempt.Index))
 				}
 			}
 			if current := CredentialsFromContext(attemptCtx); current != nil && current.OAuth && !s.supportsSubscriptionTransport(decision.Provider) {

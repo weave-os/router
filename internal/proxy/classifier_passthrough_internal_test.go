@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -218,7 +219,7 @@ func TestBypass_ClassifierPassthrough_TelemetryReason(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("passthrough classifier never persisted a telemetry row")
 	}
-	assert.Equal(t, reasonClassifierPassthrough, rec.Header().Get(HeaderRouterDecision))
+	assert.Equal(t, reasonClassifierPassthrough, rec.Header().Get(requestcontext.HeaderRouterDecision))
 	sink.mu.Lock()
 	defer sink.mu.Unlock()
 	require.Len(t, sink.rows, 1)

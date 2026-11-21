@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/hmm"
@@ -200,7 +201,7 @@ func TestTurnLoop_HighOutputKeepsActiveAndExpiredPins(t *testing.T) {
 			svc := newPinSvc(routes, store).EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false }).WithAvailableModels(map[string]struct{}{capAnthropicModel: {}, freshModel: {}})
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyMessages(authedCtx(uuid.NewString()), []byte(pinTestBody), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)))
-			assert.Equal(t, capAnthropicModel, rec.Header().Get(proxy.HeaderRouterModel))
+			assert.Equal(t, capAnthropicModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 		})
 	}
 }

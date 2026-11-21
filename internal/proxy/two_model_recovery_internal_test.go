@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -47,7 +48,7 @@ func TestTwoModelGatewayRecoveryReadmitsStruckSibling(t *testing.T) {
 	assert.Equal(t, 3, primary.calls)
 	assert.Equal(t, 1, sibling.calls)
 	require.NoError(t, err, "after both strikes a precommit primary failure must still try the permitted sibling")
-	assert.Equal(t, recoveryOpusModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, recoveryOpusModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Contains(t, rec.Body.String(), "message_stop")
 }
 
@@ -280,7 +281,7 @@ func TestTwoModelGatewayRecoveryRetriesThenRecordsWithdrawal(t *testing.T) {
 			assert.Equal(t, 3, primary.calls)
 			assert.Equal(t, 1, sibling.calls)
 			assert.Len(t, retryWaits, 2)
-			assert.Equal(t, recoveryOpusModel, rec.Header().Get(HeaderRouterModel))
+			assert.Equal(t, recoveryOpusModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 			assert.Contains(t, rec.Body.String(), "message_stop")
 			if scenario.cooldown {
 				assert.Empty(t, store.demotions)

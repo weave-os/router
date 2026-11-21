@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/google/uuid"
@@ -41,9 +42,9 @@ func TestCommandOutcomesAcrossSurfaces(t *testing.T) {
 				store := newForceModelMapStore()
 				svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 					WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
-				app := ClientAppClaudeCode
+				app := requestcontext.ClientAppClaudeCode
 				if surface != translate.FormatAnthropic {
-					app = ClientAppCodex
+					app = requestcontext.ClientAppCodex
 				}
 				ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: app, SessionID: "synthetic-session"})
 				ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
@@ -197,7 +198,7 @@ func TestHeaderPersistenceFailureRetainsSameActionForce(t *testing.T) {
 	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
-	request.Header.Set(ForceModelHeader, "opus:high")
+	request.Header.Set(requestcontext.ForceModelHeader, "opus:high")
 	_, model, err := svc.applyForceModelHeader(context.Background(), request, uuid.New(), [sessionpin.SessionKeyLen]byte{1})
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-5-5:high", model)

@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/google"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -98,6 +99,6 @@ func TestProxyMessages_GeminiCorruptedThoughtSignatureFailsOverToBaselineAnthrop
 	assert.Contains(t, respBody, "event: message_start")
 	assert.Contains(t, respBody, "event: message_stop")
 	assert.NotContains(t, respBody, "Corrupted thought signature")
-	assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get(proxy.HeaderRouterProvider))
-	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get(requestcontext.HeaderRouterProvider))
+	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(requestcontext.HeaderRouterModel))
 }

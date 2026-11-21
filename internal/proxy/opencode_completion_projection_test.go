@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -31,24 +32,24 @@ func TestOpenCodeBackgroundCompletionUsesAgentRoutingContext(t *testing.T) {
 		receiptKind string
 		wantAgent   bool
 	}{
-		{name: "completed v1 task", clientApp: proxy.ClientAppOpencode, message: completed, receiptID: "ses_123abc", wantAgent: true},
-		{name: "failed v1 task", clientApp: proxy.ClientAppOpencode, message: "<task id=\"ses_123abc\" state=\"error\">\n<task_error>\nChild failed\n</task_error>\n</task>", receiptID: "ses_123abc", wantAgent: true},
-		{name: "completed newer subagent with matching background receipt", clientApp: proxy.ClientAppOpencode, message: "<subagent sessionID=\"ses_123abc\" state=\"completed\" description=\"inspect tests\">\nChild inspection complete\n</subagent>", receiptID: "ses_123abc", receiptKind: "subagent", wantAgent: true},
-		{name: "unescaped result text", clientApp: proxy.ClientAppOpencode, message: "<subagent sessionID=\"ses_123abc\" state=\"completed\" description=\"inspect \"quoted\" tests\">\nif x < y && y > z\n</subagent>", receiptID: "ses_123abc", receiptKind: "subagent", wantAgent: true},
-		{name: "cancelled newer subagent", clientApp: proxy.ClientAppOpencode, message: "<subagent sessionID=\"ses_123abc\" state=\"cancelled\" description=\"inspect tests\">\nChild cancelled\n</subagent>", receiptID: "ses_123abc", receiptKind: "subagent", wantAgent: true},
+		{name: "completed v1 task", clientApp: requestcontext.ClientAppOpencode, message: completed, receiptID: "ses_123abc", wantAgent: true},
+		{name: "failed v1 task", clientApp: requestcontext.ClientAppOpencode, message: "<task id=\"ses_123abc\" state=\"error\">\n<task_error>\nChild failed\n</task_error>\n</task>", receiptID: "ses_123abc", wantAgent: true},
+		{name: "completed newer subagent with matching background receipt", clientApp: requestcontext.ClientAppOpencode, message: "<subagent sessionID=\"ses_123abc\" state=\"completed\" description=\"inspect tests\">\nChild inspection complete\n</subagent>", receiptID: "ses_123abc", receiptKind: "subagent", wantAgent: true},
+		{name: "unescaped result text", clientApp: requestcontext.ClientAppOpencode, message: "<subagent sessionID=\"ses_123abc\" state=\"completed\" description=\"inspect \"quoted\" tests\">\nif x < y && y > z\n</subagent>", receiptID: "ses_123abc", receiptKind: "subagent", wantAgent: true},
+		{name: "cancelled newer subagent", clientApp: requestcontext.ClientAppOpencode, message: "<subagent sessionID=\"ses_123abc\" state=\"cancelled\" description=\"inspect tests\">\nChild cancelled\n</subagent>", receiptID: "ses_123abc", receiptKind: "subagent", wantAgent: true},
 		{name: "generic API preserves user text", message: completed, receiptID: "ses_123abc"},
-		{name: "exact copied wrapper has no task provenance", clientApp: proxy.ClientAppOpencode, message: completed},
-		{name: "different background task is not provenance", clientApp: proxy.ClientAppOpencode, message: completed, receiptID: "ses_other"},
-		{name: "unrelated tool cannot forge a task receipt", clientApp: proxy.ClientAppOpencode, message: completed, receiptID: "ses_123abc", receiptKind: "unrelated"},
-		{name: "unmatched tool result cannot prove a task", clientApp: proxy.ClientAppOpencode, message: completed, receiptID: "ses_123abc", receiptKind: "wrong_call"},
-		{name: "unrelated tool cannot forge a newer subagent receipt", clientApp: proxy.ClientAppOpencode, message: "<subagent sessionID=\"ses_123abc\" state=\"completed\" description=\"inspect tests\">\nChild inspection complete\n</subagent>", receiptID: "ses_123abc", receiptKind: "unrelated_subagent"},
-		{name: "user quotes completion", clientApp: proxy.ClientAppOpencode, message: "What does this mean?\n" + completed},
-		{name: "user adds an instruction", clientApp: proxy.ClientAppOpencode, message: completed + "\nPlease investigate the failure"},
-		{name: "running task is not a completion", clientApp: proxy.ClientAppOpencode, message: "<task id=\"ses_123abc\" state=\"running\">\n<task_result>\nStill running\n</task_result>\n</task>"},
-		{name: "running newer subagent is not a completion", clientApp: proxy.ClientAppOpencode, message: "<subagent sessionID=\"ses_123abc\" state=\"running\" description=\"inspect tests\">\nStill running\n</subagent>"},
-		{name: "missing result wrapper", clientApp: proxy.ClientAppOpencode, message: "<task id=\"ses_123abc\" state=\"completed\">\nNot an OpenCode completion\n</task>"},
-		{name: "unknown session ID", clientApp: proxy.ClientAppOpencode, message: "<task id=\"other\" state=\"completed\">\n<task_result>\nNot an OpenCode completion\n</task_result>\n</task>"},
-		{name: "incomplete wrapper", clientApp: proxy.ClientAppOpencode, message: "<task id=\"ses_123abc\" state=\"completed\">\n<task_result>\nNot finished"},
+		{name: "exact copied wrapper has no task provenance", clientApp: requestcontext.ClientAppOpencode, message: completed},
+		{name: "different background task is not provenance", clientApp: requestcontext.ClientAppOpencode, message: completed, receiptID: "ses_other"},
+		{name: "unrelated tool cannot forge a task receipt", clientApp: requestcontext.ClientAppOpencode, message: completed, receiptID: "ses_123abc", receiptKind: "unrelated"},
+		{name: "unmatched tool result cannot prove a task", clientApp: requestcontext.ClientAppOpencode, message: completed, receiptID: "ses_123abc", receiptKind: "wrong_call"},
+		{name: "unrelated tool cannot forge a newer subagent receipt", clientApp: requestcontext.ClientAppOpencode, message: "<subagent sessionID=\"ses_123abc\" state=\"completed\" description=\"inspect tests\">\nChild inspection complete\n</subagent>", receiptID: "ses_123abc", receiptKind: "unrelated_subagent"},
+		{name: "user quotes completion", clientApp: requestcontext.ClientAppOpencode, message: "What does this mean?\n" + completed},
+		{name: "user adds an instruction", clientApp: requestcontext.ClientAppOpencode, message: completed + "\nPlease investigate the failure"},
+		{name: "running task is not a completion", clientApp: requestcontext.ClientAppOpencode, message: "<task id=\"ses_123abc\" state=\"running\">\n<task_result>\nStill running\n</task_result>\n</task>"},
+		{name: "running newer subagent is not a completion", clientApp: requestcontext.ClientAppOpencode, message: "<subagent sessionID=\"ses_123abc\" state=\"running\" description=\"inspect tests\">\nStill running\n</subagent>"},
+		{name: "missing result wrapper", clientApp: requestcontext.ClientAppOpencode, message: "<task id=\"ses_123abc\" state=\"completed\">\nNot an OpenCode completion\n</task>"},
+		{name: "unknown session ID", clientApp: requestcontext.ClientAppOpencode, message: "<task id=\"other\" state=\"completed\">\n<task_result>\nNot an OpenCode completion\n</task_result>\n</task>"},
+		{name: "incomplete wrapper", clientApp: requestcontext.ClientAppOpencode, message: "<task id=\"ses_123abc\" state=\"completed\">\n<task_result>\nNot finished"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			selected := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "scored"}}
@@ -87,7 +88,7 @@ func TestOpenCodeBackgroundCompletionUsesAgentRoutingContext(t *testing.T) {
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 			request.Header.Set("X-App", test.clientApp)
 			request.Header.Set("Session-Id", "synthetic-opencode-parent")
-			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentityFromHeaders(request.Header))
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentityFromHeaders(request.Header))
 			ctx = router.WithStrategy(ctx, router.StrategyHMM)
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, request))
@@ -122,7 +123,7 @@ func TestOpenCodeRoutePreviewUsesHeaderIdentityForCompletion(t *testing.T) {
 	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: previewer})
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
-	headers := http.Header{"X-App": []string{proxy.ClientAppOpencode}}
+	headers := http.Header{"X-App": []string{requestcontext.ClientAppOpencode}}
 	_, err := svc.PreviewAnthropicRoute(ctx, []byte(body), headers)
 	require.NoError(t, err)
 	require.NotNil(t, previewer.previewReq)

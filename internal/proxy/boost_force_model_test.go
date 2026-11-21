@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
@@ -64,7 +65,7 @@ func TestBoostLinkedFirstHonorsForcedModel(t *testing.T) {
 			}
 			recorder, request := codexSubRequest(t, body)
 			if !tc.stored {
-				request.Header.Set(proxy.ForceModelHeader, tc.model+":high")
+				request.Header.Set(requestcontext.ForceModelHeader, tc.model+":high")
 			}
 			ctx := entitlement.WithProductScope(context.Background(), entitlement.PlanBoost)
 			ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyLinkedFirst)
@@ -79,7 +80,7 @@ func TestBoostLinkedFirstHonorsForcedModel(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Zero(t, selection.routeCalls, "funding preference must not replace a forced model")
-			assert.Equal(t, tc.model, recorder.Header().Get(proxy.HeaderRouterModel))
+			assert.Equal(t, tc.model, recorder.Header().Get(requestcontext.HeaderRouterModel))
 			require.Len(t, upstream.proxyBodies, 1)
 			assert.Equal(t, tc.model, gjson.GetBytes(upstream.proxyBodies[0], "model").String())
 			if tc.provider == providers.ProviderOpenAI {

@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -60,10 +61,10 @@ func TestCodexCompactionPreservesUntypedResponsesStream(t *testing.T) {
 				`{"type":"message","role":"user","content":[{"type":"input_text","text":"You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary."}]}]}`)
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 			if tc.forceModel != "" {
-				req.Header.Set(ForceModelHeader, tc.forceModel)
+				req.Header.Set(requestcontext.ForceModelHeader, tc.forceModel)
 			}
 			rec := httptest.NewRecorder()
-			ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+			ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 

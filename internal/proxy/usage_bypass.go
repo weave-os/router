@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
@@ -243,10 +244,10 @@ func (s *Service) bypassToAnthropic(
 	if err := productEligibilityRefusal(ctx, entitlement.ModelBoundaryFromContext(ctx), decision.Model); err != nil {
 		return err
 	}
-	w.Header().Set(HeaderRouterDecision, decision.Reason)
-	w.Header().Set(HeaderRouterProvider, decision.Provider)
-	w.Header().Set(HeaderRouterModel, decision.Model)
-	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	w.Header().Set(requestcontext.HeaderRouterDecision, decision.Reason)
+	w.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
+	w.Header().Set(requestcontext.HeaderRouterModel, decision.Model)
+	w.Header().Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 	setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), max(contextWindowOutputReserve, feats.MaxTokens))
 
 	p, provErr := s.engine.Clients().Upstream(providers.ProviderAnthropic)

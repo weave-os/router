@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -29,16 +30,16 @@ func TestCodexNativeModelSelection_ForcesModelAndEffort(t *testing.T) {
 	}}
 	routerStub := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "fresh"}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(routerStub, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	body := []byte(`{"model":"gpt-6-sol","input":[` + codexModelSwitchInput + `,{"type":"message","role":"user","content":"review this change"}],"reasoning":{"effort":"max"}}`)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
-	req.Header.Set(proxy.CodexNativeModelPinHeader, "1")
+	req.Header.Set(requestcontext.CodexNativeModelPinHeader, "1")
 	req.Header.Set("Authorization", "Bearer subscription-token")
 	req.Header.Set("ChatGPT-Account-ID", "account-123")
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	assert.Zero(t, routerStub.routeCalls, "native selection must bypass automatic scoring")
-	assert.Equal(t, "gpt-6-sol", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "gpt-6-sol", rec.Header().Get(requestcontext.HeaderRouterModel))
 	require.Len(t, provider.proxyBodies, 1)
 	require.Len(t, provider.proxyCreds, 1)
 	require.NotNil(t, provider.proxyCreds[0])
@@ -72,7 +73,7 @@ func TestCodexNativeModelSelection_AutomaticAndLegacyStillScore(t *testing.T) {
 			}}
 			routerStub := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "fresh"}}
 			svc := proxy.WithStrategyPorts(proxy.NewService(routerStub, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
-			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 			input := `[{"type":"message","role":"user","content":"review this change"}]`
 			if tc.switched {
 				input = `[` + codexModelSwitchInput + `,{"type":"message","role":"user","content":"review this change"}]`
@@ -80,14 +81,14 @@ func TestCodexNativeModelSelection_AutomaticAndLegacyStillScore(t *testing.T) {
 			body := []byte(`{"model":"` + tc.model + `","input":` + input + `,"reasoning":{"effort":"max"}}`)
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 			if tc.optIn {
-				req.Header.Set(proxy.CodexNativeModelPinHeader, "1")
+				req.Header.Set(requestcontext.CodexNativeModelPinHeader, "1")
 			}
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 			assert.Positive(t, routerStub.routeCalls, "automatic routing must still invoke the scorer")
 			require.NotNil(t, routerStub.capturedReq)
 			assert.Equal(t, tc.want, routerStub.capturedReq.RequestedModel)
-			assert.Equal(t, "gpt-5.6-luna", rec.Header().Get(proxy.HeaderRouterModel))
+			assert.Equal(t, "gpt-5.6-luna", rec.Header().Get(requestcontext.HeaderRouterModel))
 		})
 	}
 }
@@ -114,10 +115,10 @@ func TestCodexNativeModelSelection_ModelInstructionsPinOnlyForCatalogClients(t *
 			}}
 			routerStub := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "fresh"}}
 			svc := proxy.WithStrategyPorts(proxy.NewService(routerStub, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
-			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 			body := []byte(`{"model":"gpt-6-sol","input":[` + codexModelInstructionsInput + `,{"type":"message","role":"user","content":"review this change"}]}`)
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
-			req.Header.Set(proxy.CodexNativeModelPinHeader, "1")
+			req.Header.Set(requestcontext.CodexNativeModelPinHeader, "1")
 			if tc.catalogClient {
 				req.Header.Set(proxy.CodexModelCatalogHeader, "1")
 			}
@@ -125,11 +126,11 @@ func TestCodexNativeModelSelection_ModelInstructionsPinOnlyForCatalogClients(t *
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 			if tc.wantPinned {
 				assert.Zero(t, routerStub.routeCalls, "a catalog client's /model switch must bypass scoring")
-				assert.Equal(t, "gpt-6-sol", rec.Header().Get(proxy.HeaderRouterModel))
+				assert.Equal(t, "gpt-6-sol", rec.Header().Get(requestcontext.HeaderRouterModel))
 				return
 			}
 			assert.Positive(t, routerStub.routeCalls, "an older install's launch model must still be scored")
-			assert.Equal(t, "gpt-5.6-luna", rec.Header().Get(proxy.HeaderRouterModel))
+			assert.Equal(t, "gpt-5.6-luna", rec.Header().Get(requestcontext.HeaderRouterModel))
 		})
 	}
 }

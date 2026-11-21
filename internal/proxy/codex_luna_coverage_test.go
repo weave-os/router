@@ -58,7 +58,7 @@ func TestBoostCodexLunaSubscriptionCoverage(t *testing.T) {
 			assert.Equal(t, []byte(codexSubAccountID), upstream.proxyCreds[0].AccountID)
 			assert.Equal(t, providers.EndpointResponses, upstream.proxyEndpoints[0])
 			assert.Equal(t, codexLunaCoverageModel, gjson.GetBytes(upstream.proxyBodies[0], "model").String())
-			assert.Equal(t, codexLunaCoverageModel, recorder.Header().Get(proxy.HeaderRouterModel))
+			assert.Equal(t, codexLunaCoverageModel, recorder.Header().Get(requestcontext.HeaderRouterModel))
 			assert.Equal(t, http.StatusOK, recorder.Code)
 		})
 	}

@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -147,7 +148,7 @@ func TestHeldAutomaticGatewayPinRescuesToClaudeBeforeCommit(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, heldPinClaudeModel, rec.Header().Get(HeaderRouterModel))
+			assert.Equal(t, heldPinClaudeModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 			assert.Contains(t, rec.Body.String(), "recovered")
 			require.NotEmpty(t, upstream.models)
 			assert.Equal(t, heldPinClaudeModel, upstream.models[len(upstream.models)-1])

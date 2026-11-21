@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/translate"
@@ -134,7 +135,7 @@ func proxyResponsesTurn(t *testing.T, svc *proxy.Service) *httptest.ResponseReco
 	ctx := context.WithValue(
 		authedCtx(cyberRefusalInstallationID),
 		proxy.ClientIdentityContextKey{},
-		proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex},
+		requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex},
 	)
 	_ = svc.ProxyOpenAIResponses(ctx, []byte(responsesTurnBody), rec, req)
 	return rec
@@ -160,7 +161,7 @@ func TestProxyOpenAIResponses_CyberRefusalRescuesOffVendorAndRepins(t *testing.T
 	assert.NotContains(t, body, "cybersecurity risk", "the refusal must never reach the client")
 	assert.Contains(t, body, "rescued", "the client sees the fallback's answer")
 	assert.Contains(t, body, "response.completed")
-	assert.Equal(t, "claude-sonnet-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-sonnet-5", rec.Header().Get(requestcontext.HeaderRouterModel))
 
 	row := telemetry.firstRow(t)
 	assert.Equal(t, "claude-sonnet-5", row.DecisionModel)
@@ -183,7 +184,7 @@ func TestProxyOpenAIResponses_RescuedTitleContainsOnlyTitle(t *testing.T) {
 	pins := newFakePinStore()
 	svc := cyberRefusalService(openAIURL, anthropicURL, "test", pins, newCaptureTelemetry()).WithCyberRefusalRetry(true)
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"text":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}}},"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Generate a concise task title."}]}]}`)
-	ctx := context.WithValue(authedCtx(cyberRefusalInstallationID), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	ctx := context.WithValue(authedCtx(cyberRefusalInstallationID), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 	openAIHits, anthropicHits := upstreams.counts()
@@ -308,7 +309,7 @@ func TestProxyOpenAIResponses_RoutingBadgeFlushesBeforeDelayedProvider(t *testin
 	ctx := context.WithValue(
 		authedCtx(cyberRefusalInstallationID),
 		proxy.ClientIdentityContextKey{},
-		proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex},
+		requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex},
 	)
 	done := make(chan error, 1)
 	go func() {

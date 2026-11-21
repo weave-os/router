@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
@@ -116,7 +117,7 @@ func TestAutoModeReviewer_ForceModelKeepsRequestedModel(t *testing.T) {
 
 	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(autoModeReviewerBody()), rec, req))
 
-	assert.Equal(t, reviewerDefaultModel, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, reviewerDefaultModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Equal(t, []string{reviewerDefaultModel}, p.models)
 }
 
@@ -129,7 +130,7 @@ func TestAutoModeReviewer_NoSubscriptionKeepsRequestedModel(t *testing.T) {
 
 	require.NoError(t, svc.ProxyMessages(authedCtx("inst-reviewer"), []byte(autoModeReviewerBody()), rec, req))
 
-	assert.Equal(t, reviewerDefaultModel, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, reviewerDefaultModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Equal(t, []string{reviewerDefaultModel}, p.models)
 }
 

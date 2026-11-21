@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -269,7 +270,7 @@ func TestProxyOpenAIResponses_RetriesTranslatedStreamingEmptyCompletion(t *testi
 		nil, nil, false, providers.ProviderXAI, servedModel, nil))
 
 	svc.engine.SetRetrySleep(noopSleep)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	body := "{\"model\":\"gpt-6-astra\",\"stream\":true,\"input\":\"Continue the task.\"}"
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))
 	req.Header.Set("X-Weave-Routing-Marker", "off")

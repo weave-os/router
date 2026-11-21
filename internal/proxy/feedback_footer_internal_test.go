@@ -25,12 +25,12 @@ func TestFeedbackFooter_ClientGating(t *testing.T) {
 	withStore := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithRouterFeedbackStore(footerFakeStore{})
 
 	t.Run("terminal agents get the link-free rating hint", func(t *testing.T) {
-		for _, app := range []string{ClientAppClaudeCode, ClientAppOpencode} {
+		for _, app := range []string{requestcontext.ClientAppClaudeCode, requestcontext.ClientAppOpencode} {
 			footer := withStore.feedbackFooter(context.Background(), app, turntype.MainLoop, false)
 			assert.Equal(t, feedbackFooterText, footer, "expected hint for %q", app)
 			assert.NotContains(t, footer, "http", "footer must never embed a raw link")
 		}
-		codex := withStore.feedbackFooter(context.Background(), ClientAppCodex, turntype.MainLoop, false)
+		codex := withStore.feedbackFooter(context.Background(), requestcontext.ClientAppCodex, turntype.MainLoop, false)
 		assert.Equal(t, feedbackFooterTextCodex, codex)
 		assert.Contains(t, codex, "$rf +")
 		assert.NotContains(t, codex, "`/rf")
@@ -38,18 +38,18 @@ func TestFeedbackFooter_ClientGating(t *testing.T) {
 	})
 
 	t.Run("ide and unknown clients are suppressed", func(t *testing.T) {
-		for _, app := range []string{ClientAppCursor, ClientAppGeminiCLI, "", "some-bot"} {
+		for _, app := range []string{requestcontext.ClientAppCursor, requestcontext.ClientAppGeminiCLI, "", "some-bot"} {
 			assert.Empty(t, withStore.feedbackFooter(context.Background(), app, turntype.MainLoop, false), "expected no footer for %q", app)
 		}
 	})
 
 	t.Run("no durable store suppresses the hint entirely", func(t *testing.T) {
-		assert.Empty(t, (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).feedbackFooter(context.Background(), ClientAppClaudeCode, turntype.MainLoop, false), "advertising a command we cannot record is misleading")
+		assert.Empty(t, (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).feedbackFooter(context.Background(), requestcontext.ClientAppClaudeCode, turntype.MainLoop, false), "advertising a command we cannot record is misleading")
 	})
 
 	t.Run("hidden terminal surfaces suppress the hint even for a main-loop turn", func(t *testing.T) {
 		hiddenCtx := context.WithValue(context.Background(), InstallationHideTerminalSurfacesContextKey{}, true)
-		assert.Empty(t, withStore.feedbackFooter(hiddenCtx, ClientAppClaudeCode, turntype.MainLoop, false), "hidden orgs get no /rf hint")
+		assert.Empty(t, withStore.feedbackFooter(hiddenCtx, requestcontext.ClientAppClaudeCode, turntype.MainLoop, false), "hidden orgs get no /rf hint")
 	})
 
 	t.Run("headless runs never get the hint", func(t *testing.T) {
@@ -60,7 +60,7 @@ func TestFeedbackFooter_ClientGating(t *testing.T) {
 			"codex_sdk_ts/0.164.0 (Mac OS 15.0.0; arm64)",
 		} {
 			ctx := requestcontext.WithClientIdentity(context.Background(), ClientIdentity{UserAgent: ua})
-			assert.Empty(t, withStore.feedbackFooter(ctx, ClientAppClaudeCode, turntype.MainLoop, false), "expected no footer for %q", ua)
+			assert.Empty(t, withStore.feedbackFooter(ctx, requestcontext.ClientAppClaudeCode, turntype.MainLoop, false), "expected no footer for %q", ua)
 		}
 	})
 
@@ -70,13 +70,13 @@ func TestFeedbackFooter_ClientGating(t *testing.T) {
 			"codex_cli_rs/0.164.0 (Ubuntu 22.4.0; x86_64) xterm-256color",
 		} {
 			ctx := requestcontext.WithClientIdentity(context.Background(), ClientIdentity{UserAgent: ua})
-			assert.NotEmpty(t, withStore.feedbackFooter(ctx, ClientAppClaudeCode, turntype.MainLoop, false), "expected footer for %q", ua)
+			assert.NotEmpty(t, withStore.feedbackFooter(ctx, requestcontext.ClientAppClaudeCode, turntype.MainLoop, false), "expected footer for %q", ua)
 		}
 	})
 
 	t.Run("an echoed footer anywhere in the conversation suppresses the hint", func(t *testing.T) {
 		for _, tt := range []turntype.TurnType{turntype.MainLoop, turntype.ToolResult} {
-			assert.Empty(t, withStore.feedbackFooter(context.Background(), ClientAppClaudeCode, tt, true), "expected no footer for %q — continuation chains would stack duplicate hints", tt)
+			assert.Empty(t, withStore.feedbackFooter(context.Background(), requestcontext.ClientAppClaudeCode, tt, true), "expected no footer for %q — continuation chains would stack duplicate hints", tt)
 		}
 	})
 }
@@ -86,7 +86,7 @@ func TestFeedbackFooter_TurnTypeGating(t *testing.T) {
 
 	t.Run("the user's own conversation turns get the hint", func(t *testing.T) {
 		for _, tt := range []turntype.TurnType{turntype.MainLoop, turntype.ToolResult} {
-			assert.Equal(t, feedbackFooterText, withStore.feedbackFooter(context.Background(), ClientAppClaudeCode, tt, false), "expected hint for %q", tt)
+			assert.Equal(t, feedbackFooterText, withStore.feedbackFooter(context.Background(), requestcontext.ClientAppClaudeCode, tt, false), "expected hint for %q", tt)
 		}
 	})
 
@@ -99,7 +99,7 @@ func TestFeedbackFooter_TurnTypeGating(t *testing.T) {
 			turntype.TitleGen,
 			turntype.Classifier,
 		} {
-			assert.Empty(t, withStore.feedbackFooter(context.Background(), ClientAppClaudeCode, tt, false), "expected no footer for %q — hint would strand under output the user never initiated", tt)
+			assert.Empty(t, withStore.feedbackFooter(context.Background(), requestcontext.ClientAppClaudeCode, tt, false), "expected no footer for %q — hint would strand under output the user never initiated", tt)
 		}
 	})
 }

@@ -13,12 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	AgentShadowModelHeader   = "x-weave-agent-shadow-model"
-	AgentShadowRolloutHeader = "x-weave-agent-shadow-rollout-id"
-	AgentShadowStateHeader   = "x-weave-agent-shadow-state-id"
-	ReasonAgentShadowEval    = "agent_shadow_eval_force"
-)
+const ReasonAgentShadowEval = "agent_shadow_eval_force"
 
 type AgentShadowEvaluation struct {
 	Model     string

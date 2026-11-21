@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -76,7 +77,7 @@ func proxyPinnedCodexOverload(t *testing.T, pinFound bool) (*anthropicServingCli
 		})
 
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	ctx = router.WithStrategy(ctx, strategy)
 	ctx = WithManagedSubscriptionUsage(ctx)
 	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyLinkedFirst)

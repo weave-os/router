@@ -1363,9 +1363,9 @@ func clientRequestedModel(ctx context.Context, requested string) string {
 
 func clientBaselineModel(ctx context.Context) string {
 	switch ClientIdentityFrom(ctx).ClientApp {
-	case ClientAppClaudeCode:
+	case requestcontext.ClientAppClaudeCode:
 		return "claude-opus-5-5"
-	case ClientAppCodex:
+	case requestcontext.ClientAppCodex:
 		return "gpt-6.1-sol"
 	}
 	return ""
@@ -2042,7 +2042,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	defer finishBlindExperimentWriter()
 	if websearch.IsClaudeCodeWebSearchHelper(body) {
 		r = r.Clone(ctx)
-		r.Header.Del(ForceModelHeader)
+		r.Header.Del(requestcontext.ForceModelHeader)
 	}
 	ctx = context.WithValue(ctx, nativeSearchLoggerContextKey{}, observability.FromContext(ctx))
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
@@ -2331,16 +2331,21 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if facts.InstallationID != uuid.Nil {
 		req.InstallationID = facts.InstallationID.String()
 	}
-	var routeRes turnLoopResult
-	var routeErr error
-	routeCtx, routeSpan := startRoutingSpan(ctx, strategy, req)
-	if handoffFromContext(ctx) != nil {
-		routeRes, routeErr = s.resumeHandoff(routeCtx, strategy, env, req, turntype.IsSubAgent(env, subAgentHintForRequest(routeCtx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(routeCtx))))
-	} else if agentShadowMode {
-		routeRes, routeErr = s.runAgentShadowEvaluationRoute(routeCtx, env, feats, facts.InstallationID, req, agentShadowEval)
-	} else {
-		routeRes, routeErr = taskArm.route(routeCtx, s.runTurnLoop)(env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, "", r.Header, req)
-	}
+	routeRes, _, routeErr := routeTurn(ctx, s, s.clock, log, routeTurnRequest{
+		Request:        req,
+		Started:        routeStart,
+		Failure:        routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy},
+		FailureMessage: "Routing failed",
+		IsUserPrompt:   inboundUserPrompt,
+	}, func(routeCtx context.Context) (turnLoopResult, error) {
+		switch {
+		case handoffFromContext(ctx) != nil:
+			return s.resumeHandoff(routeCtx, strategy, env, req, turntype.IsSubAgent(env, subAgentHintForRequest(routeCtx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(routeCtx))))
+		case agentShadowMode:
+			return s.runAgentShadowEvaluationRoute(routeCtx, env, feats, facts.InstallationID, req, agentShadowEval)
+		}
+		return taskArm.route(routeCtx, s.runTurnLoop)(env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, "", r.Header, req)
+	})
 	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
@@ -2348,10 +2353,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseAnthropic)
 		}
 	}()
-	finishRoutingSpan(routeSpan, routeRes.Decision, routeErr)
 	if routeErr != nil {
-		log.Error("Routing failed", "err", routeErr, "route_ms", s.clock.Now().Sub(routeStart).Milliseconds(), "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
-		s.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy}, routeRes.TurnType, inboundUserPrompt, routeErr)
 		return routeErr
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
@@ -2360,24 +2362,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if preparingHandoff(ctx) {
 		return s.finishHandoffPreparation(ctx, strategy, w, env, req, routeRes)
 	}
-	if len(routeRes.SessionDisabledProviders) > 0 {
-		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
-	}
-	if len(routeRes.ObservedOverflowModels) > 0 {
-		ctx = context.WithValue(ctx, ObservedOverflowModelsContextKey{}, routeRes.ObservedOverflowModels)
-	}
-	if len(routeRes.SessionDemotedModels) > 0 {
-		ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, routeRes.SessionDemotedModels)
-		if len(routeRes.SessionCooldownModels) > 0 {
-			ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, routeRes.SessionCooldownModels)
-		}
-		if len(routeRes.SessionStrikeReadmitModels) > 0 {
-			ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, routeRes.SessionStrikeReadmitModels)
-		}
-	}
-	if len(routeRes.CooldownProbeDeniedModels) > 0 {
-		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, routeRes.CooldownProbeDeniedModels)
-	}
+	ctx = withRouteSessionState(ctx, routeRes)
 
 	if routeRes.UsageBypass && routeRes.Decision.Provider == providers.ProviderAnthropic {
 		err := s.bypassToAnthropic(ctx, env, feats, routeRes.modelSwitched(), requestStart, facts.RequestID, facts.ExternalID, routeRes.TurnType, routeRes.Decision.Reason, r, w)
@@ -2475,10 +2460,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	credentialCtx := resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
-	w.Header().Set(HeaderRouterDecision, decision.Reason)
-	w.Header().Set(HeaderRouterProvider, decision.Provider)
-	w.Header().Set(HeaderRouterModel, decision.Model)
-	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	w.Header().Set(requestcontext.HeaderRouterDecision, decision.Reason)
+	w.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
+	w.Header().Set(requestcontext.HeaderRouterModel, decision.Model)
+	w.Header().Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 	setContextEstimateHeaders(w.Header(), overflowEstimate, outputReserve)
 	if !agentShadowMode {
 		s.setFeedbackLinkHeader(ctx, w, facts.InstallationID, facts.ExternalID, facts.RequestID, auth.UserIDFrom(ctx))
@@ -2629,221 +2614,31 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	recordFastServed := func(fast bool) { fastServed = fast }
 
+	attemptDeps := messagesAttemptDeps{
+		request:                 r,
+		svc:                     s,
+		env:                     env,
+		routeRes:                &routeRes,
+		log:                     log,
+		crossFormat:             &crossFormat,
+		feats:                   feats,
+		anthropicTierAttemptFor: anthropicTierAttemptFor,
+		recordFastServed:        recordFastServed,
+		preludeBuf:              preludeBuf,
+		sink:                    sink,
+		anthropicPrelude:        anthropicPrelude,
+		streamCut:               streamCut,
+		setExtractor:            setExtractor,
+		setStreamCost:           setStreamCost,
+		fastServed:              &fastServed,
+		respSummary:             &respSummary,
+		reqStats:                &reqStats,
+		streamCost:              streamCost,
+		extractor:               &extractor,
+		toolValidator:           toolValidator,
+	}
 	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
-		targetNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, r.Header, s.usageObserver), r.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
-		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
-		switch providers.FamilyFor(target.Provider) {
-		case providers.FamilyAnthropic:
-			prep, emitErr := prepareAnthropicForTurn(env, r.Header, targetOpts, routeRes.TurnType)
-			if emitErr != nil {
-				log.Error("Failed to emit Anthropic body", "err", emitErr)
-				return nil, fmt.Errorf("emit body: %w", emitErr)
-			}
-			crossFormat = false
-			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
-			tiered := anthropicTierAttemptFor(targetOpts, prep, targetNotice)
-			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
-				attemptOpts, err := tiered.dispatch(actx, d, p, recordFastServed)
-				if err == nil || committed(preludeBuf) || !providers.IsUpstreamOutputConfigFormatRejection(err) {
-					return err
-				}
-				unstructuredOpts := attemptOpts
-				unstructuredOpts.StripOutputConfigFormat = true
-				unstructuredPrep, emitErr := env.PrepareAnthropic(r.Header, unstructuredOpts)
-				if emitErr != nil {
-					log.Error("Failed to re-emit Anthropic body without output_config.format", "err", emitErr)
-					return err
-				}
-				log.Warn("Retrying Anthropic request without output_config.format after upstream rejected it",
-					"model", d.Model,
-					"provider", d.Provider,
-					"request_id", facts.RequestID)
-				if preludeBuf != nil {
-					preludeBuf.Discard()
-				}
-				logUpstreamBody(log, routeRes.SessionKey, target, feats, unstructuredPrep.Body)
-				return s.anthropicNativeAttempt(env, r, unstructuredPrep, sink, preludeBuf, anthropicPrelude, streamCut, targetNotice, setExtractor, setStreamCost)(actx, d, p)
-			}, nil
-		case providers.FamilyOpenAICompat:
-			crossFormat = true
-			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p dispatch.Upstream, useResponses, stripPromptCacheKey bool) (func(error) error, error) {
-				attemptOpts := targetOpts
-				attemptOpts.TargetProvider = d.Provider
-				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
-				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-				attemptOpts.ReasoningReplayScope = s.reasoningReplayScope(actx, d)
-				fastServed = attemptOpts.FastMode
-				setStreamCost(d, true, nil)
-				respSummary = translate.ResponseSummary{}
-				var prep providers.PreparedRequest
-				var emitErr error
-				if useResponses {
-					prep, emitErr = env.PrepareOpenAIResponses(r.Header, attemptOpts)
-				} else {
-					prep, emitErr = env.PrepareOpenAI(r.Header, attemptOpts)
-				}
-				if emitErr != nil {
-					log.Error("Failed to translate Anthropic request to OpenAI format", "err", emitErr, "decision_provider", d.Provider, "responses_api", useResponses)
-					return func(err error) error { return err }, fmt.Errorf("translate anthropic request: %w", emitErr)
-				}
-				reqStats = prep.Stats
-				logUpstreamBody(log, routeRes.SessionKey, d, feats, prep.Body)
-				var usage translate.UsageSink
-				if s.usageRequired() || streamCost != nil {
-					extractor = telemetry.NewUsageExtractor(d.Provider)
-					usage = extractor
-				}
-				var translator translate.ResponseTranslator
-				attemptSink, noticeErr := anthropicPrelude.prepare(actx, sink, preludeBuf, translate.FormatAnthropic, env.Stream(), reconnectNoticeForAttempt(actx, r.Header, targetNotice))
-				if noticeErr != nil {
-					return func(err error) error { return err }, noticeErr
-				}
-				if useResponses {
-					responsesTranslator := translate.NewResponsesToAnthropicWriter(attemptSink, d.Model, usage).
-						WithReasoningScope(attemptOpts.ReasoningReplayScope).
-						WithEstimatedInputTokens(feats.Tokens).
-						WithRequestHadTools(feats.HasTools).
-						WithToolValidator(toolValidator)
-					if providers.OutputExcludesReasoning(d.Provider) {
-						responsesTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
-					}
-					responsesTranslator.SetClientInputTokenScale(clientInputTokenScale(routeRes, d.Provider, clientRequestedModel(ctx, feats.Model)))
-					if err := responsesTranslator.Prelude(env.Stream()); err != nil {
-						return func(err error) error { return err }, fmt.Errorf("emit Anthropic routing marker: %w", err)
-					}
-					translator = responsesTranslator
-				} else {
-					chatTranslator := translate.NewAnthropicSSETranslator(attemptSink, d.Model, usage).
-						WithLogger(log).
-						WithEstimatedInputTokens(feats.Tokens).
-						WithRequestHadTools(feats.HasTools).
-						WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
-						WithSeedToolCallMarkup(env.SeedToolCallNames(prep.ResponseToolNames)).
-						WithEscapeNormalize(flags.BoolOr(ctx, flags.KeyEscapeNormalize, s.escapeNormalize)).
-						WithToolValidator(toolValidator)
-					if providers.OutputExcludesReasoning(d.Provider) {
-						chatTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
-					}
-					chatTranslator.SetClientInputTokenScale(clientInputTokenScale(routeRes, d.Provider, clientRequestedModel(ctx, feats.Model)))
-					if err := chatTranslator.Prelude(env.Stream()); err != nil {
-						return func(err error) error { return err }, fmt.Errorf("emit Anthropic routing marker: %w", err)
-					}
-					translator = chatTranslator
-				}
-				if preludeBuf != nil {
-					preludeBuf.Seal()
-				}
-				toolNames := translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
-				rawErr := p.Proxy(actx, d, prep, streamCut.attach(toolNames), r)
-				finalize := func(err error) error {
-					if err != nil && env.Stream() && preludeBuf.Committed() {
-						streamCut.noteCut(err)
-						err = emitAnthropicSSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
-					}
-					finErr := finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
-					respSummary = translator.Summary()
-					return finErr
-				}
-				return finalize, rawErr
-			}
-			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
-				gatewayKey := gatewayResponsesKey(actx, d.Provider)
-				useResponses := translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
-					Provider:       d.Provider,
-					Capabilities:   targetOpts.Capabilities,
-					HasTools:       feats.HasTools,
-					ChatOnlyParams: env.RequiresChatCompletionsParams(targetOpts.Capabilities),
-					Broad:          s.ResolveOpenAIResponsesBroad(actx),
-				}) && !s.engine.GatewayCaps().LacksResponses(gatewayKey)
-				stripPCK := s.engine.GatewayCaps().RejectsPromptCacheKey(gatewayKey)
-				finalize, rawErr := dispatchOpenAICompat(actx, d, p, useResponses, stripPCK)
-				if rawErr != nil && useResponses && !committed(preludeBuf) &&
-					providers.IsUpstreamResponsesUnsupported(rawErr) {
-					s.engine.GatewayCaps().RememberLacksResponses(gatewayKey)
-					log.Warn("Gateway rejected the Responses API; retrying on chat/completions",
-						"model", d.Model,
-						"decision_provider", d.Provider,
-						"request_id", facts.RequestID)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
-					}
-					useResponses = false
-					finalize, rawErr = dispatchOpenAICompat(actx, d, p, false, stripPCK)
-				}
-				if rawErr != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
-					providers.IsUpstreamPromptCacheKeyRejection(rawErr) {
-					s.engine.GatewayCaps().RememberRejectsPromptCacheKey(gatewayKey)
-					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
-						"model", d.Model,
-						"decision_provider", d.Provider,
-						"request_id", facts.RequestID)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
-					}
-					finalize, rawErr = dispatchOpenAICompat(actx, d, p, useResponses, true)
-				}
-				return finalize(rawErr)
-			}, nil
-		case providers.FamilyGemini:
-			prep, emitErr := env.PrepareGemini(r.Header, targetOpts)
-			reqStats = prep.Stats
-			if emitErr != nil {
-				log.Error("Failed to translate Anthropic request to Gemini format", "err", emitErr)
-				return nil, fmt.Errorf("translate anthropic request to gemini: %w", emitErr)
-			}
-			crossFormat = true
-			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
-			dispatchGemini := func(actx context.Context, d router.Decision, p dispatch.Upstream, pr providers.PreparedRequest) (func(error) error, error) {
-				fastServed = false
-				setStreamCost(d, true, nil)
-				respSummary = translate.ResponseSummary{}
-				var usage translate.UsageSink
-				if s.usageRequired() || streamCost != nil {
-					extractor = telemetry.NewUsageExtractor(d.Provider)
-					usage = extractor
-				}
-				attemptSink, noticeErr := anthropicPrelude.prepare(actx, sink, preludeBuf, translate.FormatAnthropic, env.Stream(), reconnectNoticeForAttempt(actx, r.Header, targetNotice))
-				if noticeErr != nil {
-					return func(err error) error { return err }, noticeErr
-				}
-				anthropicTr := translate.NewAnthropicSSETranslator(attemptSink, d.Model, nil).
-					WithLogger(log).
-					WithEstimatedInputTokens(feats.Tokens).
-					WithRequestHadTools(feats.HasTools).
-					WithEscapeNormalize(flags.BoolOr(ctx, flags.KeyEscapeNormalize, s.escapeNormalize)).
-					WithToolValidator(toolValidator)
-				if err := anthropicTr.Prelude(env.Stream()); err != nil {
-					return func(err error) error { return err }, fmt.Errorf("emit Anthropic routing marker: %w", err)
-				}
-				if preludeBuf != nil {
-					preludeBuf.Seal()
-				}
-				geminiTr := translate.NewGeminiToOpenAISSETranslator(anthropicTr, d.Model, usage)
-				anthropicTr.SetUsageSource(geminiTr.UsageFacts)
-				rawErr := p.Proxy(actx, d, pr, streamCut.attach(geminiTr), r)
-				finalize := func(err error) error {
-					if err != nil && env.Stream() && preludeBuf.Committed() {
-						streamCut.noteCut(err)
-						err = emitAnthropicSSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
-					}
-					err = finalizeAfterProxy(err, geminiTr.Finalize)
-					finErr := finalizeAfterProxy(err, anthropicTr.Finalize)
-					respSummary = anthropicTr.Summary()
-					return finErr
-				}
-				return finalize, rawErr
-			}
-			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
-				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
-				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
-					reqStats = prepared.Stats
-					logUpstreamBody(log, routeRes.SessionKey, d, feats, prepared.Body)
-					return dispatchGemini(actx, d, p, prepared)
-				})
-			}, nil
-		default:
-			return nil, fmt.Errorf("%w: %s (no translation path defined for inbound Anthropic Messages)", ErrProviderNotConfigured, target.Provider)
-		}
+		return buildMessagesAttempt(ctx, attemptDeps, target, targetOpts, targetMarker, fundingCtx)
 	}
 	attempt, attemptBuildErr := buildAttempt(decision, opts, marker, fundingCtx)
 	if attemptBuildErr != nil && !translate.IsIntrinsicallyIncompatible(attemptBuildErr) {
@@ -4223,43 +4018,28 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
 		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
 	}
-	routeStart := s.clock.Now()
-	routeCtx, routeSpan := startRoutingSpan(ctx, strategy, routeRequest)
-	routeRes, err := taskArm.route(routeCtx, s.runTurnLoop)(env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
+	routeRes, routeMs, err := routeTurn(ctx, s, s.clock, log, routeTurnRequest{
+		Request:        routeRequest,
+		Started:        s.clock.Now(),
+		Failure:        routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy},
+		FailureMessage: "Routing failed for OpenAI request",
+		IsUserPrompt:   inboundUserPromptOpenAI,
+	}, func(routeCtx context.Context) (turnLoopResult, error) {
+		return taskArm.route(routeCtx, s.runTurnLoop)(env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
+	})
 	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
 		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseChat)
 	}()
-	finishRoutingSpan(routeSpan, routeRes.Decision, err)
-	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
 	if err != nil {
-		log.Error("Routing failed for OpenAI request", "err", err, "route_ms", routeMs, "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
-		s.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy}, routeRes.TurnType, inboundUserPromptOpenAI, err)
 		return err
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
 	ctx = withPickedModelFunding(ctx, routeRes.CallerModelPassthrough, routeRes.Decision.Provider)
 	ctx = withCodexPickFunding(ctx, routeRes.Decision.Model, routeRes.Decision.Provider)
 	ctx = s.withTurnOverloadProbe(ctx, routeRes)
-	if len(routeRes.SessionDisabledProviders) > 0 {
-		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
-	}
-	if len(routeRes.ObservedOverflowModels) > 0 {
-		ctx = context.WithValue(ctx, ObservedOverflowModelsContextKey{}, routeRes.ObservedOverflowModels)
-	}
-	if len(routeRes.SessionDemotedModels) > 0 {
-		ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, routeRes.SessionDemotedModels)
-		if len(routeRes.SessionCooldownModels) > 0 {
-			ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, routeRes.SessionCooldownModels)
-		}
-		if len(routeRes.SessionStrikeReadmitModels) > 0 {
-			ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, routeRes.SessionStrikeReadmitModels)
-		}
-	}
-	if len(routeRes.CooldownProbeDeniedModels) > 0 {
-		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, routeRes.CooldownProbeDeniedModels)
-	}
+	ctx = withRouteSessionState(ctx, routeRes)
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision
 	s.firePolicyShadowForServingDecision(ctx, strategy, decision, routeRequest)
@@ -4269,7 +4049,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	pinAgeSec := routeRes.PinAgeSec
 	s.logPlannerOutcome(ctx, routeRes)
 
-	if facts.Client.ClientApp == ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
+	if facts.Client.ClientApp == requestcontext.ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, sessionKey, role, decision).TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
@@ -4282,10 +4062,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return err
 	}
 
-	w.Header().Set(HeaderRouterDecision, decision.Reason)
-	w.Header().Set(HeaderRouterProvider, decision.Provider)
-	w.Header().Set(HeaderRouterModel, decision.Model)
-	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	w.Header().Set(requestcontext.HeaderRouterDecision, decision.Reason)
+	w.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
+	w.Header().Set(requestcontext.HeaderRouterModel, decision.Model)
+	w.Header().Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 	setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), outputReserveOAI)
 	s.setFeedbackLinkHeader(ctx, w, facts.InstallationID, facts.ExternalID, facts.RequestID, auth.UserIDFrom(ctx))
 
@@ -4801,7 +4581,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	}
 	ctx = s.withUsageObserver(ctx, r.Header)
 	clientApp := ClientIdentityFrom(ctx).ClientApp
-	portableCodex := clientApp == ClientAppCodex
+	portableCodex := clientApp == requestcontext.ClientAppCodex
 	terminalResponses := supportsResponsesTerminalSurfaces(clientApp)
 	if translate.FeedbackFooterInResponsesHistory(body) {
 		ctx = context.WithValue(ctx, responsesFooterEchoedContextKey{}, true)

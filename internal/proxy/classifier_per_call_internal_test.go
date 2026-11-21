@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/catalog"
@@ -124,7 +125,7 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 		policy.AtomicClassifierFacts{Release: config.Release, ReleaseSHA256: config.ReleaseSHA256}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
 	svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
 	ctx := classifierAdmit(t, svc, principal)
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	const first = `{"model":"auto","stream":true,"input":[{"role":"user","content":"Synthetic task"}]}`
 	const continuation = `{"model":"auto","stream":true,"input":[{"role":"user","content":"Synthetic task"},{"role":"assistant","content":[{"type":"output_text","text":"Checking"}]},{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"cmd\":\"exit 7\"}"},{"type":"function_call_output","call_id":"c1","output":"Chunk ID: abc123\nWall time: 0.0001 seconds\nProcess exited with code 7\nOriginal token count: 1\nOutput:\nSynthetic output\n"}]}`
 	for index, body := range []string{first, continuation, continuation} {
