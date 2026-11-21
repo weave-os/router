@@ -75,18 +75,6 @@
       "removal_phase": "8"
     },
     {
-      "id": "target_construction|internal/proxy/service.go|Service.policyDeadlineDefaultDecision|router.Decision|1",
-      "kind": "target_construction",
-      "file": "internal/proxy/service.go",
-      "line": 5040,
-      "symbol": "Service.policyDeadlineDefaultDecision",
-      "detail": "provider=<dynamic> model=<dynamic>",
-      "owner": "@steventohme",
-      "rationale": "Existing policy-deadline compatibility fallback remains until failure behavior is represented by a resolved plan.",
-      "operation_class": "main_inference",
-      "removal_phase": "8"
-    },
-    {
       "id": "target_construction|internal/proxy/service.go|orderBandPair|router.Decision|1",
       "kind": "target_construction",
       "file": "internal/proxy/service.go",
@@ -107,30 +95,6 @@
       "detail": "provider=<dynamic> model=<dynamic>",
       "owner": "@steventohme",
       "rationale": "Existing hard-pin path constructs a compatibility decision until utility and public purposes resolve typed plans.",
-      "operation_class": "main_inference",
-      "removal_phase": "8"
-    },
-    {
-      "id": "target_construction|internal/proxy/turnloop.go|Service.runTurnLoop|router.Decision|2",
-      "kind": "target_construction",
-      "file": "internal/proxy/turnloop.go",
-      "line": 771,
-      "symbol": "Service.runTurnLoop",
-      "detail": "provider=<dynamic> model=<dynamic>",
-      "owner": "@steventohme",
-      "rationale": "Existing native web-search sub-turn passthrough preserves the resolved Anthropic binding until the public web-search path is represented as a typed policy operation.",
-      "operation_class": "web_search_tool",
-      "removal_phase": "8"
-    },
-    {
-      "id": "target_construction|internal/proxy/usage_bypass.go|Service.usageBypassDecision|router.Decision|1",
-      "kind": "target_construction",
-      "file": "internal/proxy/usage_bypass.go",
-      "line": 32,
-      "symbol": "Service.usageBypassDecision",
-      "detail": "provider=<dynamic> model=<dynamic>",
-      "owner": "@steventohme",
-      "rationale": "Existing subscription bypass target remains a compatibility decision until credentials and pins become typed policy inputs.",
       "operation_class": "main_inference",
       "removal_phase": "8"
     },
