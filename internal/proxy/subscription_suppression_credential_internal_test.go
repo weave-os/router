@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -37,7 +38,7 @@ func TestResolveAndInjectCredentials_SuppressedSubClearedOnRouterKeyedPath(t *te
 
 	// Failover suppresses the sub, then re-resolves for the retry. The spent
 	// sk-ant-oat also rides in the inbound Authorization on the router-key path.
-	ctx = withSuppressedClaudeSubscription(ctx)
+	ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer sk-ant-oat01-spent")
 
@@ -65,7 +66,7 @@ func TestResolveAndInjectCredentials_UnsuppressedSubStillForwarded(t *testing.T)
 // carries a Codex subscription for an OpenAI turn must still resolve the Codex
 // credential (its OpenAI turns bill the caller's ChatGPT plan, unaffected).
 func TestResolveAndInjectCredentials_SuppressionDoesNotClearCodexOpenAITurn(t *testing.T) {
-	ctx := withSuppressedClaudeSubscription(routerKeyedCtx())
+	ctx := credentials.WithSuppressedClaudeSubscription(routerKeyedCtx())
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer eyJhbGciOi.codex.jwt")
 	headers.Set("ChatGPT-Account-ID", "acct-1")

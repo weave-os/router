@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"weave-os/router/internal/credentials"
 )
 
 var (
@@ -18,7 +19,7 @@ func isSubscriptionPoolError(err error) bool {
 }
 
 func subscriptionFundingFailure(err error) bool {
-	return isSubscriptionPoolError(err) || subscriptionLaneRefused(err) ||
+	return isSubscriptionPoolError(err) || credentials.SubscriptionLaneRefused(err) ||
 		codexSubscriptionModelRejected(err) || anthropicSubscriptionModelRejected(err) ||
 		codexOAuthCredentialRejected(err) || anthropicOAuthCredentialRejected(err) || anthropicSubscriptionThirdPartyRefused(err)
 }

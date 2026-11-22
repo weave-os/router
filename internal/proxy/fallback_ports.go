@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -55,7 +56,7 @@ func (subscriptionCoverage) WithAttempt(ctx context.Context) context.Context {
 }
 
 func (subscriptionCoverage) WithAPIOnly(ctx context.Context) context.Context {
-	return withSuppressedClaudeSubscription(withSuppressedCodexSubscription(context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)))
+	return credentials.WithSuppressedClaudeSubscription(withSuppressedCodexSubscription(context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)))
 }
 
 func (subscriptionCoverage) PaidFallbackForbidden(ctx context.Context) bool {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -40,7 +41,7 @@ func goldenClaudeSeatCtx(clientApp string, cooldown time.Time) func(context.Cont
 			seat.State, seat.CooldownUntil = auth.SubscriptionAccountStateCooldown, &cooldown
 		}
 		ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{seat})
-		return proxy.WithManagedSubscriptionUsage(ctx)
+		return credentials.WithManagedSubscriptionUsage(ctx)
 	}
 }
 
@@ -121,7 +122,7 @@ func goldenCallerPlanScenario(name string, failure goldenStep) goldenScenario {
 		decisions: []router.Decision{decision(providers.ProviderAnthropic, goldenAnthropicModel)},
 		upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {failure, anthropicOK(true, "served on weave credits")}},
 		requests: []goldenRequest{{body: goldenAnthropicBody(true), decorateContext: func(ctx context.Context) context.Context {
-			return proxy.WithManagedSubscriptionUsage(goldenSubscriptionCtx(ctx))
+			return credentials.WithManagedSubscriptionUsage(goldenSubscriptionCtx(ctx))
 		}}},
 	}
 }
@@ -139,7 +140,7 @@ func TestTriedUnverifiedPlansFundCredits(t *testing.T) {
 		goldenUpstreamError(http.StatusBadRequest, goldenThirdPartyRefusalBody))
 	thirdParty.requests[0].decorateContext = func(ctx context.Context) context.Context {
 		ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppOpencode, SessionID: "golden-seat-session"})
-		return proxy.WithManagedSubscriptionUsage(goldenSubscriptionCtx(ctx))
+		return credentials.WithManagedSubscriptionUsage(goldenSubscriptionCtx(ctx))
 	}
 	for _, sc := range []goldenScenario{
 		goldenCallerPlanScenario("caller_plan_model_denied_funds_credits",
