@@ -9,7 +9,7 @@
       "internal/api/admin": 6,
       "internal/api/anthropic": 2,
       "internal/policyregistry": 5,
-      "internal/proxy": 15,
+      "internal/proxy": 11,
       "internal/server": 2,
       "internal/server/middleware": 9,
       "internal/subscriptions/entitlement": 1,
@@ -19,7 +19,7 @@
     "strategy_from_context_callers": {
       "internal/api/admin": 2,
       "internal/api/anthropic": 1,
-      "internal/proxy": 8,
+      "internal/proxy": 7,
       "internal/server/middleware": 1
     },
     "strategy_serving_adapter_imports": {}

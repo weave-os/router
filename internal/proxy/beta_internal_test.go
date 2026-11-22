@@ -532,7 +532,7 @@ func TestApplySessionStrategyOnlyUsesPersistedPreference(t *testing.T) {
 	store := &betaTestPreferenceStore{}
 	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithSessionStrategyStore(store)
 
-	ctx, err := svc.applySessionStrategy(stableCtx, installationID, sessionKey)
+	ctx, _, err := svc.applySessionStrategy(stableCtx, router.StrategyFromContext(stableCtx), installationID, sessionKey)
 	require.NoError(t, err)
 	assert.Equal(t, router.StrategyHMM, router.StrategyFromContext(ctx))
 
@@ -542,7 +542,7 @@ func TestApplySessionStrategyOnlyUsesPersistedPreference(t *testing.T) {
 		Strategy:       router.StrategyHMMBeta,
 	}
 	store.found = true
-	ctx, err = svc.applySessionStrategy(stableCtx, installationID, sessionKey)
+	ctx, _, err = svc.applySessionStrategy(stableCtx, router.StrategyFromContext(stableCtx), installationID, sessionKey)
 	require.NoError(t, err)
 	assert.Equal(t, router.StrategyHMMBeta, router.StrategyFromContext(ctx))
 }
@@ -555,7 +555,7 @@ func TestApplySessionStrategyReturnsOriginalContextOnStoreError(t *testing.T) {
 	var sessionKey [sessionstrategy.SessionKeyLen]byte
 	sessionKey[0] = 1
 
-	got, err := svc.applySessionStrategy(ctx, uuid.New(), sessionKey)
+	got, _, err := svc.applySessionStrategy(ctx, router.StrategyFromContext(ctx), uuid.New(), sessionKey)
 
 	require.Error(t, err)
 	assert.Same(t, ctx, got)
@@ -582,7 +582,7 @@ func TestPersistedBetaPreferenceFailsClosedWhenBetaRouterUnavailable(t *testing.
 		}).
 		WithSessionStrategyStore(store)
 
-	ctx, err := svc.applySessionStrategy(context.Background(), installationID, sessionKey)
+	ctx, _, err := svc.applySessionStrategy(context.Background(), router.StrategyFromContext(context.Background()), installationID, sessionKey)
 	require.NoError(t, err)
 	assert.Equal(t, router.StrategyHMMBeta, router.StrategyFromContext(ctx))
 
@@ -652,7 +652,7 @@ func TestBetaToggleSelectsBetaThenRestoresStableRouter(t *testing.T) {
 	require.NoError(t, svc.handleBetaCommand(
 		baseCtx, httptest.NewRecorder(), enableEnv, enableCmd, installationID, sessionKey, sessionKey, 1,
 	))
-	betaCtx, err := svc.applySessionStrategy(baseCtx, installationID, sessionKey)
+	betaCtx, _, err := svc.applySessionStrategy(baseCtx, router.StrategyFromContext(baseCtx), installationID, sessionKey)
 	require.NoError(t, err)
 	_, err = svc.routeFor(betaCtx, router.StrategyFromContext(betaCtx), router.Request{})
 	require.NoError(t, err)
@@ -665,7 +665,7 @@ func TestBetaToggleSelectsBetaThenRestoresStableRouter(t *testing.T) {
 	require.NoError(t, svc.handleBetaCommand(
 		baseCtx, httptest.NewRecorder(), disableEnv, disableCmd, installationID, sessionKey, sessionKey, 1,
 	))
-	stableCtx, err := svc.applySessionStrategy(baseCtx, installationID, sessionKey)
+	stableCtx, _, err := svc.applySessionStrategy(baseCtx, router.StrategyFromContext(baseCtx), installationID, sessionKey)
 	require.NoError(t, err)
 	_, err = svc.routeFor(stableCtx, router.StrategyFromContext(stableCtx), router.Request{})
 	require.NoError(t, err)

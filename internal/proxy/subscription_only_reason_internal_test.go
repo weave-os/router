@@ -57,12 +57,12 @@ func TestSpendCapWarningDoesNotClaimDepletedCredits(t *testing.T) {
 
 func TestSubscriptionOnlyUnavailableNamesTheGate(t *testing.T) {
 	capCtx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlySpendCapReached)
-	assert.Equal(t, ErrSpendCapSubscriptionUnavailable, subscriptionOnlyUnavailable(capCtx))
-	require.ErrorIs(t, subscriptionOnlyUnavailable(capCtx), ErrCreditsExhaustedSubscriptionUnavailable,
+	assert.Equal(t, credentials.ErrSpendCapSubscriptionUnavailable, credentials.SubscriptionOnlyUnavailable(capCtx))
+	require.ErrorIs(t, credentials.SubscriptionOnlyUnavailable(capCtx), credentials.ErrCreditsExhaustedSubscriptionUnavailable,
 		"refusal checks match the credits sentinel, so the cap variant must wrap it")
 
 	depletedCtx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted)
-	assert.Equal(t, ErrCreditsExhaustedSubscriptionUnavailable, subscriptionOnlyUnavailable(depletedCtx))
+	assert.Equal(t, credentials.ErrCreditsExhaustedSubscriptionUnavailable, credentials.SubscriptionOnlyUnavailable(depletedCtx))
 }
 
 func TestSubscriptionOnlyWarningShowsOncePerConversation(t *testing.T) {
@@ -95,8 +95,8 @@ func TestSubscriptionOnlyUnavailableNamesTheSpentAllowanceWindow(t *testing.T) {
 		ResetsAt: time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC),
 	})
 
-	depleted := subscriptionOnlyUnavailable(billing.WithSubscriptionOnly(spent, billing.SubscriptionOnlyCreditsDepleted))
-	require.ErrorIs(t, depleted, ErrCreditsExhaustedSubscriptionUnavailable, "refusal checks match the credits sentinel")
+	depleted := credentials.SubscriptionOnlyUnavailable(billing.WithSubscriptionOnly(spent, billing.SubscriptionOnlyCreditsDepleted))
+	require.ErrorIs(t, depleted, credentials.ErrCreditsExhaustedSubscriptionUnavailable, "refusal checks match the credits sentinel")
 	cls, ok := ClassifyDispatchError(errors.Join(depleted, ErrSubscriptionPoolExhausted))
 	require.True(t, ok)
 	assert.Equal(t, ingress.DispatchErrorCreditsExhausted, cls.Kind)
@@ -106,8 +106,8 @@ func TestSubscriptionOnlyUnavailableNamesTheSpentAllowanceWindow(t *testing.T) {
 	assert.Contains(t, cls.Message, topUpURL)
 	assert.NotContains(t, cls.Message, "credits are exhausted")
 
-	capped := subscriptionOnlyUnavailable(billing.WithSubscriptionOnly(spent, billing.SubscriptionOnlySpendCapReached))
-	require.ErrorIs(t, capped, ErrSpendCapSubscriptionUnavailable)
+	capped := credentials.SubscriptionOnlyUnavailable(billing.WithSubscriptionOnly(spent, billing.SubscriptionOnlySpendCapReached))
+	require.ErrorIs(t, capped, credentials.ErrSpendCapSubscriptionUnavailable)
 	cls, ok = ClassifyDispatchError(capped)
 	require.True(t, ok)
 	assert.Equal(t, ingress.DispatchErrorSpendCapReached, cls.Kind)

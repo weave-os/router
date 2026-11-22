@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
@@ -90,7 +91,7 @@ type rescueChain struct {
 func (c *rescueChain) armSiblings(ctx context.Context, rescueBlocked bool) context.Context {
 	env := c.env
 	ctx = withClaudeEnterpriseTurn(ctx, c.decision)
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	c.siblingDecisions = subscriptionStatePaidRescueDecisions(ctx, c.routing.SiblingFailoverDecisions(ctx, rescueBasisForTurn(c.decision, c.routeRes), c.overflowEstimate, env.SignatureTokenSavings(), c.outputReserve))
 	c.siblingViable = len(c.siblingDecisions) > 0 &&
 		!rescueBlocked &&

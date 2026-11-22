@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -177,7 +178,7 @@ func (o *chatRescue) claudeRetry(ctx context.Context) {
 	routeRes := o.routeRes
 	preludeBuf := o.preludeBuf
 	if o.claudeRetryViable && !paidFallbackForbiddenForModelOnProvider(ctx, o.decision.Provider, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(o.proxyErr) || anthropicSubscriptionThirdPartyRefused(o.proxyErr) || paidCapacityUnfunded(ctx) && (providers.IsRetryable(o.proxyErr) || anthropicOAuthCredentialRejected(o.proxyErr))) {
-		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), o.decision.Model)
+		subCtx := subscriptionStatePaidRescueContext(credentials.WithSuppressedClaudeSubscription(ctx), o.decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, o.decision.Model, o.r.Header)
 		subOpts := o.opts
 		subOpts.FastMode = fastModeForAttempt(subCtx, o.decision.Model, providers.ProviderAnthropic)

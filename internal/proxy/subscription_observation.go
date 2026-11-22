@@ -180,7 +180,7 @@ func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers h
 		return available
 	}
 	codexToken, claudeToken := presentSubscriptionTokens(ctx, headers)
-	if claudeToken != "" && !claudeSubscriptionSuppressed(ctx) && !claudeLoginSpent(ctx, s.credentials.UsageObserver, claudeToken) {
+	if claudeToken != "" && !credentials.ClaudeSubscriptionSuppressed(ctx) && !claudeLoginSpent(ctx, s.credentials.UsageObserver, claudeToken) {
 		available[providers.ProviderAnthropic] = struct{}{}
 	}
 	if codexToken != "" && !codexSubscriptionSuppressed(ctx) && !codexLoginSpent(ctx, s.credentials.UsageObserver, codexToken, s.codexExtraCreditsAllowed()) {

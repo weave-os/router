@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/proxy/usage"
 )
@@ -62,7 +63,7 @@ func TestCredentialKeyParts_ShortKey(t *testing.T) {
 
 func TestCredentialKeyParts_ManagedSubscriptionSourceOutranksOuterCredential(t *testing.T) {
 	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
-	ctx := WithManagedSubscriptionUsage(ctxWithCreds(&Credentials{APIKey: []byte("byok-token"), Source: credSourceBYOK}))
+	ctx := credentials.WithManagedSubscriptionUsage(ctxWithCreds(&Credentials{APIKey: []byte("byok-token"), Source: credSourceBYOK}))
 	managedCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
 		APIKey: []byte("managed-token"), Source: credSourceSubscription, OAuth: true,
 	})
@@ -84,7 +85,7 @@ func TestSubscriptionOverageIsBillableWithoutLosingSubscriptionBillingAttributio
 	_, _, source := s.credentialKeyParts(ctx)
 	assert.Equal(t, credSourceSubscriptionOverage, source)
 
-	managedCtx := WithManagedSubscriptionUsage(context.Background())
+	managedCtx := credentials.WithManagedSubscriptionUsage(context.Background())
 	s.markManagedSubscriptionServed(managedCtx, ctx)
 	assert.True(t, servedOnSubscription(managedCtx))
 	assert.False(t, s.costNeutralSubscriptionServed(managedCtx))

@@ -498,10 +498,10 @@ func TestSubscriptionFailover_EligibilityAndSuppression(t *testing.T) {
 	})
 
 	t.Run("suppression flips resolution off the subscription", func(t *testing.T) {
-		// After withSuppressedClaudeSubscription, resolution must NOT pick the
+		// After credentials.WithSuppressedClaudeSubscription, resolution must NOT pick the
 		// subscription token — so the retry dispatches on the deployment key and
 		// servedOnSubscription reports false (billed at full cost, not sub rate).
-		suppressed := withSuppressedClaudeSubscription(subscriptionCtx())
+		suppressed := credentials.WithSuppressedClaudeSubscription(subscriptionCtx())
 		suppressed = resolveAndInjectCredentials(suppressed, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
 		assert.False(t, servedOnSubscription(suppressed),
 			"a suppressed subscription must not resolve back as the served credential")

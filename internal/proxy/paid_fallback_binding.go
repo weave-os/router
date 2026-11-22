@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/subscriptionlane"
 )
@@ -76,5 +77,5 @@ func withSubscriptionAttempt(ctx context.Context) context.Context {
 
 func withIncludedLaneExhausted(ctx context.Context) context.Context {
 	ctx = context.WithValue(billing.ReleaseLinkedFirst(ctx), subscriptionAPIOnlyKey{}, true)
-	return withSuppressedClaudeSubscription(withSuppressedCodexSubscription(ctx))
+	return credentials.WithSuppressedClaudeSubscription(withSuppressedCodexSubscription(ctx))
 }

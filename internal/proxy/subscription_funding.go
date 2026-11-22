@@ -63,7 +63,7 @@ func subscriptionPoolForModel(target inference.Target) (subscriptions.Provider, 
 }
 
 func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, headers http.Header) context.Context {
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	ctx, _ = withSubscriptionAdmissionBudget(ctx)
 	if dispatch.AuthorizationFromContext(ctx) != nil {
 		return ctx
@@ -95,7 +95,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 		claudeTurn, _ := callCtx.Value(claudeSubscriptionTurnKey{}).(bool)
 		presentedPlan, _ := callCtx.Value(claudeSubscriptionPlanKey{}).(providers.SubscriptionPlan)
 		unverified := claudeSubscriptionPlan(callCtx) == providers.SubscriptionPlanUnknown && (claudeTurn || compatible && pool == subscriptions.ProviderClaude) || claudeTurn && presentedPlan == providers.SubscriptionPlanUnknown
-		if state, _ := callCtx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+		if state, _ := callCtx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil {
 			unverified = unverified || state.ClaudePlanUnverified
 		}
 		if claudeEnterpriseEnabled(callCtx) && unverified && !triedSubscriptionFallsBackToCredits(callCtx) {
@@ -191,7 +191,7 @@ func callerPlanRefusal(ctx context.Context, pool subscriptions.Provider, callerQ
 }
 
 func triedSubscriptionFallsBackToCredits(ctx context.Context) bool {
-	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 	if state == nil || !state.SubscriptionAttempted || state.CallerCredentialRejected || billing.WeaveCreditsDeniedFromContext(ctx) {
 		return false
 	}
@@ -200,7 +200,7 @@ func triedSubscriptionFallsBackToCredits(ctx context.Context) bool {
 }
 
 func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provider, token string, now time.Time) bool {
-	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && state.QuotaExhaustedProviders[pool].After(now) {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil && state.QuotaExhaustedProviders[pool].After(now) {
 		return true
 	}
 	if s.credentials.UsageObserver != nil {
@@ -229,7 +229,7 @@ func (s *Service) markSubscriptionPoolUnavailable(ctx context.Context, pool subs
 	if callerModelPassthroughActive(ctx) {
 		return
 	}
-	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 	if state == nil {
 		return
 	}
@@ -277,7 +277,7 @@ func (s *Service) subscriptionPoolUnavailable(ctx context.Context, provider, mod
 }
 
 func subscriptionProviderUnavailable(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
-	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 	return state != nil && state.UnavailableProviders[pool].After(now)
 }
 
@@ -346,7 +346,7 @@ func managedSeatCanCover(ctx context.Context, pool subscriptions.Provider, now t
 }
 
 func managedAccountThrottled(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
-	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil {
 		if state.ThrottledAccounts[candidate.accountID].After(now) {
 			return true
 		}
@@ -377,7 +377,7 @@ func includedQuotaObservedSpent(observer *usage.Observer, candidate managedSubsc
 }
 
 func recordedQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
-	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil {
 		if state.QuotaExhaustedAccounts[candidate.accountID].After(now) {
 			return true
 		}

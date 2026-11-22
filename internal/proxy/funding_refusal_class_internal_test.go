@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
@@ -37,8 +38,8 @@ func TestPreDispatchFundingRefusalIsClassifiedAndOwned(t *testing.T) {
 		{name: "caller plan rate-limited behind the funding authorization", err: fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, errCallerPlanThrottled), class: turnrecord.TurnErrorRateLimited, owner: turnrecord.FailureOwnerClient},
 		{name: "every usable linked seat throttled", err: fmt.Errorf("%w: %w", ErrSubscriptionPoolExhausted, errLinkedSeatsThrottled), class: turnrecord.TurnErrorRateLimited, owner: turnrecord.FailureOwnerProvider},
 		{name: "subscription pool throttled", err: ErrSubscriptionPoolThrottled, class: turnrecord.TurnErrorRateLimited, owner: turnrecord.FailureOwnerProvider},
-		{name: "credits exhausted and subscription unavailable", err: ErrCreditsExhaustedSubscriptionUnavailable, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
-		{name: "spend cap reached and subscription unavailable", err: ErrSpendCapSubscriptionUnavailable, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
+		{name: "credits exhausted and subscription unavailable", err: credentials.ErrCreditsExhaustedSubscriptionUnavailable, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
+		{name: "spend cap reached and subscription unavailable", err: credentials.ErrSpendCapSubscriptionUnavailable, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
 		{name: "Weave credits disabled", err: ErrWeaveCreditsDisabled, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
 		{name: "Claude Enterprise-only with no usable account", err: ErrClaudeEnterpriseSubscriptionUnavailable, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
 	} {

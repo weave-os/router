@@ -13,10 +13,14 @@ import (
 	"github.com/google/uuid"
 )
 
+type ForceModelBinder interface {
+	Binding(ctx context.Context, model, provider string) (binding, refusalReason string, refused bool)
+}
+
 type ForceModelResolver interface {
+	ForceModelBinder
 	Resolve(model string) (canonicalID, provider string, known bool, effort string)
 	Suggest(input string) string
-	Binding(ctx context.Context, model, provider string) (binding, refusalReason string, refused bool)
 }
 
 type ForceModelPinStore interface {

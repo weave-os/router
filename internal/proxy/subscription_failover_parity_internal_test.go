@@ -100,7 +100,7 @@ func parityAnthropicIngress() parityIngress {
 		servedOnSub:       servedOnSubscription,
 		fallbackAvailable: (*Service).anthropicFallbackKeyAvailable,
 		exhausted:         (*Service).claudeSubscriptionExhausted,
-		suppress:          withSuppressedClaudeSubscription,
+		suppress:          credentials.WithSuppressedClaudeSubscription,
 		tokenRejected:     anthropicOAuthCredentialRejected,
 		// A tool-bearing main-loop turn: a bare one-liner is hard-pinned as a
 		// classifier turn, which short-circuits the routing stages under test.
@@ -380,8 +380,8 @@ func TestSubscriptionFailoverParity_SuppressionIsProviderScoped(t *testing.T) {
 	}
 
 	t.Run("suppressing Claude leaves Codex intact", func(t *testing.T) {
-		ctx := withSuppressedClaudeSubscription(bothSubs())
-		assert.True(t, claudeSubscriptionSuppressed(ctx))
+		ctx := credentials.WithSuppressedClaudeSubscription(bothSubs())
+		assert.True(t, credentials.ClaudeSubscriptionSuppressed(ctx))
 		assert.False(t, codexSubscriptionSuppressed(ctx))
 
 		anthropic := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
@@ -396,7 +396,7 @@ func TestSubscriptionFailoverParity_SuppressionIsProviderScoped(t *testing.T) {
 	t.Run("suppressing Codex leaves Claude intact", func(t *testing.T) {
 		ctx := withSuppressedCodexSubscription(bothSubs())
 		assert.True(t, codexSubscriptionSuppressed(ctx))
-		assert.False(t, claudeSubscriptionSuppressed(ctx))
+		assert.False(t, credentials.ClaudeSubscriptionSuppressed(ctx))
 
 		codex := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, parityCodexModel, http.Header{})
 		assert.Nil(t, CredentialsFromContext(codex), "the suppressed Codex subscription must not resolve")
