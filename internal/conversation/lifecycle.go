@@ -9,6 +9,7 @@ type Lifecycle struct {
 	noProgress                   *NoProgressTracker
 	compaction                   *CompactionTracker
 	textRepetitionBreak          bool
+	summarizer                   handover.Summarizer
 	compactionHandoverSummarizer handover.Summarizer
 	routerFeedback               feedback.RouterFeedbackStore
 }
@@ -37,6 +38,17 @@ func (l *Lifecycle) Compaction() *CompactionTracker {
 		return nil
 	}
 	return l.compaction
+}
+
+func (l *Lifecycle) Summarizer() handover.Summarizer {
+	if l == nil {
+		return nil
+	}
+	return l.summarizer
+}
+
+func (l *Lifecycle) SetSummarizer(summarizer handover.Summarizer) {
+	l.summarizer = summarizer
 }
 
 func (l *Lifecycle) CompactionHandoverSummarizer() handover.Summarizer {

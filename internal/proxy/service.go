@@ -35,7 +35,6 @@ import (
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/escalationdashboard"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
@@ -115,7 +114,6 @@ type Service struct {
 	bandSwap                       *bandswap.Classifier
 
 	turnSignalCaptureEnabled bool
-	summarizer               handover.Summarizer
 	webSearch                websearch.Executor
 	availableModels          map[string]struct{}
 	defaultBaselineModel     string
@@ -1224,11 +1222,6 @@ func forcedReasoningEffort(model string, escalate bool) string {
 	default:
 		return ""
 	}
-}
-
-func (s *Service) WithSummarizer(sz handover.Summarizer) *Service {
-	s.summarizer = sz
-	return s
 }
 
 func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
