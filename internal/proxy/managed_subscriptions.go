@@ -81,7 +81,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	if subscriptionAttemptOnly(ctx) && (!eligible || !s.supportsSubscriptionTransport(provider) || !managedSubscriptionEnrolled(ctx, poolProvider)) && !servedOnSubscription(ctx) {
 		return ctx, subscriptions.Lease{}, true, subscriptionPoolExhausted(ctx)
 	}
-	if eligible && (claudeSubscriptionSuppressed(ctx) && provider == providers.ProviderAnthropic || codexSubscriptionSuppressed(ctx) && provider == providers.ProviderOpenAI) && !managedSubscriptionEnrolled(ctx, poolProvider) && !s.managedProviderFallbackAvailable(ctx, poolProvider) {
+	if eligible && (credentials.ClaudeSubscriptionSuppressed(ctx) && provider == providers.ProviderAnthropic || codexSubscriptionSuppressed(ctx) && provider == providers.ProviderOpenAI) && !managedSubscriptionEnrolled(ctx, poolProvider) && !s.managedProviderFallbackAvailable(ctx, poolProvider) {
 		return ctx, subscriptions.Lease{}, true, subscriptionPoolExhausted(ctx)
 	}
 	if !eligible || s.credentials.ManagedSubscriptions == nil || !managedSubscriptionEnrolled(ctx, poolProvider) ||
@@ -99,7 +99,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	defer diagnostics.log(ctx, poolProvider, model)
 
 	owner := subscriptionOwnerFromContext(ctx)
-	if winner, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); winner != nil {
+	if winner, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); winner != nil {
 		for pair := range winner.AttemptedAccounts {
 			if strings.HasSuffix(pair, "\x00"+model) {
 				owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, strings.TrimSuffix(pair, "\x00"+model))
@@ -169,7 +169,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 				continue
 			}
 		}
-		if winner, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); winner != nil {
+		if winner, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); winner != nil {
 			if _, attempted := winner.AttemptedAccounts[lease.AccountID+"\x00"+model]; attempted {
 				lease.Release()
 				owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
@@ -210,7 +210,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		credentialCtx := context.WithValue(ctx, CredentialsContextKey{}, creds)
 		if poolProvider == subscriptions.ProviderClaude {
 			credentialCtx = s.withClaudeSubscriptionProfile(credentialCtx, nil)
-			if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && claudeSubscriptionPlan(credentialCtx) == providers.SubscriptionPlanUnknown {
+			if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil && claudeSubscriptionPlan(credentialCtx) == providers.SubscriptionPlanUnknown {
 				state.ClaudePlanUnverified = true
 			}
 		}
@@ -453,6 +453,6 @@ func linkedSubscriptionResetAt(snapshot usage.Snapshot, now time.Time) time.Time
 }
 
 func subscriptionCredentialFallbackUsed(ctx context.Context) bool {
-	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 	return state != nil && state.Finished && state.SubscriptionAttempted && (state.WinningCredentials == nil || !state.WinningCredentials.OAuth)
 }
