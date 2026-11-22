@@ -31,6 +31,7 @@ import (
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/trafficcapture"
 
 	"github.com/gin-gonic/gin"
@@ -99,6 +100,7 @@ type Features struct {
 	DefaultStrategy          router.Strategy
 	InternalServiceToken     string
 	Admin                    admin.Config
+	ContentCaptureMode       capture.Mode
 }
 
 func (f Features) defaultStrategy() router.Strategy {
@@ -261,8 +263,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		mgmt.GET("/onboarding", admin.OnboardingHandler(authSvc))
 		mgmt.GET("/routing-preferences", admin.GetRoutingPreferencesHandler(authSvc))
 		mgmt.PUT("/routing-preferences", admin.UpdateRoutingPreferencesHandler(authSvc))
-		mgmt.GET("/content-capture", admin.GetContentCaptureHandler(authSvc, proxySvc))
-		mgmt.PUT("/content-capture", admin.UpdateContentCaptureHandler(authSvc, proxySvc))
+		mgmt.GET("/content-capture", admin.GetContentCaptureHandler(authSvc, features.ContentCaptureMode))
+		mgmt.PUT("/content-capture", admin.UpdateContentCaptureHandler(authSvc, features.ContentCaptureMode))
 		mgmt.GET("/fast-mode-models", admin.GetFastModeModelsHandler(authSvc))
 		mgmt.PUT("/fast-mode-models", admin.UpdateFastModeModelsHandler(authSvc))
 		if hmmModels != nil {

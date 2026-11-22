@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/translate/toolcheck"
 
@@ -60,11 +61,11 @@ type chatTurnDispatch struct {
 	overflowEstimateOAI     int
 	outputReserveOAI        int
 	responsesEndpointKey    string
-	escalationCapture       **captureWriter
+	escalationCapture       **capture.Writer
 
 	bindings             []catalog.ProviderBinding
 	contentSink          http.ResponseWriter
-	contentCap           *captureWriter
+	contentCap           *capture.Writer
 	marker               string
 	responsesWriter      *translate.ResponsesWriter
 	isResponses          bool

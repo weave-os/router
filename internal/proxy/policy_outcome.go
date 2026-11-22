@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 )
 
@@ -105,13 +106,13 @@ func (s *Service) policyOutcomeRoute(res routingpolicy.TurnRoute, decision route
 	return router.Decision{}, nil, nil, false
 }
 
-func (s *Service) capturePolicyOutcomeResponse(ctx context.Context, w http.ResponseWriter, res routingpolicy.TurnRoute, decision router.Decision) (http.ResponseWriter, *captureWriter) {
+func (s *Service) capturePolicyOutcomeResponse(ctx context.Context, w http.ResponseWriter, res routingpolicy.TurnRoute, decision router.Decision) (http.ResponseWriter, *capture.Writer) {
 	if !policyTrainingAllowedForRequest(ctx) {
 		return w, nil
 	}
 	if _, _, _, ok := s.policyOutcomeRoute(res, decision); !ok {
 		return w, nil
 	}
-	capture := newCaptureWriter(w, policyOutcomeResponseMaxBytes)
+	capture := capture.NewWriter(w, policyOutcomeResponseMaxBytes)
 	return capture, capture
 }

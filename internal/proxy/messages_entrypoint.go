@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/websearch"
 )
@@ -165,7 +166,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return taskArm.route(routeCtx, s.runTurnLoop)(env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, "", r.Header, req)
 	})
 	defer routeRes.ReleaseCooldownProbes()
-	var escalationCapture *captureWriter
+	var escalationCapture *capture.Writer
 	defer func() {
 		if !conversation.PreparingHandoff(ctx) {
 			s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseAnthropic)

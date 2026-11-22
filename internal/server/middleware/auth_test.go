@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/server/middleware"
+	"weave-os/router/internal/telemetry/capture"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -295,7 +296,7 @@ func TestWithAuthPropagatesContentCaptureOverride(t *testing.T) {
 	engine.GET("/probe", func(c *gin.Context) {
 		// Without this the proxy only ever sees the deployment-wide mode, and
 		// an installation that asked for no retention still gets captured.
-		assert.Equal(t, proxy.CaptureOff, c.Request.Context().Value(requestcontext.InstallationCaptureModeContextKey{}))
+		assert.Equal(t, capture.Off, c.Request.Context().Value(requestcontext.InstallationCaptureModeContextKey{}))
 		c.Status(http.StatusOK)
 	})
 
