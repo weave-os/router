@@ -44,7 +44,7 @@ func claudeEnterpriseCapRotation(credentialCtx, attemptCtx context.Context, deci
 		return attemptCtx, false
 	}
 	state.ClaudeEnterpriseCapRefused = true
-	return resolveAndInjectCredentials(withSuppressedClaudeSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{}), true
+	return resolveAndInjectCredentials(credentials.WithSuppressedClaudeSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{}), true
 }
 
 func bypassMayReroute(ctx context.Context, err error) bool {

@@ -17,5 +17,5 @@ func TestSubscriptionProvidersHonorRoutingToggle(t *testing.T) {
 
 	disabled := context.WithValue(ctx, requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true)
 	require.Empty(t, subscriptionProvidersForRequest(disabled))
-	require.Empty(t, subscriptionProvidersForRequest(withSuppressedClaudeSubscription(ctx)))
+	require.Empty(t, subscriptionProvidersForRequest(credentials.WithSuppressedClaudeSubscription(ctx)))
 }

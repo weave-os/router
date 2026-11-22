@@ -707,7 +707,7 @@ func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
 }
 
 func memberSelectedModel(ctx context.Context, model string) bool {
-	if !flags.BoolOr(ctx, flags.KeyPlanUserClusterLists, false) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
+	if !flags.BoolOr(ctx, flags.KeyPlanUserClusterLists, false) || billing.SubscriptionOnlyFromContext(ctx) && !credentials.LinkedFirst(ctx) {
 		return false
 	}
 	for _, models := range auth.UserClusterModelListsFrom(ctx) {
@@ -769,7 +769,7 @@ func subscriptionProvidersForRequest(ctx context.Context) map[string]struct{} {
 	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
 		return available
 	}
-	if !claudeSubscriptionSuppressed(ctx) && (anthropicSubscriptionFromContext(ctx) != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude)) {
+	if !credentials.ClaudeSubscriptionSuppressed(ctx) && (anthropicSubscriptionFromContext(ctx) != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude)) {
 		available[providers.ProviderAnthropic] = struct{}{}
 	}
 	if !codexSubscriptionSuppressed(ctx) && (openaiSubscriptionFromContext(ctx) != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex)) {
@@ -783,17 +783,6 @@ func anthropicSubscriptionFromContext(ctx context.Context) string {
 		return ""
 	}
 	v, _ := ctx.Value(credentials.AnthropicSubscriptionContextKey{}).(string)
-	return v
-}
-
-type suppressClaudeSubscriptionContextKey struct{}
-
-func withSuppressedClaudeSubscription(ctx context.Context) context.Context {
-	return context.WithValue(ctx, suppressClaudeSubscriptionContextKey{}, true)
-}
-
-func claudeSubscriptionSuppressed(ctx context.Context) bool {
-	v, _ := ctx.Value(suppressClaudeSubscriptionContextKey{}).(bool)
 	return v
 }
 
@@ -848,7 +837,7 @@ func (s *Service) avoidCodexOnChatEndpoint(ctx context.Context, provider, model 
 		return ctx, nil
 	}
 	if !s.openaiFallbackKeyAvailable(ctx) {
-		return nil, subscriptionOnlyUnavailable(ctx)
+		return nil, credentials.SubscriptionOnlyUnavailable(ctx)
 	}
 	return withCodexChatEndpoint(ctx), nil
 }
@@ -2293,21 +2282,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			return err
 		}
 
-		linkedSubscriptionRetry := false
-		if billing.SubscriptionOnlyFromContext(ctx) {
-			released, ok := releaseThrottledLinkedFirst(ctx)
-			if ok {
-				ctx = released
-			} else if s.credentials.ManagedSubscriptions != nil && managedSubscriptionCanServe(ctx, routeRes.Decision.Provider, routeRes.Decision.Model) {
-				ctx = withSuppressedClaudeSubscription(ctx)
-				linkedSubscriptionRetry = true
-				log.Info("Subscription-only bypass hit retryable error; trying linked Claude accounts",
-					"request_id", facts.RequestID, "external_id", facts.ExternalID, "model", routeRes.Decision.Model)
-			} else {
-				log.Info("Subscription-only bypass hit retryable error; refusing instead of paid reroute",
-					"request_id", facts.RequestID, "external_id", facts.ExternalID)
-				return subscriptionOnlyUnavailable(ctx)
-			}
+		var linkedSubscriptionRetry bool
+		ctx, linkedSubscriptionRetry, err = s.credentials.RetryAfterSubscriptionOnlyBypass(ctx, log, facts.RequestID, facts.ExternalID, routeRes.Decision, managedSubscriptionCanServe)
+		if err != nil {
+			return err
 		}
 
 		if s.pinStore != nil && !isUnpinnedScoredTurn(routeRes.TurnType) {
@@ -2419,7 +2397,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	effortServed.Apply(&opts)
 
 	if s.claudeSubscriptionExhausted(ctx, r.Header) {
-		ctx = withSuppressedClaudeSubscription(ctx)
+		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 		if s.linkedSeatCanCover(ctx, decision.Provider, decision.Model) {
 			ctx = withDeferredReconnectNudge(ctx, claudeSubscriptionReconnectNudge(ctx, r.Header, s.usageObserver))
 		} else {
@@ -2438,13 +2416,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			if !ok {
 				log.Info("Subscription-only request cannot be served on the subscription; refusing",
 					"requested_model", feats.Model, "external_id", facts.ExternalID, "decision_provider", decision.Provider)
-				return subscriptionOnlyUnavailable(ctx)
+				return credentials.SubscriptionOnlyUnavailable(ctx)
 			}
 			ctx = released
-		case !servedOnCustomerKey(ctx) && s.anthropicSubscriptionObservedExhausted(ctx, r.Header) && !claudeSubscriptionSuppressed(ctx):
+		case !servedOnCustomerKey(ctx) && s.anthropicSubscriptionObservedExhausted(ctx, r.Header) && !credentials.ClaudeSubscriptionSuppressed(ctx):
 			log.Info("Subscription-only request cannot be served on the subscription; refusing",
 				"requested_model", feats.Model, "external_id", facts.ExternalID, "decision_provider", decision.Provider)
-			return subscriptionOnlyUnavailable(ctx)
+			return credentials.SubscriptionOnlyUnavailable(ctx)
 		default:
 			bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
 		}
@@ -2622,7 +2600,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	winnerIdx, finalProvider := rescue.winnerIdx, rescue.finalProvider
 
 	if rescue.subscriptionFailoverUsed {
-		ctx = withSuppressedClaudeSubscription(ctx)
+		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 	}
 	ctx = resolveAndInjectCredentials(ctx, finalProvider, decision.Model, r.Header)
 
@@ -3991,7 +3969,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			if !ok {
 				log.Info("Subscription-only request cannot be served on the subscription; refusing",
 					"requested_model", feats.Model, "external_id", facts.ExternalID, "decision_provider", decision.Provider)
-				return subscriptionOnlyUnavailable(ctx)
+				return credentials.SubscriptionOnlyUnavailable(ctx)
 			}
 			ctx = released
 		} else {
@@ -4214,7 +4192,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if rescue.codexFailoverUsed {
 		ctx = withSuppressedCodexSubscription(ctx)
 	} else if rescue.claudeFailoverUsed {
-		ctx = withSuppressedClaudeSubscription(ctx)
+		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 	}
 	ctx = s.resolveCredentials(ctx, finalProvider, decision.Model, r.Header)
 

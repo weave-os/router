@@ -101,7 +101,7 @@ func TestSubscriptionPoolUnavailableAndThrottledRefusalsIgnoreTheLaneMark(t *tes
 				require.ErrorIs(t, err, pin.sentinel)
 				assert.Equal(t, pin.text, err.Error())
 				assert.Equal(t, pin.kind.Contract(), classifiedRefusal(t, err))
-				assert.False(t, subscriptionLaneRefused(err))
+				assert.False(t, credentials.SubscriptionLaneRefused(err))
 			})
 		}
 	}
