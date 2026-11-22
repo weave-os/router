@@ -2033,7 +2033,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	agentForceModel := ""
 	requestBodyChanged := false
 	if !agentShadowMode {
-		commands, err := conversation.CommandDispatch{
+		outcome, err := conversation.CommandDispatch{
 			Source:                  env,
 			Handlers:                turnCommands{s: s, w: w, env: env, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
 			Protocol:                "ProxyMessages",
@@ -2041,10 +2041,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			ForceModelContinuesTurn: func(cmd translate.ForceModelResult) bool { return cmd.FromToolResult },
 			SyntheticFeedback:       func(cmd translate.RouterFeedbackResult) bool { return !cmd.FromToolResult },
 		}.Run(ctx)
-		if err != nil || commands.Handled {
+		if err != nil || outcome.Handled {
 			return err
 		}
-		agentForceModel, requestBodyChanged = commands.AgentForceModel, commands.BodyChanged
+		agentForceModel, requestBodyChanged = outcome.AgentForceModel, outcome.BodyChanged
 	}
 
 	if coalesced := env.CoalesceDuplicateToolResults(); coalesced > 0 {
@@ -3346,7 +3346,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	*r = *r.WithContext(ctx)
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 
-	commands, err := conversation.CommandDispatch{
+	outcome, err := conversation.CommandDispatch{
 		Source:                  chatCommandSource{RequestEnvelope: env, routing: routingEnvelopeForRequest(ctx, env)},
 		Handlers:                turnCommands{s: s, w: w, env: env, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
 		Protocol:                "ProxyOpenAIChatCompletion",
@@ -3356,10 +3356,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			return !cmd.FromToolResult || codexSkillTurnFrom(ctx) == translate.CodexSkillTurnFeedback
 		},
 	}.Run(ctx)
-	if err != nil || commands.Handled {
+	if err != nil || outcome.Handled {
 		return err
 	}
-	agentForceModel, requestBodyChanged := commands.AgentForceModel, commands.BodyChanged
+	agentForceModel, requestBodyChanged := outcome.AgentForceModel, outcome.BodyChanged
 
 	if coalesced := env.CoalesceDuplicateToolResults(); coalesced > 0 {
 		log.Info("Coalesced duplicate tool results before dispatch", "coalesced", coalesced)
