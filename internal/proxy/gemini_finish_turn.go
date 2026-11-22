@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -38,7 +39,7 @@ type geminiFinishedTurn struct {
 	strategy          router.Strategy
 	routeRequest      router.Request
 	routeMs           int64
-	routeRes          turnLoopResult
+	routeRes          routingpolicy.TurnRoute
 	decision          router.Decision
 	tt                turntype.TurnType
 	stickyHit         bool
@@ -84,7 +85,7 @@ func geminiTurnUsageFor(ctx context.Context, s *Service, t *geminiFinishedTurn) 
 	in, out := t.extractor.Tokens()
 	cacheCreation, cacheRead := t.extractor.CacheTokens()
 	usageMods := t.extractor.UsageModifiers()
-	baselineWarmPrefill := t.routeRes.baselineWarmPrefillTokens(t.requestStart, cacheCreation, cacheRead, t.decision.Model, s.baselineFor(ctx, t.feats.Model), t.routeRequest.HistoryTruncated)
+	baselineWarmPrefill := baselineWarmPrefillTokens(t.routeRes, t.requestStart, cacheCreation, cacheRead, t.decision.Model, s.baselineFor(ctx, t.feats.Model), t.routeRequest.HistoryTruncated)
 	requestedInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, baselineWarmPrefill, t.reqPricing, t.decision.Provider, usageMods)
 	if t.responseBuffer != nil && t.proxyErr == nil {
 		setRouterCostHeaders(t.w.Header(), routerResponseCostFromPricing(t.actPricing, t.decision.Provider, in, out, cacheCreation, cacheRead, usageMods))

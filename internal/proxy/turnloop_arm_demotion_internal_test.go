@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -32,7 +33,7 @@ func demotionTurnLoopEnv(t *testing.T) (*translate.RequestEnvelope, translate.Ro
 	return env, env.RoutingFeatures()
 }
 
-func runDemotionTurnLoop(t *testing.T, svc *Service, ctx context.Context) turnLoopResult {
+func runDemotionTurnLoop(t *testing.T, svc *Service, ctx context.Context) routingpolicy.TurnRoute {
 	t.Helper()
 	env, features := demotionTurnLoopEnv(t)
 	res, err := svc.runTurnLoop(

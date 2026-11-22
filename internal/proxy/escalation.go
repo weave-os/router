@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/requestcontext"
@@ -40,7 +41,7 @@ func (s *Service) escalationHelper() *floor.Helper {
 	return s.escalation
 }
 
-func (s *Service) escalationFacts(ctx context.Context, env *translate.RequestEnvelope, res turnLoopResult, apiKeyID string) floor.Facts {
+func (s *Service) escalationFacts(ctx context.Context, env *translate.RequestEnvelope, res routingpolicy.TurnRoute, apiKeyID string) floor.Facts {
 	original, isNativeResponses := ctx.Value(nativeResponsesBodyContextKey{}).([]byte)
 	return floor.Facts{
 		Strategy:            res.Strategy,
@@ -58,8 +59,8 @@ func (s *Service) escalationFacts(ctx context.Context, env *translate.RequestEnv
 	}
 }
 
-func (s *Service) captureEscalationResponse(w http.ResponseWriter, res turnLoopResult) (http.ResponseWriter, *captureWriter) {
-	if res.EscalationOrdinal == 0 && !res.escalation.HasLLM() {
+func (s *Service) captureEscalationResponse(w http.ResponseWriter, res routingpolicy.TurnRoute) (http.ResponseWriter, *captureWriter) {
+	if res.EscalationOrdinal == 0 && !res.Escalation().HasLLM() {
 		return w, nil
 	}
 	if responses, ok := w.(*translate.ResponsesWriter); ok {
@@ -74,8 +75,8 @@ func (s *Service) captureEscalationResponse(w http.ResponseWriter, res turnLoopR
 	return capture, capture
 }
 
-func (s *Service) completeEscalation(ctx context.Context, res turnLoopResult, proxyErr error, capture *captureWriter, format translate.EscalationResponseFormat) {
-	if res.EscalationOrdinal == 0 && !res.escalation.HasLLM() {
+func (s *Service) completeEscalation(ctx context.Context, res routingpolicy.TurnRoute, proxyErr error, capture *captureWriter, format translate.EscalationResponseFormat) {
+	if res.EscalationOrdinal == 0 && !res.Escalation().HasLLM() {
 		return
 	}
 	if deferred := deferredCallLogFrom(ctx); deferred != nil {
@@ -87,10 +88,10 @@ func (s *Service) completeEscalation(ctx context.Context, res turnLoopResult, pr
 	s.escalationHelper().Complete(ctx, s.escalationCompletion(ctx, res, proxyErr, capture, format))
 }
 
-func (s *Service) escalationCompletion(ctx context.Context, res turnLoopResult, proxyErr error, capture *captureWriter, format translate.EscalationResponseFormat) floor.Completion {
+func (s *Service) escalationCompletion(ctx context.Context, res routingpolicy.TurnRoute, proxyErr error, capture *captureWriter, format translate.EscalationResponseFormat) floor.Completion {
 	body, truncated := capturedResponse(capture)
 	return floor.Completion{
-		Turn:         res.escalation,
+		Turn:         res.Escalation(),
 		Committed:    floor.Committed{ShadowMarked: res.EscalationShadowMarked, Scope: res.EscalationScope, Ordinal: res.EscalationOrdinal},
 		ProxyErr:     proxyErr,
 		Body:         body,

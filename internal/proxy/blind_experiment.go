@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
@@ -37,7 +38,7 @@ func blindExperimentPassthroughActive(ctx context.Context) bool {
 	return active && state.Arm == auth.BlindExperimentArmPassthrough
 }
 
-func blindExperimentModelSource(ctx context.Context, routed *turnLoopResult) auth.BlindExperimentModelSource {
+func blindExperimentModelSource(ctx context.Context, routed *routingpolicy.TurnRoute) auth.BlindExperimentModelSource {
 	switch {
 	case routed == nil || routed.Decision.Model == "":
 		return auth.BlindExperimentModelSourceNotDispatched
@@ -65,7 +66,7 @@ type blindExperimentOutcome struct {
 	modelChanged     *bool
 }
 
-func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentState, routed *turnLoopResult, requestedModel, servedModel string) blindExperimentOutcome {
+func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentState, routed *routingpolicy.TurnRoute, requestedModel, servedModel string) blindExperimentOutcome {
 	source := blindExperimentModelSource(ctx, routed)
 	outcome := blindExperimentOutcome{
 		source:           source,
@@ -95,7 +96,7 @@ func blindExperimentBaselineModel(ctx context.Context, requestedModel string) st
 	return baseline
 }
 
-func applyBlindExperimentOutcomeAttrs(ctx context.Context, b *telemetry.AttrBuilder, routed *turnLoopResult, requestedModel, servedModel string) {
+func applyBlindExperimentOutcomeAttrs(ctx context.Context, b *telemetry.AttrBuilder, routed *routingpolicy.TurnRoute, requestedModel, servedModel string) {
 	state, active := auth.BlindExperimentFrom(ctx)
 	if !active {
 		return

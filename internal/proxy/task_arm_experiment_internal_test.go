@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -143,15 +144,15 @@ func TestTaskArmTurnRoute(t *testing.T) {
 			turn := tc.turn
 			var routes []router.Request
 			var released []string
-			route := turnRoute(func(_ context.Context, _ *translate.RequestEnvelope, _ translate.RoutingFeatures, _ turnRequest, _ string, _ http.Header, req router.Request) (turnLoopResult, error) {
+			route := turnRoute(func(_ context.Context, _ *translate.RequestEnvelope, _ translate.RoutingFeatures, _ turnRequest, _ string, _ http.Header, req router.Request) (routingpolicy.TurnRoute, error) {
 				routes = append(routes, req)
 				if req.SkipSessionPin {
-					return turnLoopResult{
+					return routingpolicy.TurnRoute{
 						Decision: router.Decision{Model: "capped"}, OverloadProbe: &breaker.Probe{Model: "capped"},
 						CooldownProbeReleases: []func(){func() { released = append(released, "capped") }},
 					}, tc.cappedErr
 				}
-				control := turnLoopResult{
+				control := routingpolicy.TurnRoute{
 					SessionKey: [sessionpin.SessionKeyLen]byte{7}, PriorServedModel: "control", EscalationOrdinal: 3,
 					SessionDemotedModels: []string{"struck"}, PrefixTrimmed: true, OverloadProbe: &breaker.Probe{Model: "control"},
 					CooldownProbes:        map[string]time.Time{"capped": {}},
@@ -182,7 +183,7 @@ func TestTaskArmTurnRoute(t *testing.T) {
 			assert.Contains(t, res.CooldownProbes, "capped", "a cooldown probe the session leased can still be cleared by the served turn")
 			require.NotNil(t, res.OverloadProbe)
 			assert.Equal(t, tc.wantServed, res.OverloadProbe.Model, "the served route's recovery probe is the one that gets the outcome")
-			res.releaseCooldownProbes()
+			res.ReleaseCooldownProbes()
 			wantReleased := []string{"control"}
 			if tc.wantCapped {
 				wantReleased = []string{"control", "capped"}
@@ -201,7 +202,7 @@ func TestTaskArmTurnLeavesTheExperimentWhenASavedForcedModelServes(t *testing.T)
 	turn := taskArmTurn{assignment: taskarm.Assignment{Arm: taskarm.ArmTreatment}, assigned: true, cluster: "medium"}
 	forced := router.Decision{Reason: translate.ReasonUserForceModel, Metadata: &router.RoutingMetadata{PolicyGroup: "high"}}
 
-	capped := turn.observeControl(turnLoopResult{Decision: forced})
+	capped := turn.observeControl(routingpolicy.TurnRoute{Decision: forced})
 
 	assert.False(t, capped)
 	assert.False(t, turn.assigned)
@@ -252,7 +253,7 @@ func (taskArmCeilingRouter) Route(_ context.Context, req router.Request) (router
 
 func TestACappedTreatmentTurnLeavesTheSessionPinAsControlWouldHaveLeftIt(t *testing.T) {
 	strategy := router.Strategy("task-arm-test")
-	routeTurn := func(arm taskarm.Arm) (turnLoopResult, taskArmTurn, *stubPinStore) {
+	routeTurn := func(arm taskarm.Arm) (routingpolicy.TurnRoute, taskArmTurn, *stubPinStore) {
 		store := newStubPinStore()
 		store.getFound = true
 		store.getPin = sessionpin.Pin{

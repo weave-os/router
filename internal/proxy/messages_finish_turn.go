@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/conversation"
@@ -47,7 +48,7 @@ type messagesFinishedTurn struct {
 	inboundLatestToolCalls    []byte
 	overflowEstimate          int
 	req                       router.Request
-	routeRes                  turnLoopResult
+	routeRes                  routingpolicy.TurnRoute
 	decision                  router.Decision
 	tt                        turntype.TurnType
 	stickyHit                 bool
@@ -133,7 +134,7 @@ func messagesTurnUsageFor(ctx context.Context, s *Service, t *messagesFinishedTu
 	in, out := t.extractor.Tokens()
 	cacheCreation, cacheRead := t.extractor.CacheTokens()
 	usageMods := t.extractor.UsageModifiers()
-	baselineWarmPrefill := t.routeRes.baselineWarmPrefillTokens(t.requestStart, cacheCreation, cacheRead, t.decision.Model, s.baselineFor(ctx, t.feats.Model), t.req.HistoryTruncated)
+	baselineWarmPrefill := baselineWarmPrefillTokens(t.routeRes, t.requestStart, cacheCreation, cacheRead, t.decision.Model, s.baselineFor(ctx, t.feats.Model), t.req.HistoryTruncated)
 	requestedInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, baselineWarmPrefill, t.reqPricing, t.decision.Provider, usageMods)
 	if t.responseBuffer != nil && t.proxyErr == nil {
 		setRouterCostHeaders(t.w.Header(), routerResponseCostFromPricing(t.actPricing, t.decision.Provider, in, out, cacheCreation, cacheRead, usageMods))

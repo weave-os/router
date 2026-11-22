@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 
@@ -32,7 +33,7 @@ func observedOverflowRequest() router.Request {
 func TestExcludeObservedOverflowModelsDropsModelsPastTheThreadsUsage(t *testing.T) {
 	svc, ctx, _, _ := gatewayCompactionFixture(nil)
 	estimate := 900_000
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		ContextEstimate: estimate,
 		TokenizerCalibration: sessionpin.TokenizerCalibration{}.
 			Observe(sessionpin.TokenizerFamilyOpenAI, 700_000, estimate, time.Now()),
@@ -54,7 +55,7 @@ func TestExcludeObservedOverflowModelsDropsModelsPastTheThreadsUsage(t *testing.
 // After compaction the body shrinks, so the same thread fits again.
 func TestExcludeObservedOverflowModelsReadmitsACompactedThread(t *testing.T) {
 	svc, ctx, _, _ := gatewayCompactionFixture(nil)
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		ContextEstimate: 30_000,
 		TokenizerCalibration: sessionpin.TokenizerCalibration{}.
 			Observe(sessionpin.TokenizerFamilyOpenAI, 700_000, 900_000, time.Now()),

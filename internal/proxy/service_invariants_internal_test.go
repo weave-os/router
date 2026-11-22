@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 
@@ -139,7 +140,7 @@ func TestClearRecoveredCooldown_LandsAfterRequestCancellation(t *testing.T) {
 	cancel()
 	observedUntil := time.Now().Add(-time.Second)
 
-	clearRecoveredCooldown(ctx, s, turnLoopResult{
+	clearRecoveredCooldown(ctx, s, routingpolicy.TurnRoute{
 		SessionKey:     [sessionpin.SessionKeyLen]byte{1},
 		CooldownProbes: map[string]time.Time{"recovered-model": observedUntil},
 	}, "recovered-model", nil)
@@ -200,7 +201,7 @@ func TestEmitBilling_HandoverSummaryDebitedOnceAlongsideTurn(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			s, repo, _ := auxTestService(t)
 			s.emitBilling(auxTestContext(uuid.New()), auxTestRequestID, auxTestOrgID, auxTestModel,
-				router.Decision{Provider: "anthropic", Model: auxTestModel}, catalog.Pricing{}, turnLoopResult{Handover: c.handover},
+				router.Decision{Provider: "anthropic", Model: auxTestModel}, catalog.Pricing{}, routingpolicy.TurnRoute{Handover: c.handover},
 				4000, 700, 0, 0, catalog.UsageModifiers{})
 			var got []string
 			for _, d := range repo.snapshot() {

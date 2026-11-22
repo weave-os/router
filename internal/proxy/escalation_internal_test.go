@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
@@ -163,7 +164,7 @@ func TestEscalationLiveModelThroughTurnLoop(t *testing.T) {
 	client := policyclient.New(endpoint, &http.Client{}, time.Second)
 	ctx := escalationTestContext(true, false)
 	installation := uuid.New()
-	var last turnLoopResult
+	var last routingpolicy.TurnRoute
 	for n, body := range observations[:11] {
 		// Recreate the service each turn: all continuity must come from the store.
 		svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil)).WithEscalation(store, client).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
@@ -204,7 +205,7 @@ func TestEscalationCommitFailureDoesNotDispatchUncommittedPromotion(t *testing.T
 func TestEscalationRecordsServedHistoryWithoutReplacingBaselinePin(t *testing.T) {
 	pins := newStubPinStore()
 	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
-	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), PinRole: "default", Decision: router.Decision{Model: "claude-sonnet-4-6", Provider: providers.ProviderAnthropic, Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding), Escalation: &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Medium, Outcome: escalation.OutcomePromoted, Constrained: true}}}}
+	res := routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), PinRole: "default", Decision: router.Decision{Model: "claude-sonnet-4-6", Provider: providers.ProviderAnthropic, Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding), Escalation: &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Medium, Outcome: escalation.OutcomePromoted, Constrained: true}}}}
 	res.SessionKey[0] = 1
 	svc.recordTurnUsage(context.Background(), res, providers.ProviderAnthropic, "claude-sonnet-4-6", 100, 20, 0, 0, false)
 	require.Len(t, pins.upserts, 1)

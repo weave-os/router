@@ -2,9 +2,10 @@ package proxy
 
 import (
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/routingpolicy"
 )
 
-func rescueTurnOf(res turnLoopResult) dispatch.RescueTurn {
+func rescueTurnOf(res routingpolicy.TurnRoute) dispatch.RescueTurn {
 	return dispatch.RescueTurn{
 		Decision:                    res.Decision,
 		Purpose:                     res.Purpose,

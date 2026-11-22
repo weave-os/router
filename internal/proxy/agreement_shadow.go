@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"slices"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
@@ -33,7 +34,7 @@ func agreementShadowEnabled(ctx context.Context) bool {
 	return managed && policyregistry.ServingTarget(identity.Target) == policyregistry.TargetInternal && identity.StateNamespace != "" && identity.ReleaseID != "" && identity.BindingID != "" && flags.IntOr(ctx, flags.KeyAgreementShadowEpoch, 0) > 0
 }
 
-func applyAgreementShadowTelemetry(ports continuity.StrategyPorts, ctx context.Context, p *turnrecord.InsertTelemetryParams, res turnLoopResult) {
+func applyAgreementShadowTelemetry(ports continuity.StrategyPorts, ctx context.Context, p *turnrecord.InsertTelemetryParams, res routingpolicy.TurnRoute) {
 	if !agreementShadowEnabled(ctx) {
 		return
 	}
@@ -176,7 +177,7 @@ func (s *Service) recordAgreementShadowCommandBoundary(ctx context.Context, inst
 	for _, role := range forceModelClearRoles() {
 		p := turnrecord.InsertTelemetryParams{InstallationID: installationID.String(), RequestID: commandID, Timestamp: startedAt,
 			SessionKey: threadKey[:], Role: role, TurnType: string(turntype.MainLoop), UpstreamStatusCode: http.StatusOK}
-		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &p, turnLoopResult{})
+		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &p, routingpolicy.TurnRoute{})
 		s.recordAgreementShadow(boundaryCtx, log, p)
 	}
 }

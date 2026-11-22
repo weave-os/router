@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 
@@ -60,12 +61,12 @@ type turnRequest struct {
 	InstallationID uuid.UUID
 }
 
-type turnRoute func(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures, request turnRequest, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error)
+type turnRoute func(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures, request turnRequest, subAgentHint string, reqHeaders http.Header, req router.Request) (routingpolicy.TurnRoute, error)
 
-type taskArmRoute func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, request turnRequest, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error)
+type taskArmRoute func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, request turnRequest, subAgentHint string, reqHeaders http.Header, req router.Request) (routingpolicy.TurnRoute, error)
 
 func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRoute {
-	return func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, request turnRequest, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error) {
+	return func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, request turnRequest, subAgentHint string, reqHeaders http.Header, req router.Request) (routingpolicy.TurnRoute, error) {
 		control, err := route(ctx, env, feats, request, subAgentHint, reqHeaders, req)
 		if err != nil || !turn.observeControl(control) {
 			return control, err
@@ -77,7 +78,7 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 		}
 		cappedRes, err := route(ctx, env, feats, request, subAgentHint, reqHeaders, req)
 		if err != nil {
-			cappedRes.releaseCooldownProbes()
+			cappedRes.ReleaseCooldownProbes()
 			observability.FromContext(ctx).Warn("Task-arm ceiling cluster could not serve the turn; serving the control decision",
 				"cluster", turn.cluster, "task_key", turn.assignment.TaskKey, "err", err)
 			return control, nil
@@ -92,7 +93,7 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 	}
 }
 
-func (turn *taskArmTurn) observeControl(control turnLoopResult) bool {
+func (turn *taskArmTurn) observeControl(control routingpolicy.TurnRoute) bool {
 	if !turn.assigned {
 		return false
 	}
@@ -111,7 +112,7 @@ func policyPinHonoured(ctx context.Context) bool {
 	return honoured
 }
 
-func servedPolicyGroup(res turnLoopResult) string {
+func servedPolicyGroup(res routingpolicy.TurnRoute) string {
 	if group := decisionPolicyGroup(res.Decision); group != "" || !res.StickyHit {
 		return group
 	}
@@ -145,7 +146,7 @@ func forceClusterForTurn(ports continuity.StrategyPorts, ctx context.Context, tu
 	return forceCluster, assignTaskArm(ports, ctx, turnReq.Strategy, env, turnReq.InstallationID, forceModel, forceCluster), nil
 }
 
-func applyExperimentAttrs(ctx context.Context, b *telemetry.AttrBuilder, routed *turnLoopResult, turn taskArmTurn, requestedModel, servedModel string) {
+func applyExperimentAttrs(ctx context.Context, b *telemetry.AttrBuilder, routed *routingpolicy.TurnRoute, turn taskArmTurn, requestedModel, servedModel string) {
 	applyBlindExperimentOutcomeAttrs(ctx, b, routed, requestedModel, servedModel)
 	applyTaskArmAttrs(b, turn, servedModel)
 }

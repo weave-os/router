@@ -173,25 +173,25 @@ func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string
 	return marker
 }
 
-func machineReadTurn(res turnLoopResult) bool {
+func machineReadTurn(res routingpolicy.TurnRoute) bool {
 	return res.SuggestionMode || res.CallerModelPassthrough || isUnpinnedScoredTurn(res.TurnType) ||
 		res.TurnType == turntype.Probe || res.TurnType == turntype.Compaction
 }
 
-func muteSlowStartFor(ctx context.Context, res turnLoopResult) {
+func muteSlowStartFor(ctx context.Context, res routingpolicy.TurnRoute) {
 	if machineReadTurn(res) || res.HardPinned || res.TurnType == turntype.SubAgentDispatch {
 		attemptTraceFromContext(ctx).MuteSlowStart()
 	}
 }
 
-func announcementTurnFor(res turnLoopResult, replayedModel string) turnLoopResult {
+func announcementTurnFor(res routingpolicy.TurnRoute, replayedModel string) routingpolicy.TurnRoute {
 	if res.PriorServedModel == "" {
 		res.PriorServedModel = replayedModel
 	}
 	return res
 }
 
-func routingMarkerFor(res turnLoopResult) string {
+func routingMarkerFor(res routingpolicy.TurnRoute) string {
 	decision := res.Decision
 	if decision.Model == "" {
 		return ""
@@ -243,7 +243,7 @@ const (
 	selectionComplexityMaximum  modelSelectionComplexity = "maximum"
 )
 
-func modelSelectionReason(ports continuity.StrategyPorts, res turnLoopResult, failoverReason string) string {
+func modelSelectionReason(ports continuity.StrategyPorts, res routingpolicy.TurnRoute, failoverReason string) string {
 	if res.Decision.Metadata != nil {
 		for _, label := range []string{ports.Facts.ClassifierTelemetryOf(res.Decision.Metadata).PredictedLabel, ports.Facts.ClassifierTelemetryOf(res.Decision.Metadata).PolicyGroup} {
 			classification := modelSelectionComplexity(strings.ToLower(strings.TrimSpace(label)))
@@ -313,7 +313,7 @@ const (
 	markerReasonForcedPinDropped    = "your force-model pin could not be served this turn"
 )
 
-func baselineRoutingMarkerFor(res turnLoopResult, baselineModel string) string {
+func baselineRoutingMarkerFor(res routingpolicy.TurnRoute, baselineModel string) string {
 	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || baselineModel == "" {
 		return ""
 	}
@@ -334,22 +334,22 @@ func siblingMarkerReason(ctx context.Context, failedModel string) string {
 	return "switched after " + failedModel + " " + cause
 }
 
-func siblingMarkerFor(ports continuity.StrategyPorts, ctx context.Context, h http.Header, res turnLoopResult, failedModel, siblingModel string) string {
+func siblingMarkerFor(ports continuity.StrategyPorts, ctx context.Context, h http.Header, res routingpolicy.TurnRoute, failedModel, siblingModel string) string {
 	return switchMarkerFor(ports, ctx, h, res, siblingMarkerReason(ctx, failedModel), siblingModel)
 }
 
-func switchMarkerFor(ports continuity.StrategyPorts, ctx context.Context, h http.Header, res turnLoopResult, reason, siblingModel string) string {
+func switchMarkerFor(ports continuity.StrategyPorts, ctx context.Context, h http.Header, res routingpolicy.TurnRoute, reason, siblingModel string) string {
 	return suppressMarkerIfRequested(ctx, h, modelSelectionMarkerForRequest(ports, ctx, res, siblingRoutingMarkerFor(res, reason, siblingModel), siblingModel, reason))
 }
 
-func siblingRoutingMarkerFor(res turnLoopResult, reason, siblingModel string) string {
+func siblingRoutingMarkerFor(res routingpolicy.TurnRoute, reason, siblingModel string) string {
 	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || siblingModel == "" || baseModelOf(res.PriorServedModel) == siblingModel {
 		return ""
 	}
 	return "✦ **Weave Router** → " + siblingModel + " · " + reason + "\n\n"
 }
 
-func subscriptionTargetMarker(ports continuity.StrategyPorts, ctx context.Context, h http.Header, res turnLoopResult, picked, target router.Decision, pickedMarker string) string {
+func subscriptionTargetMarker(ports continuity.StrategyPorts, ctx context.Context, h http.Header, res routingpolicy.TurnRoute, picked, target router.Decision, pickedMarker string) string {
 	if target.Model == picked.Model {
 		return pickedMarker
 	}
@@ -359,14 +359,14 @@ func subscriptionTargetMarker(ports continuity.StrategyPorts, ctx context.Contex
 	return siblingMarkerFor(ports, ctx, h, res, picked.Model, target.Model)
 }
 
-func cyberRefusalRoutingMarkerFor(res turnLoopResult, fallbackModel string) string {
+func cyberRefusalRoutingMarkerFor(res routingpolicy.TurnRoute, fallbackModel string) string {
 	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || fallbackModel == "" || baseModelOf(res.PriorServedModel) == fallbackModel {
 		return ""
 	}
 	return "✦ **Weave Router** → " + fallbackModel + " · " + markerReasonCyberRefusal + "\n\n"
 }
 
-func routingReasonShort(res turnLoopResult) string {
+func routingReasonShort(res routingpolicy.TurnRoute) string {
 	if res.PlannerDecision.Evaluated() {
 		return humanReasonFromPlanner(res.PlannerDecision.Reason)
 	}
@@ -1901,7 +1901,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Failure:        routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy},
 		FailureMessage: "Routing failed",
 		IsUserPrompt:   inboundUserPrompt,
-	}, func(routeCtx context.Context) (turnLoopResult, error) {
+	}, func(routeCtx context.Context) (routingpolicy.TurnRoute, error) {
 		switch {
 		case handoffFromContext(ctx) != nil:
 			return s.resumeHandoff(routeCtx, strategy, env, req, turntype.IsSubAgent(env, subAgentHintForRequest(routeCtx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(routeCtx))))
@@ -1910,7 +1910,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 		return taskArm.route(routeCtx, s.runTurnLoop)(env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, "", r.Header, req)
 	})
-	defer routeRes.releaseCooldownProbes()
+	defer routeRes.ReleaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
 		if !preparingHandoff(ctx) {
@@ -1929,7 +1929,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	ctx = withRouteSessionState(ctx, routeRes)
 
 	if routeRes.UsageBypass && routeRes.Decision.Provider == providers.ProviderAnthropic {
-		err := s.bypassToAnthropic(ctx, env, feats, routeRes.modelSwitched(), requestStart, facts.RequestID, facts.ExternalID, routeRes.TurnType, routeRes.Decision.Reason, r, w)
+		err := s.bypassToAnthropic(ctx, env, feats, routeRes.ModelSwitched(), requestStart, facts.RequestID, facts.ExternalID, routeRes.TurnType, routeRes.Decision.Reason, r, w)
 		if !errors.Is(err, errBypassRetryable) {
 			if !agentShadowMode {
 				s.firePolicyShadowForServingDecision(ctx, strategy, routeRes.Decision, req)
@@ -2022,7 +2022,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Capabilities:                      router.Lookup(decision.Model),
 		IncludeStreamUsage:                s.usageRequired(),
 		SessionAffinity:                   sessionAffinityHint(routeRes.SessionKey),
-		ModelSwitched:                     routeRes.modelSwitched(),
+		ModelSwitched:                     routeRes.ModelSwitched(),
 		EnableExtendedContext:             shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserve),
 		EnableServerSideFallback:          s.ResolveAnthropicServerSideFallback(ctx),
 		KeepCrossVendorOrchestrationTools: flags.BoolOr(ctx, flags.KeyCCOrchToolsCrossVendor, s.ccOrchToolsCrossVendor),
@@ -2259,7 +2259,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	})
 }
 
-func applyPlannerAttrs(b *telemetry.AttrBuilder, res turnLoopResult) {
+func applyPlannerAttrs(b *telemetry.AttrBuilder, res routingpolicy.TurnRoute) {
 	if res.PlannerDecision.Evaluated() {
 		b.String("planner.outcome", plannerOutcomeAttr(res)).
 			String("planner.reason", res.PlannerDecision.Reason).
@@ -2290,7 +2290,7 @@ func applyPlannerAttrs(b *telemetry.AttrBuilder, res turnLoopResult) {
 		Bool("handover.fallback_to_full_history", res.Handover.FallbackToFullHistory)
 }
 
-func applySidecarAttrs(b *telemetry.AttrBuilder, res turnLoopResult) {
+func applySidecarAttrs(b *telemetry.AttrBuilder, res routingpolicy.TurnRoute) {
 	if res.Fresh.Metadata == nil {
 		return
 	}
@@ -2326,7 +2326,7 @@ func applySidecarAttrs(b *telemetry.AttrBuilder, res turnLoopResult) {
 
 func applyRoutingStateAttrs(
 	b *telemetry.AttrBuilder,
-	res turnLoopResult,
+	res routingpolicy.TurnRoute,
 	servedIdentity string,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 ) {
@@ -2334,10 +2334,10 @@ func applyRoutingStateAttrs(
 		String("routing.pin_role", res.PinRole).
 		String("routing.prior_served_model", res.PriorServedModel).
 		Bool("routing.model_changed", res.PriorServedModel != "" && res.PriorServedModel != servedIdentity).
-		Bool("routing.llm_escalation_applied", res.escalation.LLMApplied())
+		Bool("routing.llm_escalation_applied", res.Escalation().LLMApplied())
 }
 
-func plannerOutcomeAttr(res turnLoopResult) string {
+func plannerOutcomeAttr(res routingpolicy.TurnRoute) string {
 	if !res.PlannerDecision.Evaluated() {
 		return "skipped"
 	}
@@ -2351,7 +2351,7 @@ func plannerOutcomeAttr(res turnLoopResult) string {
 	}
 }
 
-func plannerLogFields(res turnLoopResult) []any {
+func plannerLogFields(res routingpolicy.TurnRoute) []any {
 	var pinCacheWarm any
 	if res.PlannerDecision.Evaluated() {
 		pinCacheWarm = !res.PlannerDecision.PinCacheCold
@@ -2374,14 +2374,14 @@ func plannerLogFields(res turnLoopResult) []any {
 	}
 }
 
-func stickyStateRole(res turnLoopResult) string {
+func stickyStateRole(res routingpolicy.TurnRoute) string {
 	if res.StickyHit && res.StickyRole != "" {
 		return res.StickyRole
 	}
 	return res.PinRole
 }
 
-func logPlannerOutcome(ctx context.Context, ports continuity.StrategyPorts, res turnLoopResult) {
+func logPlannerOutcome(ctx context.Context, ports continuity.StrategyPorts, res routingpolicy.TurnRoute) {
 	if !res.PlannerDecision.Evaluated() {
 		return
 	}
@@ -2416,11 +2416,11 @@ func logPlannerOutcome(ctx context.Context, ports continuity.StrategyPorts, res 
 	)
 }
 
-func isHMMTurn(ports continuity.StrategyPorts, res turnLoopResult) bool {
+func isHMMTurn(ports continuity.StrategyPorts, res routingpolicy.TurnRoute) bool {
 	return isHMMDecision(ports, res.Decision) || isHMMDecision(ports, res.Fresh)
 }
 
-func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
+func (s *Service) recordHMMTurnHistory(ctx context.Context, res routingpolicy.TurnRoute, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
 	if servedModel == "" || res.InstallationID == uuid.Nil || res.SessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return
 	}
@@ -2448,7 +2448,7 @@ func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, 
 	}
 }
 
-func hmmHistoryStoredReason(ports continuity.StrategyPorts, res turnLoopResult) string {
+func hmmHistoryStoredReason(ports continuity.StrategyPorts, res routingpolicy.TurnRoute) string {
 	if isHMMDecision(ports, res.Fresh) {
 		return res.Fresh.Reason
 	}
@@ -2458,7 +2458,7 @@ func hmmHistoryStoredReason(ports continuity.StrategyPorts, res turnLoopResult) 
 	return ports.CostGate.HistoryReason()
 }
 
-func (s *Service) policyOutcomeRoute(res turnLoopResult, decision router.Decision) (router.Decision, *router.RoutingMetadata, policy.OutcomeReporter, bool) {
+func (s *Service) policyOutcomeRoute(res routingpolicy.TurnRoute, decision router.Decision) (router.Decision, *router.RoutingMetadata, policy.OutcomeReporter, bool) {
 	for _, routeDecision := range []router.Decision{decision, res.Fresh} {
 		routeMetadata := routeDecision.Metadata
 		if routeMetadata == nil || routeMetadata.Strategy == "" || routeMetadata.RouteID == "" {
@@ -2473,7 +2473,7 @@ func (s *Service) policyOutcomeRoute(res turnLoopResult, decision router.Decisio
 	return router.Decision{}, nil, nil, false
 }
 
-func (s *Service) capturePolicyOutcomeResponse(ctx context.Context, w http.ResponseWriter, res turnLoopResult, decision router.Decision) (http.ResponseWriter, *captureWriter) {
+func (s *Service) capturePolicyOutcomeResponse(ctx context.Context, w http.ResponseWriter, res routingpolicy.TurnRoute, decision router.Decision) (http.ResponseWriter, *captureWriter) {
 	if !policyTrainingAllowedForRequest(ctx) {
 		return w, nil
 	}
@@ -2484,7 +2484,7 @@ func (s *Service) capturePolicyOutcomeResponse(ctx context.Context, w http.Respo
 	return capture, capture
 }
 
-func isAuthoritativePinHoldMismatch(res turnLoopResult, served router.Decision) bool {
+func isAuthoritativePinHoldMismatch(res routingpolicy.TurnRoute, served router.Decision) bool {
 	if served.Metadata != nil {
 		return false
 	}
@@ -2499,7 +2499,7 @@ func isAuthoritativePinHoldMismatch(res turnLoopResult, served router.Decision) 
 	}
 }
 
-func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, decision router.Decision, effort dispatch.EffortResolution, finalProvider string, servedFast bool, estimatedInputTokens, inputTokens, outputTokens, cacheCreation, cacheRead int, usageMods catalog.UsageModifiers, routeMs, proxyMs int64, proxyErr error, response *policyOutcomeResponse) {
+func (s *Service) reportPolicyOutcome(ctx context.Context, res routingpolicy.TurnRoute, decision router.Decision, effort dispatch.EffortResolution, finalProvider string, servedFast bool, estimatedInputTokens, inputTokens, outputTokens, cacheCreation, cacheRead int, usageMods catalog.UsageModifiers, routeMs, proxyMs int64, proxyErr error, response *policyOutcomeResponse) {
 	routeDecision, routeMetadata, reporter, ok := s.policyOutcomeRoute(res, decision)
 	if !ok {
 		return
@@ -2791,7 +2791,7 @@ func (s *Service) fireTelemetry(ctx context.Context, p turnrecord.InsertTelemetr
 	})
 }
 
-func (s *Service) emitBilling(ctx context.Context, requestID, externalID, requestedModel string, decision router.Decision, actPricing catalog.Pricing, routeRes turnLoopResult, in, out, cacheCreation, cacheRead int, usageMods catalog.UsageModifiers) subscriberSettlementState {
+func (s *Service) emitBilling(ctx context.Context, requestID, externalID, requestedModel string, decision router.Decision, actPricing catalog.Pricing, routeRes routingpolicy.TurnRoute, in, out, cacheCreation, cacheRead int, usageMods catalog.UsageModifiers) subscriberSettlementState {
 	if s.billing == nil || externalID == "" {
 		return captureSubscriberSettlementState(ctx)
 	}
@@ -3042,10 +3042,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Failure:        routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy},
 		FailureMessage: "Routing failed for OpenAI request",
 		IsUserPrompt:   inboundUserPromptOpenAI,
-	}, func(routeCtx context.Context) (turnLoopResult, error) {
+	}, func(routeCtx context.Context) (routingpolicy.TurnRoute, error) {
 		return taskArm.route(routeCtx, s.runTurnLoop)(env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
 	})
-	defer routeRes.releaseCooldownProbes()
+	defer routeRes.ReleaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
 		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseChat)
@@ -3099,7 +3099,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		IncludeStreamUsage:       s.usageRequired(),
 		SessionAffinity:          sessionAffinityHint(routeRes.SessionKey),
 		EnableServerSideFallback: s.ResolveAnthropicServerSideFallback(ctx),
-		ModelSwitched:            routeRes.modelSwitched(),
+		ModelSwitched:            routeRes.ModelSwitched(),
 		EnableExtendedContext:    shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)

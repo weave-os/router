@@ -46,7 +46,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 		decision := router.Decision{Provider: providers.ProviderOpenAI, Model: compactionStrategyModel,
 			Metadata: &router.RoutingMetadata{Strategy: string(strategy)}}
 		routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(turnCtx)).WriteNew(turnCtx, installationID, sessionKey, sessionpin.DefaultRole, decision)
-		svc.recordTurnUsage(turnCtx, turnLoopResult{
+		svc.recordTurnUsage(turnCtx, routingpolicy.TurnRoute{
 			InstallationID: installationID, SessionKey: sessionKey, PinRole: sessionpin.DefaultRole,
 			Strategy: strategy, Decision: decision,
 		}, decision.Provider, decision.Model, 100, 10, 0, 0, false)

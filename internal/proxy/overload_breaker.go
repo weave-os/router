@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -42,7 +43,7 @@ func (s *Service) claimOverloadProbe(ctx context.Context, req router.Request) (b
 	})
 }
 
-func (s *Service) withTurnOverloadProbe(ctx context.Context, res turnLoopResult) context.Context {
+func (s *Service) withTurnOverloadProbe(ctx context.Context, res routingpolicy.TurnRoute) context.Context {
 	if res.OverloadProbe == nil {
 		return ctx
 	}
