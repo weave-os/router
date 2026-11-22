@@ -75,35 +75,36 @@ func (s *Service) WithSessionStrategyStore(store sessionstrategy.Store) *Service
 
 func (s *Service) applySessionStrategy(
 	ctx context.Context,
+	strategy router.Strategy,
 	installationID uuid.UUID,
 	preferenceKey [sessionpin.SessionKeyLen]byte,
-) (context.Context, error) {
+) (context.Context, router.Strategy, error) {
 	if router.StrategySelectionFromContext(ctx).RoutingModelSelected() {
-		return ctx, nil
+		return ctx, strategy, nil
 	}
-	if router.StrategyFromContext(ctx) == router.StrategyLLMClassifier {
-		return ctx, nil
+	if router.ClassifiesThreads(strategy) {
+		return ctx, strategy, nil
 	}
 	if _, managed := requestcontext.ServingIdentityFromContext(ctx); managed && !internalBetaSession(ctx) {
-		return ctx, nil
+		return ctx, strategy, nil
 	}
 	if s.sessionStrategyStore == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) {
-		return ctx, nil
+		return ctx, strategy, nil
 	}
 	preference, found, err := s.sessionStrategyStore.Get(ctx, installationID, preferenceKey)
 	if err != nil {
-		return ctx, fmt.Errorf("load session routing strategy: %w", err)
+		return ctx, strategy, fmt.Errorf("load session routing strategy: %w", err)
 	}
 	if !found {
-		return ctx, nil
+		return ctx, strategy, nil
 	}
 	if !router.IsBetaStrategy(preference.Strategy) {
-		return ctx, fmt.Errorf("unsupported persisted session routing strategy %q", preference.Strategy)
+		return ctx, strategy, fmt.Errorf("unsupported persisted session routing strategy %q", preference.Strategy)
 	}
 	if preference.Strategy == router.StrategyHMMQwen && !internalBetaSession(ctx) {
-		return ctx, nil
+		return ctx, strategy, nil
 	}
-	return router.WithStrategy(ctx, preference.Strategy), nil
+	return router.WithStrategy(ctx, preference.Strategy), preference.Strategy, nil
 }
 
 func (s *Service) handleBetaCommand(
