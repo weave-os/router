@@ -23,10 +23,10 @@ func TestRoutingModelDoesNotReadLegacyBetaPreference(t *testing.T) {
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	key := [sessionpin.SessionKeyLen]byte{1}
 	installation := uuid.New()
-	_, err := svc.applySessionStrategy(ctx, installation, key)
+	_, _, err := svc.applySessionStrategy(ctx, router.StrategyFromContext(ctx), installation, key)
 	require.Error(t, err)
 	ctx = router.WithStrategySelection(ctx, router.StrategySelection{Strategy: router.StrategyHMMEmbedding, RoutingModel: router.ModelAutomatic})
-	selected, err := svc.applySessionStrategy(ctx, installation, key)
+	selected, _, err := svc.applySessionStrategy(ctx, router.StrategyFromContext(ctx), installation, key)
 	require.NoError(t, err)
 	require.Equal(t, router.StrategyHMMEmbedding, router.StrategyFromContext(selected))
 }
