@@ -22,7 +22,7 @@ type fakeTurnAdmission struct {
 	opened   []string
 }
 
-func (f *fakeTurnAdmission) withClassifierInput(ctx context.Context, _ []byte, _ router.TranslationEndpoint) (context.Context, error) {
+func (f *fakeTurnAdmission) withClassifierInput(ctx context.Context, _ router.Strategy, _ []byte, _ router.TranslationEndpoint) (context.Context, error) {
 	return ctx, nil
 }
 

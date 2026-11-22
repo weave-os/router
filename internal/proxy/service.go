@@ -20,7 +20,6 @@ import (
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
-	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/ingress"
@@ -35,7 +34,6 @@ import (
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/escalationdashboard"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
@@ -58,7 +56,6 @@ import (
 )
 
 type Service struct {
-	externalKeyUsage    credentials.ExternalKeyUsageRecorder
 	recoveryProbeMu     sync.Mutex
 	recoveryProbeLeases map[string]localRecoveryProbeLease
 	nextRecoveryProbeID uint64
@@ -115,16 +112,13 @@ type Service struct {
 	bandSwap                       *bandswap.Classifier
 
 	turnSignalCaptureEnabled bool
-	summarizer               handover.Summarizer
 	webSearch                websearch.Executor
 	availableModels          map[string]struct{}
 	defaultBaselineModel     string
 	billing                  *billing.Service
 	clock                    auth.Clock
-	feedbackRepo             feedback.FeedbackRepository
-	feedbackSigner           *feedback.Signer
+	feedbackLinks            feedbackLinks
 	piHandoffSecret          []byte
-	feedbackBaseURL          string
 	usageObserver            *usage.Observer
 }
 
@@ -1226,11 +1220,6 @@ func forcedReasoningEffort(model string, escalate bool) string {
 	}
 }
 
-func (s *Service) WithSummarizer(sz handover.Summarizer) *Service {
-	s.summarizer = sz
-	return s
-}
-
 func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
 	s.webSearch = ex
 	return s
@@ -1974,7 +1963,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		observability.FromContext(ctx).Info("Rejecting message-thread continue; client resends full history")
 		return ingress.WriteMessageThreadUnsupported(w)
 	}
-	ctx, returnErr = withTurnInput(ctx, s, body, r.Header, router.EndpointAnthropicMessages)
+	ctx, strategy, returnErr := withTurnInput(ctx, s, body, r.Header, router.EndpointAnthropicMessages)
 	if returnErr != nil {
 		return returnErr
 	}
@@ -2062,13 +2051,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			log.Info("ProxyMessages beta command")
 			return s.handleBetaCommand(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
 		}
-		ctx, err = s.applySessionStrategy(ctx, facts.InstallationID, betaSessionKey)
+		ctx, strategy, err = s.applySessionStrategy(ctx, strategy, facts.InstallationID, betaSessionKey)
 		if err != nil {
 			return err
 		}
 		*r = *r.WithContext(ctx)
 	}
-	strategy, forceModelSessionKey := router.StrategyFromContext(ctx), deriveForceModelSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
+	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 	if preparingHandoff(ctx) && !s.authoritativePerTurnSelection(ctx, strategy) {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
 	}
@@ -3570,7 +3559,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
-	ctx, returnErr = withTurnInput(ctx, s, body, r.Header, router.EndpointOpenAIChat)
+	ctx, strategy, returnErr := withTurnInput(ctx, s, body, r.Header, router.EndpointOpenAIChat)
 	if returnErr != nil {
 		return returnErr
 	}
@@ -3646,12 +3635,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		log.Info("ProxyOpenAIChatCompletion beta command")
 		return s.handleBetaCommand(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
 	}
-	ctx, err = s.applySessionStrategy(ctx, facts.InstallationID, betaSessionKey)
+	ctx, strategy, err = s.applySessionStrategy(ctx, strategy, facts.InstallationID, betaSessionKey)
 	if err != nil {
 		return err
 	}
 	*r = *r.WithContext(ctx)
-	strategy, forceModelSessionKey := router.StrategyFromContext(ctx), deriveForceModelSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
+	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 
 	agentForceModel := ""
 	requestBodyChanged := false
@@ -4384,7 +4373,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, body, r.Header)
 	ctx = context.WithValue(ctx, responsesSurfaceContextKey{}, true)
-	ctx, inputErr := s.withClassifierInput(ctx, body, router.EndpointOpenAIResponses)
+	ctx, inputErr := s.withClassifierInput(ctx, router.StrategyFromContext(ctx), body, router.EndpointOpenAIResponses)
 	if inputErr != nil {
 		return inputErr
 	}
