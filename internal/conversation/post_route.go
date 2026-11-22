@@ -32,8 +32,8 @@ type PostRouteChecks struct {
 	SummaryMaxTokens        int
 	ClientDefaultWindow     int
 
-	HandoverEligible   bool
-	CompactionHandover func(context.Context) handover.Outcome
+	HandoverEligible      bool
+	RunCompactionHandover func(context.Context) handover.Outcome
 }
 
 type PostRouteOutcome struct {
@@ -66,7 +66,7 @@ func (c PostRouteChecks) Run(ctx context.Context) (PostRouteOutcome, error) {
 		}
 	}
 
-	var out PostRouteOutcome
+	var outcome PostRouteOutcome
 	if c.HandoverEligible && !route.AuthoritativePerTurn && !route.HardPinned && !route.Handover.Invoked && route.PrefixTrimmed {
 		observability.FromContext(ctx).Info("Context trimming detected on non-Anthropic route; rewriting context with handover summary",
 			"message_count", feats.MessageCount,
@@ -74,7 +74,7 @@ func (c PostRouteChecks) Run(ctx context.Context) (PostRouteOutcome, error) {
 			"decision_model", route.Decision.Model,
 			"decision_provider", route.Decision.Provider,
 		)
-		out.CompactionHandover = c.CompactionHandover(ctx)
+		outcome.CompactionHandover = c.RunCompactionHandover(ctx)
 	}
-	return out, nil
+	return outcome, nil
 }

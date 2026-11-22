@@ -1780,7 +1780,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		NoProgress: s.lifecycle.NoProgress(), Now: s.clock.Now, TextRepetitionEnabled: s.ResolveTextRepetitionBreakEnabled(ctx),
 		RecoverClientCompaction: !callerModelPassthroughActive(ctx), SummaryMaxTokens: DefaultCompactionMaxTokens, ClientDefaultWindow: claudeCodeDefaultWindow,
 		HandoverEligible: !subscriptionStateModelsEnabled(ctx) && decision.Provider != providers.ProviderAnthropic,
-		CompactionHandover: func(ctx context.Context) handover.Outcome {
+		RunCompactionHandover: func(ctx context.Context) handover.Outcome {
 			return s.runCompactionHandover(ctx, env, r.Header, decision.Model, req)
 		},
 	}.Run(ctx)
