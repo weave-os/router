@@ -83,7 +83,6 @@ type Service struct {
 	openAIResponsesBroad           bool
 	nativeAnthropicResponseSignals bool
 	nativeOpenAIResponseSignals    bool
-	allowedModelsHeader            bool
 	armDemotion                    dispatch.ArmDemotionPolicy
 	throttling                     dispatch.Throttling
 	ingress                        ingress.Formats
@@ -891,11 +890,6 @@ func (s *Service) WithNativeAnthropicResponseSignals(enabled bool) *Service {
 
 func (s *Service) WithNativeOpenAIResponseSignals(enabled bool) *Service {
 	s.nativeOpenAIResponseSignals = enabled
-	return s
-}
-
-func (s *Service) WithAllowedModelsHeader(enabled bool) *Service {
-	s.allowedModelsHeader = enabled
 	return s
 }
 
