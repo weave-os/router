@@ -76,7 +76,7 @@ func TestSubscriptionStatePoolOverloadHoldsSessionOffModel(t *testing.T) {
 func TestSessionHoldCoversSiblingModelsOnThePool(t *testing.T) {
 	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), clock: time.Now}
 	ctx := context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
-	svc.markSubscriptionPoolUnavailable(ctx, subscriptions.ProviderCodex)
+	markSubscriptionPoolUnavailable(ctx, subscriptions.ProviderCodex, svc.clock.Now())
 	svc.holdSessionOffSubscriptionPool(ctx, providers.ProviderOpenAI, stateCodexModel)
 
 	sibling := "gpt-6-luna"

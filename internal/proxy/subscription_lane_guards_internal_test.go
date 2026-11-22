@@ -99,7 +99,7 @@ func heldCodexOnlyService(t *testing.T) (*fakeClient, func() router.Decision) {
 		return withTurnFailures(ctx)
 	}
 	held := turnCtx()
-	svc.markSubscriptionPoolUnavailable(held, subscriptions.ProviderCodex)
+	markSubscriptionPoolUnavailable(held, subscriptions.ProviderCodex, svc.clock.Now())
 	svc.holdSessionOffSubscriptionPool(held, providers.ProviderOpenAI, stateCodexModel)
 	require.Empty(t, svc.withoutHeldSubscriptionModels(held, []string{stateCodexModel}))
 
