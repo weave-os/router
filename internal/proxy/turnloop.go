@@ -16,13 +16,11 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalation/floor"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -45,7 +43,7 @@ func addToSet(set map[string]struct{}, model string) map[string]struct{} {
 	return out
 }
 
-func applyPinEvidence(ports continuity.StrategyPorts, res *turnLoopResult, pin sessionpin.Pin, now time.Time) {
+func applyPinEvidence(ports continuity.StrategyPorts, res *routingpolicy.TurnRoute, pin sessionpin.Pin, now time.Time) {
 	res.PinModel = pin.Model
 	res.PinProvider = pin.Provider
 	res.PinPolicyGroup = ports.Facts.PinStateOf(pin).PolicyGroup
@@ -56,7 +54,7 @@ func applyPinEvidence(ports continuity.StrategyPorts, res *turnLoopResult, pin s
 	}
 }
 
-func clearPinEvidence(res *turnLoopResult) {
+func clearPinEvidence(res *routingpolicy.TurnRoute) {
 	res.PinModel = ""
 	res.PinProvider = ""
 	res.PinPolicyGroup = ""
@@ -94,84 +92,7 @@ const (
 	pinTierAuthoritativeExcludedReroute         pinTier = "authoritative_excluded_reroute"
 )
 
-type turnLoopResult struct {
-	EscalationShadowMarked bool
-	EscalationScope        [32]byte
-	EscalationOrdinal      int64
-	escalation             *floor.Turn
-
-	Decision                    router.Decision
-	SessionKey                  [sessionpin.SessionKeyLen]byte
-	InstallationID              uuid.UUID
-	Strategy                    router.Strategy
-	TurnType                    turntype.TurnType
-	StickyHit                   bool
-	HardPinned                  bool
-	UserForced                  bool
-	SessionFirstTurn            bool
-	Purpose                     inference.Purpose
-	Origin                      policy.OverrideSource
-	AuthoritativePerTurn        bool
-	UsageBypass                 bool
-	CallerModelPassthrough      bool
-	PinTier                     string
-	PinAgeSec                   int64
-	ForcedPinDropped            bool
-	ForcedPinDropReason         string
-	ForcedPinModel              string
-	PinProvider                 string
-	PrefixBroken                bool
-	PriorTurnGapMS              *int64
-	PolicyFallback              bool
-	RequestedTier               catalog.Tier
-	PinRole                     string
-	StickyRole                  string
-	Fresh                       router.Decision
-	PlannerDecision             planner.Decision
-	PinModel                    string
-	PinPolicyGroup              string
-	PriorServedModel            string
-	SessionEverSwitched         bool
-	PriorServedEndedAt          time.Time
-	PriorPromptTokens           int
-	TokenizerCalibration        sessionpin.TokenizerCalibration
-	ContextEstimate             int
-	StripThinkingBlocks         bool
-	Handover                    handover.Outcome
-	SuggestionMode              bool
-	PrefixTrimmed               bool
-	EscalateEffort              bool
-	PinTurnCount                int
-	PinFirstPinnedAt            time.Time
-	SessionDisabledProviders    []string
-	TranslationEnabledProviders map[string]struct{}
-	SessionDemotedModels        []string
-	ObservedOverflowModels      []string
-	SessionCooldownModels       map[string]time.Time
-	CooldownProbeReleases       []func()
-	OverloadProbe               *breaker.Probe
-	CooldownProbes              map[string]time.Time
-	CooldownProbeDeniedModels   []string
-	SessionStrikeReadmitModels  []string
-	AuthorityShadow             authorityCacheShadow
-	UpgradeShadow               *authoritativeUpgradeDecision
-	DowngradeShadow             downgradeGuardShadow
-}
-
-func (r turnLoopResult) releaseCooldownProbes() {
-	for _, release := range r.CooldownProbeReleases {
-		release()
-	}
-}
-
-type downgradeGuardShadow struct {
-	Served              bool
-	Votes               int
-	HysteresisWouldHold bool
-	ConfidenceWouldHold bool
-}
-
-func downgradeShadowLogFields(res turnLoopResult) []any {
+func downgradeShadowLogFields(res routingpolicy.TurnRoute) []any {
 	return []any{
 		"authoritative_downgrade_served", res.DowngradeShadow.Served,
 		"downgrade_votes", res.DowngradeShadow.Votes,
@@ -180,33 +101,7 @@ func downgradeShadowLogFields(res turnLoopResult) []any {
 	}
 }
 
-type authorityCacheShadow struct {
-	Computed     bool
-	Decision     planner.Decision
-	StayModel    string
-	StayProvider string
-	Sticky       bool
-	StayScore    *float64
-	FreshScore   *float64
-}
-
-func (a authorityCacheShadow) Reason() string {
-	if !a.Computed {
-		return ""
-	}
-	return a.Decision.Reason
-}
-
-func (a authorityCacheShadow) EVRan() bool {
-	return a.Computed && a.Decision.ShadowComputed
-}
-
-func (r turnLoopResult) modelSwitched() bool {
-	transition := r.PriorServedModel != "" && r.PriorServedModel != r.Decision.ServedIdentity()
-	return transition || r.SessionEverSwitched || r.StripThinkingBlocks
-}
-
-func (r turnLoopResult) baselineWarmPrefillTokens(requestStart time.Time, cacheCreation, cacheRead int, servedModel, baselineModel string, historyTruncated bool) int {
+func baselineWarmPrefillTokens(r routingpolicy.TurnRoute, requestStart time.Time, cacheCreation, cacheRead int, servedModel, baselineModel string, historyTruncated bool) int {
 	if cacheCreation <= 0 || r.PriorServedModel == "" || r.PrefixTrimmed || historyTruncated {
 		return 0
 	}
@@ -247,25 +142,11 @@ var utilityPurposes = map[turntype.TurnType]inference.Purpose{
 	turntype.SubAgentDispatch: inference.PurposeSubAgentDispatch,
 }
 
-func (r turnLoopResult) dispatchPurpose(surface inference.Purpose) inference.Purpose {
-	if len(r.Purpose) > 0 {
-		return r.Purpose
-	}
-	return surface
-}
-
-func (r turnLoopResult) dispatchOrigin(decision router.Decision) policy.OverrideSource {
+func dispatchOrigin(r routingpolicy.TurnRoute, decision router.Decision) policy.OverrideSource {
 	if r.Origin != "" && decision.Model == r.Decision.Model && decision.Provider == r.Decision.Provider {
 		return r.Origin
 	}
 	return dispatch.RoutedOrigin(decision, r.HardPinned, r.StickyHit)
-}
-
-func (r turnLoopResult) rescueOrigin() policy.OverrideSource {
-	if len(r.Purpose) > 0 {
-		return policy.OverrideSourceDeployment
-	}
-	return ""
 }
 
 func isHardPinnedTurn(ctx context.Context, s *Service, strategy router.Strategy, tt turntype.TurnType) bool {
@@ -281,13 +162,13 @@ func isUnpinnedScoredTurn(tt turntype.TurnType) bool {
 func (s *Service) routeWithoutPin(
 	ctx context.Context, strategy router.Strategy,
 	req router.Request,
-	res turnLoopResult,
+	res routingpolicy.TurnRoute,
 	reqHeaders http.Header,
 	forceModelFound bool,
 	forceModelPin sessionpin.Pin,
-) (turnLoopResult, error) {
+) (routingpolicy.TurnRoute, error) {
 	if forceModelFound && res.TurnType != turntype.Classifier && candidates.ForcedPinEligible(forceModelPin, req) {
-		res.serveForceModelPin(forceModelPin)
+		res.ServeForceModelPin(forceModelPin)
 		return res, nil
 	}
 	req.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
@@ -332,7 +213,7 @@ func withAutomaticExclusions(req HardPinRequest, automaticExcluded map[string]st
 	return req
 }
 
-func policyPinServed(ctx context.Context, res turnLoopResult) error {
+func policyPinServed(ctx context.Context, res routingpolicy.TurnRoute) error {
 	pin, pinned := router.HonouredPolicyPin(ctx)
 	if !pinned || len(res.Purpose) > 0 {
 		return nil
@@ -351,7 +232,7 @@ func (s *Service) runTurnLoop(
 	subAgentHint string,
 	reqHeaders http.Header,
 	req router.Request,
-) (res turnLoopResult, routeErr error) {
+) (res routingpolicy.TurnRoute, routeErr error) {
 	strategy, apiKeyID, installationID, subAgentHint := turnReq.Strategy, turnReq.APIKeyID, turnReq.InstallationID, subAgentHintForRequest(ctx, subAgentHint)
 	shadowStartedAt, sessionPins := s.clock.Now(), routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy)
 	defer func() {
@@ -385,7 +266,7 @@ func (s *Service) runTurnLoop(
 	}
 	req, compatibilityErr := s.applyTranslationPlan(ctx, req)
 	if compatibilityErr != nil {
-		return turnLoopResult{}, compatibilityErr
+		return routingpolicy.TurnRoute{}, compatibilityErr
 	}
 	if planHasDedicatedServingPolicy(ctx) {
 		req.ForceCluster = ""
@@ -421,7 +302,7 @@ func (s *Service) runTurnLoop(
 	if installationID != uuid.Nil {
 		req.InstallationID = installationID.String()
 	}
-	res = turnLoopResult{
+	res = routingpolicy.TurnRoute{
 		ContextEstimate:             env.ContextOverflowTokenEstimate(),
 		TranslationEnabledProviders: req.EnabledProviders,
 		InstallationID:              installationID,
@@ -674,7 +555,7 @@ func (s *Service) runTurnLoop(
 			req.Candidates.AutomaticExcludedModels = addToSet(req.Candidates.AutomaticExcludedModels, model)
 		}
 	}
-	res.applySwitchHistory(pin, hmmHistory, forceHistory)
+	applySwitchHistory(&res, pin, hmmHistory, forceHistory)
 	req, res.ObservedOverflowModels = s.excludeObservedOverflowModels(ctx, req, res, max(contextWindowOutputReserve, feats.MaxTokens))
 	req.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory, s.clock.Now())
 	res.EscalateEffort = pinFound && !pin.LastTurnEndedAt.IsZero() &&
@@ -743,9 +624,9 @@ func (s *Service) runTurnLoop(
 		res.PinModel = commandContinuation.Model
 		res.PinAgeSec = pinAge(commandContinuation, s.clock.Now())
 		if forceModelCleared {
-			res.applySwitchHistory(commandContinuation, hmmHistory, forceHistory, forceModelPin)
+			applySwitchHistory(&res, commandContinuation, hmmHistory, forceHistory, forceModelPin)
 		} else {
-			res.applySwitchHistory(commandContinuation, hmmHistory, forceHistory)
+			applySwitchHistory(&res, commandContinuation, hmmHistory, forceHistory)
 		}
 		res.EscalateEffort = !commandContinuation.LastTurnEndedAt.IsZero() &&
 			(commandContinuation.LastOutputTokens == 0 || commandContinuation.ConsecutiveUpstreamErrors > 0)
@@ -771,12 +652,12 @@ func (s *Service) runTurnLoop(
 	baselineTurn := res
 	escalationTurn := s.escalationHelper().Begin(ctx, s.escalationFacts(ctx, env, res, apiKeyID), req)
 	escalationTurn.Apply(&req)
-	res.escalation = escalationTurn
+	res.SetEscalation(escalationTurn)
 	if pinFound {
 		req.Session.PreviousPolicyGroup = escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)
 	}
 
-	routeRemaining := func() (turnLoopResult, error) {
+	routeRemaining := func() (routingpolicy.TurnRoute, error) {
 		req.Session.Pin = router.SessionPin{Found: pinFound, Provider: pin.Provider, Model: pin.Model, LastTurnEndedAt: pin.LastTurnEndedAt, LastOutputTokens: pin.LastOutputTokens}
 		holdToolResult := res.AuthoritativePerTurn && req.Escalation == nil &&
 			res.TurnType == turntype.ToolResult && s.ResolveHMMToolResultHold(ctx, strategy)
@@ -986,11 +867,11 @@ func (s *Service) runTurnLoop(
 			res.EscalationShadowMarked, res.EscalationScope, res.EscalationOrdinal = committed.ShadowMarked, committed.Scope, committed.Ordinal
 		}
 	}
-	res.escalation = escalationTurn
+	res.SetEscalation(escalationTurn)
 	if s.escalationHelper().SettleLLM(ctx, escalationTurn, res.Decision, routeErr) {
 		req, res = baselineRequest, baselineTurn
 		res, routeErr = routeRemaining()
-		res.escalation = escalationTurn
+		res.SetEscalation(escalationTurn)
 	}
 	return res, routeErr
 }
@@ -1018,12 +899,12 @@ func (s *Service) authorityCacheShadowFor(
 	fresh router.Decision,
 	estimatedInputTokens int,
 	prefixBroken bool,
-) authorityCacheShadow {
+) routingpolicy.AuthorityCacheShadow {
 	if !s.ResolveAuthorityCacheShadow(ctx) {
-		return authorityCacheShadow{}
+		return routingpolicy.AuthorityCacheShadow{}
 	}
 	if !isHMMDecision(s.strategyPorts, fresh) {
-		return authorityCacheShadow{}
+		return routingpolicy.AuthorityCacheShadow{}
 	}
 	_, plannerDecision, sticky, stayModel := hmmCostGatedDecision(ctx, s, continuity.CostGateInput{
 		Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
@@ -1040,7 +921,7 @@ func (s *Service) authorityCacheShadowFor(
 	if fresh.Metadata != nil {
 		freshRosterArmID = fresh.Metadata.SelectedRosterArmID
 	}
-	shadow := authorityCacheShadow{
+	shadow := routingpolicy.AuthorityCacheShadow{
 		Computed:   true,
 		Decision:   plannerDecision,
 		StayModel:  stayModel,
@@ -1054,7 +935,7 @@ func (s *Service) authorityCacheShadowFor(
 	return shadow
 }
 
-func (s *Service) logAuthorityCacheShadow(ctx context.Context, res turnLoopResult) {
+func (s *Service) logAuthorityCacheShadow(ctx context.Context, res routingpolicy.TurnRoute) {
 	if !res.AuthorityShadow.Computed {
 		return
 	}
@@ -1099,7 +980,7 @@ func switchHistoryFromPins(pins ...sessionpin.Pin) (string, bool) {
 	return latestTurn.LastServedModel, sessionEverSwitched
 }
 
-func (r *turnLoopResult) applySwitchHistory(pins ...sessionpin.Pin) {
+func applySwitchHistory(r *routingpolicy.TurnRoute, pins ...sessionpin.Pin) {
 	latestTurn, sessionEverSwitched := latestServedTurn(pins...)
 	r.PriorServedModel = latestTurn.LastServedModel
 	r.PriorServedEndedAt = latestTurn.LastTurnEndedAt
@@ -1134,7 +1015,7 @@ func latestServedTurn(pins ...sessionpin.Pin) (sessionpin.Pin, bool) {
 
 func buildPolicyTurnContext(
 	req router.Request,
-	res turnLoopResult,
+	res routingpolicy.TurnRoute,
 	activePin, hmmHistory sessionpin.Pin,
 	now time.Time,
 ) *router.PolicyTurnContext {

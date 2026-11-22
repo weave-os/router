@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
@@ -19,7 +20,7 @@ type rescueServices interface {
 	redoEarlyStop(ctx context.Context, redo dispatch.EarlyStopRedo) (redone bool, err error)
 }
 
-func rescueTurnOf(res turnLoopResult) dispatch.RescueTurn {
+func rescueTurnOf(res routingpolicy.TurnRoute) dispatch.RescueTurn {
 	return dispatch.RescueTurn{
 		Decision:                    res.Decision,
 		Purpose:                     res.Purpose,

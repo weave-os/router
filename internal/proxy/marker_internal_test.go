@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,7 +26,7 @@ import (
 
 func TestModelSelectionReasoningIsOptInAndUsesRecordedClassification(t *testing.T) {
 	ctx := context.WithValue(context.Background(), requestcontext.InstallationShowModelSelectionReasoningContextKey{}, true)
-	turn := turnLoopResult{Decision: router.Decision{Model: "chosen-model", Metadata: &router.RoutingMetadata{
+	turn := routingpolicy.TurnRoute{Decision: router.Decision{Model: "chosen-model", Metadata: &router.RoutingMetadata{
 		ClassifierPredictedLabel: string(selectionComplexityHigh), PolicyGroup: string(selectionComplexityLow),
 	}}}
 	marker := routingMarkerFor(turn)
@@ -45,7 +46,7 @@ func TestModelSelectionReasoningIsOptInAndUsesRecordedClassification(t *testing.
 
 func TestModelSelectionReasoningOnlyForNewlyServedModel(t *testing.T) {
 	ctx := context.WithValue(context.Background(), requestcontext.InstallationShowModelSelectionReasoningContextKey{}, true)
-	turn := turnLoopResult{Decision: router.Decision{Model: "new-model"}, PriorServedModel: "old-model"}
+	turn := routingpolicy.TurnRoute{Decision: router.Decision{Model: "new-model"}, PriorServedModel: "old-model"}
 	marker := routingMarkerFor(turn)
 	assert.Equal(t, marker, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, marker, turn.Decision.Model, ""))
 	assert.Contains(t, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, siblingRoutingMarkerFor(turn, siblingMarkerReason(ctx, "overloaded-model"), "rescue-model"), "rescue-model", siblingMarkerReason(ctx, "overloaded-model")), " · switched after overloaded-model was unavailable\n\n")
@@ -68,14 +69,14 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 
 	cases := []struct {
 		name           string
-		res            turnLoopResult
+		res            routingpolicy.TurnRoute
 		wantContains   []string
 		wantNotContain []string
 		wantEmpty      bool
 	}{
 		{
 			name: "ev_positive: planner switched",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:        decision,
 				PlannerDecision: planner.Decision{Reason: planner.ReasonEVPositive},
 			},
@@ -93,7 +94,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 			// model already serving this session — which is exactly the case the
 			// switch-only gate now suppresses.
 			name: "ev_negative: same model as last turn, marker suppressed",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:         decision,
 				PlannerDecision:  planner.Decision{Reason: planner.ReasonEVNegative},
 				PriorServedModel: decision.Model,
@@ -102,7 +103,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 		},
 		{
 			name: "no_prior_usage: same model as last turn, marker suppressed",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:         decision,
 				PlannerDecision:  planner.Decision{Reason: planner.ReasonNoPriorUsage},
 				PriorServedModel: decision.Model,
@@ -111,7 +112,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 		},
 		{
 			name: "same_model: same model as last turn, marker suppressed",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:         decision,
 				PlannerDecision:  planner.Decision{Reason: planner.ReasonSameModel},
 				PriorServedModel: decision.Model,
@@ -120,7 +121,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 		},
 		{
 			name: "tier_upgrade: planner bumped to a higher tier",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:        decision,
 				PlannerDecision: planner.Decision{Reason: planner.ReasonTierUpgrade},
 			},
@@ -130,7 +131,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 		},
 		{
 			name: "pricing_missing: recovery code is silenced",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:        decision,
 				PlannerDecision: planner.Decision{Reason: planner.ReasonPricingMissing},
 			},
@@ -145,7 +146,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 		},
 		{
 			name: "pin_model_missing: recovery code is silenced",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:        decision,
 				PlannerDecision: planner.Decision{Reason: planner.ReasonPinModelMissing},
 			},
@@ -156,7 +157,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 		},
 		{
 			name: "no planner ran, fresh decision: best-pick fallback",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision: decision,
 			},
 			wantContains: []string{
@@ -169,7 +170,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 		},
 		{
 			name: "hard-pin path: marker suppressed regardless of prior model",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:   decision,
 				HardPinned: true,
 			},
@@ -177,7 +178,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 		},
 		{
 			name: "tool-result short-circuit: marker suppressed",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:         decision,
 				StickyHit:        true,
 				PriorServedModel: "deepseek/deepseek-v4-pro",
@@ -186,7 +187,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 		},
 		{
 			name: "tool-result but model switched: marker shown despite sticky hit",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:         router.Decision{Model: "claude-haiku-4-5", Provider: "anthropic"},
 				StickyHit:        true,
 				PriorServedModel: "deepseek/deepseek-v4-pro",
@@ -200,7 +201,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 		},
 		{
 			name: "recovery code with model switch: marker shown without reason",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:         router.Decision{Model: "claude-haiku-4-5", Provider: "anthropic"},
 				StickyHit:        true,
 				PriorServedModel: "deepseek/deepseek-v4-pro",
@@ -217,7 +218,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 		},
 		{
 			name: "user-forced model: distinct marker, not best-pick",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:  router.Decision{Model: "gpt-5.5", Provider: "openai", Reason: translate.ReasonUserForceModel},
 				StickyHit: true, UserForced: true,
 				PriorServedModel: "deepseek/deepseek-v4-flash",
@@ -237,7 +238,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 			// re-emits on every tool-result follow-up. The user already saw the
 			// "force-model applied" acknowledgment when the directive was issued.
 			name: "user-forced same model on a sticky follow-up: marker suppressed",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:  router.Decision{Model: "gpt-5.5", Provider: "openai", Reason: translate.ReasonUserForceModel},
 				StickyHit: true, UserForced: true,
 				PriorServedModel: "gpt-5.5", // pin already serving the forced model
@@ -249,7 +250,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 			// silently reverted to the scorer, so the user kept trusting the
 			// "force-model applied" ack while another model served the turn.
 			name: "dropped forced pin: surfaced even when the model didn't change",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:            router.Decision{Model: "gpt-5.5", Provider: "openai"},
 				PriorServedModel:    "gpt-5.5",
 				ForcedPinDropped:    true,
@@ -268,7 +269,7 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 		},
 		{
 			name: "dropped forced pin: suppressed in suggestion mode",
-			res: turnLoopResult{
+			res: routingpolicy.TurnRoute{
 				Decision:         router.Decision{Model: "gpt-5.5", Provider: "openai"},
 				SuggestionMode:   true,
 				ForcedPinDropped: true,
@@ -298,12 +299,12 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 }
 
 func TestRoutingMarkerFor_EmptyDecisionEmitsNothing(t *testing.T) {
-	got := routingMarkerFor(turnLoopResult{Decision: router.Decision{}})
+	got := routingMarkerFor(routingpolicy.TurnRoute{Decision: router.Decision{}})
 	assert.Empty(t, got)
 }
 
 func TestRoutingMarkerFor_SuggestionModeSuppressed(t *testing.T) {
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		Decision:       router.Decision{Model: "gpt-5.5", Provider: "openai"},
 		SuggestionMode: true,
 		PlannerDecision: planner.Decision{
@@ -315,7 +316,7 @@ func TestRoutingMarkerFor_SuggestionModeSuppressed(t *testing.T) {
 }
 
 func TestRoutingMarkerFor_CallerModelPassthroughSuppressed(t *testing.T) {
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		Decision:               router.Decision{Model: "claude-sonnet-4-6", Provider: "anthropic"},
 		CallerModelPassthrough: true,
 	}
@@ -323,7 +324,7 @@ func TestRoutingMarkerFor_CallerModelPassthroughSuppressed(t *testing.T) {
 }
 
 func TestRoutingMarkerFor_RecapSuppressed(t *testing.T) {
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		Decision: router.Decision{Model: "gpt-5.6-luna", Provider: "openai"},
 		TurnType: turntype.Recap,
 		PlannerDecision: planner.Decision{
@@ -335,7 +336,7 @@ func TestRoutingMarkerFor_RecapSuppressed(t *testing.T) {
 }
 
 func TestRoutingMarkerFor_DropsProviderEvenWhenSet(t *testing.T) {
-	got := routingMarkerFor(turnLoopResult{
+	got := routingMarkerFor(routingpolicy.TurnRoute{
 		Decision: router.Decision{Model: "claude-haiku-4-5", Provider: "anthropic"},
 		PlannerDecision: planner.Decision{
 			Reason: planner.ReasonNoPin,
@@ -348,7 +349,7 @@ func TestRoutingMarkerFor_DropsProviderEvenWhenSet(t *testing.T) {
 }
 
 func TestRoutingMarkerFor_UsesSidecarDisplayMarker(t *testing.T) {
-	got := routingMarkerFor(turnLoopResult{
+	got := routingMarkerFor(routingpolicy.TurnRoute{
 		Decision: router.Decision{
 			Model:    "moonshotai/kimi-k2.7-code",
 			Provider: "openrouter",
@@ -365,7 +366,7 @@ func TestRoutingMarkerFor_UsesSidecarDisplayMarker(t *testing.T) {
 }
 
 func TestRoutingMarkerFor_SidecarDisplayMarkerStillRespectsSuggestionMode(t *testing.T) {
-	got := routingMarkerFor(turnLoopResult{
+	got := routingMarkerFor(routingpolicy.TurnRoute{
 		SuggestionMode: true,
 		Decision: router.Decision{
 			Model: "moonshotai/kimi-k2.7-code",
@@ -382,7 +383,7 @@ func TestRoutingMarkerFor_SidecarDisplayMarkerStillRespectsSuggestionMode(t *tes
 }
 
 func TestRoutingMarkerFor_RejectsMalformedSidecarDisplayMarker(t *testing.T) {
-	got := routingMarkerFor(turnLoopResult{
+	got := routingMarkerFor(routingpolicy.TurnRoute{
 		Decision: router.Decision{
 			Model: "moonshotai/kimi-k2.7-code",
 			Metadata: &router.RoutingMetadata{
@@ -400,7 +401,7 @@ func TestRoutingMarkerFor_RejectsMalformedSidecarDisplayMarker(t *testing.T) {
 }
 
 func TestRoutingMarkerFor_ClampsSidecarDisplayMarker(t *testing.T) {
-	got := routingMarkerFor(turnLoopResult{
+	got := routingMarkerFor(routingpolicy.TurnRoute{
 		Decision: router.Decision{
 			Model: "moonshotai/kimi-k2.7-code",
 			Metadata: &router.RoutingMetadata{
@@ -421,7 +422,7 @@ func TestRoutingMarkerFor_SidecarDisplayMarkerSuppressedWhenServedModelUnchanged
 	// for this turn") on every /route call regardless of whether the served
 	// model actually changed from the prior turn. Without this gate the same
 	// sub-agent would see the badge repeated turn after turn.
-	got := routingMarkerFor(turnLoopResult{
+	got := routingMarkerFor(routingpolicy.TurnRoute{
 		Decision: router.Decision{
 			Model: "deepseek/deepseek-v4-flash",
 			Metadata: &router.RoutingMetadata{
@@ -436,7 +437,7 @@ func TestRoutingMarkerFor_SidecarDisplayMarkerSuppressedWhenServedModelUnchanged
 func TestRoutingMarkerFor_SidecarDisplayMarkerShownOnGenuineSwitch(t *testing.T) {
 	// Sanity check the other side: when the served model genuinely changes
 	// the sidecar marker still renders.
-	got := routingMarkerFor(turnLoopResult{
+	got := routingMarkerFor(routingpolicy.TurnRoute{
 		Decision: router.Decision{
 			Model: "deepseek/deepseek-v4-flash",
 			Metadata: &router.RoutingMetadata{
@@ -449,14 +450,14 @@ func TestRoutingMarkerFor_SidecarDisplayMarkerShownOnGenuineSwitch(t *testing.T)
 }
 
 func TestBaselineRoutingMarkerFor_SuppressedWhenBaselineAlreadyServing(t *testing.T) {
-	got := baselineRoutingMarkerFor(turnLoopResult{
+	got := baselineRoutingMarkerFor(routingpolicy.TurnRoute{
 		PriorServedModel: "claude-opus-4-8",
 	}, "claude-opus-4-8")
 	assert.Empty(t, got, "a failover that lands back on the model already serving must stay quiet")
 }
 
 func TestBaselineRoutingMarkerFor_ShowsOnGenuineSwitch(t *testing.T) {
-	got := baselineRoutingMarkerFor(turnLoopResult{
+	got := baselineRoutingMarkerFor(routingpolicy.TurnRoute{
 		PriorServedModel: "deepseek/deepseek-v4-pro",
 	}, "claude-opus-4-8")
 	assert.Equal(t, "✦ **Weave Router** → claude-opus-4-8 · "+markerReasonBaseline+"\n\n", got)
@@ -470,7 +471,7 @@ func TestHumanReasonFromPlanner_UnknownCodeIsSilenced(t *testing.T) {
 }
 
 func TestRoutingMarkerFor_SuppressesStickyTurnForAllClients(t *testing.T) {
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		Decision:         router.Decision{Model: "gpt-5.6-terra", Provider: "openai"},
 		StickyHit:        true,
 		PriorServedModel: "gpt-5.6-terra",
@@ -479,7 +480,7 @@ func TestRoutingMarkerFor_SuppressesStickyTurnForAllClients(t *testing.T) {
 }
 
 func TestRoutingMarkerFor_SuppressesEffortOnlyChange(t *testing.T) {
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		Decision:         router.Decision{Model: "gpt-5.6-luna", Provider: "openai", Effort: "xhigh"},
 		PriorServedModel: "gpt-5.6-luna:xhigh",
 	}
@@ -488,7 +489,7 @@ func TestRoutingMarkerFor_SuppressesEffortOnlyChange(t *testing.T) {
 
 func TestRoutingMarkerFor_ShadowEscalationShowsWithoutModelSwitchAndStripsOnEcho(t *testing.T) {
 	decision := router.Decision{Model: "claude-haiku-4-5"}
-	turn := turnLoopResult{Decision: decision, PriorServedModel: decision.Model, EscalationShadowMarked: true}
+	turn := routingpolicy.TurnRoute{Decision: decision, PriorServedModel: decision.Model, EscalationShadowMarked: true}
 	marker := routingMarkerFor(turn)
 	require.Equal(t, routingMarkerPrefix+decision.Model+" · "+markerReasonShadowEscalation+"\n\n", marker)
 
@@ -515,11 +516,11 @@ func TestSubscriptionTargetMarker_UnchangedModelKeepsRoutedMarker(t *testing.T) 
 	ctx := context.Background()
 	picked := router.Decision{Model: "gpt-6.1-sol", Provider: "openai"}
 
-	passthrough := turnLoopResult{Decision: picked, CallerModelPassthrough: true}
+	passthrough := routingpolicy.TurnRoute{Decision: picked, CallerModelPassthrough: true}
 	assert.Empty(t, subscriptionTargetMarker(hmm.ServingPorts(), ctx, http.Header{}, passthrough, picked, picked, routingMarkerFor(passthrough)),
 		"a subscription target equal to the caller's model must not invent a badge in passthrough")
 
-	routed := turnLoopResult{Decision: picked}
+	routed := routingpolicy.TurnRoute{Decision: picked}
 	routedMarker := routingMarkerFor(routed)
 	require.NotEmpty(t, routedMarker)
 	got := subscriptionTargetMarker(hmm.ServingPorts(), ctx, http.Header{}, routed, picked, picked, routedMarker)
@@ -531,7 +532,7 @@ func TestSubscriptionTargetMarker_SwitchedModelIsWordedAsRescue(t *testing.T) {
 	ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(cortexAttempt("gpt-6-luna", cortexStatusError(529, `{}`, nil), turnrecord.TurnErrorRateLimited)))
 	picked := router.Decision{Model: "gpt-6-luna", Provider: "openai"}
 	target := router.Decision{Model: "gpt-6.1-sol", Provider: "openai"}
-	res := turnLoopResult{Decision: picked}
+	res := routingpolicy.TurnRoute{Decision: picked}
 
 	assert.Equal(t, "✦ **Weave Router** → gpt-6.1-sol · switched after gpt-6-luna was overloaded\n\n",
 		subscriptionTargetMarker(hmm.ServingPorts(), ctx, http.Header{}, res, picked, target, routingMarkerFor(res)))
@@ -546,7 +547,7 @@ func TestSubscriptionTargetMarker_RotationBackToPickRestoresRoutedMarker(t *test
 	ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(cortexAttempt("gpt-6-luna", cortexStatusError(529, `{}`, nil), turnrecord.TurnErrorRateLimited)))
 	picked := router.Decision{Model: "gpt-6-luna", Provider: "openai"}
 	sibling := router.Decision{Model: "gpt-6.1-sol", Provider: "openai"}
-	res := turnLoopResult{Decision: picked, CallerModelPassthrough: true}
+	res := routingpolicy.TurnRoute{Decision: picked, CallerModelPassthrough: true}
 	pickedMarker := routingMarkerFor(res)
 
 	// Always compared against the original pick: after the sibling failed,
@@ -558,7 +559,7 @@ func TestSubscriptionTargetMarker_RotationBackToPickRestoresRoutedMarker(t *test
 func TestSubscriptionTargetMarker_UndispatchedPickIsNotCalledOverloaded(t *testing.T) {
 	picked := router.Decision{Model: "xiaomi/mimo-v2.6-pro", Provider: "deepinfra"}
 	target := router.Decision{Model: "claude-opus-5-5", Provider: "anthropic"}
-	res := turnLoopResult{Decision: picked}
+	res := routingpolicy.TurnRoute{Decision: picked}
 
 	got := subscriptionTargetMarker(hmm.ServingPorts(), context.Background(), http.Header{}, res, picked, target, routingMarkerFor(res))
 	assert.Equal(t, "✦ **Weave Router** → claude-opus-5-5 · "+markerReasonSubscriptionCovered+"\n\n", got,

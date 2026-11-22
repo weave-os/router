@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -51,7 +52,7 @@ const toolResultTurnBody = `{"model":"claude-opus-4-8","messages":[` +
 	`{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"make"}}]},` +
 	`{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}]}`
 
-func runTurnLoopWithBody(t *testing.T, svc *Service, body string) turnLoopResult {
+func runTurnLoopWithBody(t *testing.T, svc *Service, body string) routingpolicy.TurnRoute {
 	t.Helper()
 	env, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)

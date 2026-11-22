@@ -138,7 +138,7 @@ func runPolicyDeadlineFallbackTurnLoop(
 	svc *Service,
 	strategy router.Strategy,
 	excludedModels ...string,
-) (turnLoopResult, error) {
+) (routingpolicy.TurnRoute, error) {
 	t.Helper()
 	env, err := translate.ParseAnthropic(
 		[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),

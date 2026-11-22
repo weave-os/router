@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"testing"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -12,7 +13,7 @@ import (
 
 func TestApplyPlannerTelemetry_SkippedWhenPlannerDidNotRun(t *testing.T) {
 	p := turnrecord.InsertTelemetryParams{RequestID: "r"}
-	applyPlannerTelemetry(&p, turnLoopResult{})
+	applyPlannerTelemetry(&p, routingpolicy.TurnRoute{})
 	assert.Empty(t, p.PlannerOutcome)
 	assert.Empty(t, p.PlannerReason)
 	assert.Nil(t, p.PlannerExpectedSavingsUSD)
@@ -22,7 +23,7 @@ func TestApplyPlannerTelemetry_SkippedWhenPlannerDidNotRun(t *testing.T) {
 
 func TestApplyPlannerTelemetry_StayPopulatesPinAndEV(t *testing.T) {
 	p := turnrecord.InsertTelemetryParams{}
-	applyPlannerTelemetry(&p, turnLoopResult{
+	applyPlannerTelemetry(&p, routingpolicy.TurnRoute{
 		PinModel:    "claude-sonnet-5",
 		PinProvider: "anthropic",
 		PlannerDecision: planner.Decision{
@@ -49,7 +50,7 @@ func TestApplyPlannerTelemetry_StayPopulatesPinAndEV(t *testing.T) {
 
 func TestApplyPlannerTelemetry_SwitchRecordsAbandonedPin(t *testing.T) {
 	p := turnrecord.InsertTelemetryParams{}
-	applyPlannerTelemetry(&p, turnLoopResult{
+	applyPlannerTelemetry(&p, routingpolicy.TurnRoute{
 		PinModel:    "claude-opus-5",
 		PinProvider: "anthropic",
 		PlannerDecision: planner.Decision{

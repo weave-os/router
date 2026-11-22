@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/ingress"
@@ -33,7 +34,7 @@ type chatAttemptDeps struct {
 	responsesBody        []byte
 	log                  *slog.Logger
 	fastServed           *bool
-	routeRes             *turnLoopResult
+	routeRes             *routingpolicy.TurnRoute
 	makeMarkerSink       func(notice translate.RouterNotice) (http.ResponseWriter, error)
 	cyberRetryArmed      *bool
 	preOutputRescueArmed *bool

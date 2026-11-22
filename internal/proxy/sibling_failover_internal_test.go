@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/requestcontext"
@@ -136,7 +137,7 @@ func TestRescueBasisForTurnKeepsHeldPrimaryIdentity(t *testing.T) {
 		SelectedArmID:       "fresh-arm",
 		SelectedRosterArmID: "fresh-arm:high",
 	}
-	turn := turnLoopResult{StickyHit: true, Fresh: router.Decision{Model: "claude-opus-5-5", Metadata: fresh}}
+	turn := routingpolicy.TurnRoute{StickyHit: true, Fresh: router.Decision{Model: "claude-opus-5-5", Metadata: fresh}}
 
 	basis := rescueBasisForTurn(primary, rescueTurnOf(turn))
 
@@ -147,7 +148,7 @@ func TestRescueBasisForTurnKeepsHeldPrimaryIdentity(t *testing.T) {
 	assert.NotSame(t, fresh, basis.Metadata)
 	assert.Equal(t, []string{"claude-opus-5-5"}, basis.Metadata.RescueModels, "the held pin must retain eligible rescue models")
 	assert.Equal(t, []string{"claude-opus-5-5"}, fresh.RescueModels, "fresh policy metadata must remain unchanged")
-	assert.Nil(t, rescueBasisForTurn(primary, rescueTurnOf(turnLoopResult{Fresh: turn.Fresh})).Metadata)
+	assert.Nil(t, rescueBasisForTurn(primary, rescueTurnOf(routingpolicy.TurnRoute{Fresh: turn.Fresh})).Metadata)
 	turn.HardPinned = true
 	assert.Nil(t, rescueBasisForTurn(primary, rescueTurnOf(turn)).Metadata)
 }
@@ -162,7 +163,7 @@ func TestRescueBasisForHeldPinPreservesTierAndPolicyOrder(t *testing.T) {
 		},
 		PairedModel: "claude-haiku-4-5",
 	}
-	turn := turnLoopResult{
+	turn := routingpolicy.TurnRoute{
 		StickyHit: true,
 		Fresh:     router.Decision{Model: "claude-sonnet-5", Metadata: freshMetadata},
 	}

@@ -29,12 +29,12 @@ type compactionSummarizer struct {
 func (s *Service) routeCompaction(
 	ctx context.Context,
 	req router.Request,
-	res turnLoopResult,
+	res routingpolicy.TurnRoute,
 	reqHeaders http.Header,
 	target sessionTarget,
 	forceModelFound bool,
 	forceModelPin sessionpin.Pin,
-) (turnLoopResult, error) {
+) (routingpolicy.TurnRoute, error) {
 	if s.pinStore == nil {
 		return s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}

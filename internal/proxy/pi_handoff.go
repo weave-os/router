@@ -51,13 +51,13 @@ const (
 
 type handoffClaims struct {
 	jwt.RegisteredClaims
-	Purpose        handoffPurpose `json:"purpose"`
-	APIKeyID       string         `json:"key"`
-	SessionID      string         `json:"session"`
-	RequestedModel string         `json:"requested_model"`
-	Tools          string         `json:"tools"`
-	Reasoning      string         `json:"reasoning"`
-	Route          turnLoopResult `json:"route"`
+	Purpose        handoffPurpose          `json:"purpose"`
+	APIKeyID       string                  `json:"key"`
+	SessionID      string                  `json:"session"`
+	RequestedModel string                  `json:"requested_model"`
+	Tools          string                  `json:"tools"`
+	Reasoning      string                  `json:"reasoning"`
+	Route          routingpolicy.TurnRoute `json:"route"`
 }
 
 type preparedHandoff struct {
@@ -133,7 +133,7 @@ func (s *Service) mintHandoff(claims handoffClaims) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.piHandoffSecret)
 }
 
-func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.Strategy, w http.ResponseWriter, env *translate.RequestEnvelope, req router.Request, route turnLoopResult) error {
+func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.Strategy, w http.ResponseWriter, env *translate.RequestEnvelope, req router.Request, route routingpolicy.TurnRoute) error {
 	if route.UsageBypass || route.HardPinned || isUserForcedReason(route.Decision.Reason) {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
 	}
@@ -187,32 +187,32 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.
 	return writePreparedHandoff(w, prepared)
 }
 
-func (s *Service) resumeHandoff(ctx context.Context, strategy router.Strategy, env *translate.RequestEnvelope, req router.Request, isSubagent bool) (turnLoopResult, error) {
+func (s *Service) resumeHandoff(ctx context.Context, strategy router.Strategy, env *translate.RequestEnvelope, req router.Request, isSubagent bool) (routingpolicy.TurnRoute, error) {
 	claims := handoffFromContext(ctx)
 	if claims.Route.Strategy != strategy ||
 		claims.SessionID != clientSessionIDForRequest(ctx, env) ||
 		claims.RequestedModel != req.RequestedModel {
-		return turnLoopResult{}, ErrHandoffInvalid
+		return routingpolicy.TurnRoute{}, ErrHandoffInvalid
 	}
 	apiKeyID, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, claims.Route.SessionKey)
 	_, forced, _ := routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).Load(ctx, forceKey, sessionKeyHex(claims.Route.SessionKey), isSubagent)
 	if req.ForceModel != "" || forced {
-		return turnLoopResult{}, ErrHandoffInvalid
+		return routingpolicy.TurnRoute{}, ErrHandoffInvalid
 	}
 	if claims.Purpose == handoffContinuation && (claims.Tools != req.ToolConfigurationSHA256 || claims.Reasoning != req.ReasoningConfigurationSHA256) {
-		return turnLoopResult{}, ErrHandoffInvalid
+		return routingpolicy.TurnRoute{}, ErrHandoffInvalid
 	}
 	var err error
 	req, err = s.applyTranslationPlan(ctx, req)
 	if err != nil {
-		return turnLoopResult{}, err
+		return routingpolicy.TurnRoute{}, err
 	}
 	req.Candidates.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
 	selected := claims.Route.Decision
 	pin := sessionpin.Pin{Model: selected.Model, Provider: selected.Provider}
 	if !candidates.AutomaticPinEligible(pin, req) {
-		return turnLoopResult{}, ErrHandoffInvalid
+		return routingpolicy.TurnRoute{}, ErrHandoffInvalid
 	}
 	return claims.Route, nil
 }

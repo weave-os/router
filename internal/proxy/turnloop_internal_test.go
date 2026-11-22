@@ -139,7 +139,7 @@ func TestConsumePostCommandContinuation_RequiresEffectiveStrategy(t *testing.T) 
 func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 	t.Parallel()
 
-	zeroTimestamp := turnLoopResult{}
+	zeroTimestamp := routingpolicy.TurnRoute{}
 	applyPinEvidence(hmm.ServingPorts(), &zeroTimestamp, sessionpin.Pin{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
@@ -148,7 +148,7 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 	assert.Equal(t, providers.ProviderAnthropic, zeroTimestamp.PinProvider)
 	assert.Nil(t, zeroTimestamp.PriorTurnGapMS)
 
-	withHistory := turnLoopResult{}
+	withHistory := routingpolicy.TurnRoute{}
 	applyPinEvidence(hmm.ServingPorts(), &withHistory, sessionpin.Pin{
 		Provider:        providers.ProviderFireworks,
 		Model:           "accounts/fireworks/models/qwen3-235b-a22b",
@@ -213,7 +213,7 @@ func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 		sessionKey[i] = byte(i + 1)
 	}
 
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		Decision:   router.Decision{Provider: "anthropic", Model: "claude-opus-4-7"},
 		SessionKey: sessionKey,
 		PinRole:    sessionpin.DefaultRole,
@@ -245,7 +245,7 @@ func TestRecordTurnUsage_PassthroughDoesNotReadOrWritePins(t *testing.T) {
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	sessionKey[0] = 1
-	svc.recordTurnUsage(context.Background(), turnLoopResult{
+	svc.recordTurnUsage(context.Background(), routingpolicy.TurnRoute{
 		Decision:               router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6"},
 		SessionKey:             sessionKey,
 		PinRole:                sessionpin.DefaultRole,
@@ -275,7 +275,7 @@ func TestRecordTurnUsage_ForwardsSwitchHistory(t *testing.T) {
 		sessionKey[i] = byte(i + 1)
 	}
 
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		Decision:            router.Decision{Provider: "anthropic", Model: "claude-opus-4-7"},
 		SessionKey:          sessionKey,
 		PinRole:             sessionpin.DefaultRole,
@@ -307,7 +307,7 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 		sessionKey[i] = byte(i + 1)
 	}
 
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		InstallationID: uuid.New(),
 		Strategy:       router.StrategyHMMBeta,
 		Decision: router.Decision{
@@ -363,7 +363,7 @@ func TestRecordTurnUsage_HMMModelChangeWritesCurrentUsageOnly(t *testing.T) {
 		sessionKey[i] = byte(i + 1)
 	}
 
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		InstallationID: uuid.New(),
 		Decision: router.Decision{
 			Provider: providers.ProviderAnthropic,
@@ -407,7 +407,7 @@ func TestRecordHMMTurnHistory_ZeroUsageRefreshesTTLButSkipsUsageWriteback(t *tes
 		sessionKey[i] = byte(i + 1)
 	}
 
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		InstallationID: uuid.New(),
 		Decision: router.Decision{
 			Provider: providers.ProviderAnthropic,
@@ -450,7 +450,7 @@ func TestRecordHMMTurnHistory_ZeroUsagePreservesPriorProvider(t *testing.T) {
 		sessionKey[i] = byte(i + 1)
 	}
 
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		InstallationID: uuid.New(),
 		Decision: router.Decision{
 			Provider: providers.ProviderOpenAI,
@@ -562,7 +562,7 @@ func TestRecordTurnUsage_HMMEVStayWritesHistoryOnly(t *testing.T) {
 		sessionKey[i] = byte(i + 1)
 	}
 
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		InstallationID: uuid.New(),
 		Decision: router.Decision{
 			Provider: providers.ProviderAnthropic,
@@ -595,7 +595,7 @@ func TestRecordTurnUsage_HMMEVStayWritesHistoryOnly(t *testing.T) {
 }
 
 func TestStickyStateRole_HMMEVStayTargetsHistory(t *testing.T) {
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		StickyHit:  true,
 		PinRole:    sessionpin.DefaultRole,
 		StickyRole: hmmHistoryRole(sessionpin.DefaultRole),
@@ -604,7 +604,7 @@ func TestStickyStateRole_HMMEVStayTargetsHistory(t *testing.T) {
 }
 
 func TestStickyStateRole_DefaultsToActivePinRole(t *testing.T) {
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		StickyHit: true,
 		PinRole:   sessionpin.DefaultRole,
 	}
@@ -1026,12 +1026,12 @@ func TestLoadPin_DoesNotServeExpiredPostgresPinButKeepsEmitHistory(t *testing.T)
 	assert.Equal(t, "claude-opus-4-7", pin.LastServedModel, "expired row history must be available for emit")
 	assert.True(t, pin.HasEverSwitched, "expired row latch must be available for emit")
 
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		Decision:            router.Decision{Model: "claude-opus-4-7"},
 		PriorServedModel:    pin.LastServedModel,
 		SessionEverSwitched: pin.HasEverSwitched,
 	}
-	assert.True(t, res.modelSwitched(), "expired switched-session history must still strip thinking blocks")
+	assert.True(t, res.ModelSwitched(), "expired switched-session history must still strip thinking blocks")
 }
 
 // TestLoadPin_ServesFreshPostgresPin is the companion: a non-expired Postgres
@@ -1170,12 +1170,12 @@ func TestModelSwitched(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			res := turnLoopResult{
+			res := routingpolicy.TurnRoute{
 				Decision:            router.Decision{Model: tc.decisionModel},
 				PriorServedModel:    tc.priorServedModel,
 				SessionEverSwitched: tc.everSwitched,
 			}
-			assert.Equal(t, tc.want, res.modelSwitched())
+			assert.Equal(t, tc.want, res.ModelSwitched())
 		})
 	}
 }

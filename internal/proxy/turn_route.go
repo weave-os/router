@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/router"
@@ -17,7 +18,7 @@ type routeTurnRequest struct {
 	IsUserPrompt   bool
 }
 
-func routeTurn(ctx context.Context, s *Service, clock auth.Clock, log *slog.Logger, turn routeTurnRequest, route func(routeCtx context.Context) (turnLoopResult, error)) (turnLoopResult, int64, error) {
+func routeTurn(ctx context.Context, s *Service, clock auth.Clock, log *slog.Logger, turn routeTurnRequest, route func(routeCtx context.Context) (routingpolicy.TurnRoute, error)) (routingpolicy.TurnRoute, int64, error) {
 	routeCtx, routeSpan := startRoutingSpan(ctx, turn.Failure.Strategy, turn.Request)
 	routeRes, err := route(routeCtx)
 	finishRoutingSpan(routeSpan, routeRes.Decision, err)
@@ -29,7 +30,7 @@ func routeTurn(ctx context.Context, s *Service, clock auth.Clock, log *slog.Logg
 	return routeRes, routeMs, err
 }
 
-func withRouteSessionState(ctx context.Context, routeRes turnLoopResult) context.Context {
+func withRouteSessionState(ctx context.Context, routeRes routingpolicy.TurnRoute) context.Context {
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
 	}

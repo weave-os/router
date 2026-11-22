@@ -97,7 +97,7 @@ type hardPinnedTurnServing struct {
 	log              *slog.Logger
 	strategy         router.Strategy
 	req              router.Request
-	res              turnLoopResult
+	res              routingpolicy.TurnRoute
 	sessionPins      routingpolicy.SessionPins
 	threadSessionKey [sessionpin.SessionKeyLen]byte
 	installationID   uuid.UUID
@@ -107,7 +107,7 @@ type hardPinnedTurnServing struct {
 	reqHeaders       http.Header
 }
 
-func (t *hardPinnedTurnServing) resolve(ctx context.Context) (turnLoopResult, error) {
+func (t *hardPinnedTurnServing) resolve(ctx context.Context) (routingpolicy.TurnRoute, error) {
 	spec, _ := t.s.InferencePolicyRegistry().Spec(utilityPurposes[t.res.TurnType])
 	_, err := overrides.Resolve(spec.OverridePrecedence, map[policy.OverrideSource][]overrides.Resolver{
 		policy.OverrideSourceRequest: {
@@ -137,10 +137,10 @@ func (t *hardPinnedTurnServing) serveForcedPin(ctx context.Context) bool {
 		res.SessionKey = t.threadSessionKey
 		res.PinModel = forceModelPin.Model
 		res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
-		res.applySwitchHistory(threadPin, hmmHistory, forceHistory)
+		applySwitchHistory(res, threadPin, hmmHistory, forceHistory)
 		res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
 			(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
-		res.serveForceModelPin(forceModelPin)
+		res.ServeForceModelPin(forceModelPin)
 		t.sessionPins.AnchorForceModelHistory(ctx, t.installationID, t.threadSessionKey, res.PinRole, forceModelPin)
 		return true
 	}

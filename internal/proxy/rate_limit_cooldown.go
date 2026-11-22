@@ -132,7 +132,7 @@ func (s *Service) withRateLimitTurn(ctx context.Context) (context.Context, *disp
 	return dispatch.WithThrottleLedger(ctx)
 }
 
-func applyDemotionCooldowns(ctx context.Context, s *Service, req *router.Request, res *turnLoopResult, demoted []string, cooldowns map[string]time.Time) (context.Context, []string) {
+func applyDemotionCooldowns(ctx context.Context, s *Service, req *router.Request, res *routingpolicy.TurnRoute, demoted []string, cooldowns map[string]time.Time) (context.Context, []string) {
 	now := s.clock.Now()
 	cooling := activeDemotionCooldowns(cooldowns, now)
 	if len(cooling) > 0 {
@@ -161,7 +161,7 @@ func applyDemotionCooldowns(ctx context.Context, s *Service, req *router.Request
 	return ctx, demoted
 }
 
-func clearRecoveredCooldown(ctx context.Context, s *Service, res turnLoopResult, servedModel string, proxyErr error) {
+func clearRecoveredCooldown(ctx context.Context, s *Service, res routingpolicy.TurnRoute, servedModel string, proxyErr error) {
 	observedUntil, probed := res.CooldownProbes[servedModel]
 	if !probed || proxyErr != nil {
 		return

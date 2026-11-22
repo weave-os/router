@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/router"
 )
@@ -10,7 +11,7 @@ func strategyContext(ctx context.Context, strategy router.Strategy) context.Cont
 	return router.WithStrategy(context.WithoutCancel(ctx), strategy)
 }
 
-func strategyForTurnLoopResult(res turnLoopResult) router.Strategy {
+func strategyForTurnLoopResult(res routingpolicy.TurnRoute) router.Strategy {
 	if res.Strategy != "" {
 		return res.Strategy
 	}

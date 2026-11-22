@@ -64,7 +64,7 @@ func TestTwoModelRecoveryOnlyLeasesOneExpiredArmPerRequest(t *testing.T) {
 	}}
 	svc, _ := cooldownTurnLoopService(store, true)
 	result := runDemotionTurnLoop(t, svc, context.Background())
-	defer result.releaseCooldownProbes()
+	defer result.ReleaseCooldownProbes()
 
 	require.Len(t, result.CooldownProbeReleases, 1, "one request must not lock both allowed models while selecting its probe")
 	// Equal expiries tie-break by name, so the Opus arm is the probe.
@@ -149,7 +149,7 @@ func TestRecoveredProbeClearsCooldownFromBothRows(t *testing.T) {
 	}}}
 	svc, _ := cooldownTurnLoopService(store, true)
 	result := runDemotionTurnLoop(t, svc, context.Background())
-	result.releaseCooldownProbes()
+	result.ReleaseCooldownProbes()
 	require.Equal(t, []time.Duration{routingpolicy.RecoveryProbeLeaseDuration}, store.leaseFor)
 	require.Equal(t, map[string]time.Time{recoveryOpusModel: expired}, result.CooldownProbes)
 
@@ -203,7 +203,7 @@ func TestRecoveryProbeSkipsHardExcludedExpiredModel(t *testing.T) {
 	svc, _ := cooldownTurnLoopService(store, true)
 	ctx := context.WithValue(context.Background(), requestcontext.InstallationExcludedModelsContextKey{}, []string{excludedModel})
 	result := runDemotionTurnLoop(t, svc, ctx)
-	defer result.releaseCooldownProbes()
+	defer result.ReleaseCooldownProbes()
 
 	assert.Equal(t, []string{eligibleModel}, store.attempted, "an ineligible old cooldown must not consume the only probe slot")
 	assert.Equal(t, map[string]time.Time{eligibleModel: rateLimitTestNow}, result.CooldownProbes)
@@ -227,7 +227,7 @@ func TestRecoveryProbeSkipsModelWithoutEligibleProviderBinding(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	defer result.releaseCooldownProbes()
+	defer result.ReleaseCooldownProbes()
 
 	assert.Empty(t, store.attempted, "a model with no binding for this request must not consume the recovery lease")
 	assert.Empty(t, result.CooldownProbes)
@@ -315,13 +315,13 @@ func TestTwoModelRecoveryHMMRefreshDoesNotRewriteCooldown(t *testing.T) {
 	svc, scorer := cooldownTurnLoopService(store, true)
 	now := rateLimitTestNow
 	svc.clock = func() time.Time { return now }
-	res := turnLoopResult{InstallationID: uuid.New(), SessionKey: nonZeroSessionKey(), PinRole: sessionpin.DefaultRole,
+	res := routingpolicy.TurnRoute{InstallationID: uuid.New(), SessionKey: nonZeroSessionKey(), PinRole: sessionpin.DefaultRole,
 		Decision: router.Decision{Provider: providers.ProviderAnthropic, Model: freshTurnModel, Reason: hmm.HistoryReason}}
 	for step := 0; step <= 96; step++ {
 		now = rateLimitTestNow.Add(time.Duration(step) * 30 * time.Minute)
 		svc.recordHMMTurnHistory(context.Background(), res, providers.ProviderAnthropic, freshTurnModel, 0, 0, 0, 0, false)
 		turn := runDemotionTurnLoop(t, svc, context.Background())
-		turn.releaseCooldownProbes()
+		turn.ReleaseCooldownProbes()
 		if step == 0 {
 			assert.Contains(t, turn.SessionDemotedModels, demotedPinModel)
 		} else {

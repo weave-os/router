@@ -3,13 +3,14 @@ package proxy
 import (
 	"context"
 	"strings"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/turntype"
 )
 
-func modelSelectionMarkerForRequest(ports continuity.StrategyPorts, ctx context.Context, res turnLoopResult, marker, servedModel, failoverReason string) string {
+func modelSelectionMarkerForRequest(ports continuity.StrategyPorts, ctx context.Context, res routingpolicy.TurnRoute, marker, servedModel, failoverReason string) string {
 	if res.TurnType == turntype.SubAgentDispatch {
 		return ""
 	}

@@ -28,7 +28,7 @@ type authoritativeTurn struct {
 	installationID uuid.UUID
 }
 
-func serveAuthoritativeTurn(ctx context.Context, s *Service, res *turnLoopResult, in authoritativeTurn) (turnLoopResult, error) {
+func serveAuthoritativeTurn(ctx context.Context, s *Service, res *routingpolicy.TurnRoute, in authoritativeTurn) (routingpolicy.TurnRoute, error) {
 	log := observability.FromContext(ctx)
 	activePin := sessionpin.Pin{}
 	if in.pinFound {

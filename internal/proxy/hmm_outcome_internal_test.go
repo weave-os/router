@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,7 +38,7 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
 	s := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
 
-	routeRes := turnLoopResult{
+	routeRes := routingpolicy.TurnRoute{
 		StickyHit: true,
 		Fresh: router.Decision{
 			Model:    "moonshotai/kimi-k2.7",
@@ -104,7 +105,7 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 func TestReportPolicyOutcome_OmitsResponseBodyWhenTrainingIsNotAllowed(t *testing.T) {
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
 	s := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
-	routeRes := turnLoopResult{Fresh: router.Decision{
+	routeRes := routingpolicy.TurnRoute{Fresh: router.Decision{
 		Model:    "moonshotai/kimi-k2.7",
 		Metadata: &router.RoutingMetadata{RouteID: "route-1", Strategy: string(router.StrategyHMM)},
 	}}
@@ -145,7 +146,7 @@ func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *test
 
 	s.reportPolicyOutcome(
 		ctx,
-		turnLoopResult{Fresh: selected, AuthoritativePerTurn: true},
+		routingpolicy.TurnRoute{Fresh: selected, AuthoritativePerTurn: true},
 		served,
 		dispatch.EffortResolution{},
 		providers.ProviderAnthropic,
@@ -198,7 +199,7 @@ func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 
 	s.reportPolicyOutcome(
 		ctx,
-		turnLoopResult{Fresh: decision},
+		routingpolicy.TurnRoute{Fresh: decision},
 		decision,
 		effort,
 		providers.ProviderOpenAI,

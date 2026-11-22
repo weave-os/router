@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -521,7 +522,7 @@ func TestApplyRoutingStateAttrs_EmitsExactThreadAndTransition(t *testing.T) {
 	for i := range key {
 		key[i] = byte(i + 1)
 	}
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		SessionKey:       key,
 		PinRole:          "default_high",
 		PriorServedModel: "claude-haiku-4-5",
@@ -538,7 +539,7 @@ func TestApplyRoutingStateAttrs_EmitsExactThreadAndTransition(t *testing.T) {
 
 func TestApplyRoutingStateAttrs_FirstSelectionIsNotAChange(t *testing.T) {
 	b := telemetry.NewAttrBuilder(4)
-	applyRoutingStateAttrs(b, turnLoopResult{PinRole: sessionpin.DefaultRole}, "claude-haiku-4-5", [sessionpin.SessionKeyLen]byte{})
+	applyRoutingStateAttrs(b, routingpolicy.TurnRoute{PinRole: sessionpin.DefaultRole}, "claude-haiku-4-5", [sessionpin.SessionKeyLen]byte{})
 	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Empty(t, attrs["routing.session_key"].GetStringValue())
@@ -548,7 +549,7 @@ func TestApplyRoutingStateAttrs_FirstSelectionIsNotAChange(t *testing.T) {
 
 func TestApplyRoutingStateAttrs_OmitsLLMEscalationWithoutClassifier(t *testing.T) {
 	b := telemetry.NewAttrBuilder(5)
-	applyRoutingStateAttrs(b, turnLoopResult{}, "gpt-5.5", [sessionpin.SessionKeyLen]byte{})
+	applyRoutingStateAttrs(b, routingpolicy.TurnRoute{}, "gpt-5.5", [sessionpin.SessionKeyLen]byte{})
 	attrs := attrsByTelemetryKey(b.Build())
 	assert.False(t, attrs["routing.llm_escalation_applied"].GetBoolValue())
 }
@@ -556,7 +557,7 @@ func TestApplyRoutingStateAttrs_OmitsLLMEscalationWithoutClassifier(t *testing.T
 func TestApplyRoutingStateAttrs_UsesRequestKeyWhenRoutingKeyIsEmpty(t *testing.T) {
 	key := [sessionpin.SessionKeyLen]byte{1, 2, 3}
 	b := telemetry.NewAttrBuilder(4)
-	applyRoutingStateAttrs(b, turnLoopResult{}, "claude-haiku-4-5", key)
+	applyRoutingStateAttrs(b, routingpolicy.TurnRoute{}, "claude-haiku-4-5", key)
 	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Equal(t, "01020300000000000000000000000000", attrs["routing.session_key"].GetStringValue())
@@ -564,7 +565,7 @@ func TestApplyRoutingStateAttrs_UsesRequestKeyWhenRoutingKeyIsEmpty(t *testing.T
 
 func TestApplyPlannerAttrs_OmitsDetailsWhenSkipped(t *testing.T) {
 	b := telemetry.NewAttrBuilder(8)
-	applyPlannerAttrs(b, turnLoopResult{PlannerDecision: planner.Decision{Reason: planner.ReasonNoPin}})
+	applyPlannerAttrs(b, routingpolicy.TurnRoute{PlannerDecision: planner.Decision{Reason: planner.ReasonNoPin}})
 	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Contains(t, attrs, "planner.outcome")
@@ -576,7 +577,7 @@ func TestApplyPlannerAttrs_OmitsDetailsWhenSkipped(t *testing.T) {
 }
 
 func TestApplyPlannerAttrs_EmitsDetailsWhenEvaluated(t *testing.T) {
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		Decision:     router.Decision{Model: "claude-haiku-4-5"},
 		Fresh:        router.Decision{Model: "claude-opus-4-7"},
 		PinModel:     "claude-haiku-4-5",
