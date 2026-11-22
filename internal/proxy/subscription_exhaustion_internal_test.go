@@ -40,7 +40,7 @@ func TestResolveAndInjectCredentials_SuppressedSubscriptionFallsThroughToBYOK(t 
 	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-api-byok")},
 	})
-	ctx = withSuppressedClaudeSubscription(ctx)
+	ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 	headers := http.Header{"Authorization": []string{"Bearer " + exhaustedSubToken}}
 
 	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
@@ -58,7 +58,7 @@ func TestResolveAndInjectCredentials_SuppressedSubscriptionFallsThroughToDeploym
 	// resolution resolves to NO credential, so the Anthropic provider client uses
 	// its own deployment key (the Weave key).
 	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken)
-	ctx = withSuppressedClaudeSubscription(ctx)
+	ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 
 	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
 	assert.Nil(t, CredentialsFromContext(out),
@@ -71,7 +71,7 @@ func TestResolveAndInjectCredentials_SuppressedInboundBearerNotReResolved(t *tes
 	// subscription-first block NOR the later ExtractClientCredentials fallback may
 	// re-resolve it — resolution must end with no credential so the deployment
 	// Anthropic key serves the turn.
-	ctx := withSuppressedClaudeSubscription(context.Background())
+	ctx := credentials.WithSuppressedClaudeSubscription(context.Background())
 	headers := http.Header{"Authorization": []string{"Bearer " + exhaustedSubToken}}
 
 	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
@@ -83,7 +83,7 @@ func TestResolveAndInjectCredentials_SuppressedKeepsRealClientApiKey(t *testing.
 	// Suppression targets the spent OAuth subscription only. A self-hosted caller
 	// supplying a real Anthropic API key (sk-ant-api-, non-OAuth) must still have
 	// it resolved — it is a valid non-subscription credential, not the dead token.
-	ctx := withSuppressedClaudeSubscription(context.Background())
+	ctx := credentials.WithSuppressedClaudeSubscription(context.Background())
 	headers := http.Header{"X-Api-Key": []string{"sk-ant-api-real-client-key"}}
 
 	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
@@ -100,7 +100,7 @@ func TestResolveAndInjectCredentials_ClaudeSuppressionLeavesCodexIntact(t *testi
 	// plan. (Regression: the flag previously suppressed both families.)
 	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, codexTestJWT)
 	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-1")
-	ctx = withSuppressedClaudeSubscription(ctx)
+	ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 
 	out := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.6-sol", http.Header{})
 	creds := CredentialsFromContext(out)
@@ -219,7 +219,7 @@ func TestBaselineFailoverCtxSuppression(t *testing.T) {
 	})
 
 	t.Run("suppressed ctx drops the bearer", func(t *testing.T) {
-		suppressed := withSuppressedClaudeSubscription(base)
+		suppressed := credentials.WithSuppressedClaudeSubscription(base)
 		out := resolveAndInjectCredentials(suppressed, providers.ProviderAnthropic, "claude-opus-4-8", headers)
 		assert.False(t, servedOnSubscription(out),
 			"with suppression the OAuth bearer is dropped and the turn bills at full cost")

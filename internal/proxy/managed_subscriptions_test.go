@@ -334,7 +334,7 @@ func TestManagedSubscriptionEnrollmentFailureDoesNotAuthorizeAPIFallback(t *test
 	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
 	require.True(t, managed)
 	require.Empty(t, lease.AccountID)
-	require.False(t, claudeSubscriptionSuppressed(out))
+	require.False(t, credentials.ClaudeSubscriptionSuppressed(out))
 	require.True(t, CredentialsFromContext(out).OAuth)
 	require.Empty(t, leaser.providers)
 }

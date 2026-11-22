@@ -44,7 +44,7 @@ func TestPlanFirstAnthropicKeyFundsTurnsWithoutClaudePlan(t *testing.T) {
 }
 
 func TestPlanFirstAnthropicKeyBacksSuppressedClaudePlan(t *testing.T) {
-	ctx := withSuppressedClaudeSubscription(fundingPriorityCtx(routerKeyedCtx(), providers.ProviderAnthropic, auth.FundingPriorityPlanFirst))
+	ctx := credentials.WithSuppressedClaudeSubscription(fundingPriorityCtx(routerKeyedCtx(), providers.ProviderAnthropic, auth.FundingPriorityPlanFirst))
 	headers := http.Header{"Authorization": []string{"Bearer sk-ant-oat01-spent"}}
 
 	creds := CredentialsFromContext(resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers))

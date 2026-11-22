@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
@@ -54,7 +55,7 @@ func includedFailureAfter(prev, err error, ownLoginRejected bool) error {
 }
 
 func includedLaneVerdict(ctx context.Context) error {
-	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
+	if billing.SubscriptionOnlyFromContext(ctx) && !credentials.LinkedFirst(ctx) {
 		return subscriptionPoolExhausted(ctx)
 	}
 	return nil
