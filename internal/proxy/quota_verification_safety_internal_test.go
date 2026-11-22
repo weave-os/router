@@ -80,7 +80,7 @@ func TestQuotaVerificationFailureNeverBuysPaidCapacity(t *testing.T) {
 					body := `{"model":"codex-auto-review","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic"}]}]}`
 					request := codexSubHTTPRequest(t.Context(), "/v1/responses", body)
 					if managed {
-						ctx = WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderCodex), []*auth.SubscriptionAccount{{
+						ctx = credentials.WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderCodex), []*auth.SubscriptionAccount{{
 							ID: "synthetic-seat", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive,
 						}})
 						ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
@@ -186,7 +186,7 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 					leaser.leases = append(leaser.leases, subscriptions.Lease{AccountID: accountID, AccessToken: "synthetic-token-" + strconv.Itoa(accountIndex), ProviderAccount: accountID})
 				}
 				svc := outOfRosterFundingService(client, translate.ReasonUserForceModel, repo).WithManagedSubscriptions(leaser)
-				ctx := WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderCodex), accounts)
+				ctx := credentials.WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderCodex), accounts)
 				ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
 				ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 				ctx = outOfRosterBillingCtx(ctx)

@@ -40,7 +40,7 @@ func goldenClaudeSeatCtx(clientApp string, cooldown time.Time) func(context.Cont
 		if !cooldown.IsZero() {
 			seat.State, seat.CooldownUntil = auth.SubscriptionAccountStateCooldown, &cooldown
 		}
-		ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{seat})
+		ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{seat})
 		return credentials.WithManagedSubscriptionUsage(ctx)
 	}
 }

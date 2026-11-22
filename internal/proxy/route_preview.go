@@ -93,9 +93,9 @@ func (s *Service) anthropicRoutingRequest(
 		outputReserve,
 		enabledProviders,
 		excluded,
-		s.availableModels,
+		s.routing.AvailableModels(),
 	)
-	excluded, _ = candidates.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
+	excluded, _ = candidates.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.routing.AvailableModels())
 	excluded, _ = excludeAdvisorOutrankingModels(env, excluded, s.routableUniverse())
 
 	organizationID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)

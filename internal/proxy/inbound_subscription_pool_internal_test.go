@@ -146,7 +146,7 @@ func TestResolvedOAuthSurvivesPoolLeaseFailure(t *testing.T) {
 func TestResolvedOAuthSurvivesOutOfSnapshotLease(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "synthetic-new-seat", AccessToken: "synthetic-new-token"}}}
 	service := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
-	ctx := WithManagedSubscriptionCandidates(enterpriseOnlyContext(managedSubscriptionTestContext()), []*auth.SubscriptionAccount{{
+	ctx := credentials.WithManagedSubscriptionCandidates(enterpriseOnlyContext(managedSubscriptionTestContext()), []*auth.SubscriptionAccount{{
 		ID: "synthetic-admitted-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive,
 	}})
 	oauth := &Credentials{APIKey: []byte(parityAnthropicToken), OAuth: true, Source: credSourceSubscription}

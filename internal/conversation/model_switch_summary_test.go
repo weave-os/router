@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"weave-os/router/internal/conversation"
-	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/translate"
@@ -43,7 +42,7 @@ func (f *switchAccess) SummaryContext(ctx context.Context, provider string) (con
 	return context.WithValue(ctx, switchScopeKey{}, "scoped"), f.allowed
 }
 
-func runSwitchSummary(t *testing.T, summarizer handover.Summarizer, access conversation.SummarizerAccess) (dispatch.HandoverOutcome, bool, *translate.RequestEnvelope) {
+func runSwitchSummary(t *testing.T, summarizer handover.Summarizer, access conversation.SummarizerAccess) (handover.Outcome, bool, *translate.RequestEnvelope) {
 	t.Helper()
 	env, err := translate.ParseAnthropic([]byte(`{"model":"m","messages":[{"role":"user","content":"one"},{"role":"assistant","content":"two"},{"role":"user","content":"three"}]}`))
 	require.NoError(t, err)

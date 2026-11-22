@@ -19,16 +19,16 @@ import (
 const shortSeatThrottleWait = 30 * time.Second
 
 func shortestSeatThrottle(ctx context.Context, pool subscriptions.Provider, now time.Time) (time.Duration, bool) {
-	candidates, _ := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
+	candidates, _ := ctx.Value(credentials.ManagedSubscriptionCandidatesContextKey{}).([]credentials.ManagedSubscriptionCandidate)
 	usageState, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 	var shortest time.Duration
 	for _, candidate := range candidates {
-		if candidate.provider != auth.SubscriptionProvider(pool) || !candidate.enabled || !managedAccountThrottled(ctx, candidate, now) {
+		if candidate.Provider != auth.SubscriptionProvider(pool) || !candidate.Enabled || !credentials.ManagedAccountThrottled(ctx, candidate, now) {
 			continue
 		}
-		reset := candidate.resetAt
-		if usageState != nil && usageState.ThrottledAccounts[candidate.accountID].After(reset) {
-			reset = usageState.ThrottledAccounts[candidate.accountID]
+		reset := candidate.ResetAt
+		if usageState != nil && usageState.ThrottledAccounts[candidate.AccountID].After(reset) {
+			reset = usageState.ThrottledAccounts[candidate.AccountID]
 		}
 		if wait := reset.Sub(now); wait > 0 && (shortest == 0 || wait < shortest) {
 			shortest = wait
@@ -83,9 +83,9 @@ func sleepFor(ctx context.Context, sleep func(context.Context, time.Duration) er
 }
 
 func seatsThrottled(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
-	candidates, _ := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
+	candidates, _ := ctx.Value(credentials.ManagedSubscriptionCandidatesContextKey{}).([]credentials.ManagedSubscriptionCandidate)
 	for _, candidate := range candidates {
-		if candidate.provider == auth.SubscriptionProvider(pool) && candidate.enabled && managedAccountThrottled(ctx, candidate, now) {
+		if candidate.Provider == auth.SubscriptionProvider(pool) && candidate.Enabled && credentials.ManagedAccountThrottled(ctx, candidate, now) {
 			return true
 		}
 	}

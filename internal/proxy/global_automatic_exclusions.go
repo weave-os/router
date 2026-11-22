@@ -2,64 +2,10 @@ package proxy
 
 import (
 	"context"
-	"sync"
-	"time"
 
 	"weave-os/router/internal/dispatch"
-	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/candidates"
 )
-
-const globalAutomaticExclusionTTL = time.Minute
-
-type globalAutomaticExclusionCache struct {
-	store candidates.GlobalAutomaticExclusionStore
-
-	mu          sync.Mutex
-	byModel     map[string]string
-	refreshedAt time.Time
-	loaded      bool
-	refreshing  bool
-}
-
-func newGlobalAutomaticExclusionCache(store candidates.GlobalAutomaticExclusionStore) *globalAutomaticExclusionCache {
-	return &globalAutomaticExclusionCache{store: store}
-}
-
-func (c *globalAutomaticExclusionCache) snapshot(ctx context.Context, now func() time.Time) map[string]string {
-	c.mu.Lock()
-	if c.loaded && now().Sub(c.refreshedAt) < globalAutomaticExclusionTTL {
-		byModel := c.byModel
-		c.mu.Unlock()
-		return byModel
-	}
-	if c.refreshing {
-		byModel := c.byModel
-		c.mu.Unlock()
-		return byModel
-	}
-	c.refreshing = true
-	stale := c.byModel
-	c.mu.Unlock()
-
-	byModel, err := c.store.ListGlobalAutomaticRoutingExclusions(ctx)
-	c.mu.Lock()
-	c.refreshing = false
-	if err != nil {
-		c.mu.Unlock()
-		observability.FromContext(ctx).Error("Failed to refresh global automatic-routing exclusions",
-			"err", err,
-			"serving_stale_snapshot", c.loaded,
-			"cached_model_count", len(stale),
-		)
-		return stale
-	}
-	c.byModel = byModel
-	c.refreshedAt = now()
-	c.loaded = true
-	c.mu.Unlock()
-	return byModel
-}
 
 func (s *Service) globalAutomaticExcludedModels(ctx context.Context) map[string]struct{} {
 	controlPlane := s.controlPlaneExcludedModels(ctx)
@@ -71,10 +17,11 @@ func (s *Service) globalAutomaticExcludedModels(ctx context.Context) map[string]
 }
 
 func (s *Service) controlPlaneExcludedModels(ctx context.Context) map[string]struct{} {
-	if s.globalAutomaticExclusions == nil {
+	exclusions := s.routing.GlobalAutomaticExclusions()
+	if exclusions == nil {
 		return nil
 	}
-	byModel := s.globalAutomaticExclusions.snapshot(ctx, s.clock.Now)
+	byModel := exclusions.Snapshot(ctx, s.clock.Now)
 	if len(byModel) == 0 {
 		return nil
 	}
@@ -86,8 +33,8 @@ func (s *Service) controlPlaneExcludedModels(ctx context.Context) map[string]str
 }
 
 func (s *Service) globalAutomaticExclusionReason(ctx context.Context, model string) (string, bool) {
-	if s.globalAutomaticExclusions != nil {
-		if reason, disabled := s.globalAutomaticExclusions.snapshot(ctx, s.clock.Now)[model]; disabled {
+	if exclusions := s.routing.GlobalAutomaticExclusions(); exclusions != nil {
+		if reason, disabled := exclusions.Snapshot(ctx, s.clock.Now)[model]; disabled {
 			return reason, true
 		}
 	}

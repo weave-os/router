@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
@@ -28,7 +29,7 @@ type MessagesRescue struct {
 	FastServed           *bool
 	CrossFormat          *bool
 
-	CompactionHandoverOutcome HandoverOutcome
+	CompactionHandoverOutcome handover.Outcome
 
 	BaselineModel             string
 	BaselineViable            bool

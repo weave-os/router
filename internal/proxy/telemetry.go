@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/gitcontext"
+	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
@@ -203,3 +204,10 @@ func NewAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Logger) 
 const DecisionReasonPolicyPinUnservable = router.PolicyPinUnavailableReason
 
 const DecisionReasonRoutingFailed = "routing_failed"
+
+func plannerOutcome(outcome planner.Outcome) string {
+	if outcome == planner.OutcomeSwitch {
+		return "switch"
+	}
+	return "stay"
+}

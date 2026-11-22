@@ -36,7 +36,7 @@ func goldenNoLoginLongThrottledClaudeSeatsCtx(ctx context.Context) context.Conte
 	ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 	ctx = proxy.WithSubscriptionStateModels(ctx, models, models)
 	cooldown := goldenClaudeSeatLongCooldown
-	ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
+	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
 		{ID: "claude-seat-a", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooldown},
 		{ID: "claude-seat-b", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooldown},
 		{ID: "claude-own-seat", Provider: auth.SubscriptionProviderClaude, Enabled: false, State: auth.SubscriptionAccountStateDisabled},
