@@ -28,7 +28,6 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/entra"
 	"weave-os/router/internal/escalationmodal"
-	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/apm"
@@ -761,16 +760,7 @@ func main() {
 	captureMaxBytes := parseEnvInt("WV_CAPTURE_MAX_BYTES", 1<<20)
 	logger.Info("Router content capture configured", "mode", captureMode.String(), "max_bytes", captureMaxBytes)
 
-	feedbackSigner := feedback.NewSigner(config.GetOr("ROUTER_FEEDBACK_LINK_SECRET", ""), feedbackLinkTTL())
-	feedbackBaseURL := config.GetOr("ROUTER_FEEDBACK_BASE_URL", "")
-	switch {
-	case feedbackSigner != nil && feedbackBaseURL != "":
-		logger.Info("Feedback link enabled", "base_url", feedbackBaseURL)
-	case feedbackSigner != nil:
-		logger.Warn("Feedback link endpoints mounted but ROUTER_FEEDBACK_BASE_URL is unset; responses will not carry a feedback link header")
-	default:
-		logger.Info("Feedback link disabled (set ROUTER_FEEDBACK_LINK_SECRET and ROUTER_FEEDBACK_BASE_URL to enable)")
-	}
+	feedbackLinks := feedbackLinksFromEnv(repo.Feedback, telemetryEmitter, logger)
 
 	var escalationObserver escalation.Observer
 	var hmmRouter router.Router
@@ -1031,7 +1021,7 @@ func main() {
 			Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true},
 		}).
 		WithContentCapture(captureMode, captureMaxBytes, nil).
-		WithFeedback(repo.Feedback, feedbackSigner, feedbackBaseURL).
+		WithFeedback(feedbackLinks).
 		WithPiHandoffSecret(config.GetOr("ROUTER_PI_HANDOFF_SECRET", "")).
 		WithByokOnly(byokOnly).
 		WithDeploymentKeyedProviders(deploymentEligible).
@@ -1212,6 +1202,7 @@ func main() {
 		SubscriberAllowance:      subscriberAllowanceSvc,
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 		PolicyStatus:             policyStatus,
+		FeedbackLinks:            feedbackLinks,
 	}, servingAdmission, routingDistribution), defaultStrategy))
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
@@ -1391,20 +1382,6 @@ func parseEnvFloat(key string, fallback float64) float64 {
 		return fallback
 	}
 	return v
-}
-
-func feedbackLinkTTL() time.Duration {
-	const defaultSec = 30 * 24 * 60 * 60
-	raw := config.GetOr("ROUTER_FEEDBACK_LINK_TTL_SEC", "")
-	if raw == "" {
-		return defaultSec * time.Second
-	}
-	sec, err := strconv.Atoi(raw)
-	if err != nil || sec < 0 {
-		observability.Get().Warn("Invalid env var; using default", "key", "ROUTER_FEEDBACK_LINK_TTL_SEC", "value", raw, "default", defaultSec)
-		return defaultSec * time.Second
-	}
-	return time.Duration(sec) * time.Second
 }
 
 func sseKeepaliveInterval() time.Duration {

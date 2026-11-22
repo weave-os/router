@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
@@ -99,6 +100,7 @@ type Features struct {
 	DefaultStrategy          router.Strategy
 	InternalServiceToken     string
 	Admin                    admin.Config
+	FeedbackLinks            *feedback.Links
 }
 
 func (f Features) defaultStrategy() router.Strategy {
@@ -405,11 +407,11 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		analyticsGroup.GET("/schema", analyticsapi.SchemaHandler())
 	}
 
-	if proxySvc.FeedbackEnabled() {
+	if features.FeedbackLinks.Enabled() {
 		feedbackGroup := engine.Group("/v1/feedback", middleware.WithTimeout(feedbackTimeout))
-		feedbackGroup.GET("/link/:token", feedbackapi.GetContextHandler(proxySvc))
-		feedbackGroup.POST("/link", feedbackapi.SubmitHandler(proxySvc))
-		feedbackGroup.GET("/rate", feedbackapi.RateHandler(proxySvc))
+		feedbackGroup.GET("/link/:token", feedbackapi.GetContextHandler(features.FeedbackLinks))
+		feedbackGroup.POST("/link", feedbackapi.SubmitHandler(features.FeedbackLinks))
+		feedbackGroup.GET("/rate", feedbackapi.RateHandler(features.FeedbackLinks))
 		feedbackGroup.GET("/assets/wooly-wave.png", feedbackapi.WoolyWaveHandler())
 		feedbackGroup.GET("/assets/weave.svg", feedbackapi.WeaveLogoHandler())
 	}

@@ -11,10 +11,7 @@ import (
 	"time"
 
 	feedbackapi "weave-os/router/internal/api/feedback"
-	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/feedback"
-	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/router/hmm"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -36,9 +33,8 @@ func (f *fakeFeedbackRepo) GetContext(_ context.Context, _, _ string) (feedback.
 	return f.ctxResult, f.ctxErr
 }
 
-func newService(repo feedback.FeedbackRepository, signer *feedback.Signer) *proxy.Service {
-	return proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(nil), nil, nil, false, "", "", nil), hmm.ServingPorts()).
-		WithFeedback(repo, signer, "https://router.example.com")
+func newService(repo feedback.FeedbackRepository, signer *feedback.Signer) *feedback.Links {
+	return feedback.NewLinks(repo, signer, "https://router.example.com", nil, time.Now)
 }
 
 func TestGetContextHandler_ValidTokenReturnsContext(t *testing.T) {
