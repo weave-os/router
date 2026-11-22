@@ -2,12 +2,17 @@ package proxy
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 )
@@ -16,9 +21,9 @@ func rescuePortsFor(s *Service) dispatch.RescuePorts {
 	return dispatch.RescuePorts{
 		Credentials: rescueCredentialPort{s},
 		Routing:     rescueRoutingPort{s},
-		Funding:     rescueFundingPort{},
+		Funding:     rescueFundingPort{seatAdmissionOf(s)},
 		Attempts:    rescueAttemptPort{s},
-		Overflow:    rescueOverflowPort{},
+		Overflow:    rescueOverflowPort{s},
 		Render:      rescueRenderPort{},
 		Dispatch:    s.dispatchWithFallback,
 	}
@@ -140,7 +145,7 @@ func (rescueRoutingPort) RecordTurnFailure(ctx context.Context, model string) {
 	recordTurnFailure(ctx, model)
 }
 
-type rescueFundingPort struct{}
+type rescueFundingPort struct{ seats seatAdmission }
 
 var _ dispatch.RescueFunding = rescueFundingPort{}
 
@@ -157,7 +162,11 @@ func (rescueFundingPort) PaidRescueContext(ctx context.Context, model string) co
 	return subscriptionStatePaidRescueContext(ctx, model)
 }
 
-type rescueAttemptPort struct{ svc rescueServices }
+type effortResolver interface {
+	resolveEffort(ctx context.Context, decision router.Decision, caps router.ModelSpec, escalate bool) dispatch.EffortResolution
+}
+
+type rescueAttemptPort struct{ svc effortResolver }
 
 var _ dispatch.RescueAttempts = rescueAttemptPort{}
 
@@ -169,7 +178,7 @@ func (rescueAttemptPort) FastMode(ctx context.Context, model, provider string) b
 	return fastModeForAttempt(ctx, model, provider)
 }
 
-type rescueOverflowPort struct{}
+type rescueOverflowPort struct{ s *Service }
 
 var _ dispatch.RescueOverflow = rescueOverflowPort{}
 
@@ -249,4 +258,86 @@ func (rescueRenderPort) FlushOpenAIError(w http.ResponseWriter, err error) {
 
 func (rescueRenderPort) EmitOpenAISSEError(w http.ResponseWriter, err error) error {
 	return emitOpenAISSEErrorEvent(w, err)
+}
+
+func (p rescueCredentialPort) RecordOwnClaudeLoginRejected(ctx context.Context, headers http.Header, err error) {
+	recordOwnClaudeLoginRejected(ctx, headers, p.s.credentials.UsageObserver, p.s.clock.Now(), err)
+}
+
+func (rescueRoutingPort) SiblingFitsContext(cortexGateways map[string]struct{}, model, provider string, est, sigSavings, outputReserve int) bool {
+	return siblingFitsContext(cortexGateways, model, provider, est, sigSavings, outputReserve)
+}
+
+func (rescueRoutingPort) ModelPermittedByAllowlist(ctx context.Context, model string) bool {
+	return modelPermittedByAllowlist(ctx, model)
+}
+
+func (rescueRoutingPort) ModelInRequestSubset(ctx context.Context, model string) bool {
+	return modelInRequestSubset(ctx, model)
+}
+
+func (rescueRoutingPort) LowerTierCandidates(target string, candidates []string) []string {
+	return lowerTierCandidates(target, candidates)
+}
+
+func (rescueRoutingPort) BaseModelOf(servedIdentity string) string {
+	return baseModelOf(servedIdentity)
+}
+
+func (p rescueRoutingPort) EarlyStopRedoMode(ctx context.Context, routeRes dispatch.RescueTurn, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode {
+	return p.s.earlyStopRedoMode(ctx, routeRes, decision, streaming, agentShadow)
+}
+
+func (p rescueRoutingPort) RedoEarlyStop(ctx context.Context, redo dispatch.EarlyStopRedo) (bool, error) {
+	return p.s.redoEarlyStop(ctx, redo)
+}
+
+func (rescueFundingPort) WeaveCreditsCannotFund(ctx context.Context, provider string) bool {
+	return weaveCreditsCannotFund(ctx, provider)
+}
+
+func (p rescueFundingPort) AddRoutingFundingSource(ctx context.Context, provider, model string, notice translate.RouterNotice) translate.RouterNotice {
+	return addRoutingFundingSource(ctx, p.seats, provider, model, notice)
+}
+
+func (rescueOverflowPort) PastRequestedWindow(requestedModel, servedModel string, estimate, outputReserve int) bool {
+	return pastRequestedWindow(requestedModel, servedModel, estimate, outputReserve)
+}
+
+func (rescueOverflowPort) AsRequestedWindowOverflow(err error, pastWindow, committed bool) error {
+	return asRequestedWindowOverflow(err, pastWindow, committed)
+}
+
+func (rescueOverflowPort) WithClientTrimCounts(ctx context.Context, err, primaryErr error) error {
+	return withClientTrimCounts(ctx, err, primaryErr)
+}
+
+func (rescueOverflowPort) ObservedOverflowModels(ctx context.Context) []string {
+	return observedOverflowModelsFromContext(ctx)
+}
+
+func (rescueOverflowPort) ClientRequestedModel(ctx context.Context, requested string) string {
+	return clientRequestedModel(ctx, requested)
+}
+
+func (p rescueOverflowPort) RunCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) handover.Outcome {
+	return p.s.runCompactionHandover(ctx, env, reqHeaders, decisionModel, scope)
+}
+
+func (rescueRenderPort) FlushAnthropicError(w http.ResponseWriter, err error) {
+	flushUpstreamErrorAsAnthropic(w, err)
+}
+
+func (rescueRenderPort) EmitAnthropicSSEError(w http.ResponseWriter, err error) error {
+	return emitAnthropicSSEErrorEvent(w, err)
+}
+
+func (rescueRenderPort) LogUpstreamBody(log *slog.Logger, sessionKey [sessionpin.SessionKeyLen]byte, decision router.Decision, feats translate.RoutingFeatures, body []byte) {
+	logUpstreamBody(log, sessionKey, decision, feats, body)
+}
+
+func boundTierAttempt(build func(translate.EmitOptions, providers.PreparedRequest, translate.RouterNotice) *anthropicTierAttempt, recordFast func(bool)) func(translate.EmitOptions, providers.PreparedRequest, translate.RouterNotice) dispatch.UpstreamAttempt {
+	return func(targetOpts translate.EmitOptions, prep providers.PreparedRequest, targetNotice translate.RouterNotice) dispatch.UpstreamAttempt {
+		return build(targetOpts, prep, targetNotice).attempt(recordFast)
+	}
 }

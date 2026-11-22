@@ -2174,8 +2174,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return attemptBuildErr
 	}
 
-	rescue := &messagesRescue{
-		svc: s, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.credentials.UsageObserver, RescueChain: &dispatch.RescueChain{
+	rescue := &dispatch.MessagesRescue{
+		RescueChain: &dispatch.RescueChain{
 			RescuePorts: rescuePortsFor(s), Markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver},
 			HTTPRequest:      r,
 			Log:              log,
@@ -2198,38 +2198,37 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			OverflowEstimate: overflowEstimate,
 			OutputReserve:    outputReserve,
 		},
-		feats:           feats,
-		agentShadowMode: agentShadowMode,
+		Feats:           feats,
+		AgentShadowMode: agentShadowMode,
 
-		earlyStop:                 earlyStop,
-		streamCut:                 streamCut,
-		attemptBuildErr:           attemptBuildErr,
-		anthropicTierAttemptFor:   anthropicTierAttemptFor,
-		recordFastServed:          recordFastServed,
-		extractor:                 &extractor,
-		fastServed:                &fastServed,
-		crossFormat:               &crossFormat,
-		compactionHandoverOutcome: compactionHandoverOutcome,
+		EarlyStop:                 earlyStop,
+		NoteStreamCut:             streamCut.noteCut,
+		AttemptBuildErr:           attemptBuildErr,
+		AnthropicTierAttempt:      boundTierAttempt(anthropicTierAttemptFor, recordFastServed),
+		Extractor:                 &extractor,
+		FastServed:                &fastServed,
+		CrossFormat:               &crossFormat,
+		CompactionHandoverOutcome: compactionHandoverOutcome,
 	}
-	rescue.FlushErr = rescue.flushErrAsAnthropic
-	rescue.armBaseline(ctx)
-	rescue.armSubscriptionRetry(ctx)
-	ctx = rescue.armRescues(ctx)
-	rescue.armEarlyStop(ctx)
+	rescue.FlushErr = rescue.FlushErrAsAnthropic
+	rescue.ArmBaseline(ctx)
+	rescue.ArmSubscriptionRetry(ctx)
+	ctx = rescue.ArmRescues(ctx)
+	rescue.ArmEarlyStop(ctx)
 	rescue.HoldPrimary()
-	rescue.dispatchPrimary(ctx)
-	rescue.redoIfStoppedEarly(ctx)
+	rescue.DispatchPrimary(ctx)
+	rescue.RedoIfStoppedEarly(ctx)
 	rescue.NotePrimaryFailure(ctx)
-	rescue.classifyPrimaryFailure()
-	ctx = rescue.baselineRescue(ctx)
-	rescue.subscriptionRetry(ctx)
+	rescue.ClassifyPrimaryFailure()
+	ctx = rescue.BaselineRescue(ctx)
+	rescue.SubscriptionRetry(ctx)
 	rescue.SiblingRescue(ctx)
-	rescue.finish(ctx)
+	rescue.Finish(ctx)
 	decision, marker, proxyErr, effortServed = rescue.Decision, rescue.Marker, rescue.ProxyErr, rescue.EffortServed
-	compactionHandoverOutcome = rescue.compactionHandoverOutcome
+	compactionHandoverOutcome = rescue.CompactionHandoverOutcome
 	winnerIdx, finalProvider := rescue.WinnerIdx, rescue.FinalProvider
 
-	if rescue.subscriptionFailoverUsed {
+	if rescue.SubscriptionFailoverUsed {
 		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 	}
 	ctx = resolveAndInjectCredentials(ctx, finalProvider, decision.Model, r.Header)

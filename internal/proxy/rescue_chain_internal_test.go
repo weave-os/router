@@ -18,7 +18,6 @@ import (
 )
 
 type fakeRescueServices struct {
-	rescueServices
 	rescueCredentialPort
 	rescueRoutingPort
 	outcomes   map[string]error

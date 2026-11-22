@@ -1,24 +1,9 @@
 package proxy
 
 import (
-	"context"
-	"net/http"
-	"weave-os/router/internal/router/handover"
-	"weave-os/router/internal/routingpolicy"
-
 	"weave-os/router/internal/dispatch"
-	"weave-os/router/internal/flags"
-	"weave-os/router/internal/router"
-	"weave-os/router/internal/translate"
+	"weave-os/router/internal/routingpolicy"
 )
-
-type rescueServices interface {
-	dispatchWithFallback(ctx context.Context, in dispatch.FailoverInputs) (winnerIdx int, err error)
-	resolveEffort(ctx context.Context, decision router.Decision, caps router.ModelSpec, escalate bool) dispatch.EffortResolution
-	runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) handover.Outcome
-	earlyStopRedoMode(ctx context.Context, routeRes dispatch.RescueTurn, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode
-	redoEarlyStop(ctx context.Context, redo dispatch.EarlyStopRedo) (redone bool, err error)
-}
 
 func rescueTurnOf(res routingpolicy.TurnRoute) dispatch.RescueTurn {
 	return dispatch.RescueTurn{
