@@ -28,7 +28,7 @@ func codexRateLimitedErr() *providers.UpstreamErrorResponse {
 // credits allowed a long throttle funds the turn instead.
 func throttleTestContext(accounts ...*auth.SubscriptionAccount) context.Context {
 	ctx := credentials.WithManagedSubscriptionUsage(billing.WithWeaveCreditsDenied(context.Background()))
-	return WithManagedSubscriptionCandidates(ctx, accounts)
+	return credentials.WithManagedSubscriptionCandidates(ctx, accounts)
 }
 
 func activeCodexAccount(id string) *auth.SubscriptionAccount {
@@ -89,13 +89,13 @@ func TestAuthorizeSubscriptionAPI_LongThrottleFundsCredits(t *testing.T) {
 	now := time.Now()
 	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), clock: func() time.Time { return now }}
 	callerCreds := &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}
-	ctx := WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{activeCodexAccount("seat-1")})
+	ctx := credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{activeCodexAccount("seat-1")})
 	recordManagedThrottle(ctx, "seat-1", now.Add(time.Hour))
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
 	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, callerCreds, codexRateLimitedErr())
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{}))
 
-	short := WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{activeCodexAccount("seat-1")})
+	short := credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{activeCodexAccount("seat-1")})
 	recordManagedThrottle(short, "seat-1", now.Add(10*time.Second))
 	require.NoError(t, svc.authorizeSubscriptionAPI(short, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}), "outside the subscription-state lane no seat wait is coming, so a short throttle pays too")
 	requireThrottledRefusal(t, svc.authorizeSubscriptionAPI(billing.WithWeaveCreditsDenied(short), subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))

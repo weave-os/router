@@ -41,7 +41,7 @@ func goldenClaudeSeatsCtx(clientApp, session string) func(context.Context) conte
 		models := []string{goldenAnthropicModel}
 		ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: clientApp, SessionID: session})
 		ctx = proxy.WithSubscriptionStateModels(ctx, models, models)
-		ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
+		ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
 			{ID: "claude-seat-a", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive},
 			{ID: "claude-seat-b", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive},
 		})

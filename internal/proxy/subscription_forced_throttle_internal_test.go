@@ -27,7 +27,7 @@ func TestSubscriptionStateForcedModelThrottledPoolFundsCredits(t *testing.T) {
 	svc := withHMMPorts(NewService(stateModelRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: openAI}), nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{})
 	seats := []*auth.SubscriptionAccount{activeCodexAccount("seat-1"), activeCodexAccount("seat-2")}
-	ctx := WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(managedSubscriptionContext(auth.SubscriptionProviderCodex)), seats)
+	ctx := credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(managedSubscriptionContext(auth.SubscriptionProviderCodex)), seats)
 	for _, seat := range seats {
 		require.True(t, svc.recordManagedSubscriptionFailure(ctx, providers.ProviderOpenAI, stateCodexModel, subscriptions.Lease{AccountID: seat.ID}, codexRateLimitedErr()))
 	}

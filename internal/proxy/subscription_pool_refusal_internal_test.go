@@ -64,7 +64,7 @@ func poolRefusalPins() map[string]poolRefusalPin {
 		},
 		"funding with every blocking seat throttled": {
 			err: func(ctx context.Context) error {
-				return svc.authorizeSubscriptionAPI(WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(billing.WithWeaveCreditsDenied(ctx)), []*auth.SubscriptionAccount{throttledSeat}), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{})
+				return svc.authorizeSubscriptionAPI(credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(billing.WithWeaveCreditsDenied(ctx)), []*auth.SubscriptionAccount{throttledSeat}), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{})
 			},
 			sentinel: credentials.ErrSubscriptionPoolThrottled, kind: refusal.SubscriptionPoolThrottled,
 			text: "subscription account pool unavailable: every blocking account is rate-limited",

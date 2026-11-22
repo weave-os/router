@@ -34,7 +34,7 @@ func withOverloadedCodexNoClaudeSeat(svc *proxy.Service, h *goldenHarness) *prox
 func goldenOverloadedCodexCtx(ctx context.Context) context.Context {
 	models := []string{goldenCodexModel, goldenAnthropicModel}
 	ctx = proxy.WithSubscriptionStateModels(ctx, models, models)
-	ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
+	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
 		{ID: "codex-seat", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive},
 		{ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &goldenClaudeSeatReset},
 	})
