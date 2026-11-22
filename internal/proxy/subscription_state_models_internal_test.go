@@ -284,7 +284,7 @@ func TestSubscriptionStateModelsIntersectGlobalAllowlist(t *testing.T) {
 	ctx := conditionalModelsContext([]string{stateClaudeModel, stateCodexModel}, []string{statePaidModel})
 	ctx = context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, []string{stateCodexModel})
 	require.Equal(t, map[string]struct{}{stateCodexModel: {}}, allowedModelsForRequest(ctx))
-	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 	_, paid := svc.subscriptionStateRequest(ctx, router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}}, []string{statePaidModel})
 	require.Empty(t, paid.Candidates.AllowedModels, "a state must never widen the global allowlist")
 }
@@ -530,7 +530,7 @@ func TestSubscriptionStateModelsKeepSafetyExclusions(t *testing.T) {
 			UnsignedHistoryExcludedModels: map[string]struct{}{stateCodexModel: {}},
 		},
 	}
-	_, narrowed := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).subscriptionStateRequest(ctx, request, []string{stateClaudeModel, stateCodexModel})
+	_, narrowed := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).subscriptionStateRequest(ctx, request, []string{stateClaudeModel, stateCodexModel})
 	require.Empty(t, narrowed.Candidates.AllowedModels)
 }
 

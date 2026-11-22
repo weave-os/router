@@ -15,7 +15,8 @@ import (
 )
 
 type chatRescue struct {
-	*rescueChain
+	*dispatch.RescueChain
+	svc                  rescueServices
 	isResponses          bool
 	responsesPreludeBuf  *preludeBuffer
 	cyberRefusalSeen     *bool
@@ -35,33 +36,33 @@ type chatRescue struct {
 }
 
 func (o *chatRescue) armRescues(ctx context.Context) context.Context {
-	ctx = o.armSiblings(ctx, o.routeRes.CallerModelPassthrough || strings.HasPrefix(o.decision.Reason, translate.ReasonUserForceModel))
-	*o.preOutputRescueArmed = o.codexRetryViable || o.rescueArmed
+	ctx = o.ArmSiblings(ctx, o.RouteRes.CallerModelPassthrough || strings.HasPrefix(o.Decision.Reason, translate.ReasonUserForceModel))
+	*o.preOutputRescueArmed = o.codexRetryViable || o.RescueArmed
 	return ctx
 }
 
 func (o *chatRescue) dispatchPrimary(ctx context.Context) {
-	o.dispatchPrimaryAttempt(ctx, o.cyberRetryViable || o.codexRetryViable || o.claudeRetryViable || o.rescueArmed, nil)
-	if o.subscriptionStatePaidTargetAttempted {
+	o.DispatchPrimaryAttempt(ctx, o.cyberRetryViable || o.codexRetryViable || o.claudeRetryViable || o.RescueArmed, nil)
+	if o.SubscriptionStatePaidTargetAttempted {
 		o.codexRetryViable = false
 		o.claudeRetryViable = false
 	}
-	*o.cyberRefusalSeen = *o.cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(o.proxyErr)
+	*o.cyberRefusalSeen = *o.cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(o.ProxyErr)
 }
 
 func (o *chatRescue) armCyberRetry(ctx context.Context, strategy router.Strategy) {
-	routeRes := o.routeRes
-	_, o.explicitRequestedModel = catalog.ByID(o.req.RequestedModel)
-	cyberRetryEligible := o.routing.ResolveCyberRefusalRetry(ctx) &&
+	routeRes := o.RouteRes
+	_, o.ExplicitRequestedModel = catalog.ByID(o.Request.RequestedModel)
+	cyberRetryEligible := o.Routing.ResolveCyberRefusalRetry(ctx) &&
 		!routeRes.CallerModelPassthrough &&
-		o.decision.Provider == providers.ProviderOpenAI &&
-		!strings.HasPrefix(o.decision.Reason, translate.ReasonUserForceModel) &&
-		!o.routing.IsHardPinnedTurn(ctx, strategy, routeRes.TurnType) &&
+		o.Decision.Provider == providers.ProviderOpenAI &&
+		!strings.HasPrefix(o.Decision.Reason, translate.ReasonUserForceModel) &&
+		!o.Routing.IsHardPinnedTurn(ctx, strategy, routeRes.TurnType) &&
 		!billing.SubscriptionOnlyFromContext(ctx)
 	if cyberRetryEligible {
-		target, found := o.routing.CyberRefusalRetryTarget(ctx, o.decision, dispatch.RescueSessionTarget{Strategy: strategy, InstallationID: routeRes.InstallationID, SessionKey: routeRes.SessionKey}, routeRes.StickyRole,
-			o.overflowEstimate, o.env.SignatureTokenSavings(), o.outputReserve)
-		o.cyberRetryViable = found && (o.routing.ShouldFailover(ctx) || o.routing.GatewaySiblingAllowed(ctx, target)) &&
+		target, found := o.Routing.CyberRefusalRetryTarget(ctx, o.Decision, dispatch.RescueSessionTarget{Strategy: strategy, InstallationID: routeRes.InstallationID, SessionKey: routeRes.SessionKey}, routeRes.StickyRole,
+			o.OverflowEstimate, o.Env.SignatureTokenSavings(), o.OutputReserve)
+		o.cyberRetryViable = found && (o.Routing.ShouldFailover(ctx) || o.Routing.GatewaySiblingAllowed(ctx, target)) &&
 			(!subscriptionStateModelsEnabled(ctx) || !paidFallbackForbiddenForModel(ctx, target.Model))
 		o.cyberRetryTarget = target
 	}
@@ -69,21 +70,21 @@ func (o *chatRescue) armCyberRetry(ctx context.Context, strategy router.Strategy
 }
 
 func (o *chatRescue) armSubscriptionRetries(ctx context.Context) {
-	o.codexRetryViable = o.decision.Provider == providers.ProviderOpenAI &&
+	o.codexRetryViable = o.Decision.Provider == providers.ProviderOpenAI &&
 		servedOnCodexSubscription(ctx) &&
-		!paidFallbackForbiddenForModelOnProvider(ctx, o.decision.Provider, o.decision.Model) &&
-		o.credentials.OpenAIFallbackKeyAvailable(ctx)
-	o.claudeRetryViable = o.decision.Provider == providers.ProviderAnthropic &&
+		!paidFallbackForbiddenForModelOnProvider(ctx, o.Decision.Provider, o.Decision.Model) &&
+		o.Credentials.OpenAIFallbackKeyAvailable(ctx)
+	o.claudeRetryViable = o.Decision.Provider == providers.ProviderAnthropic &&
 		servedOnSubscription(ctx) &&
-		!paidFallbackForbiddenForModelOnProvider(ctx, o.decision.Provider, o.decision.Model) &&
-		o.credentials.AnthropicFallbackKeyAvailable(ctx)
+		!paidFallbackForbiddenForModelOnProvider(ctx, o.Decision.Provider, o.Decision.Model) &&
+		o.Credentials.AnthropicFallbackKeyAvailable(ctx)
 }
 
 func (o *chatRescue) flushErrAsOpenAI(w http.ResponseWriter, err error) {
 	if o.isResponses && o.responsesPreludeBuf != nil && o.responsesPreludeBuf.PreludeSent() {
 		return
 	}
-	if o.env.Stream() && o.preludeBuf.PreludeSent() {
+	if o.Env.Stream() && o.PreludeBuf.PreludeSent() {
 		_ = emitOpenAISSEErrorEvent(w, err)
 		return
 	}
@@ -94,78 +95,78 @@ func (o *chatRescue) flushErrAsOpenAI(w http.ResponseWriter, err error) {
 }
 
 func (o *chatRescue) flushDeferredErr() {
-	if o.deferredErrFlushed {
+	if o.DeferredErrFlushed {
 		return
 	}
-	o.deferredErrFlushed = true
+	o.DeferredErrFlushed = true
 	if o.isResponses && o.responsesPreludeBuf != nil && o.responsesPreludeBuf.PreludeSent() {
 		return
 	}
-	if o.env.Stream() && o.preludeBuf.PreludeSent() {
-		sseErr := emitOpenAISSEErrorEvent(o.contentSink, o.proxyErr)
-		if !o.subscriptionPoolFailure {
-			o.proxyErr = sseErr
+	if o.Env.Stream() && o.PreludeBuf.PreludeSent() {
+		sseErr := emitOpenAISSEErrorEvent(o.ContentSink, o.ProxyErr)
+		if !o.SubscriptionPoolFailure {
+			o.ProxyErr = sseErr
 		}
 		return
 	}
-	if o.subscriptionPoolFailure {
+	if o.SubscriptionPoolFailure {
 		return
 	}
-	flushUpstreamErrorAsOpenAI(o.contentSink, o.proxyErr)
+	flushUpstreamErrorAsOpenAI(o.ContentSink, o.ProxyErr)
 }
 
 func (o *chatRescue) codexRetry(ctx context.Context) {
 	s := o.svc
-	r := o.r
-	log := o.log
-	routeRes := o.routeRes
-	preludeBuf := o.preludeBuf
-	if o.codexRetryViable && !paidFallbackForbiddenForModelOnProvider(ctx, o.decision.Provider, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() &&
-		(providers.IsRetryable(o.proxyErr) || codexOAuthCredentialRejected(o.proxyErr) || codexSubscriptionModelRejected(o.proxyErr)) {
-		o.credentials.RecordCodexQuotaExhaustion(ctx, r.Header, o.proxyErr)
-		subCtx := subscriptionStatePaidRescueContext(withSuppressedCodexSubscription(ctx), o.decision.Model)
-		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderOpenAI, o.decision.Model, r.Header)
-		subOpts, subEffort := o.opts, o.effortServed
-		if subOpts.TargetModel != o.decision.Model {
-			subOpts, subEffort = switchedAttemptOptions(ctx, o.opts, o.decision, routeRes.EscalateEffort, s.resolveEffort)
+	r := o.HTTPRequest
+	log := o.Log
+	routeRes := o.RouteRes
+	preludeBuf := o.PreludeBuf
+	if o.codexRetryViable && !paidFallbackForbiddenForModelOnProvider(ctx, o.Decision.Provider, o.Decision.Model) && o.ProxyErr != nil && !preludeBuf.Committed() &&
+		(providers.IsRetryable(o.ProxyErr) || codexOAuthCredentialRejected(o.ProxyErr) || codexSubscriptionModelRejected(o.ProxyErr)) {
+		o.Credentials.RecordCodexQuotaExhaustion(ctx, r.Header, o.ProxyErr)
+		subCtx := subscriptionStatePaidRescueContext(withSuppressedCodexSubscription(ctx), o.Decision.Model)
+		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderOpenAI, o.Decision.Model, r.Header)
+		subOpts, subEffort := o.Opts, o.EffortServed
+		if subOpts.TargetModel != o.Decision.Model {
+			subOpts, subEffort = switchedAttemptOptions(ctx, o.Opts, o.Decision, routeRes.EscalateEffort, s.resolveEffort)
 		}
-		subOpts.FastMode = fastModeForAttempt(subCtx, o.decision.Model, providers.ProviderOpenAI)
-		subAttempt, subBuildErr := o.buildAttempt(o.decision, subOpts, o.marker, subCtx)
-		subBindings := o.routing.ResolveBindingsForDispatch(subCtx, o.decision)
+		subOpts.FastMode = fastModeForAttempt(subCtx, o.Decision.Model, providers.ProviderOpenAI)
+		subAttempt, subBuildErr := o.BuildAttempt(o.Decision, subOpts, o.Marker, subCtx)
+		subBindings := o.Routing.ResolveBindingsForDispatch(subCtx, o.Decision)
 		switch {
 		case subBuildErr != nil:
 			log.Error("Codex subscription failover: preparing the Weave-key retry failed; surfacing the original error",
-				"err", subBuildErr, "model", o.decision.Model)
+				"err", subBuildErr, "model", o.Decision.Model)
 		case len(subBindings) == 0:
 			log.Warn("Codex subscription failover: no fallback OpenAI binding available; surfacing the original error",
-				"model", o.decision.Model, "upstream_status", upstreamStatus(o.proxyErr))
+				"model", o.Decision.Model, "upstream_status", upstreamStatus(o.ProxyErr))
 		default:
 			log.Warn("Codex subscription failover: ChatGPT plan rejected the turn, retrying on Weave credits",
-				"model", o.decision.Model,
-				"err", o.proxyErr,
-				"upstream_status", upstreamStatus(o.proxyErr))
+				"model", o.Decision.Model,
+				"err", o.ProxyErr,
+				"upstream_status", upstreamStatus(o.ProxyErr))
 			o.codexRetryRan = true
-			o.effortServed = subEffort
-			*o.respSummary = translate.ResponseSummary{}
-			subscriptionErr := o.proxyErr
-			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(subCtx, dispatch.FailoverInputs{
-				Writer:                 o.contentSink,
+			o.EffortServed = subEffort
+			*o.RespSummary = translate.ResponseSummary{}
+			subscriptionErr := o.ProxyErr
+			o.WinnerIdx, o.ProxyErr = s.dispatchWithFallback(subCtx, dispatch.FailoverInputs{
+				Writer:                 o.ContentSink,
 				Prelude:                preludeBuf,
-				InitialDecision:        o.decision,
+				InitialDecision:        o.Decision,
 				Bindings:               subBindings,
 				Attempt:                subAttempt,
 				FlushErr:               o.flushErrAsOpenAI,
-				DeferFlushOnExhaustion: o.cyberRetryViable || o.rescueArmed,
-				Purpose:                routeRes.DispatchPurpose(o.surface),
-				Origin:                 routeRes.DispatchOrigin(o.decision),
+				DeferFlushOnExhaustion: o.cyberRetryViable || o.RescueArmed,
+				Purpose:                routeRes.DispatchPurpose(o.Surface),
+				Origin:                 routeRes.DispatchOrigin(o.Decision),
 			})
-			o.bindings = subBindings
-			o.codexFailoverUsed = o.proxyErr == nil
-			o.subscriptionPoolFailure = isSubscriptionPoolError(o.proxyErr)
-			*o.cyberRefusalSeen = *o.cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(o.proxyErr)
-			if credentialRejectionStands(subscriptionErr, o.proxyErr, codexOAuthCredentialRejected) {
-				o.proxyErr = subscriptionErr
-				o.subscriptionPoolFailure = false
+			o.Bindings = subBindings
+			o.codexFailoverUsed = o.ProxyErr == nil
+			o.SubscriptionPoolFailure = isSubscriptionPoolError(o.ProxyErr)
+			*o.cyberRefusalSeen = *o.cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(o.ProxyErr)
+			if credentialRejectionStands(subscriptionErr, o.ProxyErr, codexOAuthCredentialRejected) {
+				o.ProxyErr = subscriptionErr
+				o.SubscriptionPoolFailure = false
 				o.flushDeferredErr()
 			}
 		}
@@ -174,68 +175,68 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 
 func (o *chatRescue) claudeRetry(ctx context.Context) {
 	s := o.svc
-	log := o.log
-	routeRes := o.routeRes
-	preludeBuf := o.preludeBuf
-	if o.claudeRetryViable && !paidFallbackForbiddenForModelOnProvider(ctx, o.decision.Provider, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(o.proxyErr) || anthropicSubscriptionThirdPartyRefused(o.proxyErr) || paidCapacityUnfunded(ctx) && (providers.IsRetryable(o.proxyErr) || anthropicOAuthCredentialRejected(o.proxyErr))) {
-		subCtx := subscriptionStatePaidRescueContext(credentials.WithSuppressedClaudeSubscription(ctx), o.decision.Model)
-		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, o.decision.Model, o.r.Header)
-		subOpts := o.opts
-		subOpts.FastMode = fastModeForAttempt(subCtx, o.decision.Model, providers.ProviderAnthropic)
-		subAttempt, subBuildErr := o.buildAttempt(o.decision, subOpts, o.marker, subCtx)
-		subBindings := o.routing.ResolveBindingsForDispatch(subCtx, o.decision)
+	log := o.Log
+	routeRes := o.RouteRes
+	preludeBuf := o.PreludeBuf
+	if o.claudeRetryViable && !paidFallbackForbiddenForModelOnProvider(ctx, o.Decision.Provider, o.Decision.Model) && o.ProxyErr != nil && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(o.ProxyErr) || anthropicSubscriptionThirdPartyRefused(o.ProxyErr) || paidCapacityUnfunded(ctx) && (providers.IsRetryable(o.ProxyErr) || anthropicOAuthCredentialRejected(o.ProxyErr))) {
+		subCtx := subscriptionStatePaidRescueContext(credentials.WithSuppressedClaudeSubscription(ctx), o.Decision.Model)
+		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, o.Decision.Model, o.HTTPRequest.Header)
+		subOpts := o.Opts
+		subOpts.FastMode = fastModeForAttempt(subCtx, o.Decision.Model, providers.ProviderAnthropic)
+		subAttempt, subBuildErr := o.BuildAttempt(o.Decision, subOpts, o.Marker, subCtx)
+		subBindings := o.Routing.ResolveBindingsForDispatch(subCtx, o.Decision)
 		switch {
 		case subBuildErr != nil:
 			log.Error("Claude subscription failover: preparing the Weave-key retry failed; surfacing the original error",
-				"err", subBuildErr, "model", o.decision.Model)
+				"err", subBuildErr, "model", o.Decision.Model)
 		case len(subBindings) == 0:
 			log.Warn("Claude subscription failover: no fallback Anthropic binding available; surfacing the original error",
-				"model", o.decision.Model, "upstream_status", upstreamStatus(o.proxyErr))
+				"model", o.Decision.Model, "upstream_status", upstreamStatus(o.ProxyErr))
 		default:
 			log.Warn("Claude subscription failover: subscription rejected the turn, retrying on Weave credits",
-				"model", o.decision.Model,
-				"err", o.proxyErr,
-				"upstream_status", upstreamStatus(o.proxyErr))
+				"model", o.Decision.Model,
+				"err", o.ProxyErr,
+				"upstream_status", upstreamStatus(o.ProxyErr))
 			o.claudeRetryRan = true
-			*o.respSummary = translate.ResponseSummary{}
-			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(subCtx, dispatch.FailoverInputs{
-				Writer:                 o.contentSink,
+			*o.RespSummary = translate.ResponseSummary{}
+			o.WinnerIdx, o.ProxyErr = s.dispatchWithFallback(subCtx, dispatch.FailoverInputs{
+				Writer:                 o.ContentSink,
 				Prelude:                preludeBuf,
-				InitialDecision:        o.decision,
+				InitialDecision:        o.Decision,
 				Bindings:               subBindings,
 				Attempt:                subAttempt,
 				FlushErr:               o.flushErrAsOpenAI,
-				DeferFlushOnExhaustion: o.cyberRetryViable || o.rescueArmed,
-				Purpose:                routeRes.DispatchPurpose(o.surface),
-				Origin:                 routeRes.DispatchOrigin(o.decision),
+				DeferFlushOnExhaustion: o.cyberRetryViable || o.RescueArmed,
+				Purpose:                routeRes.DispatchPurpose(o.Surface),
+				Origin:                 routeRes.DispatchOrigin(o.Decision),
 			})
-			o.bindings = subBindings
-			o.claudeFailoverUsed = o.proxyErr == nil
-			o.subscriptionPoolFailure = isSubscriptionPoolError(o.proxyErr)
-			*o.cyberRefusalSeen = *o.cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(o.proxyErr)
+			o.Bindings = subBindings
+			o.claudeFailoverUsed = o.ProxyErr == nil
+			o.SubscriptionPoolFailure = isSubscriptionPoolError(o.ProxyErr)
+			*o.cyberRefusalSeen = *o.cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(o.ProxyErr)
 		}
 	}
 
 	if ((o.codexRetryViable && !o.codexRetryRan) || (o.claudeRetryViable && !o.claudeRetryRan)) &&
-		!o.cyberRetryViable && !o.rescueArmed && o.proxyErr != nil && !preludeBuf.Committed() {
+		!o.cyberRetryViable && !o.RescueArmed && o.ProxyErr != nil && !preludeBuf.Committed() {
 		o.flushDeferredErr()
 	}
 }
 
 func (o *chatRescue) cyberRetry(ctx context.Context) {
 	s := o.svc
-	r := o.r
-	log := o.log
-	routeRes := o.routeRes
-	preludeBuf := o.preludeBuf
-	if o.cyberRetryViable && o.proxyErr != nil && !preludeBuf.Committed() &&
-		providers.IsUpstreamCyberPolicyRefusal(o.proxyErr) {
-		retryOpts, retryEffort := switchedAttemptOptions(ctx, o.opts, o.cyberRetryTarget, routeRes.EscalateEffort, s.resolveEffort)
+	r := o.HTTPRequest
+	log := o.Log
+	routeRes := o.RouteRes
+	preludeBuf := o.PreludeBuf
+	if o.cyberRetryViable && o.ProxyErr != nil && !preludeBuf.Committed() &&
+		providers.IsUpstreamCyberPolicyRefusal(o.ProxyErr) {
+		retryOpts, retryEffort := switchedAttemptOptions(ctx, o.Opts, o.cyberRetryTarget, routeRes.EscalateEffort, s.resolveEffort)
 		retryCtx := resolveAndInjectCredentials(subscriptionStatePaidRescueContext(ctx, o.cyberRetryTarget.Model), o.cyberRetryTarget.Provider, o.cyberRetryTarget.Model, r.Header)
 		retryOpts.FastMode = fastModeForAttempt(retryCtx, o.cyberRetryTarget.Model, o.cyberRetryTarget.Provider)
-		retryBindings := o.routing.ResolveBindingsForDispatch(retryCtx, o.cyberRetryTarget)
-		retryMarker := o.markers.WithFailureDetail(ctx, o.markers.CyberRefusal(ctx, o.cyberRetryTarget.Model))
-		retryAttempt, retryBuildErr := o.buildAttempt(o.cyberRetryTarget, retryOpts, retryMarker, retryCtx)
+		retryBindings := o.Routing.ResolveBindingsForDispatch(retryCtx, o.cyberRetryTarget)
+		retryMarker := o.Markers.WithFailureDetail(ctx, o.Markers.CyberRefusal(ctx, o.cyberRetryTarget.Model))
+		retryAttempt, retryBuildErr := o.BuildAttempt(o.cyberRetryTarget, retryOpts, retryMarker, retryCtx)
 		switch {
 		case retryBuildErr != nil:
 			log.Error("Cyber-refusal retry: preparing the fallback request failed; surfacing the refusal",
@@ -247,51 +248,51 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 				"fallback_provider", o.cyberRetryTarget.Provider)
 		default:
 			log.Warn("Cyber-refusal retry: OpenAI declined the turn on cyber policy, retrying off-vendor",
-				"failed_model", o.primaryModel,
-				"failed_provider", o.primaryProvider,
+				"failed_model", o.PrimaryModel,
+				"failed_provider", o.PrimaryProvider,
 				"fallback_model", o.cyberRetryTarget.Model,
 				"fallback_provider", o.cyberRetryTarget.Provider)
 			o.cyberRetryRan = true
-			o.effortServed = retryEffort
-			*o.respSummary = translate.ResponseSummary{}
-			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(retryCtx, dispatch.FailoverInputs{
-				Writer:                 o.contentSink,
+			o.EffortServed = retryEffort
+			*o.RespSummary = translate.ResponseSummary{}
+			o.WinnerIdx, o.ProxyErr = s.dispatchWithFallback(retryCtx, dispatch.FailoverInputs{
+				Writer:                 o.ContentSink,
 				Prelude:                preludeBuf,
 				InitialDecision:        o.cyberRetryTarget,
 				Bindings:               retryBindings,
 				Attempt:                retryAttempt,
 				FlushErr:               o.flushErrAsOpenAI,
-				DeferFlushOnExhaustion: o.rescueArmed,
-				Purpose:                routeRes.DispatchPurpose(o.surface),
+				DeferFlushOnExhaustion: o.RescueArmed,
+				Purpose:                routeRes.DispatchPurpose(o.Surface),
 				Origin:                 routeRes.RescueOrigin(),
 			})
-			o.subscriptionPoolFailure = isSubscriptionPoolError(o.proxyErr)
-			o.decision = o.cyberRetryTarget
-			o.bindings = retryBindings
-			o.marker = retryMarker
+			o.SubscriptionPoolFailure = isSubscriptionPoolError(o.ProxyErr)
+			o.Decision = o.cyberRetryTarget
+			o.Bindings = retryBindings
+			o.Marker = retryMarker
 		}
 	}
-	if o.cyberRetryViable && !o.cyberRetryRan && !o.rescueArmed && o.proxyErr != nil && !preludeBuf.Committed() {
+	if o.cyberRetryViable && !o.cyberRetryRan && !o.RescueArmed && o.ProxyErr != nil && !preludeBuf.Committed() {
 		o.flushDeferredErr()
 	}
 }
 
 func (o *chatRescue) finish(ctx context.Context) {
-	o.proxyErr = asCompactionUnservable(o.routeRes.TurnType, o.decision, o.proxyErr)
-	if (o.siblingRescueOwed || o.overflowRescueOnly) && o.proxyErr != nil && !o.preludeBuf.Committed() {
+	o.ProxyErr = asCompactionUnservable(o.RouteRes.TurnType, o.Decision, o.ProxyErr)
+	if (o.SiblingRescueOwed || o.OverflowRescueOnly) && o.ProxyErr != nil && !o.PreludeBuf.Committed() {
 		o.flushDeferredErr()
 	}
 
 	if subscriptionCredentialFallbackUsed(ctx) {
-		switch o.decision.Provider {
+		switch o.Decision.Provider {
 		case providers.ProviderOpenAI:
 			o.codexFailoverUsed = true
 		case providers.ProviderAnthropic:
 			o.claudeFailoverUsed = true
 		}
 	}
-	o.finalProvider = o.servedProvider(o.decision.Provider)
-	o.decision.Provider = o.finalProvider
-	o.failoverUsed = o.finalProvider != o.primaryProvider || o.codexFailoverUsed || o.claudeFailoverUsed || o.siblingFailoverUsed
-	o.failoverAttempted = o.failoverUsed || o.codexRetryRan || o.claudeRetryRan || o.siblingRescueRan
+	o.FinalProvider = o.ServedProvider(o.Decision.Provider)
+	o.Decision.Provider = o.FinalProvider
+	o.FailoverUsed = o.FinalProvider != o.PrimaryProvider || o.codexFailoverUsed || o.claudeFailoverUsed || o.SiblingFailoverUsed
+	o.FailoverAttempted = o.FailoverUsed || o.codexRetryRan || o.claudeRetryRan || o.SiblingRescueRan
 }

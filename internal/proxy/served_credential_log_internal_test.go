@@ -13,7 +13,7 @@ import (
 )
 
 func TestServedCredentialLogValues(t *testing.T) {
-	service := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+	service := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 
 	source, tier := service.servedCredentialLogValues(context.Background())
 	assert.Empty(t, source, "deployment key")

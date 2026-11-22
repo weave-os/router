@@ -63,9 +63,7 @@ type Service struct {
 	translationMetrics           telemetry.TranslationMetrics
 	pinStore                     sessionpin.Store
 	escalation                   *floor.Helper
-	llmEscalationAdmin           llmEscalationAdmin
 	sessionStrategyStore         sessionstrategy.Store
-	classifierSessions           *classifierSessions
 	lifecycle                    *conversation.Lifecycle
 	prefixTrimFreeSwitch         bool
 	escapeNormalize              bool
@@ -76,14 +74,12 @@ type Service struct {
 	routing                      *routingpolicy.Policy
 	globalAutomaticExclusions    *globalAutomaticExclusionCache
 	credentials                  credentials.Brokerage
-	continuityConfig             continuity.Config
-	hmmServing
+	strategyServing
 
 	rescueConfig                   dispatch.RescueConfig
 	openAIResponsesBroad           bool
 	nativeAnthropicResponseSignals bool
 	nativeOpenAIResponseSignals    bool
-	allowedModelsHeader            bool
 	armDemotion                    dispatch.ArmDemotionPolicy
 	throttling                     dispatch.Throttling
 	ingress                        ingress.Formats
@@ -92,7 +88,6 @@ type Service struct {
 	ccTaskToolsCrossVendor         bool
 	ccAutonomySystemAppend         bool
 	ccWorkspaceSystemAppend        bool
-	bandSwap                       *bandswap.Classifier
 
 	turnSignalCaptureEnabled bool
 	webSearch                websearch.Executor
@@ -802,8 +797,7 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 		turnSignalCaptureEnabled:     true,
 		ccOrchToolsCrossVendor:       true,
 		hardPins:                     overrides.HardPins{Explore: hardPinExplore, Provider: hardPinProvider, Model: hardPinModel},
-		continuityConfig:             continuity.DefaultConfig(),
-		hmmServing:                   hmmServing{hmmConfig: continuity.DefaultAuthoritativeConfig()},
+		strategyServing:              strategyServing{continuityConfig: continuity.DefaultConfig(), hmmConfig: continuity.DefaultAuthoritativeConfig()},
 		rescueConfig: dispatch.RescueConfig{
 			SiblingFailover:             true,
 			CyberRefusalRepin:           true,
@@ -891,11 +885,6 @@ func (s *Service) WithNativeAnthropicResponseSignals(enabled bool) *Service {
 
 func (s *Service) WithNativeOpenAIResponseSignals(enabled bool) *Service {
 	s.nativeOpenAIResponseSignals = enabled
-	return s
-}
-
-func (s *Service) WithAllowedModelsHeader(enabled bool) *Service {
-	s.allowedModelsHeader = enabled
 	return s
 }
 
@@ -1897,57 +1886,24 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
-	outputReserve := contextWindowOutputReserve
-	if feats.MaxTokens > outputReserve {
-		outputReserve = feats.MaxTokens
-	}
-	baseExcluded := s.excludeCodexOAuthOnlyModels(ctx, r.Header, enabledProviders, s.excludedModelsForRequest(ctx))
-
+	outputReserve, prefiltered := prefilterTurn(ctx, s, turnPrefilterInput{
+		env: env, feats: feats, eligibility: eligibility, header: r.Header, excludeAdvisorOutranking: true, log: log,
+	})
 	inboundToolCallCount := len(env.AssistantToolCallSignatures())
 	inboundLastUser := env.LastUserMessage()
 	inboundUserPrompt := routingEndsWithUserPrompt(ctx, env)
 	inboundLatestToolCalls := latestToolCallCountsJSON(env)
-
-	prefiltered := candidates.Prefilter(candidates.PrefilterRequest{
-		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserve, Eligibility: eligibility,
-		Excluded: baseExcluded, Available: s.availableModels,
-		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()), ExcludeAdvisorOutranking: true,
-	})
-	logPrefilter(log, env, feats.ImageCount, outputReserve, prefiltered)
-	excluded, overflowEstimate := prefiltered.Excluded, prefiltered.OverflowEstimate
+	overflowEstimate := prefiltered.OverflowEstimate
 
 	routeStart := s.clock.Now()
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
-	req := router.Request{
-		RequestedModel:               feats.Model,
-		ClientBudget:                 clientBudget,
-		ForceModel:                   forceModel,
-		ForceCluster:                 forceCluster,
-		EstimatedInputTokens:         feats.Tokens,
-		HasTools:                     feats.HasTools,
-		HasImages:                    feats.HasImages,
-		ImageCount:                   feats.ImageCount,
-		TranslationRequirements:      env.TranslationRequirements(router.EndpointAnthropicMessages),
-		ReasoningConfigurationSHA256: env.ReasoningConfigurationSHA256(),
-		ToolConfigurationSHA256:      env.ToolConfigurationSHA256(),
-		PromptText:                   routingPromptText,
-		ConversationMessages:         routingMessages,
-		AvailableTools:               availableToolsForRouting(env),
-		Tools:                        toolsForRouting(env),
-		OrganizationID:               facts.ExternalID,
-		FeedbackKey:                  hex.EncodeToString(sessionKey[:]),
-		FeedbackRole:                 roleForTier(catalog.TierFor(feats.Model)),
-		ClientSessionID:              clientSessionIDForRequest(ctx, env),
-		EnabledProviders:             enabledProviders,
-		CustomBindings:               eligibility.CustomBindings,
-		GatewayProviders:             eligibility.GatewayProviders,
-		SubscriptionProviders:        s.selectableSubscriptionProviders(ctx, r.Header),
-		Candidates:                   prefilteredCandidates(ctx, excluded, prefiltered),
-		PreferredModels:              preferredModelsForRequest(ctx),
-		RoutingKnobs:                 routingKnobsForRequest(ctx),
-		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
-		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
-	}
+	req := preRouteRequest(ctx, s, preRouteRequestInput{
+		env: env, feats: feats, forceModel: forceModel, forceCluster: forceCluster,
+		endpoint: router.EndpointAnthropicMessages, reasoningConfigHash: env.ReasoningConfigurationSHA256(), toolConfigHash: env.ToolConfigurationSHA256(),
+		promptText: routingPromptText, messages: routingMessages, feedbackKey: hex.EncodeToString(sessionKey[:]),
+		eligibility: eligibility, gatewayProviders: eligibility.GatewayProviders, header: r.Header, prefiltered: prefiltered,
+	})
+	req.ClientBudget, req.OrganizationID = clientBudget, facts.ExternalID
 	if facts.InstallationID != uuid.Nil {
 		req.InstallationID = facts.InstallationID.String()
 	}
@@ -2233,28 +2189,28 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	rescue := &messagesRescue{
-		rescueChain: &rescueChain{
-			rescuePorts: rescuePortsFor(s), markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver}, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.credentials.UsageObserver,
-			r:                r,
-			log:              log,
-			env:              env,
-			routeRes:         rescueTurnOf(routeRes),
-			req:              &req,
-			opts:             opts,
-			contentSink:      contentSink,
-			preludeBuf:       preludeBuf,
-			attempt:          attempt,
-			buildAttempt:     buildAttempt,
-			surface:          inference.PurposeAnthropicMessages,
-			respSummary:      &respSummary,
-			reqStats:         &reqStats,
-			decision:         decision,
-			bindings:         bindings,
-			marker:           marker,
-			proxyErr:         proxyErr,
-			effortServed:     effortServed,
-			overflowEstimate: overflowEstimate,
-			outputReserve:    outputReserve,
+		svc: s, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.credentials.UsageObserver, RescueChain: &dispatch.RescueChain{
+			RescuePorts: rescuePortsFor(s), Markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver},
+			HTTPRequest:      r,
+			Log:              log,
+			Env:              env,
+			RouteRes:         rescueTurnOf(routeRes),
+			Request:          &req,
+			Opts:             opts,
+			ContentSink:      contentSink,
+			PreludeBuf:       preludeBuf,
+			Attempt:          attempt,
+			BuildAttempt:     buildAttempt,
+			Surface:          inference.PurposeAnthropicMessages,
+			RespSummary:      &respSummary,
+			ReqStats:         &reqStats,
+			Decision:         decision,
+			Bindings:         bindings,
+			Marker:           marker,
+			ProxyErr:         proxyErr,
+			EffortServed:     effortServed,
+			OverflowEstimate: overflowEstimate,
+			OutputReserve:    outputReserve,
 		},
 		feats:           feats,
 		agentShadowMode: agentShadowMode,
@@ -2269,23 +2225,23 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		crossFormat:               &crossFormat,
 		compactionHandoverOutcome: compactionHandoverOutcome,
 	}
-	rescue.flushErr = rescue.flushErrAsAnthropic
+	rescue.FlushErr = rescue.flushErrAsAnthropic
 	rescue.armBaseline(ctx)
 	rescue.armSubscriptionRetry(ctx)
 	ctx = rescue.armRescues(ctx)
 	rescue.armEarlyStop(ctx)
-	rescue.holdPrimary()
+	rescue.HoldPrimary()
 	rescue.dispatchPrimary(ctx)
 	rescue.redoIfStoppedEarly(ctx)
-	rescue.notePrimaryFailure(ctx)
+	rescue.NotePrimaryFailure(ctx)
 	rescue.classifyPrimaryFailure()
 	ctx = rescue.baselineRescue(ctx)
 	rescue.subscriptionRetry(ctx)
-	rescue.siblingRescue(ctx)
+	rescue.SiblingRescue(ctx)
 	rescue.finish(ctx)
-	decision, marker, proxyErr, effortServed = rescue.decision, rescue.marker, rescue.proxyErr, rescue.effortServed
+	decision, marker, proxyErr, effortServed = rescue.Decision, rescue.Marker, rescue.ProxyErr, rescue.EffortServed
 	compactionHandoverOutcome = rescue.compactionHandoverOutcome
-	winnerIdx, finalProvider := rescue.winnerIdx, rescue.finalProvider
+	winnerIdx, finalProvider := rescue.WinnerIdx, rescue.FinalProvider
 
 	if rescue.subscriptionFailoverUsed {
 		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
@@ -3076,7 +3032,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if eligibilityErr != nil {
 		return eligibilityErr
 	}
-	enabledProviders := eligibility.EnabledProviders
 
 	responsesBody, _ := ctx.Value(codexResponsesBodyContextKey{}).([]byte)
 	reasoningConfigurationHash := env.ReasoningConfigurationSHA256()
@@ -3088,51 +3043,19 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		toolConfigurationHash = nativeResponsesHash
 	}
 
-	outputReserveOAI := contextWindowOutputReserve
-	if feats.MaxTokens > outputReserveOAI {
-		outputReserveOAI = feats.MaxTokens
-	}
-	baseExcludedOAI := s.excludeCodexOAuthOnlyModels(ctx, r.Header, enabledProviders, s.excludedModelsForRequest(ctx))
-
+	outputReserveOAI, prefiltered := prefilterTurn(ctx, s, turnPrefilterInput{
+		env: env, feats: feats, eligibility: eligibility, header: r.Header, log: log,
+	})
 	inboundLastUser := env.LastUserMessage()
 	inboundUserPromptOpenAI := routingEndsWithUserPrompt(ctx, env)
-
-	prefiltered := candidates.Prefilter(candidates.PrefilterRequest{
-		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserveOAI, Eligibility: eligibility,
-		Excluded: baseExcludedOAI, Available: s.availableModels,
-		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()),
-	})
-	logPrefilter(log, env, feats.ImageCount, outputReserveOAI, prefiltered)
-	excludedOAI, overflowEstimateOAI := prefiltered.Excluded, prefiltered.OverflowEstimate
+	overflowEstimateOAI := prefiltered.OverflowEstimate
 	feats, routingPromptText, routingMessages := routingTurnInputForRequest(ctx, env, feats, promptText)
-	routeRequest := router.Request{
-		RequestedModel:               feats.Model,
-		ForceModel:                   forceModel,
-		ForceCluster:                 forceCluster,
-		EstimatedInputTokens:         feats.Tokens,
-		HasTools:                     feats.HasTools,
-		HasImages:                    feats.HasImages,
-		ImageCount:                   feats.ImageCount,
-		TranslationRequirements:      env.TranslationRequirements(router.EndpointOpenAIChat),
-		ReasoningConfigurationSHA256: reasoningConfigurationHash,
-		ToolConfigurationSHA256:      toolConfigurationHash,
-		PromptText:                   routingPromptText,
-		ConversationMessages:         routingMessages,
-		AvailableTools:               availableToolsForRouting(env),
-		Tools:                        toolsForRouting(env),
-		FeedbackKey:                  hex.EncodeToString(sessionKey[:]),
-		FeedbackRole:                 roleForTier(catalog.TierFor(feats.Model)),
-		ClientSessionID:              clientSessionIDForRequest(ctx, env),
-		EnabledProviders:             enabledProviders,
-		CustomBindings:               eligibility.CustomBindings,
-		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
-		SubscriptionProviders:        s.selectableSubscriptionProviders(ctx, r.Header),
-		Candidates:                   prefilteredCandidates(ctx, excludedOAI, prefiltered),
-		PreferredModels:              preferredModelsForRequest(ctx),
-		RoutingKnobs:                 routingKnobsForRequest(ctx),
-		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
-		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
-	}
+	routeRequest := preRouteRequest(ctx, s, preRouteRequestInput{
+		env: env, feats: feats, forceModel: forceModel, forceCluster: forceCluster,
+		endpoint: router.EndpointOpenAIChat, reasoningConfigHash: reasoningConfigurationHash, toolConfigHash: toolConfigurationHash,
+		promptText: routingPromptText, messages: routingMessages, feedbackKey: hex.EncodeToString(sessionKey[:]),
+		eligibility: eligibility, gatewayProviders: s.gatewayProvidersForRequest(ctx), header: r.Header, prefiltered: prefiltered,
+	})
 	routeRes, routeMs, err := routeTurn(ctx, s, s.clock, log, routeTurnRequest{
 		Request:        routeRequest,
 		Started:        s.clock.Now(),
@@ -3347,27 +3270,27 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		surfacePurpose = inference.PurposeOpenAIResponses
 	}
 	rescue := &chatRescue{
-		rescueChain: &rescueChain{
-			rescuePorts: rescuePortsFor(s), markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver}, seats: seatAdmissionOf(s), clock: s.clock,
-			r:                r,
-			log:              log,
-			env:              env,
-			routeRes:         rescueTurnOf(routeRes),
-			req:              &routeRequest,
-			opts:             opts,
-			contentSink:      contentSink,
-			preludeBuf:       preludeBuf,
-			attempt:          attempt,
-			buildAttempt:     buildAttempt,
-			surface:          surfacePurpose,
-			overflowEstimate: overflowEstimateOAI,
-			outputReserve:    outputReserveOAI,
-			respSummary:      &respSummary,
-			decision:         decision,
-			bindings:         bindings,
-			marker:           marker,
-			proxyErr:         proxyErr,
-			effortServed:     effortServed,
+		svc: s, RescueChain: &dispatch.RescueChain{
+			RescuePorts: rescuePortsFor(s), Markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver},
+			HTTPRequest:      r,
+			Log:              log,
+			Env:              env,
+			RouteRes:         rescueTurnOf(routeRes),
+			Request:          &routeRequest,
+			Opts:             opts,
+			ContentSink:      contentSink,
+			PreludeBuf:       preludeBuf,
+			Attempt:          attempt,
+			BuildAttempt:     buildAttempt,
+			Surface:          surfacePurpose,
+			OverflowEstimate: overflowEstimateOAI,
+			OutputReserve:    outputReserveOAI,
+			RespSummary:      &respSummary,
+			Decision:         decision,
+			Bindings:         bindings,
+			Marker:           marker,
+			ProxyErr:         proxyErr,
+			EffortServed:     effortServed,
 		},
 		isResponses:          isResponses,
 		responsesPreludeBuf:  responsesPreludeBuf,
@@ -3375,20 +3298,20 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		cyberRetryArmed:      &cyberRetryArmed,
 		preOutputRescueArmed: &preOutputRescueArmed,
 	}
-	rescue.flushErr = rescue.flushErrAsOpenAI
+	rescue.FlushErr = rescue.flushErrAsOpenAI
 	rescue.armCyberRetry(ctx, strategy)
 	rescue.armSubscriptionRetries(ctx)
 	ctx = rescue.armRescues(ctx)
-	rescue.holdPrimary()
+	rescue.HoldPrimary()
 	rescue.dispatchPrimary(ctx)
-	rescue.notePrimaryFailure(ctx)
+	rescue.NotePrimaryFailure(ctx)
 	rescue.codexRetry(ctx)
 	rescue.claudeRetry(ctx)
 	rescue.cyberRetry(ctx)
-	rescue.siblingRescue(ctx)
+	rescue.SiblingRescue(ctx)
 	rescue.finish(ctx)
-	decision, marker, proxyErr, effortServed = rescue.decision, rescue.marker, rescue.proxyErr, rescue.effortServed
-	winnerIdx, finalProvider := rescue.winnerIdx, rescue.finalProvider
+	decision, marker, proxyErr, effortServed = rescue.Decision, rescue.Marker, rescue.ProxyErr, rescue.EffortServed
+	winnerIdx, finalProvider := rescue.WinnerIdx, rescue.FinalProvider
 
 	if rescue.codexFailoverUsed {
 		ctx = withSuppressedCodexSubscription(ctx)

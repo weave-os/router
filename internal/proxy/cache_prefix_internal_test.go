@@ -73,11 +73,13 @@ func TestPlannerTokensStayLegacyUntilFlagIsArmed(t *testing.T) {
 	require.NoError(t, err)
 	feats := translate.RoutingFeatures{Tokens: 10}
 
-	off := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), continuityConfig: continuity.Config{Planner: planner.EVConfig{CorrectedEconomics: false}}}
+	off := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
+	off.continuityConfig = continuity.Config{Planner: planner.EVConfig{CorrectedEconomics: false}}
 	assert.Equal(t, feats.Tokens, off.plannerTokensFor(t.Context(), env, feats),
 		"flag off must leave the legacy estimate untouched")
 
-	on := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), continuityConfig: continuity.Config{Planner: planner.EVConfig{CorrectedEconomics: true}}}
+	on := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
+	on.continuityConfig = continuity.Config{Planner: planner.EVConfig{CorrectedEconomics: true}}
 	assert.Greater(t, on.plannerTokensFor(t.Context(), env, feats), feats.Tokens,
 		"flag on counts tool definitions the text-only estimate misses")
 }

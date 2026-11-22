@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -37,6 +38,9 @@ type Helper struct {
 	switchyardActiveEnabled bool
 	recordJudge             JudgeRecorder
 	redactReason            func(string) string
+	dashboard               escalationdashboard.Store
+	configuration           llmescalation.ConfigurationStore
+	invalidateSelection     func(string)
 }
 
 func New(recordJudge JudgeRecorder, redactReason func(string) string) *Helper {
@@ -178,4 +182,23 @@ type Completion struct {
 func (h *Helper) Complete(ctx context.Context, completion Completion) {
 	h.recordXGBOutcome(ctx, completion)
 	h.completeLLM(ctx, completion)
+}
+
+func (h *Helper) WithDashboard(store escalationdashboard.Store) {
+	h.dashboard = store
+}
+
+func (h *Helper) Dashboard() escalationdashboard.Store { return h.dashboard }
+
+func (h *Helper) WithConfiguration(store llmescalation.ConfigurationStore, invalidate func(string)) {
+	h.configuration = store
+	h.invalidateSelection = invalidate
+}
+
+func (h *Helper) Configuration() llmescalation.ConfigurationStore { return h.configuration }
+
+func (h *Helper) InvalidateSelection(installationID string) {
+	if h.invalidateSelection != nil {
+		h.invalidateSelection(installationID)
+	}
 }

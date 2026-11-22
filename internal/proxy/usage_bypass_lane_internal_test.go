@@ -29,7 +29,7 @@ func TestUsageBypassDecisionRequiresTheProductToSellTheRequestedModel(t *testing
 	threshold := 0.80
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
-	svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: obs}}
+	svc := &Service{strategyServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: obs}}
 	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 

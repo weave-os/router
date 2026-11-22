@@ -33,7 +33,7 @@ func poolRefusalPins() map[string]poolRefusalPin {
 	now := time.Now()
 	cooling := now.Add(time.Hour)
 	throttledSeat := &auth.SubscriptionAccount{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooling}
-	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
 	enrollmentUnknown := func(ctx context.Context) context.Context {
 		return context.WithValue(credentials.WithManagedSubscriptionUsage(ctx), credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	}
@@ -119,7 +119,7 @@ func TestManagedSubscriptionCommitMarksTheTurnServed(t *testing.T) {
 		ctx := credentials.WithManagedSubscriptionUsage(lane.ctx)
 		require.False(t, managedSubscriptionServed(ctx), mark)
 
-		(&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).markManagedSubscriptionServed(ctx, ctx, subscriptions.Lease{AccountID: "seat"})
+		(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).markManagedSubscriptionServed(ctx, ctx, subscriptions.Lease{AccountID: "seat"})
 
 		assert.True(t, managedSubscriptionServed(ctx), mark)
 		assert.True(t, servedOnSubscription(ctx), mark)

@@ -47,7 +47,7 @@ func TestSearchUseTracker_SessionsAreIndependent(t *testing.T) {
 }
 
 func scopeService(enabled bool) *Service {
-	return &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
+	return &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(),
 		scopedSearchRequirement:     enabled,
 		searchRequirementDecayTurns: DefaultSearchRequirementDecayTurns,
 		searchUse:                   newSearchUseTracker(),

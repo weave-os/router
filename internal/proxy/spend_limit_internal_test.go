@@ -74,35 +74,35 @@ func withUsageBypassSubscription(ctx context.Context) context.Context {
 }
 
 func TestCheckUserMonthlySpendLimit_NoBillingSkips(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("u1")))
 }
 
 func TestCheckUserMonthlySpendLimit_NoIdentitySkips(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 10, limit: micros(1), err: errors.New("must not be called")})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 10, limit: micros(1), err: errors.New("must not be called")})}
 	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("")),
 		"a request with no resolvable user identity passes through")
 }
 
 func TestCheckUserMonthlySpendLimit_NoLimitPasses(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 999_999_999, limit: nil})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 999_999_999, limit: nil})}
 	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("u1")))
 }
 
 func TestCheckUserMonthlySpendLimit_UnderLimitPasses(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 999_999, limit: micros(1_000_000)})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 999_999, limit: micros(1_000_000)})}
 	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("u1")))
 }
 
 func TestCheckUserMonthlySpendLimit_AtLimitRejected(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
 	err := spendLimitCheck(s, spendLimitCtx("u1"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
 }
 
 func TestCheckUserMonthlySpendLimit_ReadErrorFailsClosed(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{err: errors.New("pg down")})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{err: errors.New("pg down")})}
 	err := spendLimitCheck(s, spendLimitCtx("u1"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, billing.ErrSpendLimitCheckUnavailable)
@@ -111,7 +111,7 @@ func TestCheckUserMonthlySpendLimit_ReadErrorFailsClosed(t *testing.T) {
 func TestCheckUserMonthlySpendLimit_OverrideSkips(t *testing.T) {
 	// Even over the limit (and with a repo that would error), a billing-override
 	// request bypasses engineer enforcement — WithBalanceCheck already let it in.
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000), err: errors.New("must not be called")})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000), err: errors.New("must not be called")})}
 	ctx := context.WithValue(spendLimitCtx("u1"), billing.HasOverrideContextKey, true)
 	assert.NoError(t, spendLimitCheck(s, ctx))
 }
@@ -120,7 +120,7 @@ func TestCheckUserMonthlySpendLimit_CapReachedCoveringSubscriptionServesSubscrip
 	// The fix: cap reached, but a usage-bypass org presents a Claude subscription
 	// that covers /v1/messages. Don't 402 — flag the returned ctx subscription-only
 	// so the proxy serves free on the caller's own plan. Paid spend stays capped.
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
 	ctx := withUsageBypassSubscription(spendLimitCtx("u1"))
 	outCtx, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.NoError(t, err, "a covered turn must not 402 when the cap is reached")
@@ -132,7 +132,7 @@ func TestCheckUserMonthlySpendLimit_CapReachedCoveringSubscriptionServesSubscrip
 func TestCheckUserMonthlySpendLimit_CapReachedNoSubscriptionStillRejects(t *testing.T) {
 	// Usage-bypass on, but no subscription credential present: the turn would route
 	// to a paid model, so a reached cap must still 402.
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
 	ctx := context.WithValue(spendLimitCtx("u1"), requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.Error(t, err)
@@ -140,7 +140,7 @@ func TestCheckUserMonthlySpendLimit_CapReachedNoSubscriptionStillRejects(t *test
 }
 
 func TestCheckUserMonthlySpendLimit_CapReachedSubscriptionWithoutBypassServesSubscriptionOnly(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
 	ctx := context.WithValue(spendLimitCtx("u1"), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-valid-token")
 	outCtx, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.NoError(t, err)
@@ -152,7 +152,7 @@ func TestCheckUserMonthlySpendLimit_CapReachedSubscriptionWithoutBypassServesSub
 func TestCheckUserMonthlySpendLimit_CapReachedSubscriptionUncoveredRouteRejects(t *testing.T) {
 	// A Claude subscription can't serve the OpenAI chat route, so the exemption is
 	// route-scoped: a reached cap on an uncovered route must still 402.
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
 	ctx := withUsageBypassSubscription(spendLimitCtx("u1"))
 	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathChatCompletions)
 	require.Error(t, err, "a Claude sub must not exempt an OpenAI-route request")
@@ -162,7 +162,7 @@ func TestCheckUserMonthlySpendLimit_CapReachedSubscriptionUncoveredRouteRejects(
 func TestCheckUserMonthlySpendLimit_UnderLimitDoesNotFlagSubscriptionOnly(t *testing.T) {
 	// Below the cap, a subscription request routes normally: the returned ctx must
 	// NOT be flagged subscription-only (that flag disables paid failover).
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 500_000, limit: micros(1_000_000)})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 500_000, limit: micros(1_000_000)})}
 	ctx := withUsageBypassSubscription(spendLimitCtx("u1"))
 	outCtx, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.NoError(t, err)
@@ -173,7 +173,7 @@ func TestCheckUserMonthlySpendLimit_ExemptsSubscriberAllowanceCoveredTurn(t *tes
 	// A turn admitted against an individual Max/Boost allowance debits 0 and
 	// settles against that allowance, so it never adds to the engineer's paid
 	// spend and a reached cap must not 402 it.
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
 	ctx := entitlement.WithCoverage(spendLimitCtx("u1"), entitlement.Coverage{
 		SubscriberID:       "cs_max",
 		EntitlementVersion: 1,
@@ -184,7 +184,7 @@ func TestCheckUserMonthlySpendLimit_ExemptsSubscriberAllowanceCoveredTurn(t *tes
 }
 
 func TestCheckUserMonthlySpendLimit_AppliesToSubscriberPaidFallback(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
 	ctx := entitlement.WithProductScope(spendLimitCtx("u1"), entitlement.PlanMax)
 
 	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
@@ -194,7 +194,7 @@ func TestCheckUserMonthlySpendLimit_AppliesToSubscriberPaidFallback(t *testing.T
 }
 
 func TestCheckUserMonthlySpendLimit_MaxCoveringSubscriptionDoesNotExempt(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
 	ctx := entitlement.WithProductScope(withUsageBypassSubscription(spendLimitCtx("u1")), entitlement.PlanMax)
 	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.Error(t, err)

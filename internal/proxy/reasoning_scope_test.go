@@ -21,7 +21,7 @@ const cortexBaseURL = "https://acct-a.snowflakecomputing.com/api/v2/cortex/v1"
 
 func reasoningScopeService(t *testing.T, clients map[string]providers.Client) *Service {
 	t.Helper()
-	return &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(clients))}
+	return &Service{strategyServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(clients))}
 }
 
 // Encrypted reasoning only decrypts under the account and model that minted
