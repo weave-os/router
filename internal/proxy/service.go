@@ -4021,93 +4021,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	notice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), decision.Provider, decision.Model, notice)
 	marker = notice.Text
 
-	promotedToResponses := false
-	if len(responsesBody) == 0 && !routeRes.Handover.Invoked && openAIResponsesEndpoint {
-		if native, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte); ok && len(native) > 0 {
-			responsesBody = native
-			promotedToResponses = true
-		}
+	prelude, err := prepareChatResponsesPrelude(ctx, chatResponsesPreludeDeps{
+		svc: s, responseWriter: w, contentSink: contentSink, responsesBody: responsesBody, openAIResponsesEndpoint: openAIResponsesEndpoint,
+		handoverInvoked: routeRes.Handover.Invoked, turnType: routeRes.TurnType, decision: decision, facts: facts, footerEchoed: footerEchoed,
+		bindingCount: len(bindings), marker: marker, notice: notice, stream: env.Stream(), log: log,
+	})
+	if err != nil {
+		return err
 	}
-
-	responsesWriter, isResponses := w.(*translate.ResponsesWriter)
-	responsesNotices := &requestNoticeStream{now: s.clock.Now}
-	responseSwitch := responseProtocolSwitch{
-		notices:             responsesNotices,
-		writer:              responsesWriter,
-		nativeRequest:       len(responsesBody) > 0,
-		translatedResponses: !isResponses && len(responsesBody) == 0 && openAIResponsesEndpoint,
-		promotedToResponses: promotedToResponses,
-	}
-	initialNativeResponses := responseSwitch.nativeRequest && decision.Provider == providers.ProviderOpenAI
-	if footer := s.feedbackFooter(ctx, facts.Client.ClientApp, routeRes.TurnType, footerEchoed); isResponses && footer != "" {
-		responsesWriter.SetFooterText(footer)
-	}
-	responsesPreludeWillEmit := env.Stream() && !initialNativeResponses && (len(bindings) <= 1 || marker != "")
-	if initialNativeResponses {
-		responsesPreludeWillEmit = env.Stream() && supportsResponsesTerminalSurfaces(facts.Client.ClientApp) && marker != ""
-	}
-
-	var responsesPreludeBuf *preludeBuffer
-	if rw, ok := contentSink.(*translate.ResponsesWriter); ok {
-		var noticeErr error
-		rw.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
-			responsesPreludeBuf = newPreludeBuffer(inner)
-			preludeNotice := notice
-			if initialNativeResponses && !supportsResponsesTerminalSurfaces(facts.Client.ClientApp) {
-				preludeNotice.Text = ""
-			}
-			noticeSink, prepareErr := responsesNotices.prepare(ctx, responsesPreludeBuf, responsesPreludeBuf, translate.FormatOpenAIResponses, env.Stream(), preludeNotice)
-			noticeErr = prepareErr
-			if prepareErr != nil {
-				return responsesPreludeBuf
-			}
-			return noticeSink
-		})
-		if noticeErr != nil {
-			return fmt.Errorf("emit Responses router notice: %w", noticeErr)
-		}
-	}
-	var preludeBuf *preludeBuffer
-	var rootSink http.ResponseWriter
-	if responsesPreludeBuf != nil {
-		preludeBuf = responsesPreludeBuf
-		rootSink = contentSink
-	} else {
-		preludeBuf = newPreludeBuffer(contentSink)
-		rootSink = preludeBuf
-	}
-
-	responseSwitch.buffer = preludeBuf
-	if isResponses {
-		if initialNativeResponses {
-			responseSwitch.native(supportsResponsesTerminalSurfaces(facts.Client.ClientApp) &&
-				(marker != "" || s.feedbackFooter(ctx, facts.Client.ClientApp, routeRes.TurnType, footerEchoed) != ""))
-		}
-		if responsesPreludeWillEmit {
-			if err := responsesWriter.Prelude(true); err != nil {
-				log.Error("Responses prelude failed", "err", err)
-			} else {
-				responsesWriter.Flush()
-				if err := responsesPreludeBuf.CommitPrelude(); err != nil {
-					return fmt.Errorf("commit Responses prelude: %w", err)
-				}
-			}
-		}
-	}
-
-	var sink = rootSink
-	openAIPrelude := &requestNoticeStream{now: s.clock.Now}
-
-	makeMarkerSink := func(notice translate.RouterNotice) (http.ResponseWriter, error) {
-		if isResponses || responseSwitch.passthrough() {
-			if isResponses && responsesPreludeBuf != nil && notice.Kind == translate.NoticeSubscriptionReconnect && (!responseSwitch.passthrough() || supportsResponsesTerminalSurfaces(facts.Client.ClientApp)) {
-				return sink, responsesNotices.deliver(notice)
-			}
-			return sink, nil
-		}
-		noticeSink, noticeErr := openAIPrelude.prepare(ctx, sink, preludeBuf, translate.FormatOpenAI, env.Stream(), notice)
-		return noticeSink, noticeErr
-	}
+	responsesBody, responsesWriter, isResponses, responseSwitch := prelude.responsesBody, prelude.responsesWriter, prelude.isResponses, prelude.responseSwitch
+	responsesNotices, responsesPreludeBuf, preludeBuf, sink, makeMarkerSink := prelude.responsesNotices, prelude.responsesPreludeBuf, prelude.preludeBuf, prelude.sink, prelude.makeMarkerSink
 
 	toolValidator := env.ToolValidator()
 
@@ -4128,7 +4051,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		request:              r,
 		svc:                  s,
 		isResponses:          isResponses,
-		responseSwitch:       &responseSwitch,
+		responseSwitch:       responseSwitch,
 		facts:                facts,
 		responsesNotices:     responsesNotices,
 		responsesPreludeBuf:  responsesPreludeBuf,
