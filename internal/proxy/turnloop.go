@@ -566,8 +566,7 @@ func (s *Service) runTurnLoop(
 		res.Purpose = purpose
 	}
 	if hardPinnedTurn {
-		turn := hardPinnedTurnServing{s: s, log: log, strategy: strategy, req: req, res: res, sessionPins: sessionPins, threadSessionKey: threadSessionKey, installationID: installationID, forceModelPin: forceModelPin, forceModelFound: forceModelFound, automaticProbe: automaticProbe, reqHeaders: reqHeaders}
-		return turn.resolve(ctx)
+		return (&hardPinnedTurnServing{s: s, log: log, strategy: strategy, req: req, res: res, sessionPins: sessionPins, threadSessionKey: threadSessionKey, installationID: installationID, forceModelPin: forceModelPin, forceModelFound: forceModelFound, automaticProbe: automaticProbe, reqHeaders: reqHeaders}).resolve(ctx)
 	}
 
 	if !forceModelFound && env.IsNativeWebSearchSubTurn() {
