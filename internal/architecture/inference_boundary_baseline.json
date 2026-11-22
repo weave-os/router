@@ -51,18 +51,6 @@
       "removal_phase": "8"
     },
     {
-      "id": "target_construction|internal/proxy/turnloop.go|Service.runTurnLoop|router.Decision|1",
-      "kind": "target_construction",
-      "file": "internal/proxy/turnloop.go",
-      "line": 734,
-      "symbol": "Service.runTurnLoop",
-      "detail": "provider=<dynamic> model=<dynamic>",
-      "owner": "@steventohme",
-      "rationale": "Existing hard-pin path constructs a compatibility decision until utility and public purposes resolve typed plans.",
-      "operation_class": "main_inference",
-      "removal_phase": "8"
-    },
-    {
       "id": "target_construction|internal/proxy/usage_bypass.go|Service.bypassToAnthropic|router.Decision|1",
       "kind": "target_construction",
       "file": "internal/proxy/usage_bypass.go",

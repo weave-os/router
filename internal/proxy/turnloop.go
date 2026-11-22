@@ -30,7 +30,6 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
-	"weave-os/router/internal/routingpolicy/overrides"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
@@ -242,10 +241,6 @@ func isPolicyDeadlineErr(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
 }
 
-func (s *Service) hasSubAgentOverride() bool {
-	return s.subAgentProvider != "" && s.subAgentModel != ""
-}
-
 var utilityPurposes = map[turntype.TurnType]inference.Purpose{
 	turntype.TitleGen:         inference.PurposeTitleGeneration,
 	turntype.Probe:            inference.PurposeProbe,
@@ -273,20 +268,10 @@ func (r turnLoopResult) rescueOrigin() policy.OverrideSource {
 	return ""
 }
 
-func (s *Service) isHardPinnedTurn(ctx context.Context, strategy router.Strategy, tt turntype.TurnType) bool {
-	switch tt {
-	case turntype.Probe:
-		return true
-	case turntype.TitleGen:
-		return s.explicitUtilityHardPin
-	case turntype.SubAgentDispatch:
-		if s.hasSubAgentOverride() {
-			return true
-		}
-		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.hardPinExplore) && !s.strategyPorts.Ownership.Owns(strategy)
-	default:
-		return false
-	}
+func isHardPinnedTurn(ctx context.Context, s *Service, strategy router.Strategy, tt turntype.TurnType) bool {
+	return s.hardPins.PinsTurn(tt, func() bool {
+		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.hardPins.Explore) && !s.strategyPorts.Ownership.Owns(strategy)
+	})
 }
 
 func isUnpinnedScoredTurn(tt turntype.TurnType) bool {
@@ -528,9 +513,9 @@ func (s *Service) runTurnLoop(
 		"sub_agent_hint", subAgentHint,
 	)
 
-	automaticProbe := res.TurnType == turntype.Probe && !s.explicitUtilityHardPin &&
+	automaticProbe := res.TurnType == turntype.Probe && !s.hardPins.ExplicitUtility &&
 		(req.RequestedModel == "" || req.RequestedModel == automaticProbeModel || router.IsRoutingModel(req.RequestedModel))
-	if _, pinned := router.HonouredPolicyPin(ctx); pinned && (!s.isHardPinnedTurn(ctx, strategy, res.TurnType) || automaticProbe) {
+	if _, pinned := router.HonouredPolicyPin(ctx); pinned && (!isHardPinnedTurn(ctx, s, strategy, res.TurnType) || automaticProbe) {
 		if s.pinStore != nil && !isUnpinnedScoredTurn(res.TurnType) && !automaticProbe {
 			res.SessionKey = threadSessionKey
 			_, _, res.SessionFirstTurn = sessionPins.LoadWithStoreState(ctx, res.SessionKey, res.PinRole)
@@ -549,7 +534,7 @@ func (s *Service) runTurnLoop(
 
 	sessionForceControlFound := forceModelFound
 
-	hardPinnedTurn := s.isHardPinnedTurn(ctx, strategy, res.TurnType)
+	hardPinnedTurn := isHardPinnedTurn(ctx, s, strategy, res.TurnType)
 	if s.pinStore != nil && hardPinnedTurn && !forceModelFound && !forceModelCleared {
 		legacyPin, found := sessionPins.Load(ctx, threadSessionKey, res.PinRole)
 		if found && isUserForcedReason(legacyPin.Reason) {
@@ -581,88 +566,7 @@ func (s *Service) runTurnLoop(
 		res.Purpose = purpose
 	}
 	if hardPinnedTurn {
-		spec, _ := s.InferencePolicyRegistry().Spec(utilityPurposes[res.TurnType])
-		_, err := overrides.Resolve(spec.OverridePrecedence, map[policy.OverrideSource][]overrides.Resolver{
-			policy.OverrideSourceRequest: {
-				func() (bool, error) {
-					if !forceModelFound {
-						return false, nil
-					}
-					if candidates.ForcedPinEligible(forceModelPin, req) {
-						res.Purpose = utilityPurposes[res.TurnType]
-						threadPin, hmmHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
-						if s.pinStore != nil {
-							threadPin, _ = sessionPins.Load(ctx, threadSessionKey, res.PinRole)
-							hmmHistory = sessionPins.LoadHMMHistory(ctx, threadSessionKey, res.PinRole)
-							forceHistory = s.loadForceModelHistory(ctx, threadSessionKey, res.PinRole)
-						}
-						res.SessionKey = threadSessionKey
-						res.PinModel = forceModelPin.Model
-						res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
-						res.applySwitchHistory(threadPin, hmmHistory, forceHistory)
-						res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
-							(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
-						res.serveForceModelPin(forceModelPin)
-						sessionPins.AnchorForceModelHistory(ctx, installationID, threadSessionKey, res.PinRole, forceModelPin)
-						return true, nil
-					}
-					res.SessionKey = threadSessionKey
-					res.ForcedPinDropped = true
-					res.ForcedPinModel = forceModelPin.Model
-					res.ForcedPinDropReason = candidates.ForcedPinIneligibilityReason(forceModelPin, req)
-					log.Info("Forced session pin dropped for hard-pinned turn",
-						"pin_model", forceModelPin.Model,
-						"pin_provider", forceModelPin.Provider,
-						"drop_reason", res.ForcedPinDropReason,
-						"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
-						"role", res.PinRole,
-					)
-					return false, nil
-				},
-				func() (bool, error) {
-					if res.TurnType != turntype.Probe || s.explicitUtilityHardPin {
-						return false, nil
-					}
-					res.SessionKey = [sessionpin.SessionKeyLen]byte{}
-					if automaticProbe {
-						var err error
-						res, err = s.routeWithoutPin(ctx, strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
-						return true, err
-					}
-					decision, err := s.callerModelPassthroughDecision(ctx, req)
-					if err != nil {
-						return true, err
-					}
-					res.Decision = decision
-					res.CallerModelPassthrough = true
-					res.Origin = policy.OverrideSourceRequest
-					return true, nil
-				},
-			},
-			policy.OverrideSourceDeployment: {
-				func() (bool, error) {
-					resolver, provider, model := s.hardPinResolver, s.hardPinProvider, s.hardPinModel
-					if res.TurnType == turntype.SubAgentDispatch && s.hasSubAgentOverride() {
-						resolver, provider, model = nil, s.subAgentProvider, s.subAgentModel
-					}
-					provider, model, err := utilityHardPinTarget(ctx, req, res.TurnType, resolver, provider, model)
-					if err != nil {
-						return true, err
-					}
-					res.Decision = router.Decision{
-						Provider: provider,
-						Model:    model,
-						Reason:   string(res.TurnType) + "_hard_pin",
-					}
-					res.StickyHit = true
-					res.HardPinned = true
-					res.Origin = policy.OverrideSourceDeployment
-					res.PinTier = string(res.TurnType) + "_hard_pin"
-					return true, nil
-				},
-			},
-		})
-		return res, err
+		return (&hardPinnedTurnServing{s: s, log: log, strategy: strategy, req: req, res: res, sessionPins: sessionPins, threadSessionKey: threadSessionKey, installationID: installationID, forceModelPin: forceModelPin, forceModelFound: forceModelFound, automaticProbe: automaticProbe, reqHeaders: reqHeaders}).resolve(ctx)
 	}
 
 	if !forceModelFound && env.IsNativeWebSearchSubTurn() {
