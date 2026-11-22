@@ -34,7 +34,7 @@ var ioFreePackagePatterns = []string{
 	"./internal/telemetry/...",
 	"./internal/requestcontext/...",
 	"./internal/feedback/...",
-	"./internal/proxy/usage/...",
+	"./internal/credentials/usage/...",
 	"./internal/routingpolicy/...",
 	"./internal/conversation/...",
 	"./internal/subscriptionlane/...",
@@ -42,12 +42,14 @@ var ioFreePackagePatterns = []string{
 
 var injectedClockPackagePatterns = []string{
 	"./internal/auth/...",
+	"./internal/credentials/usage/...",
 	"./internal/proxy/...",
 	"./internal/router/planner/...",
 }
 
 var safeGoPackagePatterns = []string{
 	"./internal/auth/...",
+	"./internal/credentials/usage/...",
 	"./internal/proxy/...",
 	"./internal/pubsub/...",
 }

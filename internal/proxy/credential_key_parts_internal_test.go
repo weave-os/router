@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/dispatch"
-	"weave-os/router/internal/proxy/usage"
 )
 
 func ctxWithCreds(creds *Credentials) context.Context {
