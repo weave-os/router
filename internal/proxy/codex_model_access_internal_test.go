@@ -16,7 +16,7 @@ import (
 func TestCodexSubscriptionModelRejectionSuppressesLaterOAuthResolution(t *testing.T) {
 	const model = "gpt-6-astra"
 	ctx := codexSubscriptionTestCtx()
-	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
 	err := &providers.UpstreamErrorResponse{
 		Status: http.StatusNotFound,
 		Body:   []byte(`{"error":{"code":"model_not_found","param":"model"}}`),

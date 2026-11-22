@@ -45,7 +45,7 @@ func TestGatewayModelKey_OnlyGateways(t *testing.T) {
 }
 
 func TestGatewayUnservedModelsForRequest_EmptyWithoutGatewayKeys(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 	s.rememberGatewayLacksModel(context.Background(), providers.ProviderOpenAIGateway, "grok-4.6")
 
 	assert.Nil(t, s.gatewayUnservedModelsForRequest(context.Background()))
@@ -57,7 +57,7 @@ func TestGatewayUnservedModelsForRequest_EmptyWithoutGatewayKeys(t *testing.T) {
 
 func TestGatewayUnservedModelsForRequest_ExcludesRefusedAliasOnly(t *testing.T) {
 	const endpoint = "https://cortex.example.com/api/v2/cortex"
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 	s.engine.RememberGatewayLacksModel(gatewayModelKey(endpoint, providers.ProviderOpenAIGateway, "grok-4.6"))
 
 	got := s.gatewayUnservedModelsForRequest(ctxWithKeys(
@@ -75,7 +75,7 @@ func TestGatewayUnservedModelsForRequest_ExcludesRefusedRetiredAlias(t *testing.
 	const endpoint = "https://cortex.example.com/api/v2/cortex"
 	retired := catalog.ModelIDClaudeOpus48.String()
 	require.Equal(t, catalog.TierUnknown, catalog.TierFor(retired), "fixture needs a model retired from routing")
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 	s.engine.RememberGatewayLacksModel(gatewayModelKey(endpoint, providers.ProviderAnthropicGateway, retired))
 
 	got := s.gatewayUnservedModelsForRequest(ctxWithKeys(
@@ -90,7 +90,7 @@ func TestGatewayUnservedModelsForRequest_ExcludesRefusedRetiredAlias(t *testing.
 func TestGatewayUnservedModelsForRequest_KeepsModelWhenAnotherGatewayServesIt(t *testing.T) {
 	const refused = "https://cortex.example.com/api/v2/cortex"
 	const other = "https://gw.example.com/v1"
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 	s.engine.RememberGatewayLacksModel(gatewayModelKey(refused, providers.ProviderOpenAIGateway, "grok-4.6"))
 
 	got := s.gatewayUnservedModelsForRequest(ctxWithKeys(
@@ -103,7 +103,7 @@ func TestGatewayUnservedModelsForRequest_KeepsModelWhenAnotherGatewayServesIt(t 
 
 func TestRememberGatewayLacksModel_MemoizesPerEndpointAndModel(t *testing.T) {
 	const endpoint = "https://cortex.example.com/api/v2/cortex"
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 	ctx := context.WithValue(context.Background(), CredentialsContextKey{},
 		&Credentials{APIKey: []byte("k"), BaseURL: endpoint})
 
@@ -117,7 +117,7 @@ func TestRememberGatewayLacksModel_MemoizesPerEndpointAndModel(t *testing.T) {
 // An unknown alias key never reaches routing, so it must not be reported.
 func TestGatewayUnservedModelsForRequest_IgnoresNonCatalogAliases(t *testing.T) {
 	const endpoint = "https://cortex.example.com/api/v2/cortex"
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 	s.engine.RememberGatewayLacksModel(gatewayModelKey(endpoint, providers.ProviderOpenAIGateway, "not-a-catalog-model"))
 
 	got := s.gatewayUnservedModelsForRequest(ctxWithKeys(

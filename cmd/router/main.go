@@ -29,7 +29,6 @@ import (
 	"weave-os/router/internal/escalationmodal"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
-	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/apm"
 	"weave-os/router/internal/observability/otel"
@@ -1047,14 +1046,13 @@ func main() {
 		WithAnthropicServerSideFallback(anthropicServerSideFallback).
 		WithSiblingFailover(siblingFailover).
 		WithOpenAIResponsesBroad(openAIResponsesBroad).
-		WithAllowedModelsHeader(allowedModelsHeader).
 		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
 		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
 		WithTransientRateLimit(transientRateLimit, rateLimitCooldownSeconds).
 		WithProviderOverloaded(providerOverloaded, breaker.New(breaker.Defaults(), nil)).
 		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
-		WithIngress(ingress.New(sseKeepaliveInterval())).
+		WithIngress(ingressFormatsFor(allowedModelsHeader)).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMConfig(hmmConfig).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).

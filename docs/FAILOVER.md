@@ -13,7 +13,7 @@ How `internal/proxy` recovers a failed turn, what it remembers about the failure
 
 ## The rescue chain
 
-`rescueChain` is one turn's walk from the routed attempt through its rescues. It owns the served decision, bindings, marker and error while the walk runs. The failed primary's decision and error are captured before any rescue runs, because failover rewrites `decision.Model`; post-turn strikes always target the primary, never the rescuer.
+`dispatch.RescueChain` is one turn's walk from the routed attempt through its rescues. It owns the served decision, bindings, marker and error while the walk runs. The failed primary's decision and error are captured before any rescue runs, because failover rewrites `decision.Model`; post-turn strikes always target the primary, never the rescuer.
 
 Order on `/v1/messages` (`messagesRescue`): baseline rescue (re-dispatch the requested model on Anthropic) or the subscription retry (suppress the OAuth token and retry the same model once on the Weave or BYOK key after a 429, timeout, 401/403, model-access 404 or third-party-client 400), then the shared sibling rescue last.
 

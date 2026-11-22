@@ -5,10 +5,12 @@ import (
 	"net/http"
 	"slices"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
@@ -17,7 +19,11 @@ import (
 )
 
 type messagesRescue struct {
-	*rescueChain
+	*dispatch.RescueChain
+	svc                     rescueServices
+	seats                   seatAdmission
+	clock                   auth.Clock
+	usageObserver           *usage.Observer
 	feats                   translate.RoutingFeatures
 	agentShadowMode         bool
 	earlyStop               *dispatch.EarlyStopGate
@@ -50,52 +56,52 @@ type messagesRescue struct {
 }
 
 func (m *messagesRescue) armBaseline(ctx context.Context) {
-	env := m.env
-	routeRes := m.routeRes
+	env := m.Env
+	routeRes := m.RouteRes
 	feats := m.feats
-	m.baselineModel = m.routing.BaselineFor(ctx, feats.Model)
+	m.baselineModel = m.Routing.BaselineFor(ctx, feats.Model)
 	baselineCatalog, baselineKnown := catalog.ByID(m.baselineModel)
-	_, m.explicitRequestedModel = catalog.ByID(m.req.RequestedModel)
-	_, anthropicExcluded := m.routing.ExcludedProvidersForRequest(ctx)[providers.ProviderAnthropic]
+	_, m.ExplicitRequestedModel = catalog.ByID(m.Request.RequestedModel)
+	_, anthropicExcluded := m.Routing.ExcludedProvidersForRequest(ctx)[providers.ProviderAnthropic]
 	baselineAllowed := modelPermittedByAllowlist(ctx, m.baselineModel) &&
 		modelInRequestSubset(ctx, m.baselineModel)
 	m.baselineViable = !m.agentShadowMode &&
 		!routeRes.CallerModelPassthrough &&
-		!m.decision.UserForcedModel() &&
-		m.routing.ShouldFailover(ctx) &&
+		!m.Decision.UserForcedModel() &&
+		m.Routing.ShouldFailover(ctx) &&
 		!paidFallbackForbiddenForModel(ctx, m.baselineModel) &&
 		!anthropicExcluded &&
 		!weaveCreditsCannotFund(ctx, providers.ProviderAnthropic) &&
 		baselineAllowed &&
-		m.decision.Provider != providers.ProviderAnthropic &&
-		m.baselineModel != m.decision.Model &&
+		m.Decision.Provider != providers.ProviderAnthropic &&
+		m.baselineModel != m.Decision.Model &&
 		baselineKnown && baselineCatalog.PrimaryProvider() == providers.ProviderAnthropic &&
-		siblingFitsContext(nil, m.baselineModel, providers.ProviderAnthropic, m.overflowEstimate, env.SignatureTokenSavings(), m.outputReserve) &&
+		siblingFitsContext(nil, m.baselineModel, providers.ProviderAnthropic, m.OverflowEstimate, env.SignatureTokenSavings(), m.OutputReserve) &&
 		!slices.Contains(observedOverflowModelsFromContext(ctx), m.baselineModel)
 	m.baselineEligible = !routeRes.AuthoritativePerTurn && m.baselineViable
 }
 
 func (m *messagesRescue) armSubscriptionRetry(ctx context.Context) {
-	m.subscriptionRetryEligible = m.decision.Provider == providers.ProviderAnthropic &&
+	m.subscriptionRetryEligible = m.Decision.Provider == providers.ProviderAnthropic &&
 		!m.agentShadowMode &&
 		servedOnSubscription(ctx) &&
-		!paidFallbackForbiddenForModelOnProvider(ctx, m.decision.Provider, m.decision.Model) &&
-		m.credentials.AnthropicFallbackKeyAvailable(ctx)
+		!paidFallbackForbiddenForModelOnProvider(ctx, m.Decision.Provider, m.Decision.Model) &&
+		m.Credentials.AnthropicFallbackKeyAvailable(ctx)
 }
 
 func (m *messagesRescue) armRescues(ctx context.Context) context.Context {
-	return m.armSiblings(ctx, m.agentShadowMode || m.routeRes.CallerModelPassthrough || m.decision.UserForcedModel())
+	return m.ArmSiblings(ctx, m.agentShadowMode || m.RouteRes.CallerModelPassthrough || m.Decision.UserForcedModel())
 }
 
 func (m *messagesRescue) armEarlyStop(ctx context.Context) {
 	s := m.svc
-	env := m.env
-	routeRes := m.routeRes
-	m.earlyStopMode = s.earlyStopRedoMode(ctx, routeRes, m.decision, env.Stream(), m.agentShadowMode)
+	env := m.Env
+	routeRes := m.RouteRes
+	m.earlyStopMode = s.earlyStopRedoMode(ctx, routeRes, m.Decision, env.Stream(), m.agentShadowMode)
 	if m.earlyStopMode != flags.EarlyStopRedoOff {
-		basis := rescueBasisForTurn(m.decision, routeRes)
-		target, found := m.routing.EarlyStopRedoTarget(ctx, basis, m.overflowEstimate, env.SignatureTokenSavings(), m.outputReserve)
-		if found && m.routing.SiblingRescueAllowed(ctx, m.routing.GatewaySiblingAllowed(ctx, target)) && !paidFallbackForbiddenForModel(ctx, target.Model) {
+		basis := rescueBasisForTurn(m.Decision, routeRes)
+		target, found := m.Routing.EarlyStopRedoTarget(ctx, basis, m.OverflowEstimate, env.SignatureTokenSavings(), m.OutputReserve)
+		if found && m.Routing.SiblingRescueAllowed(ctx, m.Routing.GatewaySiblingAllowed(ctx, target)) && !paidFallbackForbiddenForModel(ctx, target.Model) {
 			m.earlyStopTarget = target
 			m.earlyStopCandidates = basis.Metadata.CandidateModels
 			m.earlyStop.Observe(m.earlyStopMode == flags.EarlyStopRedoOn)
@@ -107,31 +113,31 @@ func (m *messagesRescue) armEarlyStop(ctx context.Context) {
 
 func (m *messagesRescue) dispatchPrimary(ctx context.Context) {
 	s := m.svc
-	r := m.r
-	log := m.log
-	env := m.env
-	routeRes := m.routeRes
+	r := m.HTTPRequest
+	log := m.Log
+	env := m.Env
+	routeRes := m.RouteRes
 	feats := m.feats
 	m.requestedWindowPassed = routeRes.TurnType != turntype.Compaction &&
-		pastRequestedWindow(clientRequestedModel(ctx, feats.Model), m.decision.Model, m.overflowEstimate, m.outputReserve)
+		pastRequestedWindow(clientRequestedModel(ctx, feats.Model), m.Decision.Model, m.OverflowEstimate, m.OutputReserve)
 	if m.attemptBuildErr != nil {
-		m.winnerIdx, m.proxyErr = -1, m.attemptBuildErr
+		m.WinnerIdx, m.ProxyErr = -1, m.attemptBuildErr
 	} else {
-		m.dispatchPrimaryAttempt(ctx, m.baselineViable || m.subscriptionRetryEligible || m.rescueArmed, func(target router.Decision) {
+		m.DispatchPrimaryAttempt(ctx, m.baselineViable || m.subscriptionRetryEligible || m.RescueArmed, func(target router.Decision) {
 			if !m.agentShadowMode && !routeRes.AuthoritativePerTurn && target.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.HandoverInvoked && routeRes.PrefixTrimmed {
 				log.Info("Context trimming detected on selected exhausted-state route; rewriting context with handover summary", "decision_model", target.Model)
-				m.compactionHandoverOutcome = s.runCompactionHandover(ctx, env, r.Header, target.Model, *m.req)
+				m.compactionHandoverOutcome = s.runCompactionHandover(ctx, env, r.Header, target.Model, *m.Request)
 			}
 		})
 	}
-	if m.subscriptionStatePaidTargetAttempted {
+	if m.SubscriptionStatePaidTargetAttempted {
 		m.subscriptionRetryEligible = false
 	}
 }
 
 func (m *messagesRescue) flushErrAsAnthropic(w http.ResponseWriter, err error) {
-	env := m.env
-	preludeBuf := m.preludeBuf
+	env := m.Env
+	preludeBuf := m.PreludeBuf
 	err = asRequestedWindowOverflow(err, m.requestedWindowPassed, preludeBuf.Committed())
 	if env.Stream() && preludeBuf.PreludeSent() {
 		_ = emitAnthropicSSEErrorEvent(w, err)
@@ -145,41 +151,41 @@ func (m *messagesRescue) flushErrAsAnthropic(w http.ResponseWriter, err error) {
 
 func (m *messagesRescue) redoIfStoppedEarly(ctx context.Context) {
 	s := m.svc
-	r := m.r
-	log := m.log
-	routeRes := m.routeRes
-	opts := m.opts
-	preludeBuf := m.preludeBuf
+	r := m.HTTPRequest
+	log := m.Log
+	routeRes := m.RouteRes
+	opts := m.Opts
+	preludeBuf := m.PreludeBuf
 	if m.earlyStopMode != flags.EarlyStopRedoOff {
-		stopped := m.proxyErr == nil && m.earlyStop.EarlyStop()
+		stopped := m.ProxyErr == nil && m.earlyStop.EarlyStop()
 		if releaseCause := m.earlyStop.ReleaseReason(); !stopped && releaseCause != "" {
-			log.Debug("Early-stop gate released the turn", "release_cause", releaseCause, "served_model", m.decision.Model)
+			log.Debug("Early-stop gate released the turn", "release_cause", releaseCause, "served_model", m.Decision.Model)
 		}
 		if stopped {
 			log.Info("Tool-result turn ended without a tool call below the top candidate tier",
-				"served_model", m.decision.Model,
+				"served_model", m.Decision.Model,
 				"redo_model", m.earlyStopTarget.Model,
 				"early_stop_redo_mode", string(m.earlyStopMode),
 				"withheld", m.earlyStop.Withheld())
 		}
 		if stopped && m.earlyStop.Withheld() && !preludeBuf.Committed() {
-			m.earlyStopRedone, m.proxyErr = s.redoEarlyStop(ctx, dispatch.EarlyStopRedo{
+			m.earlyStopRedone, m.ProxyErr = s.redoEarlyStop(ctx, dispatch.EarlyStopRedo{
 				Gate:    m.earlyStop,
 				Prelude: preludeBuf,
-				Header:  m.contentSink.Header(),
+				Header:  m.ContentSink.Header(),
 				Log:     log,
 				Target:  m.earlyStopTarget,
 				Build: func(ctx context.Context, target router.Decision) (dispatch.UpstreamAttempt, []catalog.ProviderBinding, string, dispatch.EffortResolution, context.Context, error) {
 					redoOpts, redoEffort := switchedAttemptOptions(ctx, opts, target, routeRes.EscalateEffort, s.resolveEffort)
-					redoCtx := m.credentials.ResolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, target.Provider), target.Model), target.Provider, target.Model, r.Header)
+					redoCtx := m.Credentials.ResolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, target.Provider), target.Model), target.Provider, target.Model, r.Header)
 					redoOpts.FastMode = fastModeForAttempt(redoCtx, target.Model, target.Provider)
-					redoMarker := m.markers.EarlyStop(ctx, target.Model)
-					redoAttempt, buildErr := m.buildAttempt(target, redoOpts, redoMarker, redoCtx)
-					return redoAttempt, m.routing.ResolveBindingsForDispatch(redoCtx, target), redoMarker, redoEffort, redoCtx, buildErr
+					redoMarker := m.Markers.EarlyStop(ctx, target.Model)
+					redoAttempt, buildErr := m.BuildAttempt(target, redoOpts, redoMarker, redoCtx)
+					return redoAttempt, m.Routing.ResolveBindingsForDispatch(redoCtx, target), redoMarker, redoEffort, redoCtx, buildErr
 				},
 				Dispatch: func(redoCtx context.Context, target router.Decision, redoBindings []catalog.ProviderBinding, redoAttempt dispatch.UpstreamAttempt) (int, error) {
 					return s.dispatchWithFallback(redoCtx, dispatch.FailoverInputs{
-						Writer:                 m.contentSink,
+						Writer:                 m.ContentSink,
 						Prelude:                preludeBuf,
 						InitialDecision:        target,
 						Bindings:               redoBindings,
@@ -191,86 +197,86 @@ func (m *messagesRescue) redoIfStoppedEarly(ctx context.Context) {
 					})
 				},
 				Served: &dispatch.EarlyStopServed{
-					Decision:   &m.decision,
-					Bindings:   &m.bindings,
-					Marker:     &m.marker,
-					WinnerIdx:  &m.winnerIdx,
+					Decision:   &m.Decision,
+					Bindings:   &m.Bindings,
+					Marker:     &m.Marker,
+					WinnerIdx:  &m.WinnerIdx,
 					Extractor:  m.extractor,
-					Summary:    m.respSummary,
-					ReqStats:   m.reqStats,
+					Summary:    m.RespSummary,
+					ReqStats:   m.ReqStats,
 					FastServed: m.fastServed,
-					Effort:     &m.effortServed,
+					Effort:     &m.EffortServed,
 				},
 			})
 			if m.earlyStopRedone {
-				recordTurnFailure(ctx, m.primaryModel)
+				recordTurnFailure(ctx, m.PrimaryModel)
 				for _, model := range lowerTierCandidates(m.earlyStopTarget.Model, m.earlyStopCandidates) {
 					recordTurnFailure(ctx, model)
 				}
 			}
 		}
-		if releaseErr := m.earlyStop.Disarm(); releaseErr != nil && m.proxyErr == nil {
-			m.proxyErr = releaseErr
+		if releaseErr := m.earlyStop.Disarm(); releaseErr != nil && m.ProxyErr == nil {
+			m.ProxyErr = releaseErr
 		}
 	}
 }
 
 func (m *messagesRescue) flushDeferredErr() {
-	env := m.env
-	preludeBuf := m.preludeBuf
-	if m.deferredErrFlushed {
+	env := m.Env
+	preludeBuf := m.PreludeBuf
+	if m.DeferredErrFlushed {
 		return
 	}
-	m.deferredErrFlushed = true
-	m.proxyErr = asRequestedWindowOverflow(m.proxyErr, m.requestedWindowPassed, preludeBuf.Committed())
+	m.DeferredErrFlushed = true
+	m.ProxyErr = asRequestedWindowOverflow(m.ProxyErr, m.requestedWindowPassed, preludeBuf.Committed())
 	if preludeBuf.Committed() {
-		m.streamCut.noteCut(m.proxyErr)
+		m.streamCut.noteCut(m.ProxyErr)
 	}
 	if env.Stream() && preludeBuf.PreludeSent() {
-		sseErr := emitAnthropicSSEErrorEvent(m.contentSink, m.proxyErr)
-		if !m.subscriptionPoolFailure {
-			m.proxyErr = sseErr
+		sseErr := emitAnthropicSSEErrorEvent(m.ContentSink, m.ProxyErr)
+		if !m.SubscriptionPoolFailure {
+			m.ProxyErr = sseErr
 		}
 		return
 	}
-	if m.subscriptionPoolFailure {
+	if m.SubscriptionPoolFailure {
 		return
 	}
-	flushUpstreamErrorAsAnthropic(m.contentSink, m.proxyErr)
+	flushUpstreamErrorAsAnthropic(m.ContentSink, m.ProxyErr)
 }
 
 func (m *messagesRescue) classifyPrimaryFailure() {
-	log := m.log
+	log := m.Log
 	feats := m.feats
-	m.capabilityRejected = providers.IsUpstreamCapabilityRejection(m.proxyErr)
-	m.crossBindingRejected = providers.IsUpstreamSchemaRejection(m.proxyErr) || providers.IsUpstreamThoughtSignatureRejection(m.proxyErr)
-	m.deadArmRejected = m.capabilityRejected || m.crossBindingRejected || translate.IsIntrinsicallyIncompatible(m.proxyErr)
+	m.capabilityRejected = providers.IsUpstreamCapabilityRejection(m.ProxyErr)
+	m.CrossBindingRejected = providers.IsUpstreamSchemaRejection(m.ProxyErr) || providers.IsUpstreamThoughtSignatureRejection(m.ProxyErr)
+	m.deadArmRejected = m.capabilityRejected || m.CrossBindingRejected || translate.IsIntrinsicallyIncompatible(m.ProxyErr)
 	if m.capabilityRejected {
 		log.Error("Upstream rejected the request as unsupported by the routed model",
-			"model", m.decision.Model,
-			"provider", m.primaryProvider,
-			"upstream_status", upstreamStatus(m.proxyErr),
+			"model", m.Decision.Model,
+			"provider", m.PrimaryProvider,
+			"upstream_status", upstreamStatus(m.ProxyErr),
 			"has_images", feats.HasImages)
 	}
 }
 
 func (m *messagesRescue) finish(ctx context.Context) {
-	routeRes := m.routeRes
-	preludeBuf := m.preludeBuf
-	m.proxyErr = asCompactionUnservable(routeRes.TurnType, m.decision, m.proxyErr)
-	m.proxyErr = withClientTrimCounts(ctx, m.proxyErr, m.rescuedPrimaryErr)
-	if (m.siblingRescueOwed || m.overflowRescueOnly) && m.proxyErr != nil && !preludeBuf.Committed() {
+	routeRes := m.RouteRes
+	preludeBuf := m.PreludeBuf
+	m.ProxyErr = asCompactionUnservable(routeRes.TurnType, m.Decision, m.ProxyErr)
+	m.ProxyErr = withClientTrimCounts(ctx, m.ProxyErr, m.RescuedPrimaryErr)
+	if (m.SiblingRescueOwed || m.OverflowRescueOnly) && m.ProxyErr != nil && !preludeBuf.Committed() {
 		m.flushDeferredErr()
 	}
-	m.proxyErr = asRequestedWindowOverflow(m.proxyErr, m.requestedWindowPassed, preludeBuf.Committed())
+	m.ProxyErr = asRequestedWindowOverflow(m.ProxyErr, m.requestedWindowPassed, preludeBuf.Committed())
 
 	m.subscriptionFailoverUsed = m.subscriptionFailoverUsed || subscriptionCredentialFallbackUsed(ctx)
-	unservedProvider := m.primaryProvider
-	if m.baselineAttempted {
+	unservedProvider := m.PrimaryProvider
+	if m.BaselineAttempted {
 		unservedProvider = providers.ProviderAnthropic
 	}
-	m.finalProvider = m.servedProvider(unservedProvider)
-	m.decision.Provider = m.finalProvider
-	m.failoverUsed = m.finalProvider != m.primaryProvider || m.subscriptionFailoverUsed || m.siblingFailoverUsed || m.earlyStopRedone
-	m.failoverAttempted = m.failoverUsed || m.baselineAttempted || m.subscriptionFailoverAttempted || m.siblingRescueRan
+	m.FinalProvider = m.ServedProvider(unservedProvider)
+	m.Decision.Provider = m.FinalProvider
+	m.FailoverUsed = m.FinalProvider != m.PrimaryProvider || m.subscriptionFailoverUsed || m.SiblingFailoverUsed || m.earlyStopRedone
+	m.FailoverAttempted = m.FailoverUsed || m.BaselineAttempted || m.subscriptionFailoverAttempted || m.SiblingRescueRan
 }
