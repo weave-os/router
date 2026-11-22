@@ -28,12 +28,12 @@ import (
 var ErrGeminiCrossFormatUnsupported = ingress.ErrGeminiCrossFormatUnsupported
 
 func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
-	ctx = withWeaveCreditsFunding(ctx, r.Header)
+	ctx, strategy := withWeaveCreditsFunding(ctx, r.Header), router.StrategyFromContext(ctx)
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, s.ingress.Gemini.TraceBody(body), r.Header)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
-	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointGeminiGenerate)
+	ctx, returnErr = s.withClassifierInput(ctx, strategy, body, router.EndpointGeminiGenerate)
 	if returnErr != nil {
 		return returnErr
 	}
@@ -93,7 +93,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		logInboundRequestDiagnostics(log, env)
 	}
 
-	subAgentHint, strategy := r.Header.Get("x-weave-subagent-type"), router.StrategyFromContext(ctx)
+	subAgentHint := r.Header.Get("x-weave-subagent-type")
 
 	forceCluster, forceErr := applyForceClusterHeader(s.strategyPorts, ctx, strategy, r)
 	if forceErr != nil {
