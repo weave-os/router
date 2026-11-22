@@ -113,6 +113,6 @@ func (s *Service) capturePolicyOutcomeResponse(ctx context.Context, w http.Respo
 	if _, _, _, ok := s.policyOutcomeRoute(res, decision); !ok {
 		return w, nil
 	}
-	capture := capture.NewWriter(w, policyOutcomeResponseMaxBytes)
-	return capture, capture
+	responseCapture := capture.NewWriter(w, policyOutcomeResponseMaxBytes)
+	return responseCapture, responseCapture
 }
