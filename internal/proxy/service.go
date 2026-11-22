@@ -43,6 +43,7 @@ import (
 	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/routingpolicy/overrides"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -81,13 +82,7 @@ type Service struct {
 	lifecycle                    *conversation.Lifecycle
 	prefixTrimFreeSwitch         bool
 	escapeNormalize              bool
-	hardPinExplore               bool
-	explicitUtilityHardPin       bool
-	hardPinProvider              string
-	hardPinModel                 string
-	hardPinResolver              HardPinResolver
-	subAgentProvider             string
-	subAgentModel                string
+	hardPins                     overrides.HardPins
 	captureMode                  ContentCaptureMode
 	captureMaxBytes              int
 	redactor                     Redactor
@@ -923,9 +918,7 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 		prefixTrimFreeSwitch:         true,
 		turnSignalCaptureEnabled:     true,
 		ccOrchToolsCrossVendor:       true,
-		hardPinExplore:               hardPinExplore,
-		hardPinProvider:              hardPinProvider,
-		hardPinModel:                 hardPinModel,
+		hardPins:                     overrides.HardPins{Explore: hardPinExplore, Provider: hardPinProvider, Model: hardPinModel},
 		continuityConfig:             continuity.DefaultConfig(),
 		hmmServing:                   hmmServing{hmmConfig: continuity.DefaultAuthoritativeConfig()},
 		rescueConfig: dispatch.RescueConfig{
@@ -1249,22 +1242,17 @@ func (s *Service) WithAvailableModels(models map[string]struct{}) *Service {
 	return s
 }
 
-type HardPinRequest struct {
-	EnabledProviders map[string]struct{}
-	ExcludedModels   map[string]struct{}
-	CustomBindings   map[string][]string
-	GatewayProviders map[string]struct{}
-}
+type HardPinRequest = overrides.HardPinRequest
 
-type HardPinResolver func(HardPinRequest) (provider, model string, ok bool)
+type HardPinResolver = overrides.HardPinResolver
 
 func (s *Service) WithExplicitUtilityHardPin(enabled bool) *Service {
-	s.explicitUtilityHardPin = enabled
+	s.hardPins.ExplicitUtility = enabled
 	return s
 }
 
 func (s *Service) WithHardPinResolver(resolver HardPinResolver) *Service {
-	s.hardPinResolver = resolver
+	s.hardPins.Resolver = resolver
 	return s
 }
 
@@ -1274,8 +1262,7 @@ func (s *Service) WithDefaultBaselineModel(model string) *Service {
 }
 
 func (s *Service) WithSubAgentOverride(provider, model string) *Service {
-	s.subAgentProvider = provider
-	s.subAgentModel = model
+	s.hardPins.SubAgentProvider, s.hardPins.SubAgentModel = provider, model
 	return s
 }
 
