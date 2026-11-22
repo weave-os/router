@@ -35,11 +35,11 @@ func poolRefusalPins() map[string]poolRefusalPin {
 	throttledSeat := &auth.SubscriptionAccount{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooling}
 	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), clock: func() time.Time { return now }}
 	enrollmentUnknown := func(ctx context.Context) context.Context {
-		return context.WithValue(WithManagedSubscriptionUsage(ctx), credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+		return context.WithValue(credentials.WithManagedSubscriptionUsage(ctx), credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	}
 	callerPlanThrottledCtx := func(ctx context.Context) context.Context {
-		ctx = WithManagedSubscriptionUsage(ctx)
-		state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+		ctx = credentials.WithManagedSubscriptionUsage(ctx)
+		state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 		state.ThrottledProviders = map[subscriptions.Provider]time.Time{subscriptions.ProviderClaude: cooling}
 		return ctx
 	}
@@ -64,7 +64,7 @@ func poolRefusalPins() map[string]poolRefusalPin {
 		},
 		"funding with every blocking seat throttled": {
 			err: func(ctx context.Context) error {
-				return svc.authorizeSubscriptionAPI(WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(billing.WithWeaveCreditsDenied(ctx)), []*auth.SubscriptionAccount{throttledSeat}), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{})
+				return svc.authorizeSubscriptionAPI(WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(billing.WithWeaveCreditsDenied(ctx)), []*auth.SubscriptionAccount{throttledSeat}), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{})
 			},
 			sentinel: ErrSubscriptionPoolThrottled, kind: refusal.SubscriptionPoolThrottled,
 			text: "subscription account pool unavailable: every blocking account is rate-limited",
@@ -101,7 +101,7 @@ func TestSubscriptionPoolUnavailableAndThrottledRefusalsIgnoreTheLaneMark(t *tes
 				require.ErrorIs(t, err, pin.sentinel)
 				assert.Equal(t, pin.text, err.Error())
 				assert.Equal(t, pin.kind.Contract(), classifiedRefusal(t, err))
-				assert.False(t, subscriptionLaneRefused(err))
+				assert.False(t, credentials.SubscriptionLaneRefused(err))
 			})
 		}
 	}
@@ -116,7 +116,7 @@ func TestOnlyACallerPlanThrottleIsCustomerOwned(t *testing.T) {
 
 func TestManagedSubscriptionCommitMarksTheTurnServed(t *testing.T) {
 	for mark, lane := range subscriptionLaneRefusalCases() {
-		ctx := WithManagedSubscriptionUsage(lane.ctx)
+		ctx := credentials.WithManagedSubscriptionUsage(lane.ctx)
 		require.False(t, managedSubscriptionServed(ctx), mark)
 
 		(&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).markManagedSubscriptionServed(ctx, ctx, subscriptions.Lease{AccountID: "seat"})

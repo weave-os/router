@@ -62,7 +62,7 @@ func goldenCallerCodexSeatsCtx(seats ...*auth.SubscriptionAccount) func(context.
 		ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 		ctx = proxy.WithSubscriptionStateModels(ctx, []string{goldenCodexModel}, []string{goldenCodexModel})
 		ctx = proxy.WithManagedSubscriptionCandidates(ctx, seats)
-		return proxy.WithManagedSubscriptionUsage(ctx)
+		return credentials.WithManagedSubscriptionUsage(ctx)
 	}
 }
 

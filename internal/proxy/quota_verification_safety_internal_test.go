@@ -90,7 +90,7 @@ func TestQuotaVerificationFailureNeverBuysPaidCapacity(t *testing.T) {
 						}}})
 					}
 					ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
-					ctx = WithManagedSubscriptionUsage(outOfRosterBillingCtx(ctx))
+					ctx = credentials.WithManagedSubscriptionUsage(outOfRosterBillingCtx(ctx))
 					if funding.reason != "" {
 						ctx = billing.WithSubscriptionOnly(ctx, funding.reason)
 					}
@@ -100,7 +100,7 @@ func TestQuotaVerificationFailureNeverBuysPaidCapacity(t *testing.T) {
 					require.Zero(t, paidCalls.Load(), "uncertainty must not buy inference")
 					require.Empty(t, repo.snapshot(), "uncertainty must not debit customer credit")
 					require.Error(t, err)
-					state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
+					state := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 					require.Empty(t, state.UnavailableProviders)
 					require.Empty(t, state.QuotaExhaustedAccounts)
 					require.Empty(t, state.QuotaExhaustedProviders)
@@ -215,7 +215,7 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 					require.Zero(t, paidCalls.Load())
 					require.Empty(t, repo.snapshot())
 				}
-				state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
+				state := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 				_, capacityMarked := state.UnavailableProviders[subscriptions.ProviderCodex]
 				require.Equal(t, scenario.capacityOverload, capacityMarked)
 				require.False(t, svc.subscriptionPoolUnavailable(ctx, providers.ProviderAnthropic, overloadRescuerModel), "capacity evidence cannot cross pools")

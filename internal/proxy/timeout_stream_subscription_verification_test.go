@@ -74,7 +74,7 @@ func TestVerificationSubscriptionTimeoutRefusesAPIWithoutQuotaProof(t *testing.T
 	require.Equal(t, []string{"Bearer timeout-seat"}, bearers)
 	bearersMu.Unlock()
 	require.NotContains(t, rec.Body.String(), "api answer")
-	winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
+	winner := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 	require.False(t, winner.Served, "a failed subscription attempt cannot count as a winner")
 }
 
@@ -124,7 +124,7 @@ func TestVerificationResponsesSubscriptionTimeoutRefusesAPIWithoutQuotaProof(t *
 	require.Equal(t, []string{"Bearer timeout-seat"}, bearers)
 	bearersMu.Unlock()
 	require.NotContains(t, rec.Body.String(), "api answer")
-	winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
+	winner := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 	require.False(t, winner.Served, "a failed subscription attempt cannot count as a winner")
 }
 
@@ -197,7 +197,7 @@ func TestVerificationCommittedFailureAcrossIngress(t *testing.T) {
 			require.Equal(t, []string{"Bearer first-seat"}, bearers)
 			bearersMu.Unlock()
 			require.Contains(t, rec.Body.String(), "committed answer")
-			require.False(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served, "failed committed stream cannot count as successful subscription winner")
+			require.False(t, mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served, "failed committed stream cannot count as successful subscription winner")
 		})
 	}
 }
@@ -239,7 +239,7 @@ func TestVerificationCommittedCRLFFailureAcrossIngress(t *testing.T) {
 			require.Equal(t, []string{"Bearer first-seat"}, bearers)
 			bearersMu.Unlock()
 			require.Contains(t, rec.Body.String(), "committed answer")
-			require.False(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served, "failed committed stream cannot count as successful subscription winner")
+			require.False(t, mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served, "failed committed stream cannot count as successful subscription winner")
 		})
 	}
 }
@@ -285,7 +285,7 @@ func TestVerificationDebugCommittedFailureAcrossIngress(t *testing.T) {
 				require.Equal(t, []string{"Bearer first-seat"}, bearers)
 				bearersMu.Unlock()
 				require.Contains(t, rec.Body.String(), "committed answer")
-				require.False(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served, "failed committed stream cannot count as successful subscription winner")
+				require.False(t, mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served, "failed committed stream cannot count as successful subscription winner")
 			})
 		}
 	}
@@ -326,5 +326,5 @@ func TestVerificationCommittedSubscriptionStreamOutlivesRotationBudget(t *testin
 	require.Equal(t, []string{"Bearer long-seat"}, bearers)
 	bearersMu.Unlock()
 	require.Contains(t, rec.Body.String(), "late output")
-	require.True(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served)
+	require.True(t, mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served)
 }

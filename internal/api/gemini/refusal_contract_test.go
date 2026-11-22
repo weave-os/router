@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/eligibility"
@@ -21,8 +22,8 @@ func TestRefusalContract_GeminiStatus(t *testing.T) {
 	}{
 		{err: eligibility.ErrModelIneligible, want: "PERMISSION_DENIED"},
 		{err: proxy.ErrSubscriptionClientAppRefused, want: "PERMISSION_DENIED"},
-		{err: proxy.ErrSpendCapSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
-		{err: proxy.ErrCreditsExhaustedSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
+		{err: credentials.ErrSpendCapSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
+		{err: credentials.ErrCreditsExhaustedSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
 		{err: proxy.ErrWeaveCreditsDisabled, want: "FAILED_PRECONDITION"},
 		{err: proxy.ErrClaudeEnterpriseSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
 		{err: proxy.ErrSubscriptionPoolExhausted, want: "RESOURCE_EXHAUSTED"},

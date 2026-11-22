@@ -60,7 +60,7 @@ func (s *Service) afterSubscriptionRotationBudget(ctx context.Context, decision 
 }
 
 func recordWinningCredentials(ctx, credentialCtx context.Context) {
-	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); usage != nil {
 		usage.WinningCredentials = requestcontext.CredentialsFromContext(credentialCtx)
 		usage.Finished = true
 	}
