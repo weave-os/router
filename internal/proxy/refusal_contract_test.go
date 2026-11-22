@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -29,9 +30,9 @@ func TestRefusalContract_Dispatch(t *testing.T) {
 	}{
 		{err: eligibility.ErrModelIneligible, kind: ingress.DispatchErrorProductIneligible, status: http.StatusForbidden, clientError: true},
 		{err: proxy.ErrSubscriptionClientAppRefused, kind: ingress.DispatchErrorSubscriptionClientAppRefused, status: http.StatusForbidden, clientError: true},
-		{err: proxy.ErrSpendCapSubscriptionUnavailable, kind: ingress.DispatchErrorSpendCapReached, status: http.StatusPaymentRequired, noClientRetry: true},
-		{err: proxy.ErrCreditsExhaustedSubscriptionUnavailable, kind: ingress.DispatchErrorCreditsExhausted, status: http.StatusPaymentRequired, noClientRetry: true},
-		{err: proxy.ErrSubscriptionUnavailableForTurn, kind: ingress.DispatchErrorSubscriptionUnavailableForTurn, status: http.StatusPaymentRequired, noClientRetry: true},
+		{err: credentials.ErrSpendCapSubscriptionUnavailable, kind: ingress.DispatchErrorSpendCapReached, status: http.StatusPaymentRequired, noClientRetry: true},
+		{err: credentials.ErrCreditsExhaustedSubscriptionUnavailable, kind: ingress.DispatchErrorCreditsExhausted, status: http.StatusPaymentRequired, noClientRetry: true},
+		{err: credentials.ErrSubscriptionUnavailableForTurn, kind: ingress.DispatchErrorSubscriptionUnavailableForTurn, status: http.StatusPaymentRequired, noClientRetry: true},
 		{err: proxy.ErrWeaveCreditsDisabled, kind: ingress.DispatchErrorWeaveCreditsDisabled, status: http.StatusPaymentRequired, noClientRetry: true},
 		{err: proxy.ErrClaudeEnterpriseSubscriptionUnavailable, kind: ingress.DispatchErrorClaudeEnterpriseOnly, status: http.StatusPaymentRequired, noClientRetry: true},
 		{err: proxy.ErrSubscriptionPoolExhausted, kind: ingress.DispatchErrorSubscriptionPoolExhausted, status: http.StatusTooManyRequests, retryAfter: true},

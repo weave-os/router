@@ -54,7 +54,7 @@ func withClaudeEnterpriseTurn(ctx context.Context, decision router.Decision) con
 func claudeEnterpriseTurn(ctx context.Context) bool {
 	onEnterprise, _ := ctx.Value(claudeEnterpriseTurnKey{}).(bool)
 	claudeTurn, _ := ctx.Value(claudeSubscriptionTurnKey{}).(bool)
-	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); claudeTurn && state != nil && state.ClaudeSubscriptionPlan == providers.SubscriptionPlanEnterprise {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); claudeTurn && state != nil && state.ClaudeSubscriptionPlan == providers.SubscriptionPlanEnterprise {
 		onEnterprise = true
 	}
 	return onEnterprise && claudeEnterpriseOnly(ctx)

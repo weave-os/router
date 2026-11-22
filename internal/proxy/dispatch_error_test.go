@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
@@ -217,7 +218,7 @@ func TestClassifyDispatchError_RLAndHMMUnavailableRetry(t *testing.T) {
 }
 
 func TestClassifyDispatchError_SpendCapIs402WithoutTopUpCTA(t *testing.T) {
-	cls, ok := proxy.ClassifyDispatchError(proxy.ErrSpendCapSubscriptionUnavailable)
+	cls, ok := proxy.ClassifyDispatchError(credentials.ErrSpendCapSubscriptionUnavailable)
 
 	require.True(t, ok, "the spend-cap sentinel must be classified")
 	assert.Equal(t, ingress.DispatchErrorSpendCapReached, cls.Kind)
@@ -227,7 +228,7 @@ func TestClassifyDispatchError_SpendCapIs402WithoutTopUpCTA(t *testing.T) {
 }
 
 func TestClassifyDispatchError_CreditsExhaustedIs402(t *testing.T) {
-	cls, ok := proxy.ClassifyDispatchError(proxy.ErrCreditsExhaustedSubscriptionUnavailable)
+	cls, ok := proxy.ClassifyDispatchError(credentials.ErrCreditsExhaustedSubscriptionUnavailable)
 
 	require.True(t, ok, "the credits-exhausted sentinel must be classified")
 	assert.Equal(t, ingress.DispatchErrorCreditsExhausted, cls.Kind)
