@@ -22,33 +22,37 @@ const feedbackSourceLink = "link"
 
 var ErrFeedbackUnavailable = errors.New("proxy: feedback repository not configured")
 
+type feedbackLinks struct {
+	repo    feedback.FeedbackRepository
+	signer  *feedback.Signer
+	baseURL string
+}
+
 func (s *Service) WithFeedback(repo feedback.FeedbackRepository, signer *feedback.Signer, baseURL string) *Service {
-	s.feedbackRepo = repo
-	s.feedbackSigner = signer
-	s.feedbackBaseURL = strings.TrimRight(baseURL, "/")
+	s.feedbackLinks = feedbackLinks{repo: repo, signer: signer, baseURL: strings.TrimRight(baseURL, "/")}
 	return s
 }
 
 func (s *Service) FeedbackEnabled() bool {
-	return s != nil && s.feedbackSigner != nil
+	return s != nil && s.feedbackLinks.signer != nil
 }
 
 func (s *Service) VerifyFeedbackToken(token string) (feedback.Claims, error) {
-	return s.feedbackSigner.Verify(token)
+	return s.feedbackLinks.signer.Verify(token)
 }
 
 func (s *Service) GetFeedbackContext(ctx context.Context, installationID, requestID string) (feedback.FeedbackContext, error) {
-	if s.feedbackRepo == nil {
+	if s.feedbackLinks.repo == nil {
 		return feedback.FeedbackContext{}, ErrFeedbackUnavailable
 	}
-	return s.feedbackRepo.GetContext(ctx, installationID, requestID)
+	return s.feedbackLinks.repo.GetContext(ctx, installationID, requestID)
 }
 
 func (s *Service) SubmitFeedback(ctx context.Context, p feedback.SubmitFeedbackParams) error {
-	if s.feedbackRepo == nil {
+	if s.feedbackLinks.repo == nil {
 		return ErrFeedbackUnavailable
 	}
-	err := s.feedbackRepo.Upsert(ctx, feedback.UpsertFeedbackParams{
+	err := s.feedbackLinks.repo.Upsert(ctx, feedback.UpsertFeedbackParams{
 		InstallationID: p.InstallationID,
 		ExternalID:     p.ExternalID,
 		RequestID:      p.RequestID,
@@ -85,25 +89,25 @@ func (s *Service) emitFeedbackSpan(ctx context.Context, p feedback.SubmitFeedbac
 	telemetry.Flush(ctx)
 }
 
-func (s *Service) mintFeedbackToken(installationID uuid.UUID, externalID, requestID, routerUserID string) string {
-	if s.feedbackSigner == nil || s.feedbackBaseURL == "" {
+func (l feedbackLinks) mintToken(installationID uuid.UUID, externalID, requestID, routerUserID string) string {
+	if l.signer == nil || l.baseURL == "" {
 		return ""
 	}
 	if installationID == uuid.Nil || externalID == "" || requestID == "" {
 		return ""
 	}
-	return s.feedbackSigner.Mint(installationID.String(), externalID, requestID, routerUserID)
+	return l.signer.Mint(installationID.String(), externalID, requestID, routerUserID)
 }
 
 func (s *Service) setFeedbackLinkHeader(ctx context.Context, w http.ResponseWriter, installationID uuid.UUID, externalID, requestID, routerUserID string) {
 	if hideTerminalSurfacesForRequest(ctx) {
 		return
 	}
-	token := s.mintFeedbackToken(installationID, externalID, requestID, routerUserID)
+	token := s.feedbackLinks.mintToken(installationID, externalID, requestID, routerUserID)
 	if token == "" {
 		return
 	}
-	w.Header().Set(HeaderRouterFeedbackURL, s.feedbackBaseURL+"/f/"+token)
+	w.Header().Set(HeaderRouterFeedbackURL, s.feedbackLinks.baseURL+"/f/"+token)
 }
 
 var terminalFeedbackClients = map[string]struct{}{

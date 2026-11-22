@@ -8,8 +8,6 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-const routingMarkerPrefix = "✦ **Weave Router** → "
-
 func set(ids ...string) map[string]struct{} {
 	out := make(map[string]struct{}, len(ids))
 	for _, id := range ids {

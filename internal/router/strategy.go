@@ -22,6 +22,10 @@ func IsHMMStrategy(strategy Strategy) bool {
 	return strategy == StrategyHMM || strategy == StrategyHMMEmbedding || IsBetaStrategy(strategy)
 }
 
+func ClassifiesThreads(strategy Strategy) bool {
+	return strategy == StrategyLLMClassifier
+}
+
 func IsBetaStrategy(strategy Strategy) bool {
 	return strategy == StrategyHMMBeta || strategy == StrategyHMMQwen
 }
