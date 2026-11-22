@@ -96,7 +96,7 @@ func heldCodexOnlyService(t *testing.T) (*fakeClient, func() router.Decision) {
 		ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
 		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
 		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
-		return withTurnFailures(ctx)
+		return requestcontext.WithTurnFailures(ctx)
 	}
 	held := turnCtx()
 	markSubscriptionPoolUnavailable(held, subscriptions.ProviderCodex, svc.clock.Now())
@@ -148,7 +148,7 @@ func TestMemberPickNoSubscriptionServesSkipsTheIncludedLane(t *testing.T) {
 	ctx = context.WithValue(ctx, credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
-	ctx = withTurnFailures(ctx)
+	ctx = requestcontext.WithTurnFailures(ctx)
 	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI, providers.ProviderOpenRouter})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)

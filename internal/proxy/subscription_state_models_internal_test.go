@@ -137,7 +137,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				paidModels = nil
 			}
 			ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, paidModels)
-			ctx = withTurnFailures(ctx)
+			ctx = requestcontext.WithTurnFailures(ctx)
 			if scenario.demoteClaude {
 				ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, []string{stateClaudeModel})
 			}
@@ -221,7 +221,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			}
 			if scenario.liveReject && !scenario.wantErr {
 				require.Equal(t, []string{stateClaudeModel, scenario.want}, servedModels)
-				require.NotContains(t, turnFailuresFromContext(ctx).models, stateClaudeModel, "a funding failure leaves the model to the paid lane")
+				require.NotContains(t, requestcontext.TurnFailedModels(ctx), stateClaudeModel, "a funding failure leaves the model to the paid lane")
 			}
 		})
 	}
@@ -251,7 +251,7 @@ func TestSubscriptionStateRateLimitedIncludedLaneKeepsUpstreamStatus(t *testing.
 	ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel})
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
-	ctx = withTurnFailures(ctx)
+	ctx = requestcontext.WithTurnFailures(ctx)
 	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderAnthropic})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
@@ -877,7 +877,7 @@ func TestSubscriptionStateModelsSkipSpentSeatPoolsBeforeDispatch(t *testing.T) {
 	})
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel, stateClaudeModel})
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
-	ctx = withTurnFailures(ctx)
+	ctx = requestcontext.WithTurnFailures(ctx)
 	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
