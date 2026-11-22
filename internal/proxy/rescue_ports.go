@@ -4,20 +4,23 @@ import (
 	"context"
 	"net/http"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/translate"
 )
 
-type rescuePorts struct {
-	svc         rescueServices
-	credentials dispatch.RescueCredentials
-	routing     dispatch.RescueRouting
-}
-
-func rescuePortsFor(s *Service) rescuePorts {
-	return rescuePorts{svc: s, credentials: rescueCredentialPort{s}, routing: rescueRoutingPort{s}}
+func rescuePortsFor(s *Service) dispatch.RescuePorts {
+	return dispatch.RescuePorts{
+		Credentials: rescueCredentialPort{s},
+		Routing:     rescueRoutingPort{s},
+		Funding:     rescueFundingPort{},
+		Attempts:    rescueAttemptPort{s},
+		Overflow:    rescueOverflowPort{},
+		Dispatch:    s.dispatchWithFallback,
+	}
 }
 
 type rescueCredentialPort struct{ s *Service }
@@ -58,6 +61,18 @@ func (p rescueCredentialPort) OpenAIFallbackKeyAvailable(ctx context.Context) bo
 
 func (p rescueCredentialPort) RecordCodexQuotaExhaustion(ctx context.Context, headers http.Header, err error) {
 	p.s.recordCodexQuotaExhaustion(ctx, headers, err)
+}
+
+func (rescueCredentialPort) ServedOnSubscription(ctx context.Context) bool {
+	return servedOnSubscription(ctx)
+}
+
+func (rescueCredentialPort) RescueCredentialContext(ctx context.Context, rescueProvider string) context.Context {
+	return rescueCredentialContext(ctx, rescueProvider)
+}
+
+func (rescueCredentialPort) IsSubscriptionPoolError(err error) bool {
+	return isSubscriptionPoolError(err)
 }
 
 type rescueRoutingPort struct{ s *Service }
@@ -114,4 +129,53 @@ func (p rescueRoutingPort) IsHardPinnedTurn(ctx context.Context, strategy router
 
 func (p rescueRoutingPort) CyberRefusalRetryTarget(ctx context.Context, failed router.Decision, target dispatch.RescueSessionTarget, role string, est, sigSavings, outputReserve int) (router.Decision, bool) {
 	return p.s.cyberRefusalRetryTarget(ctx, failed, sessionTarget{strategy: target.Strategy, installationID: target.InstallationID, sessionKey: target.SessionKey}, role, est, sigSavings, outputReserve)
+}
+
+func (rescueRoutingPort) RescueBasis(decision router.Decision, turn dispatch.RescueTurn) router.Decision {
+	return rescueBasisForTurn(decision, turn)
+}
+
+func (rescueRoutingPort) RecordTurnFailure(ctx context.Context, model string) {
+	recordTurnFailure(ctx, model)
+}
+
+type rescueFundingPort struct{}
+
+var _ dispatch.RescueFunding = rescueFundingPort{}
+
+func (rescueFundingPort) WithSiblingFunding(ctx context.Context, decision router.Decision) context.Context {
+	ctx = withClaudeEnterpriseTurn(ctx, decision)
+	return credentials.WithManagedSubscriptionUsage(ctx)
+}
+
+func (rescueFundingPort) PaidRescueDecisions(ctx context.Context, candidates []router.Decision) []router.Decision {
+	return subscriptionStatePaidRescueDecisions(ctx, candidates)
+}
+
+func (rescueFundingPort) PaidRescueContext(ctx context.Context, model string) context.Context {
+	return subscriptionStatePaidRescueContext(ctx, model)
+}
+
+type rescueAttemptPort struct{ svc rescueServices }
+
+var _ dispatch.RescueAttempts = rescueAttemptPort{}
+
+func (p rescueAttemptPort) SwitchedOptions(ctx context.Context, base translate.EmitOptions, target router.Decision, escalate bool) (translate.EmitOptions, dispatch.EffortResolution) {
+	return switchedAttemptOptions(ctx, base, target, escalate, p.svc.resolveEffort)
+}
+
+func (rescueAttemptPort) FastMode(ctx context.Context, model, provider string) bool {
+	return fastModeForAttempt(ctx, model, provider)
+}
+
+type rescueOverflowPort struct{}
+
+var _ dispatch.RescueOverflow = rescueOverflowPort{}
+
+func (rescueOverflowPort) IsContextOverflow(err error) bool {
+	return isUpstreamContextOverflow(err)
+}
+
+func (rescueOverflowPort) RescuesCompactionOverflow(turnType turntype.TurnType, err error) bool {
+	return rescuesCompactionOverflow(turnType, err)
 }

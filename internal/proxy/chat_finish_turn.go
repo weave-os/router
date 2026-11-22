@@ -121,12 +121,12 @@ func recordChatUpstream(ctx context.Context, s *Service, t *chatFinishedTurn, us
 			s.applySubscriptionSpanTelemetry(ctx, b, t.feats.Model, t.decision.Model)
 		},
 		dispatch: &upstreamSpanDispatch{
-			primaryProvider: t.rescue.primaryProvider, primaryModel: t.rescue.primaryModel, fallbackAttempts: t.winnerIdx,
-			failoverUsed: t.rescue.failoverUsed, failoverAttempted: t.rescue.failoverAttempted,
+			primaryProvider: t.rescue.PrimaryProvider, primaryModel: t.rescue.PrimaryModel, fallbackAttempts: t.winnerIdx,
+			failoverUsed: t.rescue.FailoverUsed, failoverAttempted: t.rescue.FailoverAttempted,
 			surfaceAttrs: func(b *telemetry.AttrBuilder) {
 				b.Bool("dispatch.subscription_failover", t.rescue.codexFailoverUsed || t.rescue.claudeFailoverUsed).
 					Bool("dispatch.cyber_refusal_retry", t.rescue.cyberRetryRan).
-					Bool("dispatch.sibling_failover", t.rescue.siblingFailoverUsed)
+					Bool("dispatch.sibling_failover", t.rescue.SiblingFailoverUsed)
 				if responsesSurface, _ := ctx.Value(responsesSurfaceContextKey{}).(bool); responsesSurface {
 					b.String("request.api_surface", string(requestAPISurfaceResponses))
 				}
@@ -165,21 +165,21 @@ func strikeChatArms(ctx context.Context, s *Service, t *chatFinishedTurn) []any 
 		if armDemotedOAI != "" {
 			armDemotionReasonOAI = sessionpin.DemotionReasonCommittedStreamFailure
 		}
-		primaryModelRescueRan := t.rescue.siblingRescueRan || t.decision.Model != t.rescue.primaryModel
-		if providers.IsResponseHeaderTimeout(t.rescue.primaryFailureErr) && (primaryModelRescueRan || t.proxyErr != nil) {
-			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, primaryModelRescueRan, t.routeRes.HardPinned, t.rescue.primaryFailureErr, t.rescue.primaryDecision, sessionTarget{strategy: t.strategy, installationID: installationIDFromContext(ctx), sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
+		primaryModelRescueRan := t.rescue.SiblingRescueRan || t.decision.Model != t.rescue.PrimaryModel
+		if providers.IsResponseHeaderTimeout(t.rescue.PrimaryFailureErr) && (primaryModelRescueRan || t.proxyErr != nil) {
+			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, primaryModelRescueRan, t.routeRes.HardPinned, t.rescue.PrimaryFailureErr, t.rescue.PrimaryDecision, sessionTarget{strategy: t.strategy, installationID: installationIDFromContext(ctx), sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 		} else {
-			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, t.rescue.siblingRescueRan, t.routeRes.HardPinned, t.rescue.rescuedPrimaryErr, t.rescue.rescuedPrimary, sessionTarget{strategy: t.strategy, installationID: installationIDFromContext(ctx), sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
+			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, t.rescue.SiblingRescueRan, t.routeRes.HardPinned, t.rescue.RescuedPrimaryErr, t.rescue.RescuedPrimary, sessionTarget{strategy: t.strategy, installationID: installationIDFromContext(ctx), sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 		}
 		s.strikeRescuedModelsForTurn(ctx, t.proxyErr, t.decision, t.routeRes.HardPinned, t.routeRes.SessionKey, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 		if t.proxyErr != nil {
-			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, t.rescue.siblingRescueRan, committed(t.preludeBuf) || committed(t.responsesPreludeBuf), t.routeRes.HardPinned, t.rescue.primarySubscriptionArmFailure, t.rescue.primaryDecision, sessionTarget{strategy: t.strategy, installationID: installationIDFromContext(ctx), sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
+			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, t.rescue.SiblingRescueRan, committed(t.preludeBuf) || committed(t.responsesPreludeBuf), t.routeRes.HardPinned, t.rescue.PrimarySubscriptionArmFailure, t.rescue.PrimaryDecision, sessionTarget{strategy: t.strategy, installationID: installationIDFromContext(ctx), sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 			if armDemotedOAI == "" && unrescuedStallDemoted != "" {
 				armDemotedOAI = unrescuedStallDemoted
 				armDemotionReasonOAI = sessionpin.DemotionReasonUnrescuedStall
 			}
 		}
-		s.maybeExpireSubscriptionArmPin(ctx, t.strategy, t.rescue.primarySubscriptionArmFailure, t.decision.Reason, installationIDFromContext(ctx), t.routeRes.SessionKey, stickyStateRole(t.routeRes))
+		s.maybeExpireSubscriptionArmPin(ctx, t.strategy, t.rescue.PrimarySubscriptionArmFailure, t.decision.Reason, installationIDFromContext(ctx), t.routeRes.SessionKey, stickyStateRole(t.routeRes))
 		s.maybeDisableProviderAfterOverload(ctx, t.stickyHit, t.proxyErr, t.finalProvider, t.decision.Reason, sessionTarget{strategy: t.strategy, installationID: installationIDFromContext(ctx), sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 	}
 	return armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI)
@@ -267,8 +267,8 @@ func chatTelemetryRow(ctx context.Context, s *Service, t *chatFinishedTurn, usag
 		StopReason:               stringPtrOrEmpty(t.respSummary.StopReason),
 		ToolUseBlocks:            int32PtrIfKnown(int32(t.respSummary.ToolUseBlocks), t.respSummary.StopReason != ""),
 		InvalidToolArgsBlocks:    int32PtrIfKnown(int32(t.respSummary.InvalidToolArgsBlocks), t.respSummary.StopReason != "" && !t.nativeRespSummary),
-		FailoverUsed:             boolPtrTrue(t.rescue.failoverUsed),
-		FailoverAttempted:        boolPtrTrue(t.rescue.failoverAttempted),
+		FailoverUsed:             boolPtrTrue(t.rescue.FailoverUsed),
+		FailoverAttempted:        boolPtrTrue(t.rescue.FailoverAttempted),
 		SessionKey:               t.sessionKey[:],
 		Role:                     t.routeRes.PinRole,
 		FreshDecisionModel:       openaiObs.FreshDecisionModel,
@@ -285,11 +285,11 @@ func chatTelemetryRow(ctx context.Context, s *Service, t *chatFinishedTurn, usag
 
 func completeChatTurn(ctx context.Context, s *Service, t *chatFinishedTurn, armStrikeFields []any) {
 	if t.cyberRefusalSeen && !t.routeRes.CallerModelPassthrough {
-		s.repinOffRefusingModel(ctx, t.strategy, t.routeRes.SessionKey, stickyStateRole(t.routeRes), t.rescue.primaryDecision, providers.CyberPolicyErrorCode, t.rescue.primaryDecision.Provider)
+		s.repinOffRefusingModel(ctx, t.strategy, t.routeRes.SessionKey, stickyStateRole(t.routeRes), t.rescue.PrimaryDecision, providers.CyberPolicyErrorCode, t.rescue.PrimaryDecision.Provider)
 	}
 
 	logToolCallIssues(t.log, t.respSummary.ToolCallIssues, t.decision.Model, t.finalProvider, t.routeRes.SessionKey)
 
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	t.log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", t.feats.Model, "baseline_model", s.baselineFor(ctx, t.feats.Model), "decision_model", t.decision.Model, "decision_provider", t.decision.Provider, "primary_provider", t.rescue.primaryProvider, "primary_model", t.rescue.primaryModel, "fallback_attempts", t.winnerIdx, "failover_used", t.rescue.failoverUsed, "failover_attempted", t.rescue.failoverAttempted, "subscription_failover", t.rescue.codexFailoverUsed || t.rescue.claudeFailoverUsed, "decision_reason", t.decision.Reason, "requested_tier", t.routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(t.decision.Model).String(), "embedded_tokens", len(t.promptText) / 4, "total_input_tokens", t.feats.Tokens, "has_tools", t.feats.HasTools, "embed_input", t.embedInput, "cross_format", t.crossFormat, "sticky_hit", t.stickyHit, "pin_tier", t.pinTier, "turn_type", string(t.tt), "route_ms", t.routeMs, "proxy_ms", t.proxyMs, "proxy_err", t.proxyErr, "error_class", classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, t.proxyErr, classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), t.respSummary.UpstreamFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(t.proxyErr)), "upstream_status", upstreamStatus(t.proxyErr), "upstream_finish_reason", t.respSummary.UpstreamFinishReason, "resp_stop_reason", t.respSummary.StopReason, "stop_reason_promoted", t.respSummary.StopReasonPromoted, "tool_use_blocks", t.respSummary.ToolUseBlocks, "invalid_tool_args_blocks", t.respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(t.respSummary.ToolCallIssues), "routing_marker", t.marker, "prior_served_model", t.routeRes.PriorServedModel, "hard_pinned", t.routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(t.facts.Client), "subscription_tier", servedSubscriptionTier}, append(append(armStrikeFields, plannerLogFields(t.routeRes)...), t.rateLimit.CompletionLogFields()...)...), downgradeShadowLogFields(t.routeRes)...)...)
+	t.log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", t.feats.Model, "baseline_model", s.baselineFor(ctx, t.feats.Model), "decision_model", t.decision.Model, "decision_provider", t.decision.Provider, "primary_provider", t.rescue.PrimaryProvider, "primary_model", t.rescue.PrimaryModel, "fallback_attempts", t.winnerIdx, "failover_used", t.rescue.FailoverUsed, "failover_attempted", t.rescue.FailoverAttempted, "subscription_failover", t.rescue.codexFailoverUsed || t.rescue.claudeFailoverUsed, "decision_reason", t.decision.Reason, "requested_tier", t.routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(t.decision.Model).String(), "embedded_tokens", len(t.promptText) / 4, "total_input_tokens", t.feats.Tokens, "has_tools", t.feats.HasTools, "embed_input", t.embedInput, "cross_format", t.crossFormat, "sticky_hit", t.stickyHit, "pin_tier", t.pinTier, "turn_type", string(t.tt), "route_ms", t.routeMs, "proxy_ms", t.proxyMs, "proxy_err", t.proxyErr, "error_class", classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, t.proxyErr, classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), t.respSummary.UpstreamFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(t.proxyErr)), "upstream_status", upstreamStatus(t.proxyErr), "upstream_finish_reason", t.respSummary.UpstreamFinishReason, "resp_stop_reason", t.respSummary.StopReason, "stop_reason_promoted", t.respSummary.StopReasonPromoted, "tool_use_blocks", t.respSummary.ToolUseBlocks, "invalid_tool_args_blocks", t.respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(t.respSummary.ToolCallIssues), "routing_marker", t.marker, "prior_served_model", t.routeRes.PriorServedModel, "hard_pinned", t.routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(t.facts.Client), "subscription_tier", servedSubscriptionTier}, append(append(armStrikeFields, plannerLogFields(t.routeRes)...), t.rateLimit.CompletionLogFields()...)...), downgradeShadowLogFields(t.routeRes)...)...)
 }

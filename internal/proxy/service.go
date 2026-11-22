@@ -2233,28 +2233,28 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	rescue := &messagesRescue{
-		rescueChain: &rescueChain{
-			rescuePorts: rescuePortsFor(s), markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver}, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.credentials.UsageObserver,
-			r:                r,
-			log:              log,
-			env:              env,
-			routeRes:         rescueTurnOf(routeRes),
-			req:              &req,
-			opts:             opts,
-			contentSink:      contentSink,
-			preludeBuf:       preludeBuf,
-			attempt:          attempt,
-			buildAttempt:     buildAttempt,
-			surface:          inference.PurposeAnthropicMessages,
-			respSummary:      &respSummary,
-			reqStats:         &reqStats,
-			decision:         decision,
-			bindings:         bindings,
-			marker:           marker,
-			proxyErr:         proxyErr,
-			effortServed:     effortServed,
-			overflowEstimate: overflowEstimate,
-			outputReserve:    outputReserve,
+		svc: s, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.credentials.UsageObserver, RescueChain: &dispatch.RescueChain{
+			RescuePorts: rescuePortsFor(s), Markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver},
+			HTTPRequest:      r,
+			Log:              log,
+			Env:              env,
+			RouteRes:         rescueTurnOf(routeRes),
+			Request:          &req,
+			Opts:             opts,
+			ContentSink:      contentSink,
+			PreludeBuf:       preludeBuf,
+			Attempt:          attempt,
+			BuildAttempt:     buildAttempt,
+			Surface:          inference.PurposeAnthropicMessages,
+			RespSummary:      &respSummary,
+			ReqStats:         &reqStats,
+			Decision:         decision,
+			Bindings:         bindings,
+			Marker:           marker,
+			ProxyErr:         proxyErr,
+			EffortServed:     effortServed,
+			OverflowEstimate: overflowEstimate,
+			OutputReserve:    outputReserve,
 		},
 		feats:           feats,
 		agentShadowMode: agentShadowMode,
@@ -2269,23 +2269,23 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		crossFormat:               &crossFormat,
 		compactionHandoverOutcome: compactionHandoverOutcome,
 	}
-	rescue.flushErr = rescue.flushErrAsAnthropic
+	rescue.FlushErr = rescue.flushErrAsAnthropic
 	rescue.armBaseline(ctx)
 	rescue.armSubscriptionRetry(ctx)
 	ctx = rescue.armRescues(ctx)
 	rescue.armEarlyStop(ctx)
-	rescue.holdPrimary()
+	rescue.HoldPrimary()
 	rescue.dispatchPrimary(ctx)
 	rescue.redoIfStoppedEarly(ctx)
-	rescue.notePrimaryFailure(ctx)
+	rescue.NotePrimaryFailure(ctx)
 	rescue.classifyPrimaryFailure()
 	ctx = rescue.baselineRescue(ctx)
 	rescue.subscriptionRetry(ctx)
-	rescue.siblingRescue(ctx)
+	rescue.SiblingRescue(ctx)
 	rescue.finish(ctx)
-	decision, marker, proxyErr, effortServed = rescue.decision, rescue.marker, rescue.proxyErr, rescue.effortServed
+	decision, marker, proxyErr, effortServed = rescue.Decision, rescue.Marker, rescue.ProxyErr, rescue.EffortServed
 	compactionHandoverOutcome = rescue.compactionHandoverOutcome
-	winnerIdx, finalProvider := rescue.winnerIdx, rescue.finalProvider
+	winnerIdx, finalProvider := rescue.WinnerIdx, rescue.FinalProvider
 
 	if rescue.subscriptionFailoverUsed {
 		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
@@ -3347,27 +3347,27 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		surfacePurpose = inference.PurposeOpenAIResponses
 	}
 	rescue := &chatRescue{
-		rescueChain: &rescueChain{
-			rescuePorts: rescuePortsFor(s), markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver}, seats: seatAdmissionOf(s), clock: s.clock,
-			r:                r,
-			log:              log,
-			env:              env,
-			routeRes:         rescueTurnOf(routeRes),
-			req:              &routeRequest,
-			opts:             opts,
-			contentSink:      contentSink,
-			preludeBuf:       preludeBuf,
-			attempt:          attempt,
-			buildAttempt:     buildAttempt,
-			surface:          surfacePurpose,
-			overflowEstimate: overflowEstimateOAI,
-			outputReserve:    outputReserveOAI,
-			respSummary:      &respSummary,
-			decision:         decision,
-			bindings:         bindings,
-			marker:           marker,
-			proxyErr:         proxyErr,
-			effortServed:     effortServed,
+		svc: s, RescueChain: &dispatch.RescueChain{
+			RescuePorts: rescuePortsFor(s), Markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver},
+			HTTPRequest:      r,
+			Log:              log,
+			Env:              env,
+			RouteRes:         rescueTurnOf(routeRes),
+			Request:          &routeRequest,
+			Opts:             opts,
+			ContentSink:      contentSink,
+			PreludeBuf:       preludeBuf,
+			Attempt:          attempt,
+			BuildAttempt:     buildAttempt,
+			Surface:          surfacePurpose,
+			OverflowEstimate: overflowEstimateOAI,
+			OutputReserve:    outputReserveOAI,
+			RespSummary:      &respSummary,
+			Decision:         decision,
+			Bindings:         bindings,
+			Marker:           marker,
+			ProxyErr:         proxyErr,
+			EffortServed:     effortServed,
 		},
 		isResponses:          isResponses,
 		responsesPreludeBuf:  responsesPreludeBuf,
@@ -3375,20 +3375,20 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		cyberRetryArmed:      &cyberRetryArmed,
 		preOutputRescueArmed: &preOutputRescueArmed,
 	}
-	rescue.flushErr = rescue.flushErrAsOpenAI
+	rescue.FlushErr = rescue.flushErrAsOpenAI
 	rescue.armCyberRetry(ctx, strategy)
 	rescue.armSubscriptionRetries(ctx)
 	ctx = rescue.armRescues(ctx)
-	rescue.holdPrimary()
+	rescue.HoldPrimary()
 	rescue.dispatchPrimary(ctx)
-	rescue.notePrimaryFailure(ctx)
+	rescue.NotePrimaryFailure(ctx)
 	rescue.codexRetry(ctx)
 	rescue.claudeRetry(ctx)
 	rescue.cyberRetry(ctx)
-	rescue.siblingRescue(ctx)
+	rescue.SiblingRescue(ctx)
 	rescue.finish(ctx)
-	decision, marker, proxyErr, effortServed = rescue.decision, rescue.marker, rescue.proxyErr, rescue.effortServed
-	winnerIdx, finalProvider := rescue.winnerIdx, rescue.finalProvider
+	decision, marker, proxyErr, effortServed = rescue.Decision, rescue.Marker, rescue.ProxyErr, rescue.EffortServed
+	winnerIdx, finalProvider := rescue.WinnerIdx, rescue.FinalProvider
 
 	if rescue.codexFailoverUsed {
 		ctx = withSuppressedCodexSubscription(ctx)

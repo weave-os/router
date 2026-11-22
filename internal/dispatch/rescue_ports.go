@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 )
@@ -22,6 +23,9 @@ type RescueCredentials interface {
 	ClaudeSubscriptionExhausted(ctx context.Context, headers http.Header) bool
 	OpenAIFallbackKeyAvailable(ctx context.Context) bool
 	RecordCodexQuotaExhaustion(ctx context.Context, headers http.Header, err error)
+	ServedOnSubscription(ctx context.Context) bool
+	RescueCredentialContext(ctx context.Context, rescueProvider string) context.Context
+	IsSubscriptionPoolError(err error) bool
 }
 type RescueRouting interface {
 	ResolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding
@@ -37,6 +41,33 @@ type RescueRouting interface {
 	ResolveCyberRefusalRetry(ctx context.Context) bool
 	IsHardPinnedTurn(ctx context.Context, strategy router.Strategy, tt turntype.TurnType) bool
 	CyberRefusalRetryTarget(ctx context.Context, failed router.Decision, target RescueSessionTarget, role string, est, sigSavings, outputReserve int) (router.Decision, bool)
+	RescueBasis(decision router.Decision, turn RescueTurn) router.Decision
+	RecordTurnFailure(ctx context.Context, model string)
+}
+
+type RescueFunding interface {
+	WithSiblingFunding(ctx context.Context, decision router.Decision) context.Context
+	PaidRescueDecisions(ctx context.Context, candidates []router.Decision) []router.Decision
+	PaidRescueContext(ctx context.Context, model string) context.Context
+}
+
+type RescueAttempts interface {
+	SwitchedOptions(ctx context.Context, base translate.EmitOptions, target router.Decision, escalate bool) (translate.EmitOptions, EffortResolution)
+	FastMode(ctx context.Context, model, provider string) bool
+}
+
+type RescueOverflow interface {
+	IsContextOverflow(err error) bool
+	RescuesCompactionOverflow(turnType turntype.TurnType, err error) bool
+}
+
+type RescuePorts struct {
+	Credentials RescueCredentials
+	Routing     RescueRouting
+	Funding     RescueFunding
+	Attempts    RescueAttempts
+	Overflow    RescueOverflow
+	Dispatch    func(ctx context.Context, in FailoverInputs) (winnerIdx int, err error)
 }
 
 type RescueSessionTarget struct {
