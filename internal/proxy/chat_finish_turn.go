@@ -75,13 +75,16 @@ type chatTurnUsage struct {
 }
 
 func finishChatTurn(ctx context.Context, s *Service, t *chatFinishedTurn) error {
-	u := chatTurnUsageFor(ctx, s, t)
-	openaiObs := recordChatUpstream(ctx, s, t, u)
-	subscriberSettlement := billChatTurn(ctx, s, t, u)
+	usage := chatTurnUsageFor(ctx, s, t)
+	openaiObs := recordChatUpstream(ctx, s, t, usage)
+	var subscriberSettlement subscriberSettlementState
+	if turnUsageBillable(ctx, t.proxyErr, usage.in, usage.out, usage.cacheCreation, usage.cacheRead) {
+		subscriberSettlement = s.emitBilling(ctx, t.facts.RequestID, t.facts.ExternalID, t.feats.Model, t.decision, t.actPricing, t.routeRes, usage.in, usage.out, usage.cacheCreation, usage.cacheRead, usage.usageMods)
+	}
 	armStrikeFields := strikeChatArms(ctx, s, t)
-	fireChatTelemetry(ctx, s, t, u, openaiObs, subscriberSettlement)
+	fireChatTelemetry(ctx, s, t, usage, openaiObs, subscriberSettlement)
 	completeChatTurn(ctx, s, t, armStrikeFields)
-	s.reportPolicyOutcome(ctx, t.routeRes, t.decision, t.effortServed, t.finalProvider, t.fastServed, t.feats.Tokens, u.in, u.out, u.cacheCreation, u.cacheRead, u.usageMods, t.routeMs, t.proxyMs, t.proxyErr, nil)
+	s.reportPolicyOutcome(ctx, t.routeRes, t.decision, t.effortServed, t.finalProvider, t.fastServed, t.feats.Tokens, usage.in, usage.out, usage.cacheCreation, usage.cacheRead, usage.usageMods, t.routeMs, t.proxyMs, t.proxyErr, nil)
 	return t.proxyErr
 }
 
@@ -106,12 +109,12 @@ func chatTurnUsageFor(ctx context.Context, s *Service, t *chatFinishedTurn) chat
 	return chatTurnUsage{in: in, out: out, cacheCreation: cacheCreation, cacheRead: cacheRead, usageMods: usageMods, baselineWarmPrefill: baselineWarmPrefill, requestedInputCost: requestedInputCost}
 }
 
-func recordChatUpstream(ctx context.Context, s *Service, t *chatFinishedTurn, u chatTurnUsage) observationContext {
+func recordChatUpstream(ctx context.Context, s *Service, t *chatFinishedTurn, usage chatTurnUsage) observationContext {
 	openaiUpstreamBuilder, openaiObs := recordUpstreamSpan(ctx, s.clock, upstreamSpan{
 		extendedAttrs: true, taskArm: t.taskArm, respSummary: t.respSummary, fastServed: t.fastServed, crossFormat: t.crossFormat,
 		facts: t.facts, feats: t.feats, decision: t.decision, provider: t.finalProvider, routeRes: &t.routeRes, sessionKey: t.sessionKey,
-		extractor: t.extractor, inputTokens: u.in, outputTokens: u.out, cacheCreation: u.cacheCreation, cacheRead: u.cacheRead, usageMods: u.usageMods,
-		requestedInputCost: u.requestedInputCost, baselineWarmPrefill: u.baselineWarmPrefill, reqPricing: t.reqPricing, actPricing: t.actPricing,
+		extractor: t.extractor, inputTokens: usage.in, outputTokens: usage.out, cacheCreation: usage.cacheCreation, cacheRead: usage.cacheRead, usageMods: usage.usageMods,
+		requestedInputCost: usage.requestedInputCost, baselineWarmPrefill: usage.baselineWarmPrefill, reqPricing: t.reqPricing, actPricing: t.actPricing,
 		subscriptionServed: s.costNeutralSubscriptionServed(ctx), proxyMs: t.proxyMs, requestStart: t.requestStart, proxyStart: t.proxyStart, proxyErr: t.proxyErr,
 		effortServed: t.effortServed, captureMode: s.effectiveCaptureMode(ctx), strategyPorts: s.strategyPorts, strategy: t.strategy,
 		subscriptionAttrs: func(b *telemetry.AttrBuilder) {
@@ -146,17 +149,9 @@ func recordChatUpstream(ctx context.Context, s *Service, t *chatFinishedTurn, u 
 		emitCallLog()
 	}
 
-	s.recordTurnUsage(ctx, t.routeRes, t.finalProvider, t.decision.ServedIdentity(), u.in, u.out, u.cacheCreation, u.cacheRead, t.extractor.OutputLimitReached())
+	s.recordTurnUsage(ctx, t.routeRes, t.finalProvider, t.decision.ServedIdentity(), usage.in, usage.out, usage.cacheCreation, usage.cacheRead, t.extractor.OutputLimitReached())
 	s.clearRecoveredCooldown(ctx, t.routeRes, t.decision.Model, t.proxyErr)
 	return openaiObs
-}
-
-func billChatTurn(ctx context.Context, s *Service, t *chatFinishedTurn, u chatTurnUsage) subscriberSettlementState {
-	var subscriberSettlement subscriberSettlementState
-	if turnUsageBillable(ctx, t.proxyErr, u.in, u.out, u.cacheCreation, u.cacheRead) {
-		subscriberSettlement = s.emitBilling(ctx, t.facts.RequestID, t.facts.ExternalID, t.feats.Model, t.decision, t.actPricing, t.routeRes, u.in, u.out, u.cacheCreation, u.cacheRead, u.usageMods)
-	}
-	return subscriberSettlement
 }
 
 func strikeChatArms(ctx context.Context, s *Service, t *chatFinishedTurn) []any {
@@ -190,20 +185,20 @@ func strikeChatArms(ctx context.Context, s *Service, t *chatFinishedTurn) []any 
 	return armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI)
 }
 
-func fireChatTelemetry(ctx context.Context, s *Service, t *chatFinishedTurn, u chatTurnUsage, openaiObs observationContext, subscriberSettlement subscriberSettlementState) {
+func fireChatTelemetry(ctx context.Context, s *Service, t *chatFinishedTurn, usage chatTurnUsage, openaiObs observationContext, subscriberSettlement subscriberSettlementState) {
 	installationIDOAI, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
 	if installationIDOAI != "" {
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, t.proxyErr)
-		telOAI := chatTelemetryRow(ctx, s, t, u, openaiObs, installationIDOAI)
+		telOAI := chatTelemetryRow(ctx, s, t, usage, openaiObs, installationIDOAI)
 		telOAI.CredentialKeyPrefix, telOAI.CredentialKeySuffix, telOAI.CredentialSource = credentialKeyPrefix, credentialKeySuffix, credSource
 		applyServedTurnTelemetry(ctx, s.strategyPorts, &telOAI, t.routeRes, t.decision, t.effortServed)
-		applyTelemetrySettlement(&telOAI, turnUsageBillable(ctx, t.proxyErr, u.in, u.out, u.cacheCreation, u.cacheRead), subscriberSettlement)
+		applyTelemetrySettlement(&telOAI, turnUsageBillable(ctx, t.proxyErr, usage.in, usage.out, usage.cacheCreation, usage.cacheRead), subscriberSettlement)
 		s.fireTelemetry(ctx, telOAI)
 	}
 }
 
-func chatTelemetryRow(ctx context.Context, s *Service, t *chatFinishedTurn, u chatTurnUsage, openaiObs observationContext, installationIDOAI string) turnrecord.InsertTelemetryParams {
+func chatTelemetryRow(ctx context.Context, s *Service, t *chatFinishedTurn, usage chatTurnUsage, openaiObs observationContext, installationIDOAI string) turnrecord.InsertTelemetryParams {
 	return turnrecord.InsertTelemetryParams{
 		InstallationID:           installationIDOAI,
 		APIKeyID:                 apiKeyIDFromContext(ctx),
@@ -221,12 +216,12 @@ func chatTelemetryRow(ctx context.Context, s *Service, t *chatFinishedTurn, u ch
 		StickyHit:                t.stickyHit,
 		PinTier:                  t.routeRes.PinTier,
 		EmbedInput:               t.embedInput,
-		InputTokens:              int32(u.in),
-		OutputTokens:             int32(u.out),
-		RequestedInputCostUSD:    u.requestedInputCost,
-		RequestedOutputCostUSD:   catalog.EffectiveOutputCost(catalog.PromptTokens(u.in, u.cacheCreation, u.cacheRead, t.decision.Provider), u.out, t.reqPricing, u.usageMods),
-		ActualInputCostUSD:       catalog.EffectiveInputCost(u.in, u.cacheCreation, u.cacheRead, t.actPricing, t.decision.Provider, u.usageMods),
-		ActualOutputCostUSD:      catalog.EffectiveOutputCost(catalog.PromptTokens(u.in, u.cacheCreation, u.cacheRead, t.decision.Provider), u.out, t.actPricing, u.usageMods),
+		InputTokens:              int32(usage.in),
+		OutputTokens:             int32(usage.out),
+		RequestedInputCostUSD:    usage.requestedInputCost,
+		RequestedOutputCostUSD:   catalog.EffectiveOutputCost(catalog.PromptTokens(usage.in, usage.cacheCreation, usage.cacheRead, t.decision.Provider), usage.out, t.reqPricing, usage.usageMods),
+		ActualInputCostUSD:       catalog.EffectiveInputCost(usage.in, usage.cacheCreation, usage.cacheRead, t.actPricing, t.decision.Provider, usage.usageMods),
+		ActualOutputCostUSD:      catalog.EffectiveOutputCost(catalog.PromptTokens(usage.in, usage.cacheCreation, usage.cacheRead, t.decision.Provider), usage.out, t.actPricing, usage.usageMods),
 		RouteLatencyMs:           t.routeMs,
 		UpstreamLatencyMs:        t.proxyMs,
 		TotalLatencyMs:           s.clock.Now().Sub(t.requestStart).Milliseconds(),
@@ -256,9 +251,9 @@ func chatTelemetryRow(ctx context.Context, s *Service, t *chatFinishedTurn, u ch
 		CaptureMode:              openaiObs.CaptureMode,
 		DebugRef:                 openaiObs.DebugRef,
 		TTFTMs:                   openaiObs.TTFTMs,
-		CacheCreationTokens:      cacheTokenPtr(u.cacheCreation),
-		CacheCreation1hTokens:    cacheCreation1hPtr(u.cacheCreation, u.usageMods.CacheCreation1h),
-		CacheReadTokens:          cacheTokenPtr(u.cacheRead),
+		CacheCreationTokens:      cacheTokenPtr(usage.cacheCreation),
+		CacheCreation1hTokens:    cacheCreation1hPtr(usage.cacheCreation, usage.usageMods.CacheCreation1h),
+		CacheReadTokens:          cacheTokenPtr(usage.cacheRead),
 		Speed:                    string(t.extractor.Speed()),
 		InferenceGeo:             string(t.extractor.InferenceGeo()),
 		ReasoningTokens:          cacheTokenPtr(t.extractor.ReasoningTokens()),
