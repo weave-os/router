@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	proxyImportRemediationturePackage = "./internal/architecture/testdata/proxy_import"
-	proxyImportRemediation            = "only internal/proxy, internal/api, internal/server and cmd/ may import internal/proxy/...; move the shared code into the inner-ring context that owns it (.agents/skills/where-does-this-go) or declare a port there (.agents/skills/add-context-port)"
+	proxyImportFixturePackage = "./internal/architecture/testdata/proxy_import"
+	proxyImportRemediation    = "only internal/proxy, internal/api, internal/server and cmd/ may import internal/proxy/...; move the shared code into the inner-ring context that owns it (.agents/skills/where-does-this-go) or declare a port there (.agents/skills/add-context-port)"
 )
 
 var proxyImporterRoots = []string{proxyPackagePath, modulePath + "/internal/api", modulePath + "/internal/server", modulePath + "/cmd"}
@@ -33,7 +33,7 @@ func TestOnlyServingLayerImportsProxy(t *testing.T) {
 
 func TestProxyImportRatchetDetectsSyntheticViolation(t *testing.T) {
 	assert.Equal(t, map[string]bool{"internal/architecture/testdata/proxy_import -> internal/proxy": true},
-		measureProxyImports(t, proxyImportRemediationturePackage))
+		measureProxyImports(t, proxyImportFixturePackage))
 }
 
 func TestProxyImportScopeCoversSubpackagesAndExemptsServingLayer(t *testing.T) {
