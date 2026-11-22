@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
@@ -70,7 +71,7 @@ func TestManagedPoolOverloadIsRememberedAcrossRequests(t *testing.T) {
 
 	for turn = 0; turn < 2; turn++ {
 		ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
-		ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
+		ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
 			{ID: "first", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateActive, Enabled: true},
 			{ID: "second", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateActive, Enabled: true},
 		})

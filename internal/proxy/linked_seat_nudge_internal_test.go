@@ -67,7 +67,7 @@ func TestSpentOwnClaudePlanNudgesOnlyWithoutACoveringLinkedSeat(t *testing.T) {
 				WithUsageObserver(observer).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 			resetAt := time.Now().Add(time.Hour)
-			ctx := WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderClaude), []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: tc.seatState, CooldownUntil: &resetAt}})
+			ctx := credentials.WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderClaude), []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: tc.seatState, CooldownUntil: &resetAt}})
 			ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, ownToken)
 			body := `{"model":"` + model + `","stream":true,"max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`
 			rec := httptest.NewRecorder()
@@ -122,7 +122,7 @@ func TestSpentOwnCodexPlanNudgesOnlyWithoutACoveringLinkedSeat(t *testing.T) {
 			var responses []string
 			for turn := 0; turn < 2; turn++ {
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
-				ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderCodex, State: tc.seatState, Enabled: true, CooldownUntil: &resetAt}})
+				ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderCodex, State: tc.seatState, Enabled: true, CooldownUntil: &resetAt}})
 				rec := httptest.NewRecorder()
 				require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body)))
 				require.Contains(t, rec.Body.String(), "answer")
@@ -168,7 +168,7 @@ func TestSpentOwnClaudePlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.
 		WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "teammate", AccessToken: "sk-ant-oat01-teammate", ProviderAccount: "teammate-provider", Tier: auth.SubscriptionTierShared}}}).
 		WithUsageObserver(observer).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	ctx := WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderClaude), []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
+	ctx := credentials.WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderClaude), []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, ownToken)
 	body := `{"model":"` + model + `","stream":true,"max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`
 	rec := httptest.NewRecorder()
@@ -223,7 +223,7 @@ func TestSpentOwnCodexPlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.T
 			var turnBodies []string
 			for turn = 0; turn < 2; turn++ {
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
-				ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateActive, Enabled: true}})
+				ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateActive, Enabled: true}})
 				rec := httptest.NewRecorder()
 				if ingress == "responses" {
 					ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})

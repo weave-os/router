@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/subscriptions"
 )
@@ -20,7 +21,7 @@ func codexPoolHasFreeSeat(ctx context.Context, s *Service) bool {
 		return false
 	}
 	now := s.clock.Now()
-	return managedSeatCanCover(ctx, subscriptions.ProviderCodex, now, func(candidate managedSubscriptionCandidate) bool {
+	return managedSeatCanCover(ctx, subscriptions.ProviderCodex, now, func(candidate credentials.ManagedSubscriptionCandidate) bool {
 		return s.managedAccountQuotaExhausted(ctx, candidate, now)
 	})
 }

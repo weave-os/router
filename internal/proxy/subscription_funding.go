@@ -23,34 +23,6 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
-type managedSubscriptionCandidatesKey struct{}
-
-type managedSubscriptionCandidate struct {
-	accountID          string
-	provider           auth.SubscriptionProvider
-	state              auth.SubscriptionAccountState
-	resetAt            time.Time
-	enabled            bool
-	credentialRejected bool
-	externalAccountID  string
-	providerUserID     string
-}
-
-func WithManagedSubscriptionCandidates(ctx context.Context, accounts []*auth.SubscriptionAccount) context.Context {
-	candidates := make([]managedSubscriptionCandidate, 0, len(accounts))
-	enrolled := make(map[auth.SubscriptionProvider]struct{})
-	for _, account := range accounts {
-		candidate := managedSubscriptionCandidate{accountID: account.ID, provider: account.Provider, state: account.State, enabled: account.Enabled, credentialRejected: account.CredentialRejections > 0, externalAccountID: account.ExternalAccountID, providerUserID: account.ProviderUserID}
-		if account.CooldownUntil != nil {
-			candidate.resetAt = *account.CooldownUntil
-		}
-		candidates = append(candidates, candidate)
-		enrolled[account.Provider] = struct{}{}
-	}
-	ctx = context.WithValue(ctx, managedSubscriptionCandidatesKey{}, candidates)
-	return context.WithValue(ctx, credentials.ManagedSubscriptionProvidersContextKey{}, enrolled)
-}
-
 func subscriptionPoolForModel(target inference.Target) (subscriptions.Provider, bool) {
 	if entry, known := catalog.ByID(target.CatalogID); known {
 		for _, binding := range entry.Providers {
@@ -136,22 +108,22 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 	if includedLaneCannotServe(ctx, pool, target, now) {
 		return nil
 	}
-	candidates, snapshotPresent := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
+	candidates, snapshotPresent := ctx.Value(credentials.ManagedSubscriptionCandidatesContextKey{}).([]credentials.ManagedSubscriptionCandidate)
 	throttledBlocker := false
 	for _, candidate := range candidates {
-		if candidate.provider != auth.SubscriptionProvider(pool) || !candidate.enabled || candidate.state == auth.SubscriptionAccountStateDisabled || candidate.state == auth.SubscriptionAccountStateReconnectRequired {
+		if candidate.Provider != auth.SubscriptionProvider(pool) || !candidate.Enabled || candidate.State == auth.SubscriptionAccountStateDisabled || candidate.State == auth.SubscriptionAccountStateReconnectRequired {
 			continue
 		}
-		if s.managedAccountQuotaExhausted(ctx, candidate, now) || managedAccountCredentialCooling(candidate, now) {
+		if s.managedAccountQuotaExhausted(ctx, candidate, now) || credentials.ManagedAccountCredentialCooling(candidate, now) {
 			continue
 		}
-		if s.credentials.SubscriptionModels.ManagedDenied("account:"+candidate.accountID, candidate.accountID, target.Provider, target.CatalogID, now) {
+		if s.credentials.SubscriptionModels.ManagedDenied("account:"+candidate.AccountID, candidate.AccountID, target.Provider, target.CatalogID, now) {
 			continue
 		}
-		if refusal.counts && pool == subscriptions.ProviderClaude && (refusal.poolRefused || s.credentials.SubscriptionModels.ManagedClientAppDenied(candidate.accountID, providers.ProviderAnthropic, refusal.clientApp, now)) {
+		if refusal.counts && pool == subscriptions.ProviderClaude && (refusal.poolRefused || s.credentials.SubscriptionModels.ManagedClientAppDenied(candidate.AccountID, providers.ProviderAnthropic, refusal.clientApp, now)) {
 			continue
 		}
-		if managedAccountThrottled(ctx, candidate, now) {
+		if credentials.ManagedAccountThrottled(ctx, candidate, now) {
 			throttledBlocker = true
 			continue
 		}
@@ -256,7 +228,7 @@ func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string
 	}
 	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
 	now := s.clock.Now()
-	return managedSeatCanCover(ctx, pool, now, func(candidate managedSubscriptionCandidate) bool {
+	return managedSeatCanCover(ctx, pool, now, func(candidate credentials.ManagedSubscriptionCandidate) bool {
 		return s.managedAccountQuotaExhausted(ctx, candidate, now)
 	})
 }
@@ -278,7 +250,7 @@ func (a seatAdmission) mayAdmit(ctx context.Context, provider, model string) boo
 	}
 	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
 	enterpriseOverage := pool == subscriptions.ProviderClaude && (claudeEnterpriseOnly(ctx) || !a.verifiedPlanOnly && claudeEnterpriseEnabled(ctx))
-	return managedSeatCanCover(ctx, pool, a.now, func(candidate managedSubscriptionCandidate) bool {
+	return managedSeatCanCover(ctx, pool, a.now, func(candidate credentials.ManagedSubscriptionCandidate) bool {
 		switch {
 		case enterpriseOverage:
 			return false
@@ -292,19 +264,19 @@ func (a seatAdmission) mayAdmit(ctx context.Context, provider, model string) boo
 	})
 }
 
-func managedSeatCanCover(ctx context.Context, pool subscriptions.Provider, now time.Time, quotaExhausted func(managedSubscriptionCandidate) bool) bool {
+func managedSeatCanCover(ctx context.Context, pool subscriptions.Provider, now time.Time, quotaExhausted func(credentials.ManagedSubscriptionCandidate) bool) bool {
 	if credentials.SubscriptionProviderUnavailable(ctx, pool, now) {
 		return false
 	}
-	candidates, snapshotPresent := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
+	candidates, snapshotPresent := ctx.Value(credentials.ManagedSubscriptionCandidatesContextKey{}).([]credentials.ManagedSubscriptionCandidate)
 	if !snapshotPresent {
 		return true
 	}
 	for _, candidate := range candidates {
-		if candidate.provider != auth.SubscriptionProvider(pool) || !candidate.enabled || candidate.state == auth.SubscriptionAccountStateDisabled || candidate.state == auth.SubscriptionAccountStateReconnectRequired {
+		if candidate.Provider != auth.SubscriptionProvider(pool) || !candidate.Enabled || candidate.State == auth.SubscriptionAccountStateDisabled || candidate.State == auth.SubscriptionAccountStateReconnectRequired {
 			continue
 		}
-		if candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now) {
+		if candidate.State == auth.SubscriptionAccountStateCooldown && candidate.ResetAt.After(now) {
 			continue
 		}
 		if !quotaExhausted(candidate) {
@@ -314,47 +286,34 @@ func managedSeatCanCover(ctx context.Context, pool subscriptions.Provider, now t
 	return false
 }
 
-func managedAccountThrottled(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
-	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil {
-		if state.ThrottledAccounts[candidate.accountID].After(now) {
-			return true
-		}
-	}
-	return candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now) && !candidate.credentialRejected
-}
-
-func managedAccountCredentialCooling(candidate managedSubscriptionCandidate, now time.Time) bool {
-	return candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now) && candidate.credentialRejected
-}
-
-func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
+func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate credentials.ManagedSubscriptionCandidate, now time.Time) bool {
 	if recordedQuotaExhausted(ctx, candidate, now) {
 		return true
 	}
-	if candidate.provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
+	if candidate.Provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
 		return false
 	}
 	return includedQuotaObservedSpent(s.credentials.UsageObserver, candidate, now)
 }
 
-func includedQuotaObservedSpent(observer *usage.Observer, candidate managedSubscriptionCandidate, now time.Time) bool {
+func includedQuotaObservedSpent(observer *usage.Observer, candidate credentials.ManagedSubscriptionCandidate, now time.Time) bool {
 	if observer == nil {
 		return false
 	}
-	snapshot, observed := observer.Snapshot(observer.Key([]byte("subscription-account:" + candidate.accountID)))
+	snapshot, observed := observer.Snapshot(observer.Key([]byte("subscription-account:" + candidate.AccountID)))
 	return observed && credentials.IncludedQuotaSpent(snapshot, now)
 }
 
-func recordedQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
+func recordedQuotaExhausted(ctx context.Context, candidate credentials.ManagedSubscriptionCandidate, now time.Time) bool {
 	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil {
-		if state.QuotaExhaustedAccounts[candidate.accountID].After(now) {
+		if state.QuotaExhaustedAccounts[candidate.AccountID].After(now) {
 			return true
 		}
 	}
-	if candidate.provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
+	if candidate.Provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
 		return false
 	}
-	return candidate.state == auth.SubscriptionAccountStateExhausted && candidate.resetAt.After(now)
+	return candidate.State == auth.SubscriptionAccountStateExhausted && candidate.ResetAt.After(now)
 }
 
 func credentialRejectionStands(subscriptionErr, retryErr error, credentialRejected func(error) bool) bool {

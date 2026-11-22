@@ -101,7 +101,7 @@ func managedSubscriptionContext(provider auth.SubscriptionProvider) context.Cont
 
 func exhaustedManagedSubscriptionContext() context.Context {
 	resetAt := time.Now().Add(time.Hour)
-	return WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderClaude), []*auth.SubscriptionAccount{{
+	return credentials.WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderClaude), []*auth.SubscriptionAccount{{
 		ID: "exhausted-account", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 		State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt,
 	}})

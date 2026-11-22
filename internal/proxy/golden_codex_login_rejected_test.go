@@ -52,7 +52,7 @@ func goldenRejectedCodexLoginCtx(ctx context.Context) context.Context {
 	ctx = goldenCodexCtx(ctx)
 	ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 	ctx = proxy.WithSubscriptionStateModels(ctx, []string{goldenCodexModel, goldenAnthropicModel, goldenCodexAlternativeModel}, []string{goldenCodexModel, goldenAnthropicModel, goldenCodexAlternativeModel})
-	ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
+	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
 		{ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive},
 	})
 	return credentials.WithManagedSubscriptionUsage(ctx)

@@ -48,7 +48,7 @@ func TestPoolExhaustionOwnerFollowsLinkedSeatState(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
 			svc.clock = func() time.Time { return now }
-			ctx := WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), scenario.seats)
+			ctx := credentials.WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), scenario.seats)
 			if scenario.overage {
 				ctx = requestcontext.WithSubscriptionExtraUsage(ctx)
 			}
