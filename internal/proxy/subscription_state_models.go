@@ -125,7 +125,7 @@ func readmitSessionStrikes(ctx context.Context, request *router.Request) bool {
 }
 
 func beginSubscriptionStateLane(ctx context.Context, initial router.Decision) context.Context {
-	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
 		usage.IntendedModel = initial.Model
 	}
 	return withClientAppRefusalPaidFallback(ctx, initial)
@@ -212,7 +212,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispat
 		if err == nil || committed(in.Prelude) || ctx.Err() != nil {
 			return winner, err
 		}
-		if !isSubscriptionPoolError(err) && !subscriptionLaneRefused(err) && !providers.IsRetryable(err) &&
+		if !isSubscriptionPoolError(err) && !credentials.SubscriptionLaneRefused(err) && !providers.IsRetryable(err) &&
 			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicClientAppRefused(ctx, err) {
 			return winner, err
 		}

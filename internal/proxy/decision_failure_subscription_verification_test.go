@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
@@ -64,7 +65,7 @@ func TestVerificationAdmissionFailureExportsDecisionWithoutUpstream(t *testing.T
 	ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org_subscription_verification")
 	body := `{"model":"gpt-5.6-sol","stream":true,"messages":[{"role":"user","content":"synthetic unavailable capacity"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 	rec := httptest.NewRecorder()
-	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body))), ErrCreditsExhaustedSubscriptionUnavailable)
+	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body))), credentials.ErrCreditsExhaustedSubscriptionUnavailable)
 	require.Zero(t, requests, "admission rejection cannot dispatch authorized API when credits are depleted")
 	require.NoError(t, emitter.Shutdown(context.Background()))
 	mu.Lock()

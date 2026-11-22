@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
@@ -52,7 +53,7 @@ func TestNativeCodexSubscriptionWithDepletedCredits(t *testing.T) {
 				svc.WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "synthetic-seat", AccessToken: "synthetic-linked-token", ProviderAccount: codexTestAccountID}}})
 				expectedBearer = "Bearer synthetic-linked-token"
 			}
-			ctx = WithManagedSubscriptionUsage(billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted))
+			ctx = credentials.WithManagedSubscriptionUsage(billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted))
 			body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"inspect synthetic input"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 			recorder := httptest.NewRecorder()
 			err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))

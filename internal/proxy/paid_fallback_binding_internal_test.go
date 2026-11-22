@@ -29,7 +29,7 @@ func (f planBindingFacts) context() context.Context {
 		ctx = context.WithValue(enterpriseOnlyContext(ctx), claudeEnterpriseTurnKey{}, true)
 	}
 	if f.capRefused {
-		ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
+		ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
 		ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-customer"), FundingPriority: auth.FundingPriorityPlanFirst},
 		})

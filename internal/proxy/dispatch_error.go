@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
@@ -48,7 +49,7 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 		return refusalClass(ingress.DispatchErrorSubscriptionClientAppRefused, refusal.SubscriptionClientAppRefused,
 			"Anthropic only lets Claude Code use Claude subscription plan limits, so this app can't use them for the forced Claude model. Use Claude Code, add extra usage at claude.ai/settings/usage, or pick a non-Claude model.",
 			"warn", "Rejected forced Claude turn: subscriptions refused third-party client"), true
-	case subscriptionLaneRefused(err):
+	case credentials.SubscriptionLaneRefused(err):
 		return subscriptionLaneRefusalClass(err), true
 	case errors.Is(err, ErrWeaveCreditsDisabled):
 		return refusalClass(ingress.DispatchErrorWeaveCreditsDisabled, refusal.WeaveCreditsDisabled,
@@ -282,16 +283,16 @@ var allowancePlanNames = map[entitlement.Plan]string{
 	entitlement.PlanMax:   "Max",
 }
 
-func includedAllowanceSpentMessage(e *IncludedAllowanceSpentError) string {
+func includedAllowanceSpentMessage(e *credentials.IncludedAllowanceSpentError) string {
 	message := fmt.Sprintf("Your Weave router %s plan's %s allowance is used up and your subscription can't serve this turn (rate-limited, or the requested model isn't subscription-covered).",
 		allowancePlanNames[e.Window.Plan], allowanceWindowNames[e.Window.Kind])
 	if !e.Window.ResetsAt.IsZero() {
 		message += " Included usage resumes at " + e.Window.ResetsAt.UTC().Format("15:04 MST on Jan 2") + "."
 	}
-	if errors.Is(e.orgGate, ErrSpendCapSubscriptionUnavailable) {
+	if errors.Is(e.OrgGate, credentials.ErrSpendCapSubscriptionUnavailable) {
 		return message + " A Weave router spend cap blocks paid routing until then."
 	}
-	if errors.Is(e.orgGate, ErrSubscriptionUnavailableForTurn) {
+	if errors.Is(e.OrgGate, credentials.ErrSubscriptionUnavailableForTurn) {
 		return message
 	}
 	return message + " To keep routing until then, add credits: " + topUpURL

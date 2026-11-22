@@ -50,7 +50,7 @@ func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 	require.Zero(t, apiCalls)
 	require.Empty(t, rec.Body.String())
 	require.Empty(t, leaser.cooldownIDs, "budget expiry alone never cools down an account")
-	require.False(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served)
+	require.False(t, mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served)
 }
 
 func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {

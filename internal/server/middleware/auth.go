@@ -111,7 +111,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			if apiKey.PaidFallbackOnSubscriptionRefusal {
 				ctx = context.WithValue(ctx, requestcontext.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}, true)
 			}
-			ctx = proxy.WithManagedSubscriptionUsage(ctx)
+			ctx = credentials.WithManagedSubscriptionUsage(ctx)
 			owner := subscriptionOwnerForRequest(c, apiKey)
 			c.Set(ctxKeySubscriptionOwner, owner)
 			ctx = credentials.WithSubscriptionOwner(ctx, owner)
