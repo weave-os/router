@@ -24,7 +24,7 @@ func TestRefusalContract_OpenAIType(t *testing.T) {
 		{err: proxy.ErrSubscriptionClientAppRefused, want: "invalid_request_error"},
 		{err: credentials.ErrSpendCapSubscriptionUnavailable, want: "api_error"},
 		{err: credentials.ErrCreditsExhaustedSubscriptionUnavailable, want: "api_error"},
-		{err: proxy.ErrWeaveCreditsDisabled, want: "api_error"},
+		{err: credentials.ErrWeaveCreditsDisabled, want: "api_error"},
 		{err: proxy.ErrClaudeEnterpriseSubscriptionUnavailable, want: "api_error"},
 		{err: credentials.ErrSubscriptionPoolExhausted, want: "api_error"},
 		{err: credentials.ErrSubscriptionPoolThrottled, want: "api_error"},

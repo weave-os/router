@@ -24,7 +24,7 @@ func TestRefusalContract_GeminiStatus(t *testing.T) {
 		{err: proxy.ErrSubscriptionClientAppRefused, want: "PERMISSION_DENIED"},
 		{err: credentials.ErrSpendCapSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
 		{err: credentials.ErrCreditsExhaustedSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
-		{err: proxy.ErrWeaveCreditsDisabled, want: "FAILED_PRECONDITION"},
+		{err: credentials.ErrWeaveCreditsDisabled, want: "FAILED_PRECONDITION"},
 		{err: proxy.ErrClaudeEnterpriseSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
 		{err: credentials.ErrSubscriptionPoolExhausted, want: "RESOURCE_EXHAUSTED"},
 		{err: credentials.ErrSubscriptionPoolThrottled, want: "RESOURCE_EXHAUSTED"},

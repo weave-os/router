@@ -68,7 +68,7 @@ func TestForcedModelBinding_UnfundedProviderReturnsCreditsError(t *testing.T) {
 	require.Equal(t, forcedModelUnfundedReason, refusal.Reason)
 	require.Equal(t, "gpt-5.4", refusal.Model)
 	err := error(refusal)
-	require.ErrorIs(t, err, ErrWeaveCreditsDisabled)
+	require.ErrorIs(t, err, credentials.ErrWeaveCreditsDisabled)
 	class, ok := ClassifyDispatchError(err)
 	require.True(t, ok)
 	assert.Equal(t, http.StatusPaymentRequired, class.Status)

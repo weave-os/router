@@ -2,10 +2,14 @@ package credentials
 
 import (
 	"context"
+	"errors"
+
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
 )
+
+var ErrWeaveCreditsDisabled = errors.New("weave credits are disabled and no customer plan or provider key can serve this request")
 
 func CustomerFunded(creds *requestcontext.Credentials) bool {
 	if creds == nil || creds.CredentialError != nil || len(creds.APIKey) == 0 {

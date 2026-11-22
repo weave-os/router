@@ -29,7 +29,7 @@ func TestProxyMessages_WeaveCreditsDenied(t *testing.T) {
 		wantErr    error
 		wantSource string
 	}{
-		{name: "denied without a customer key refuses before dispatch", denied: true, wantErr: proxy.ErrWeaveCreditsDisabled},
+		{name: "denied without a customer key refuses before dispatch", denied: true, wantErr: credentials.ErrWeaveCreditsDisabled},
 		{name: "denied with the customer's Anthropic key serves on it", denied: true,
 			keys:       []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok")}},
 			wantSource: "byok"},
