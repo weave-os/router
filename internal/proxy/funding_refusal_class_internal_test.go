@@ -40,7 +40,7 @@ func TestPreDispatchFundingRefusalIsClassifiedAndOwned(t *testing.T) {
 		{name: "subscription pool throttled", err: credentials.ErrSubscriptionPoolThrottled, class: turnrecord.TurnErrorRateLimited, owner: turnrecord.FailureOwnerProvider},
 		{name: "credits exhausted and subscription unavailable", err: credentials.ErrCreditsExhaustedSubscriptionUnavailable, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
 		{name: "spend cap reached and subscription unavailable", err: credentials.ErrSpendCapSubscriptionUnavailable, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
-		{name: "Weave credits disabled", err: ErrWeaveCreditsDisabled, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
+		{name: "Weave credits disabled", err: credentials.ErrWeaveCreditsDisabled, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
 		{name: "Claude Enterprise-only with no usable account", err: ErrClaudeEnterpriseSubscriptionUnavailable, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {

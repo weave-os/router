@@ -52,7 +52,7 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 			"warn", "Rejected forced Claude turn: subscriptions refused third-party client"), true
 	case credentials.SubscriptionLaneRefused(err):
 		return subscriptionLaneRefusalClass(err), true
-	case errors.Is(err, ErrWeaveCreditsDisabled):
+	case errors.Is(err, credentials.ErrWeaveCreditsDisabled):
 		return refusalClass(ingress.DispatchErrorWeaveCreditsDisabled, refusal.WeaveCreditsDisabled,
 			"Weave credits are turned off for your organization, and none of your plans or provider API keys can serve this request. Connect a provider key or plan for this model, or allow Weave credits in settings.",
 			"warn", "Request refused: Weave credits disabled and no customer funding source"), true

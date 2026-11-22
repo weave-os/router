@@ -33,7 +33,7 @@ func TestSubscriptionModelAccessDoesNotPayAndRemembers(t *testing.T) {
 			svc := in.parityService(upstream)
 			for i := 0; i < 2; i++ {
 				rec, req, body := in.request(t, stream)
-				require.ErrorIs(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req), ErrWeaveCreditsDisabled)
+				require.ErrorIs(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req), credentials.ErrWeaveCreditsDisabled)
 				assert.Empty(t, rec.Body.String(), "the handler owns rendering the unpaid refusal")
 			}
 			assert.Equal(t, 1, upstream.subDispatches)
@@ -51,7 +51,7 @@ func TestSubscriptionModelAccessOpenAIIngressDoesNotPayAndRemembers(t *testing.T
 	for range 2 {
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-		require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(billing.WithWeaveCreditsDenied(in.subCtx()), body, recorder, request), ErrWeaveCreditsDisabled)
+		require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(billing.WithWeaveCreditsDenied(in.subCtx()), body, recorder, request), credentials.ErrWeaveCreditsDisabled)
 		assert.Empty(t, recorder.Body.String(), "the handler owns rendering the unpaid refusal")
 	}
 
@@ -66,7 +66,7 @@ func TestSubscriptionModelAccessPreservesFailedAttemptAttribution(t *testing.T) 
 	telemetry := &auxTelemetryRepo{}
 	svc.turnTelemetry.repo = telemetry
 	rec, req, body := in.request(t, false)
-	require.ErrorIs(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req), ErrWeaveCreditsDisabled)
+	require.ErrorIs(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req), credentials.ErrWeaveCreditsDisabled)
 	assert.Empty(t, rec.Body.String(), "blocked funding must not commit a success response")
 	assert.Equal(t, 1, upstream.subDispatches)
 	assert.Zero(t, upstream.paidDispatches)
