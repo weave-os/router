@@ -59,15 +59,15 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 		return refusalClass(ingress.DispatchErrorClaudeEnterpriseOnly, refusal.ClaudeEnterpriseOnly,
 			"Claude Enterprise-only billing is enabled, but no usable Claude account can serve this request. Connect or reconnect a Claude account, or turn off Enterprise-only billing in settings.",
 			"warn", "Claude Enterprise-only request refused"), true
-	case errors.Is(err, ErrSubscriptionPoolExhausted):
+	case errors.Is(err, credentials.ErrSubscriptionPoolExhausted):
 		return refusalClass(ingress.DispatchErrorSubscriptionPoolExhausted, refusal.SubscriptionPoolExhausted,
 			"All enrolled subscription accounts are currently unavailable.",
 			"warn", "Subscription account pool exhausted"), true
-	case errors.Is(err, ErrSubscriptionPoolThrottled):
+	case errors.Is(err, credentials.ErrSubscriptionPoolThrottled):
 		return refusalClass(ingress.DispatchErrorSubscriptionPoolThrottled, refusal.SubscriptionPoolThrottled,
 			subscriptionPoolThrottledMessage,
 			"warn", "Subscription account pool throttled"), true
-	case errors.Is(err, ErrSubscriptionPoolUnavailable):
+	case errors.Is(err, credentials.ErrSubscriptionPoolUnavailable):
 		return refusalClass(ingress.DispatchErrorSubscriptionPoolUnavailable, refusal.SubscriptionPoolUnavailable,
 			"Subscription account service is temporarily unavailable.",
 			"error", "Subscription account pool unavailable"), true

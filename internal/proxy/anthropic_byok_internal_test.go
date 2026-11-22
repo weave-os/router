@@ -171,6 +171,6 @@ func TestAnthropicBYOKDoesNotAuthorizeGatewayBindings(t *testing.T) {
 	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
 	model := catalog.ModelIDClaudeOpus48.String()
 	require.NoError(t, svc.subscriptionAPIAuthorization(ctx, providers.ProviderAnthropic, model))
-	require.ErrorIs(t, svc.subscriptionAPIAuthorization(ctx, providers.ProviderOpenRouter, model), ErrSubscriptionPoolUnavailable,
+	require.ErrorIs(t, svc.subscriptionAPIAuthorization(ctx, providers.ProviderOpenRouter, model), credentials.ErrSubscriptionPoolUnavailable,
 		"a native Anthropic key must not authorize spending through a different provider")
 }

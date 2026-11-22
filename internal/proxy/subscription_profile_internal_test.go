@@ -68,9 +68,9 @@ func TestProfileFailureCannotIdentifyEnterpriseOrAuthorizePaidFallback(t *testin
 	ctx := context.WithValue(routerKeyedCtx(), credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 	ctx = service.withSubscriptionFundingAuthorization(ctx, nil)
 	require.False(t, claudeEnterpriseOnly(ctx))
-	require.ErrorIs(t, service.subscriptionAPIAuthorization(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String()), ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, service.subscriptionAPIAuthorization(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String()), credentials.ErrSubscriptionPoolUnavailable)
 	claudeTurn := withClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()})
-	require.ErrorIs(t, service.subscriptionAPIAuthorization(claudeTurn, providers.ProviderGoogle, catalog.ModelIDGemini31ProPreview.String()), ErrSubscriptionPoolUnavailable, "unknown Claude identity cannot authorize paid rescue on another provider")
+	require.ErrorIs(t, service.subscriptionAPIAuthorization(claudeTurn, providers.ProviderGoogle, catalog.ModelIDGemini31ProPreview.String()), credentials.ErrSubscriptionPoolUnavailable, "unknown Claude identity cannot authorize paid rescue on another provider")
 	require.NoError(t, service.subscriptionAPIAuthorization(ctx, providers.ProviderGoogle, catalog.ModelIDGemini31ProPreview.String()), "an independently selected Google model does not use Claude funding")
 }
 
@@ -124,7 +124,7 @@ func TestSkippedPoolSeatDoesNotSetTheServedPlan(t *testing.T) {
 				WithClaudeSubscriptionPlanReader(subscriptionPlanReaderFunc(func(context.Context, []byte) (providers.SubscriptionPlan, error) { return plan, nil }))
 			ctx := managedSubscriptionTestContext()
 			_, _, _, err := service.leaseManagedSubscription(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String())
-			require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+			require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 			state := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 			require.Empty(t, state.ClaudeSubscriptionPlan, "a seat excluded before dispatch cannot become the request's served plan")
 			require.Equal(t, plan == providers.SubscriptionPlanUnknown, state.ClaudePlanUnverified)

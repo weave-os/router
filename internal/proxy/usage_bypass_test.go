@@ -440,7 +440,7 @@ func TestSubscriptionExhausted_ServesOnDeploymentKey(t *testing.T) {
 // TestSubscriptionExhausted_NoDeploymentKey_RefusesBeforeDispatch guards the
 // fail-closed rail: with no deployment / BYOK Anthropic key to fall through to,
 // the exhausted subscription is never sent and the turn is refused with
-// ErrSubscriptionPoolExhausted before dispatch.
+// credentials.ErrSubscriptionPoolExhausted before dispatch.
 func TestSubscriptionExhausted_NoDeploymentKey_RefusesBeforeDispatch(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
 	p := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
@@ -457,7 +457,7 @@ func TestSubscriptionExhausted_NoDeploymentKey_RefusesBeforeDispatch(t *testing.
 		WithUsageObserver(obs)
 
 	rec, req, body := bypassRequest(t)
-	require.ErrorIs(t, svc.ProxyMessages(bypassCtx(0.80), body, rec, req), proxy.ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, svc.ProxyMessages(bypassCtx(0.80), body, rec, req), credentials.ErrSubscriptionPoolExhausted)
 	assert.Empty(t, p.proxyCreds, "known spent direct credential must never dispatch")
 }
 

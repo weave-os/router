@@ -100,13 +100,13 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 		}
 		if claudeEnterpriseEnabled(callCtx) && unverified && !triedSubscriptionFallsBackToCredits(callCtx) {
 			observability.FromContext(callCtx).Warn("Blocked paid recovery while Claude subscription identity is unverified", "provider", target.Provider, "model", target.CatalogID)
-			return fmt.Errorf("%w: Claude subscription plan could not be verified before paid fallback", ErrSubscriptionPoolUnavailable)
+			return fmt.Errorf("%w: Claude subscription plan could not be verified before paid fallback", credentials.ErrSubscriptionPoolUnavailable)
 		}
 		if !compatible {
 			return nil
 		}
 		if pickedModelOnOwnPlan(callCtx) {
-			return subscriptionPoolUnavailableBecause(callCtx, "picked model runs on the caller's own plan")
+			return credentials.SubscriptionPoolUnavailableBecause(callCtx, "picked model runs on the caller's own plan")
 		}
 		refusal := clientAppRefusalFunding{counts: clientAppRefusalPaidFallback(callCtx), poolRefused: claudePoolRefusesClientApp(callCtx), clientApp: ClientIdentityFrom(callCtx).ClientApp}
 		if err := s.authorizeSubscriptionAPI(admissionCtx, pool, target, codexToken, claudeToken, refusal); err != nil {
@@ -130,7 +130,7 @@ type clientAppRefusalFunding struct {
 
 func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptions.Provider, target inference.Target, codexToken, claudeToken string, refusal clientAppRefusalFunding) error {
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
-		return subscriptionPoolUnavailableBecause(ctx, "subscription enrollment could not be verified")
+		return credentials.SubscriptionPoolUnavailableBecause(ctx, "subscription enrollment could not be verified")
 	}
 	now := s.clock.Now()
 	if includedLaneCannotServe(ctx, pool, target, now) {
@@ -155,7 +155,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 			throttledBlocker = true
 			continue
 		}
-		return subscriptionPoolUnavailableBecause(ctx, "included quota is available or unknown")
+		return credentials.SubscriptionPoolUnavailableBecause(ctx, "included quota is available or unknown")
 	}
 	token := claudeToken
 	if pool == subscriptions.ProviderCodex {
@@ -168,7 +168,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		}
 		return throttledPoolRefusal(ctx, pool, token != "", now)
 	}
-	if err := missingQuotaSnapshotRefusal(ctx, pool, snapshotPresent); err != nil {
+	if err := credentials.MissingQuotaSnapshotRefusal(ctx, pool, snapshotPresent); err != nil {
 		return err
 	}
 	return callerPlanRefusal(ctx, pool, callerQuotaUnproven, now)
@@ -182,12 +182,12 @@ func callerPlanRefusal(ctx context.Context, pool subscriptions.Provider, callerQ
 		if !billing.WeaveCreditsDeniedFromContext(ctx) {
 			return nil
 		}
-		return subscriptionPoolRefusal(ctx, subscriptionlane.CallerPlanThrottled)
+		return credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.CallerPlanThrottled)
 	}
 	if triedSubscriptionFallsBackToCredits(ctx) {
 		return nil
 	}
-	return subscriptionPoolUnavailableBecause(ctx, "caller subscription quota is available or unknown")
+	return credentials.SubscriptionPoolUnavailableBecause(ctx, "caller subscription quota is available or unknown")
 }
 
 func triedSubscriptionFallsBackToCredits(ctx context.Context) bool {
@@ -398,15 +398,4 @@ func credentialRejectionStands(subscriptionErr, retryErr error, credentialReject
 
 func quotaProofExempt(ctx context.Context, creds *Credentials) bool {
 	return creds != nil && creds.OAuth || paidCapacityUnfunded(ctx) && unfundedKeyFunds(ctx, creds)
-}
-
-func missingQuotaSnapshotRefusal(ctx context.Context, pool subscriptions.Provider, snapshotPresent bool) error {
-	if snapshotPresent || !billing.WeaveCreditsDeniedFromContext(ctx) {
-		return nil
-	}
-	enrolled, _ := ctx.Value(credentials.ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
-	if _, present := enrolled[auth.SubscriptionProvider(pool)]; present {
-		return subscriptionPoolUnavailableBecause(ctx, "enrolled pool has no quota snapshot")
-	}
-	return nil
 }

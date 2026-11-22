@@ -99,7 +99,7 @@ func (c CodexImages) forwardOnLinkedSubscription(ctx context.Context, forwarder 
 	owner := subscriptionOwnerFromContext(ctx)
 	lease, present, err := svc.credentials.ManagedSubscriptions.Lease(ctx, owner, subscriptions.ProviderCodex, ClientIdentityFrom(ctx).SessionID)
 	if err != nil && !errors.Is(err, subscriptions.ErrNoAvailableAccount) {
-		return true, errors.Join(ErrSubscriptionPoolUnavailable, err)
+		return true, errors.Join(credentials.ErrSubscriptionPoolUnavailable, err)
 	}
 	if err != nil || !present {
 		return false, nil
