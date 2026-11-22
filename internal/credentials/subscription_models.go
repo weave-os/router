@@ -43,10 +43,6 @@ func (a *SubscriptionModelAccess) cache() *lru.Cache[subscriptionModelKey, time.
 	return a.entries
 }
 
-func (a *SubscriptionModelAccess) key(token []byte, model string) subscriptionModelKey {
-	return a.keyForProvider(token, "", model)
-}
-
 func (a *SubscriptionModelAccess) keyForProvider(token []byte, provider, model string) subscriptionModelKey {
 	a.cache()
 	return subscriptionModelKey{tokenHash: maphash.Bytes(a.seed, token), provider: provider, model: router.StripDateSuffix(model)}
