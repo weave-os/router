@@ -62,54 +62,65 @@ func TestPiHandoffRouteTokenFormatIsStable(t *testing.T) {
 func populatedHandoffRoute(t *testing.T) turnLoopResult {
 	t.Helper()
 	var route turnLoopResult
-	fillExported(reflect.ValueOf(&route).Elem(), "route", 0)
+	unfilled := fillExported(reflect.ValueOf(&route).Elem(), "route", map[reflect.Type]bool{})
+	require.Empty(t, unfilled, "every exported route field must carry a value so the fixture pins its name and position")
 	return route
 }
 
-func fillExported(v reflect.Value, path string, depth int) {
-	if depth > 8 {
-		return
-	}
+func fillExported(v reflect.Value, path string, onPath map[reflect.Type]bool) []string {
 	if v.Type() == reflect.TypeFor[time.Time]() {
 		v.Set(reflect.ValueOf(piHandoffFixtureMinted.Add(time.Duration(len(path)) * time.Second)))
-		return
+		return nil
 	}
 	switch v.Kind() {
 	case reflect.Bool:
 		v.SetBool(true)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		v.SetInt(int64(len(path) % 100))
+		v.SetInt(int64(len(path)%100) + 1)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		v.SetUint(uint64(len(path) % 100))
+		v.SetUint(uint64(len(path)%100) + 1)
 	case reflect.Float32, reflect.Float64:
 		v.SetFloat(float64(len(path)%100) + 0.5)
 	case reflect.String:
 		v.SetString(path)
 	case reflect.Array:
+		var unfilled []string
 		for i := range v.Len() {
-			fillExported(v.Index(i), fmt.Sprintf("%s.%d", path, i), depth+1)
+			unfilled = append(unfilled, fillExported(v.Index(i), fmt.Sprintf("%s.%d", path, i), onPath)...)
 		}
+		return unfilled
 	case reflect.Slice:
 		if v.Type().Elem().Kind() == reflect.Func {
-			return
+			return nil
 		}
 		v.Set(reflect.MakeSlice(v.Type(), 1, 1))
-		fillExported(v.Index(0), path+".0", depth+1)
+		return fillExported(v.Index(0), path+".0", onPath)
 	case reflect.Map:
 		key, elem := reflect.New(v.Type().Key()).Elem(), reflect.New(v.Type().Elem()).Elem()
-		fillExported(key, path+".key", depth+1)
-		fillExported(elem, path+".value", depth+1)
+		unfilled := append(fillExported(key, path+".key", onPath), fillExported(elem, path+".value", onPath)...)
 		v.Set(reflect.MakeMap(v.Type()))
 		v.SetMapIndex(key, elem)
+		return unfilled
 	case reflect.Pointer:
+		if onPath[v.Type()] {
+			return nil
+		}
+		onPath[v.Type()] = true
+		defer delete(onPath, v.Type())
 		v.Set(reflect.New(v.Type().Elem()))
-		fillExported(v.Elem(), path, depth+1)
+		return fillExported(v.Elem(), path, onPath)
 	case reflect.Struct:
+		var unfilled []string
 		for i := range v.NumField() {
 			if field := v.Type().Field(i); field.IsExported() {
-				fillExported(v.Field(i), path+"."+field.Name, depth+1)
+				unfilled = append(unfilled, fillExported(v.Field(i), path+"."+field.Name, onPath)...)
 			}
 		}
+		return unfilled
+	case reflect.Interface:
+		return []string{path}
 	default:
+		return []string{path}
 	}
+	return nil
 }
