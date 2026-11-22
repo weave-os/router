@@ -12,17 +12,17 @@ import (
 )
 
 func feedbackLinksFromEnv(repo feedback.FeedbackRepository, emitter telemetry.Emitter, logger *slog.Logger) *feedback.Links {
-	feedbackSigner := feedback.NewSigner(config.GetOr("ROUTER_FEEDBACK_LINK_SECRET", ""), feedbackLinkTTL())
-	feedbackBaseURL := config.GetOr("ROUTER_FEEDBACK_BASE_URL", "")
+	signer := feedback.NewSigner(config.GetOr("ROUTER_FEEDBACK_LINK_SECRET", ""), feedbackLinkTTL())
+	baseURL := config.GetOr("ROUTER_FEEDBACK_BASE_URL", "")
 	switch {
-	case feedbackSigner != nil && feedbackBaseURL != "":
-		logger.Info("Feedback link enabled", "base_url", feedbackBaseURL)
-	case feedbackSigner != nil:
+	case signer != nil && baseURL != "":
+		logger.Info("Feedback link enabled", "base_url", baseURL)
+	case signer != nil:
 		logger.Warn("Feedback link endpoints mounted but ROUTER_FEEDBACK_BASE_URL is unset; responses will not carry a feedback link header")
 	default:
 		logger.Info("Feedback link disabled (set ROUTER_FEEDBACK_LINK_SECRET and ROUTER_FEEDBACK_BASE_URL to enable)")
 	}
-	return feedback.NewLinks(repo, feedbackSigner, feedbackBaseURL, emitter, time.Now)
+	return feedback.NewLinks(repo, signer, baseURL, emitter, time.Now)
 }
 
 func feedbackLinkTTL() time.Duration {
