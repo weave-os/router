@@ -17,7 +17,7 @@ import (
 )
 
 func TestCodexPlanRateLimitRefusesAsCallerThrottle(t *testing.T) {
-	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), credentials: credentials.Brokerage{UsageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)}}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{UsageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)}}
 	ctx := credentials.WithManagedSubscriptionUsage(codexSubscriptionTestCtx())
 
 	svc.recordCodexQuotaExhaustion(ctx, http.Header{}, &providers.UpstreamErrorResponse{

@@ -23,7 +23,7 @@ import (
 )
 
 func TestSessionHoldRequiresAnUnavailablePoolMark(t *testing.T) {
-	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), clock: time.Now}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: time.Now}
 	ctx := context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
 
 	svc.holdSessionOffSubscriptionPool(ctx, providers.ProviderOpenAI, stateCodexModel)
@@ -74,7 +74,7 @@ func TestEnterpriseCapRescueNeedsAUsableAnthropicKey(t *testing.T) {
 
 func TestUnleasableSeatsDoNotHoldPaidFallbackEvenWhileEnabled(t *testing.T) {
 	now := time.Now()
-	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
 	reconnect := activeCodexAccount("seat-reconnect")
 	reconnect.State = auth.SubscriptionAccountStateReconnectRequired
 	disabled := activeCodexAccount("seat-disabled")
@@ -99,7 +99,7 @@ func heldCodexOnlyService(t *testing.T) (*fakeClient, func() router.Decision) {
 		return withTurnFailures(ctx)
 	}
 	held := turnCtx()
-	svc.markSubscriptionPoolUnavailable(held, subscriptions.ProviderCodex)
+	markSubscriptionPoolUnavailable(held, subscriptions.ProviderCodex, svc.clock.Now())
 	svc.holdSessionOffSubscriptionPool(held, providers.ProviderOpenAI, stateCodexModel)
 	require.Empty(t, svc.withoutHeldSubscriptionModels(held, []string{stateCodexModel}))
 

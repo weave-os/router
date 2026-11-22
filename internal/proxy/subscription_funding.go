@@ -199,29 +199,19 @@ func triedSubscriptionFallsBackToCredits(ctx context.Context) bool {
 	return !passthrough
 }
 
-const subscriptionUnavailableCooldown = time.Minute
-
-func (s *Service) recordSubscriptionUnavailable(ctx context.Context, provider, model string, attemptErr error) {
+func recordSubscriptionUnavailable(ctx context.Context, provider, model string, attemptErr error, now time.Time) {
 	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
 	if !compatible || !upstreamServerFailure(attemptErr) {
 		return
 	}
-	s.markSubscriptionPoolUnavailable(ctx, pool)
+	markSubscriptionPoolUnavailable(ctx, pool, now)
 }
 
-func (s *Service) markSubscriptionPoolUnavailable(ctx context.Context, pool subscriptions.Provider) {
+func markSubscriptionPoolUnavailable(ctx context.Context, pool subscriptions.Provider, now time.Time) {
 	if callerModelPassthroughActive(ctx) {
 		return
 	}
-	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
-	if state == nil {
-		return
-	}
-	if state.UnavailableProviders == nil {
-		state.UnavailableProviders = make(map[subscriptions.Provider]time.Time)
-	}
-	state.UnavailableProviders[pool] = s.clock.Now().Add(subscriptionUnavailableCooldown)
-	observability.FromContext(ctx).Warn("Subscription inference failed on provider capacity; paid rescue eligible subject to funding authorization")
+	credentials.MarkSubscriptionPoolUnavailable(ctx, pool, now)
 }
 
 func upstreamServerFailure(err error) bool {
@@ -257,12 +247,7 @@ func upstreamServerFailure(err error) bool {
 
 func (s *Service) subscriptionPoolUnavailable(ctx context.Context, provider, model string) bool {
 	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
-	return compatible && subscriptionProviderUnavailable(ctx, pool, s.clock.Now())
-}
-
-func subscriptionProviderUnavailable(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
-	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
-	return state != nil && state.UnavailableProviders[pool].After(now)
+	return compatible && credentials.SubscriptionProviderUnavailable(ctx, pool, s.clock.Now())
 }
 
 func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string) bool {
@@ -308,7 +293,7 @@ func (a seatAdmission) mayAdmit(ctx context.Context, provider, model string) boo
 }
 
 func managedSeatCanCover(ctx context.Context, pool subscriptions.Provider, now time.Time, quotaExhausted func(managedSubscriptionCandidate) bool) bool {
-	if subscriptionProviderUnavailable(ctx, pool, now) {
+	if credentials.SubscriptionProviderUnavailable(ctx, pool, now) {
 		return false
 	}
 	candidates, snapshotPresent := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)

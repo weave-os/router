@@ -317,7 +317,7 @@ func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 }
 
 func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
-	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(),
 		credentials: credentials.Brokerage{UsageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()), KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
 		clock:       func() time.Time { return time.Unix(1_000_000, 0) },
 	}

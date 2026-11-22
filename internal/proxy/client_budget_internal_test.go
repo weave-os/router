@@ -98,7 +98,7 @@ func TestClientBudgetRecomputedAcrossSameSessionAndAgents(t *testing.T) {
 	} {
 		budget := resolveClientBudget(clientIdentity, nil, tt.model, tt.variant)
 		parent = requestcontext.WithClientBudget(parent, budget)
-		svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+		svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 		req := svc.withPolicyRequestContext(parent, router.Request{})
 		assert.Equal(t, tt.window, req.ClientBudget.DefaultWindow)
 	}

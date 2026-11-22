@@ -270,24 +270,24 @@ func emptyCompletion502() error {
 func TestSubscriptionSiblingAllowed(t *testing.T) {
 	oauth := &Credentials{APIKey: []byte("tok"), AccountID: []byte("acct"), Source: credSourceCodexSubscription, OAuth: true}
 	t.Run("subscription OAuth permits sibling rescue", func(t *testing.T) {
-		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
 		assert.False(t, s.shouldFailover(ctx), "generic binding failover stays off for an OAuth credential")
 		assert.True(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK credential does not", func(t *testing.T) {
-		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, &Credentials{APIKey: []byte("sk-byok"), Source: credSourceBYOK})
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK keys on the request keep the generic rule", func(t *testing.T) {
-		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
 		ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderMakora, Plaintext: []byte("mk")}})
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK-only deployment never rescues", func(t *testing.T) {
-		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), credentials: credentials.Brokerage{BYOKOnly: true}}
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{BYOKOnly: true}}
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
@@ -298,24 +298,24 @@ func TestSubscriptionSiblingAllowed(t *testing.T) {
 // never qualifies and the mark expires with its cooldown.
 func TestAuthorizeSubscriptionAPI_ProviderOverloadAuthorizesPaidRescue(t *testing.T) {
 	now := time.Now()
-	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
 	ctx := credentials.WithManagedSubscriptionUsage(context.Background())
 	ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "acct-1", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 
 	denied := svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{})
 	require.ErrorIs(t, denied, credentials.ErrSubscriptionPoolUnavailable, "healthy included quota must still block paid inference")
 
-	svc.recordSubscriptionUnavailable(ctx, providers.ProviderOpenAI, codexCoveredModel, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"rate_limit_exceeded"}}`)})
+	recordSubscriptionUnavailable(ctx, providers.ProviderOpenAI, codexCoveredModel, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"rate_limit_exceeded"}}`)}, svc.clock.Now())
 	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
 		"a 429 is the quota path's evidence, never capacity evidence")
 
-	svc.recordSubscriptionUnavailable(ctx, providers.ProviderOpenAI, codexCoveredModel, codexOverloadedErr())
+	recordSubscriptionUnavailable(ctx, providers.ProviderOpenAI, codexCoveredModel, codexOverloadedErr(), svc.clock.Now())
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{}),
 		"a 5xx on the plan authorizes paid rescue for this turn")
 	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "claude-token", clientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
 		"the mark is scoped to the pool that failed")
 
-	now = now.Add(subscriptionUnavailableCooldown + time.Second)
+	now = now.Add(credentials.SubscriptionUnavailableCooldown + time.Second)
 	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
 		"the capacity mark is bounded by its cooldown")
 }
