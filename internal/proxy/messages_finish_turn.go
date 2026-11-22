@@ -181,7 +181,7 @@ func messagesSubscriberTelemetry(ctx context.Context, s *Service, t *messagesFin
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, t.proxyErr)
 		degenerateShadow := t.proxyErr == nil && !usage.nativeRespSummary && isDegenerateResponse(usage.out, t.respSummary.ToolUseBlocks, t.respSummary.StopReason, t.respSummary.StopReasonDemoted)
-		if degenerateShadow && !t.agentShadowMode {
+		if degenerateShadow {
 			t.log.Info("router.degenerate_shadow",
 				"model", t.decision.Model,
 				"provider", t.finalProvider,

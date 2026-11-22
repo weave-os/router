@@ -56,3 +56,21 @@ func TestForceModelPinsClearWritesTheUnforcedMarker(t *testing.T) {
 	assert.True(t, cleared)
 	assert.Equal(t, routingpolicy.ReasonUserUnforced, pin.Reason)
 }
+
+func TestForceModelPinsLoadHistoryServesOnlyLiveRows(t *testing.T) {
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	store := newMemPinStore()
+	pins := routingpolicy.NewForceModelPins(store, func() time.Time { return now })
+	key := [sessionpin.SessionKeyLen]byte{4}
+	role := routingpolicy.ForceModelHistoryRole("")
+
+	assert.Equal(t, sessionpin.Pin{}, pins.LoadHistory(context.Background(), key, ""))
+
+	require.NoError(t, store.Upsert(context.Background(), sessionpin.Pin{SessionKey: key, Role: role, Model: "claude-opus-4-7", PinnedUntil: now.Add(time.Minute)}))
+	assert.Equal(t, "claude-opus-4-7", pins.LoadHistory(context.Background(), key, "").Model)
+
+	require.NoError(t, store.Upsert(context.Background(), sessionpin.Pin{SessionKey: key, Role: role, Model: "claude-opus-4-7", PinnedUntil: now}))
+	assert.Equal(t, sessionpin.Pin{}, pins.LoadHistory(context.Background(), key, ""))
+
+	assert.Equal(t, sessionpin.Pin{}, routingpolicy.NewForceModelPins(nil, time.Now).LoadHistory(context.Background(), key, ""))
+}

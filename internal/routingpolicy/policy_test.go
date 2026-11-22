@@ -52,3 +52,13 @@ func TestPolicyExcludedModelsOverride_CopiesAndClears(t *testing.T) {
 	assert.Nil(t, base.ExcludedModelsOverride(), "the override returns a copy")
 	assert.Nil(t, overridden.WithExcludedModelsOverride(nil).ExcludedModelsOverride())
 }
+
+func TestPolicyWithDeadlineKeepsOtherSettingsAndCopies(t *testing.T) {
+	base := routingpolicy.New(nil).WithExcludedModelsOverride([]string{"model-x"})
+	withDeadline := base.WithDeadline(routingpolicy.PolicyDeadline{Fallback: true, DefaultModel: "model-a"})
+
+	assert.Equal(t, routingpolicy.PolicyDeadline{Fallback: true, DefaultModel: "model-a"}, withDeadline.Deadline())
+	assert.Equal(t, routingpolicy.PolicyDeadline{}, base.Deadline(), "WithDeadline returns a copy")
+	assert.Equal(t, base.ExcludedModelsOverride(), withDeadline.ExcludedModelsOverride())
+	assert.Equal(t, routingpolicy.PolicyDeadline{}, (*routingpolicy.Policy)(nil).Deadline())
+}
