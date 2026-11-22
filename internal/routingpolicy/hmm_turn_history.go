@@ -44,7 +44,7 @@ func (sp SessionPins) RecordHMMTurn(ctx context.Context, rec HMMTurnRecord) (rol
 	usage.Strategy = sp.strategy
 	usage.EndedAt = sp.now()
 	if err := sp.store.UpdateUsage(ctx, rec.SessionKey, role, usage); err != nil {
-		observability.Get().Error("HMM switch-history writeback failed", "err", err)
+		observability.FromContext(ctx).Error("HMM switch-history writeback failed", "err", err)
 	}
 	return role, true
 }
