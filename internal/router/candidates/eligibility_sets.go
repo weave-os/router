@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 )
 
@@ -115,9 +116,9 @@ func RestrictToTier(excluded map[string]struct{}, tier catalog.Tier, available m
 	return out, true
 }
 
-func ExcludeCodexOAuthOnlyModels(enabledProviders, excluded map[string]struct{}, subscriptionCanAttempt func(model string) bool) map[string]struct{} {
+func ExcludeCodexOAuthOnlyModels(enabledProviders, excluded map[string]struct{}) map[string]struct{} {
 	for _, model := range catalog.Models {
-		if subscriptionCanAttempt(model.ID) {
+		if requestcontext.CodexSubscriptionCanAttemptModel(model.ID) {
 			continue
 		}
 		for _, binding := range model.Providers {

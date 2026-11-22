@@ -3308,7 +3308,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 	if !codexAvailable || (!paidFallbackForbiddenFor(ctx, providers.ProviderOpenAI) && s.openAIPaidCredentialAvailable(ctx, headers)) {
 		return excluded
 	}
-	return candidates.ExcludeCodexOAuthOnlyModels(enabledProviders, excluded, codexSubscriptionCanAttemptModel)
+	return candidates.ExcludeCodexOAuthOnlyModels(enabledProviders, excluded)
 }
 
 func addTimingAttrs(ctx context.Context, b *telemetry.AttrBuilder) {

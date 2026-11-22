@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 )
@@ -70,16 +71,15 @@ func TestRestrictToTierExcludesOtherTiers(t *testing.T) {
 }
 
 func TestExcludeCodexOAuthOnlyModels(t *testing.T) {
-	none := func(string) bool { return false }
-	all := func(string) bool { return true }
-	assert.Nil(t, candidates.ExcludeCodexOAuthOnlyModels(nil, nil, all))
+	assert.Nil(t, candidates.ExcludeCodexOAuthOnlyModels(set("anthropic"), nil))
 
-	got := candidates.ExcludeCodexOAuthOnlyModels(set("openai"), nil, none)
+	got := candidates.ExcludeCodexOAuthOnlyModels(set("openai"), nil)
 	require.NotEmpty(t, got)
 	for model := range got {
 		m, known := catalog.ByID(model)
 		require.True(t, known)
 		require.NotEmpty(t, m.Providers)
 		assert.Equal(t, "openai", m.Providers[0].Provider, "%s is served first by OpenAI", model)
+		assert.False(t, requestcontext.CodexSubscriptionCanAttemptModel(model), "%s is attemptable on a Codex subscription", model)
 	}
 }
