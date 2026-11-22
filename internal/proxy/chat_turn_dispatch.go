@@ -94,23 +94,23 @@ type chatTurnDispatch struct {
 	fastServed           bool
 }
 
-func dispatchChatTurn(ctx, credentialCtx context.Context, t *chatTurnDispatch) error {
+func dispatchChatTurn(ctx, credentialCtx context.Context, t *chatTurnDispatch) (context.Context, error) {
 	ctx, err := t.bindAndGate(ctx)
 	if err != nil {
-		return err
+		return ctx, err
 	}
 	fundingCtx, err := t.prepareSinks(ctx, credentialCtx)
 	if err != nil {
-		return err
+		return ctx, err
 	}
 	t.proxyStart = t.s.clock.Now()
 	t.inferenceParentCtx = ctx
 	ctx, t.inferenceSpan = startInferenceSpan(ctx, t.decision, clientSessionIDForRequest(ctx, t.env))
 	defer t.inferenceSpan.End()
-	if err := t.buildFirstAttempt(ctx, fundingCtx); err != nil {
-		return err
+	ctx, err = t.dispatchAttempts(ctx, fundingCtx)
+	if err != nil {
+		return ctx, err
 	}
-	ctx = t.runRescue(ctx)
 	return t.finish(ctx)
 }
 
@@ -172,7 +172,7 @@ func (t *chatTurnDispatch) prepareSinks(ctx, credentialCtx context.Context) (con
 	return fundingCtx, nil
 }
 
-func (t *chatTurnDispatch) buildFirstAttempt(ctx, fundingCtx context.Context) error {
+func (t *chatTurnDispatch) dispatchAttempts(ctx, fundingCtx context.Context) (context.Context, error) {
 	attemptDeps := chatAttemptDeps{
 		request:              t.r,
 		svc:                  t.s,
@@ -210,12 +210,9 @@ func (t *chatTurnDispatch) buildFirstAttempt(ctx, fundingCtx context.Context) er
 	t.attempt, attemptBuildErr = t.buildAttempt(t.decision, t.opts, t.marker, fundingCtx)
 	if attemptBuildErr != nil {
 		finishInferenceSpan(t.inferenceSpan, t.decision, t.decision.Provider, -1, attemptBuildErr)
-		return attemptBuildErr
+		return ctx, attemptBuildErr
 	}
-	return nil
-}
 
-func (t *chatTurnDispatch) runRescue(ctx context.Context) context.Context {
 	surfacePurpose := inference.PurposeOpenAIChatCompletions
 	if t.isResponsesWriter {
 		surfacePurpose = inference.PurposeOpenAIResponses
@@ -263,10 +260,10 @@ func (t *chatTurnDispatch) runRescue(ctx context.Context) context.Context {
 	t.rescue.Finish(ctx)
 	t.decision, t.marker, t.proxyErr, t.effortServed = t.rescue.Decision, t.rescue.Marker, t.rescue.ProxyErr, t.rescue.EffortServed
 	t.winnerIdx, t.finalProvider = t.rescue.WinnerIdx, t.rescue.FinalProvider
-	return ctx
+	return ctx, nil
 }
 
-func (t *chatTurnDispatch) finish(ctx context.Context) error {
+func (t *chatTurnDispatch) finish(ctx context.Context) (context.Context, error) {
 	if t.rescue.CodexFailoverUsed {
 		ctx = withSuppressedCodexSubscription(ctx)
 	} else if t.rescue.ClaudeFailoverUsed {
@@ -285,7 +282,7 @@ func (t *chatTurnDispatch) finish(ctx context.Context) error {
 	finishInferenceSpan(t.inferenceSpan, t.decision, t.finalProvider, t.winnerIdx, t.proxyErr)
 	ctx = restoreParentSpan(ctx, t.inferenceParentCtx)
 
-	return finishChatTurn(ctx, t.s, &chatFinishedTurn{
+	return ctx, finishChatTurn(ctx, t.s, &chatFinishedTurn{
 		w: t.w, body: t.body, requestStart: t.requestStart, facts: t.facts, rateLimit: t.rateLimit, log: t.log, env: t.env, sessionKey: t.sessionKey, feats: t.feats,
 		promptText: t.promptText, embedInput: t.embedInput, strategy: t.strategy, taskArm: t.taskArm, inboundLastUser: t.inboundLastUser,
 		inboundUserPromptOpenAI: t.inboundUserPromptOpenAI, routeRequest: t.routeRequest, routeRes: t.routeRes, routeMs: t.routeMs, decision: t.decision,

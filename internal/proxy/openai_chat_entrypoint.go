@@ -274,7 +274,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		ctx = resolvedCtx
 	}
 	opts.FastMode = fastModeForAttempt(ctx, decision.Model, decision.Provider)
-	return dispatchChatTurn(ctx, credentialCtx, &chatTurnDispatch{
+	ctx, err = dispatchChatTurn(ctx, credentialCtx, &chatTurnDispatch{
 		s: s, w: w, r: r, body: body, requestStart: requestStart, facts: facts, rateLimit: rateLimit, log: log, env: env, sessionKey: sessionKey,
 		feats: feats, promptText: promptText, embedInput: embedInput, strategy: strategy, taskArm: taskArm, inboundLastUser: inboundLastUser,
 		inboundUserPromptOpenAI: inboundUserPromptOpenAI, routeRequest: routeRequest, routeRes: routeRes, routeMs: routeMs, decision: decision, tt: tt,
@@ -283,4 +283,5 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		openAIResponsesEndpoint: openAIResponsesEndpoint, isResponsesWriter: isResponsesWriter, overflowEstimateOAI: overflowEstimateOAI,
 		outputReserveOAI: outputReserveOAI, responsesEndpointKey: responsesEndpointKey, escalationCapture: &escalationCapture,
 	})
+	return err
 }
