@@ -341,7 +341,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	chatCompletionWithoutPolicyPinGroup.POST("/v1/responses", openaiapi.ResponsesHandler(proxySvc, authSvc, features.Errors))
 	chatCompletionWithoutPolicyPinGroup.POST("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler(proxySvc, authSvc, features.Errors))
 
-	registerClientPassthroughRoutes(engine, authSvc, proxySvc, byokRequiresOptIn, features.ServingAdmission, servingAdmissionMiddleware, features.SeatUsage, features.Errors)
+	registerClientPassthroughRoutes(engine, authSvc, proxySvc, byokRequiresOptIn, servingAdmissionMiddleware, features)
 
 	sessionCostGroup := engine.Group("",
 		middleware.WithTimeout(sessionCostTimeout),
