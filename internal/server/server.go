@@ -64,7 +64,7 @@ const (
 )
 
 func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service) {
-	RegisterWithFeatures(engine, authSvc, proxySvc, hmmModels, mode, nil, readinessChecker, hmmRosterSources, analyticsSvc, Features{})
+	RegisterWithFeatures(engine, authSvc, proxySvc, hmmModels, mode, nil, readinessChecker, hmmRosterSources, analyticsSvc, Features{Errors: ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage}})
 }
 
 const deploymentDefaultStrategy = router.StrategyHMMEmbedding
