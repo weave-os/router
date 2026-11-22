@@ -16,10 +16,10 @@ func piSessionMatches(ctx context.Context, claims *conversation.PiSessionClaims,
 		claims.SessionID == clientSessionIDForRequest(ctx, env) && claims.MetadataUserID == env.MetadataUserID()
 }
 
-func mintPiSession(ctx context.Context, tokens conversation.PiHandoff, env *translate.RequestEnvelope, sessionKey [sessionpin.SessionKeyLen]byte) (string, error) {
+func mintPiSession(ctx context.Context, handoff conversation.PiHandoff, env *translate.RequestEnvelope, sessionKey [sessionpin.SessionKeyLen]byte) (string, error) {
 	apiKeyID, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	identity, _ := requestcontext.ServingIdentityFromContext(ctx)
-	return tokens.MintSession(conversation.PiSessionClaims{
+	return handoff.MintSession(conversation.PiSessionClaims{
 		APIKeyID: apiKeyID, InstallationID: installationIDFromContext(ctx),
 		SessionID: clientSessionIDForRequest(ctx, env), MetadataUserID: env.MetadataUserID(), SessionKey: sessionKey,
 		ServingStateNamespace: identity.StateNamespace,
