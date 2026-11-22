@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy"
@@ -160,9 +161,9 @@ func TestCodexImageRequest_RequiresCallerOwnCredential(t *testing.T) {
 		headers http.Header
 		want    error
 	}{
-		"no credentials":  {context.Background(), http.Header{}, proxy.ErrCodexImagesRequireOwnCredential},
-		"router key only": {context.Background(), http.Header{"X-Weave-Router-Key": {"rk-synthetic"}}, proxy.ErrCodexImagesRequireOwnCredential},
-		"gateway tenancy": {gatewayCtx, http.Header{"Authorization": {"Bearer subscription-token"}, "Chatgpt-Account-Id": {"account-123"}}, proxy.ErrCodexImagesUnavailableWithGateway},
+		"no credentials":  {context.Background(), http.Header{}, ingress.ErrCodexImagesRequireOwnCredential},
+		"router key only": {context.Background(), http.Header{"X-Weave-Router-Key": {"rk-synthetic"}}, ingress.ErrCodexImagesRequireOwnCredential},
+		"gateway tenancy": {gatewayCtx, http.Header{"Authorization": {"Bearer subscription-token"}, "Chatgpt-Account-Id": {"account-123"}}, ingress.ErrCodexImagesUnavailableWithGateway},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -6,9 +6,9 @@ import (
 	"io"
 	"net/http"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 
 	"github.com/gin-gonic/gin"
@@ -31,7 +31,7 @@ func ImagesHandler(operation string, forward CodexImageForwarder) gin.HandlerFun
 		if err == nil || c.Writer.Written() {
 			return
 		}
-		if errors.Is(err, proxy.ErrCodexImagesRequireOwnCredential) || errors.Is(err, proxy.ErrCodexImagesUnavailableWithGateway) {
+		if errors.Is(err, ingress.ErrCodexImagesRequireOwnCredential) || errors.Is(err, ingress.ErrCodexImagesUnavailableWithGateway) {
 			writeOpenAIError(c, http.StatusForbidden, "invalid_request_error", err.Error())
 			return
 		}

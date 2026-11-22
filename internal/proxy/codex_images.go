@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -24,11 +25,6 @@ import (
 const (
 	CodexImageGenerations = "generations"
 	CodexImageEdits       = "edits"
-)
-
-var (
-	ErrCodexImagesRequireOwnCredential   = errors.New("image generation through the router requires signing in to Codex with ChatGPT, an OpenAI API key, or an OpenAI key saved in Weave")
-	ErrCodexImagesUnavailableWithGateway = errors.New("image generation through the router is unavailable while a gateway key serves this installation")
 )
 
 type codexImageForwarder interface {
@@ -56,7 +52,7 @@ func (c CodexImages) ForwardWithCallerCredential(ctx context.Context, headers ht
 		return fmt.Errorf("OpenAI provider does not support Codex image requests")
 	}
 	if len(credentials.GatewayProviders(credentials.ExternalKeysFromContext(ctx))) > 0 {
-		return ErrCodexImagesUnavailableWithGateway
+		return ingress.ErrCodexImagesUnavailableWithGateway
 	}
 	if creds := codexImageCallerCredential(ctx, headers); creds != nil {
 		return forwarder.ForwardCodexImageRequest(requestcontext.WithCredentials(ctx, creds), operation, body, headers, w)
@@ -72,7 +68,7 @@ func (c CodexImages) ForwardWithCallerCredential(ctx context.Context, headers ht
 	if served {
 		return err
 	}
-	return ErrCodexImagesRequireOwnCredential
+	return ingress.ErrCodexImagesRequireOwnCredential
 }
 
 func codexImageCallerCredential(ctx context.Context, headers http.Header) *Credentials {
