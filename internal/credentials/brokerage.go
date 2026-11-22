@@ -21,6 +21,7 @@ type Brokerage struct {
 	ManagedSubscriptions      subscriptions.Leaser
 	SessionHolds              SubscriptionSessionHolds
 	ClaudePlans               *subscriptions.PlanResolver
+	ExternalKeyUsage          ExternalKeyUsageRecorder
 	UsageObserver             *usage.Observer
 }
 
