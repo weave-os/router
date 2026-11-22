@@ -169,7 +169,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	stickyHit := routeRes.StickyHit
 	pinTier := routeRes.PinTier
 	pinAgeSec := routeRes.PinAgeSec
-	s.logPlannerOutcome(ctx, routeRes)
+	logPlannerOutcome(ctx, s.strategyPorts, routeRes)
 
 	w.Header().Set(requestcontext.HeaderRouterDecision, decision.Reason)
 	w.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
