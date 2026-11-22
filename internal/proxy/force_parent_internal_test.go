@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
@@ -41,7 +42,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 		require.NoError(t, err)
 		return ack.render(parent.SourceFormat())
 	}
-	route := func(env *translate.RequestEnvelope) turnLoopResult {
+	route := func(env *translate.RequestEnvelope) routingpolicy.TurnRoute {
 		t.Helper()
 		features := env.RoutingFeatures()
 		routed, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{RequestedModel: features.Model})
@@ -98,7 +99,7 @@ func TestForceParentDoesNotOverrideChildCompaction(t *testing.T) {
 	parentKey := deriveSessionKeyForRequest(ctx, parent, apiKeyID)
 	require.Equal(t, parentKey, deriveSessionKeyForRequest(ctx, compaction, apiKeyID))
 	features := compaction.RoutingFeatures()
-	route := func() turnLoopResult {
+	route := func() routingpolicy.TurnRoute {
 		t.Helper()
 		turn, err := svc.runTurnLoop(ctx, compaction, features, testTurnRequest(ctx, apiKeyID, installationID), "explore", nil, router.Request{RequestedModel: features.Model})
 		require.NoError(t, err)

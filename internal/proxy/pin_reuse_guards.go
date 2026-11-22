@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
@@ -21,7 +22,7 @@ func (tp *turnPin) drop() {
 	tp.pin = sessionpin.Pin{}
 }
 
-func dropPinRuledOutLastTurn(ctx context.Context, s *Service, env *translate.RequestEnvelope, req *router.Request, res *turnLoopResult, tp *turnPin, hmmHistory sessionpin.Pin) {
+func dropPinRuledOutLastTurn(ctx context.Context, s *Service, env *translate.RequestEnvelope, req *router.Request, res *routingpolicy.TurnRoute, tp *turnPin, hmmHistory sessionpin.Pin) {
 	log := observability.FromContext(ctx)
 	if tp.found && !isUserForcedReason(tp.pin.Reason) && automaticallyDisabled(*req, tp.pin.Model) {
 		reason, _ := s.globalAutomaticExclusionReason(ctx, tp.pin.Model)
@@ -66,7 +67,7 @@ func dropPinRuledOutLastTurn(ctx context.Context, s *Service, env *translate.Req
 	}
 }
 
-func screenPinContextWindow(ctx context.Context, s *Service, env *translate.RequestEnvelope, feats translate.RoutingFeatures, res *turnLoopResult, req *router.Request, tp *turnPin) {
+func screenPinContextWindow(ctx context.Context, s *Service, env *translate.RequestEnvelope, feats translate.RoutingFeatures, res *routingpolicy.TurnRoute, req *router.Request, tp *turnPin) {
 	log := observability.FromContext(ctx)
 	if tp.found {
 		if _, overCapacity := req.Candidates.ExcludedModels[tp.pin.Model]; overCapacity {

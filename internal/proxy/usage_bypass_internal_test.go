@@ -271,7 +271,7 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 	assert.True(t, res.UsageBypass)
 	assert.Equal(t, "claude-haiku-4-5", res.PriorServedModel)
 	assert.True(t, res.SessionEverSwitched)
-	assert.True(t, res.modelSwitched(), "bypass must retain switch history for Anthropic thinking-block stripping")
+	assert.True(t, res.ModelSwitched(), "bypass must retain switch history for Anthropic thinking-block stripping")
 	assert.True(t, svc.lifecycle.Compaction().Tracks(res.SessionKey, uuid.Nil, res.PinRole), "bypass must retain compaction-trim tracking")
 }
 

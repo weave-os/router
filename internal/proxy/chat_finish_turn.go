@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -36,7 +37,7 @@ type chatFinishedTurn struct {
 	inboundLastUser         translate.LastUserMessageInfo
 	inboundUserPromptOpenAI bool
 	routeRequest            router.Request
-	routeRes                turnLoopResult
+	routeRes                routingpolicy.TurnRoute
 	routeMs                 int64
 	decision                router.Decision
 	tt                      turntype.TurnType
@@ -92,7 +93,7 @@ func chatTurnUsageFor(ctx context.Context, s *Service, t *chatFinishedTurn) chat
 	in, out := t.extractor.Tokens()
 	cacheCreation, cacheRead := t.extractor.CacheTokens()
 	usageMods := t.extractor.UsageModifiers()
-	baselineWarmPrefill := t.routeRes.baselineWarmPrefillTokens(t.requestStart, cacheCreation, cacheRead, t.decision.Model, s.baselineFor(ctx, t.feats.Model), t.routeRequest.HistoryTruncated)
+	baselineWarmPrefill := baselineWarmPrefillTokens(t.routeRes, t.requestStart, cacheCreation, cacheRead, t.decision.Model, s.baselineFor(ctx, t.feats.Model), t.routeRequest.HistoryTruncated)
 	requestedInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, baselineWarmPrefill, t.reqPricing, t.decision.Provider, usageMods)
 	if !t.env.Stream() && t.proxyErr == nil {
 		setRouterCostHeaders(t.w.Header(), routerResponseCostFromPricing(t.actPricing, t.decision.Provider, in, out, cacheCreation, cacheRead, usageMods))

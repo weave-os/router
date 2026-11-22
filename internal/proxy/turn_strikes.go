@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
@@ -80,7 +81,7 @@ func (s *Service) clearTurnStrikes(ctx context.Context, sessionKey [sessionpin.S
 	}
 }
 
-func sessionDemotedModels(ctx context.Context, s *Service, env *translate.RequestEnvelope, res *turnLoopResult, pin, hmmHistory sessionpin.Pin) []string {
+func sessionDemotedModels(ctx context.Context, s *Service, env *translate.RequestEnvelope, res *routingpolicy.TurnRoute, pin, hmmHistory sessionpin.Pin) []string {
 	demoted := candidates.MergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels)
 	turnStrikes := candidates.MergeSessionStrikes(pin.TurnStrikes, hmmHistory.TurnStrikes)
 	if len(turnStrikes) == 0 {

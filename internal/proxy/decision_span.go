@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/requestcontext"
@@ -25,7 +26,7 @@ type decisionSpan struct {
 	facts      requestcontext.RequestFacts
 	feats      translate.RoutingFeatures
 	decision   router.Decision
-	routeRes   *turnLoopResult
+	routeRes   *routingpolicy.TurnRoute
 	taskArm    taskArmTurn
 	sessionKey [sessionpin.SessionKeyLen]byte
 	embedInput string

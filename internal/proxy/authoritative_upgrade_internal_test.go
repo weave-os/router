@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -59,7 +60,7 @@ func TestUpgradeShadowUsesCacheRulesAndExplicitIntent(t *testing.T) {
 	})
 	pin, fresh := upgradeTestPin(), upgradeTestFresh()
 	req := router.Request{RequestedModel: upgradeTestFreshModel, RoutingIntent: string(escalation.Maximum)}
-	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, RequestedTier: catalog.TierHigh}
+	res := routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding, RequestedTier: catalog.TierHigh}
 	shadow := svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
 	require.NotNil(t, shadow)
 	assert.Equal(t, hmm.UpgradeGroupEscalation, shadow.Verdict.Reason)
@@ -100,21 +101,21 @@ func TestUpgradeShadowAgeAndAbsentPin(t *testing.T) {
 		c.UpgradeShadow = hmm.UpgradeShadowConfig{StalePinAfter: time.Hour}
 	})
 	pin, fresh := upgradeTestPin(), upgradeTestFresh()
-	shadow := svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{Strategy: router.StrategyHMMEmbedding}, 1000)
+	shadow := svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding}, 1000)
 	assert.Equal(t, hmm.UpgradeStalePin, shadow.Verdict.Reason)
 	assert.Equal(t, flags.AuthoritativeUpgradePolicyOff, shadow.Mode)
 
 	pin.FirstPinnedAt = time.Now().Add(-30 * time.Minute)
-	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{Strategy: router.StrategyHMMEmbedding}, 1000)
+	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding}, 1000)
 	assert.False(t, shadow.Evidence.StalePin)
 	assert.Equal(t, hmm.UpgradeUncalibratedMargin, shadow.Verdict.Reason)
 
 	pin.FirstPinnedAt = time.Time{}
-	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{Strategy: router.StrategyHMMEmbedding}, 1000)
+	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding}, 1000)
 	assert.Nil(t, shadow.PinAgeSec)
 	assert.False(t, shadow.Evidence.StalePin)
 
-	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, sessionpin.Pin{}, fresh, turnLoopResult{Strategy: router.StrategyHMMEmbedding}, 1000)
+	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, sessionpin.Pin{}, fresh, routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding}, 1000)
 	assert.Equal(t, hmm.UpgradeNoPin, shadow.Verdict.Reason)
 	assert.Nil(t, shadow.PinAgeSec)
 }
@@ -134,7 +135,7 @@ func TestUpgradeShadowPreservesServingAndPinWrites(t *testing.T) {
 		{"gate off", 0.45, false, false, upgradeTestFreshModel},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var control turnLoopResult
+			var control routingpolicy.TurnRoute
 			var controlPin sessionpin.Pin
 			for _, enabled := range []bool{false, true} {
 				store := newStubPinStore()
@@ -192,7 +193,7 @@ func TestUpgradeShadowLogsNullableEvidence(t *testing.T) {
 		c.AuthorityCacheShadow = true
 		c.UpgradeGate = true
 	})
-	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, Fresh: fresh, Decision: pin.Decision(), StickyHit: true}
+	res := routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding, Fresh: fresh, Decision: pin.Decision(), StickyHit: true}
 	res.UpgradeShadow = svc.authoritativeUpgradeFor(ctx, router.Request{}, pin, fresh, res, 1000)
 	logAuthoritativeUpgrade(ctx, res)
 	var record map[string]any
@@ -289,7 +290,7 @@ func TestEvidenceUpgradeVotesResetWhenProposalLeavesSameGroup(t *testing.T) {
 	fresh := upgradeTestFresh()
 	fresh.Metadata.ClassifierMargin = &margin
 
-	shadow := svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{Strategy: router.StrategyHMMEmbedding}, 1000)
+	shadow := svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding}, 1000)
 	assert.Equal(t, hmm.UpgradeHold, shadow.Verdict.Outcome)
 	assert.Equal(t, escalation.High, shadow.Evidence.FreshGroup)
 	assert.Equal(t, escalation.Medium, shadow.Evidence.PinGroup)
@@ -298,7 +299,7 @@ func TestEvidenceUpgradeVotesResetWhenProposalLeavesSameGroup(t *testing.T) {
 
 	pin.ConsecutiveUpgradeVotes = *shadow.Evidence.VoteCount
 	fresh.Metadata.PolicyGroup = string(escalation.Medium)
-	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{Strategy: router.StrategyHMMEmbedding}, 1000)
+	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding}, 1000)
 	require.NotNil(t, shadow.Evidence.VoteCount)
 	assert.Equal(t, 1, *shadow.Evidence.VoteCount)
 }

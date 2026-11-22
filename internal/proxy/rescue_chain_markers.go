@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/proxy/usage"
@@ -15,7 +16,7 @@ import (
 type rescueMarkers struct {
 	strategyPorts continuity.StrategyPorts
 	header        http.Header
-	routeRes      turnLoopResult
+	routeRes      routingpolicy.TurnRoute
 	usageObserver *usage.Observer
 }
 

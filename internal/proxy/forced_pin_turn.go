@@ -12,7 +12,7 @@ import (
 	"weave-os/router/internal/routingpolicy"
 )
 
-func serveForceModelPin(ctx context.Context, req *router.Request, res *turnLoopResult, forceModelPin, forceHistory sessionpin.Pin, sessionPins routingpolicy.SessionPins, now time.Time) (served bool, tierFloor catalog.Tier) {
+func serveForceModelPin(ctx context.Context, req *router.Request, res *routingpolicy.TurnRoute, forceModelPin, forceHistory sessionpin.Pin, sessionPins routingpolicy.SessionPins, now time.Time) (served bool, tierFloor catalog.Tier) {
 	log := observability.FromContext(ctx)
 	verdict := candidates.JudgeForceModelPin(forceModelPin, *req)
 	if verdict.PastContextEstimate {
@@ -26,7 +26,7 @@ func serveForceModelPin(ctx context.Context, req *router.Request, res *turnLoopR
 		res.PinAgeSec = pinAge(forceModelPin, now)
 		res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
 			(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
-		res.serveForceModelPin(forceModelPin)
+		res.ServeForceModelPin(forceModelPin)
 		sessionPins.AnchorForceModelHistory(ctx, res.InstallationID, res.SessionKey, res.PinRole, forceModelPin)
 		return true, catalog.TierUnknown
 	}
@@ -40,7 +40,7 @@ func serveForceModelPin(ctx context.Context, req *router.Request, res *turnLoopR
 	return false, verdict.TierFloor
 }
 
-func serveUserForcedPin(ctx context.Context, req *router.Request, res *turnLoopResult, pin sessionpin.Pin, sessionPins routingpolicy.SessionPins) (served bool, tierFloor catalog.Tier) {
+func serveUserForcedPin(ctx context.Context, req *router.Request, res *routingpolicy.TurnRoute, pin sessionpin.Pin, sessionPins routingpolicy.SessionPins) (served bool, tierFloor catalog.Tier) {
 	verdict := candidates.JudgeUserForcedPin(pin, *req)
 	if verdict.Serve {
 		decision := pin.Decision()

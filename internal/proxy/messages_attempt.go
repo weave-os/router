@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
@@ -22,7 +23,7 @@ type messagesAttemptDeps struct {
 	request                 *http.Request
 	svc                     *Service
 	env                     *translate.RequestEnvelope
-	routeRes                *turnLoopResult
+	routeRes                *routingpolicy.TurnRoute
 	log                     *slog.Logger
 	crossFormat             *bool
 	feats                   translate.RoutingFeatures

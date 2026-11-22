@@ -15,26 +15,11 @@ import (
 	"weave-os/router/internal/routingpolicy"
 )
 
-type authoritativeUpgradeDecision struct {
-	Mode             flags.AuthoritativeUpgradePolicy
-	Evidence         continuity.UpgradeEvidence
-	Verdict          continuity.UpgradeVerdict
-	PinModel         string
-	PinProvider      string
-	PinTier          catalog.Tier
-	RequestedTier    catalog.Tier
-	PinAgeSec        *int64
-	MarginThreshold  *float64
-	StalePinAfterSec *int64
-	FreshScore       *float64
-	Applied          bool
-}
-
 func (s *Service) resolveUpgradePolicyMode(ctx context.Context) flags.AuthoritativeUpgradePolicy {
 	return s.ResolveAuthoritativeUpgradePolicy(ctx)
 }
 
-func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Request, pin sessionpin.Pin, fresh router.Decision, res turnLoopResult, inputTokens int) *authoritativeUpgradeDecision {
+func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Request, pin sessionpin.Pin, fresh router.Decision, res routingpolicy.TurnRoute, inputTokens int) *routingpolicy.AuthoritativeUpgradeDecision {
 	if !s.strategyPorts.Ownership.Owns(res.Strategy) || !isHMMDecision(s.strategyPorts, fresh) {
 		return nil
 	}
@@ -42,7 +27,7 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 	if mode == flags.AuthoritativeUpgradePolicyScore && !s.ResolveAuthoritativeUpgradeGate(ctx) {
 		mode = flags.AuthoritativeUpgradePolicyOff
 	}
-	decision := &authoritativeUpgradeDecision{
+	decision := &routingpolicy.AuthoritativeUpgradeDecision{
 		Mode:            mode,
 		PinModel:        pin.Model,
 		PinProvider:     pin.Provider,
@@ -102,7 +87,7 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 	return decision
 }
 
-func logAuthoritativeUpgrade(ctx context.Context, res turnLoopResult) {
+func logAuthoritativeUpgrade(ctx context.Context, res routingpolicy.TurnRoute) {
 	decision := res.UpgradeShadow
 	if decision == nil {
 		return
@@ -134,7 +119,7 @@ func holdAuthoritativePin(
 	ctx context.Context,
 	sessionPins routingpolicy.SessionPins,
 	ownership continuity.Ownership,
-	res *turnLoopResult,
+	res *routingpolicy.TurnRoute,
 	pin sessionpin.Pin,
 	fresh router.Decision,
 	verdict continuity.AuthoritativeVerdict,
@@ -156,7 +141,7 @@ func holdAuthoritativePin(
 	}
 	if verdict.Hold == continuity.AuthoritativeServe {
 		if verdict.Downgrade {
-			res.DowngradeShadow = downgradeGuardShadow{
+			res.DowngradeShadow = routingpolicy.DowngradeGuardShadow{
 				Served:              true,
 				Votes:               verdict.DowngradeVotes,
 				HysteresisWouldHold: verdict.HysteresisWouldHold,

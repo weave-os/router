@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
@@ -139,10 +140,10 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		Failure:        routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy},
 		FailureMessage: "Routing failed for Gemini request",
 		IsUserPrompt:   inboundUserPrompt,
-	}, func(routeCtx context.Context) (turnLoopResult, error) {
+	}, func(routeCtx context.Context) (routingpolicy.TurnRoute, error) {
 		return s.runTurnLoop(routeCtx, env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
 	})
-	defer routeRes.releaseCooldownProbes()
+	defer routeRes.ReleaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
 		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseGemini)
@@ -244,8 +245,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			}
 			flushBufferedIfPresent(w, err)
 		},
-		Purpose: routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
-		Origin:  routeRes.dispatchOrigin(decision),
+		Purpose: routeRes.DispatchPurpose(inference.PurposeGeminiGenerateContent),
+		Origin:  dispatchOrigin(routeRes, decision),
 	})
 	primaryFailureErr := proxyErr
 	proxyMs := s.clock.Now().Sub(proxyStart).Milliseconds()
