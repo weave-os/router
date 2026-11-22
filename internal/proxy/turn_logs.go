@@ -37,8 +37,6 @@ func (s *Service) effectiveCaptureMode(ctx context.Context) capture.Mode {
 	return capture.StricterMode(s.captureMode, override)
 }
 
-func (s *Service) CaptureMode() capture.Mode { return s.captureMode }
-
 func (s *Service) maybeCaptureResponse(ctx context.Context, w http.ResponseWriter) (http.ResponseWriter, *capture.Writer) {
 	if s.effectiveCaptureMode(ctx) == capture.Off {
 		return w, nil
