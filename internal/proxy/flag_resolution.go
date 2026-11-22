@@ -75,7 +75,7 @@ func (s *Service) ResolveSiblingFailover(ctx context.Context) bool {
 }
 
 func (s *Service) ResolveAllowedModelsHeader(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyAllowedModelsHeader, s.allowedModelsHeader)
+	return flags.BoolOr(ctx, flags.KeyAllowedModelsHeader, s.ingress.AllowedModelsHeader)
 }
 
 func (s *Service) ResolveOpenAIResponsesBroad(ctx context.Context) bool {

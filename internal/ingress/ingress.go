@@ -24,10 +24,11 @@ type Formats struct {
 		Adapter
 		StreamErrorWriter
 	}
-	Anthropic  Anthropic
-	OpenAIChat OpenAIChat
-	Responses  Responses
-	Keepalive  time.Duration
+	Anthropic           Anthropic
+	OpenAIChat          OpenAIChat
+	Responses           Responses
+	Keepalive           time.Duration
+	AllowedModelsHeader bool
 }
 
 func New(keepalive time.Duration) Formats {
