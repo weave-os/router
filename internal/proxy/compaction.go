@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
@@ -48,6 +49,7 @@ func (s *Service) routeCompaction(
 		available:      s.routing.AvailableModels(),
 		cortexGateways: cortexGatewayProvidersForRequest(ctx),
 		now:            s.clock.Now(),
+		history:        s.strategyPorts.History,
 	}
 	decision, strikes, ok := session.decision(ctx, target.sessionKey, res.PinRole, req)
 	req = strikes.apply(req)
@@ -78,6 +80,7 @@ type compactionSession struct {
 	available      map[string]struct{}
 	cortexGateways map[string]struct{}
 	now            time.Time
+	history        continuity.SwitchHistory
 }
 
 type sessionStrikes struct {
@@ -106,7 +109,7 @@ func (st sessionStrikes) apply(req router.Request) router.Request {
 func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (router.Decision, sessionStrikes, bool) {
 	var served sessionpin.Pin
 	var strikes sessionStrikes
-	for _, pinRole := range []string{role, hmmHistoryRole(role)} {
+	for _, pinRole := range []string{role, c.history.HistoryRole(role)} {
 		pin, found, err := c.pins.Get(ctx, sessionKey, pinRole)
 		if err != nil {
 			observability.FromContext(ctx).Error("Compaction session history unavailable", "role", pinRole, "err", err)

@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandswap"
 	"weave-os/router/internal/router/candidates"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
@@ -14,17 +15,18 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Service) recordHMMTurnHistory(ctx context.Context, res routingpolicy.TurnRoute, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
+func (s *Service) recordSwitchHistory(ctx context.Context, res routingpolicy.TurnRoute, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
 	if servedModel == "" || res.InstallationID == uuid.Nil || res.SessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return
 	}
 	strategy := strategyForTurnLoopResult(res)
-	role, usageRecorded := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).RecordHMMTurn(strategyContext(ctx, strategy), routingpolicy.HMMTurnRecord{
+	rows := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).HistoryRows()
+	role, usageRecorded := s.strategyPorts.History.RecordTurnHistory(strategyContext(ctx, strategy), rows, continuity.TurnHistoryRecord{
 		SessionKey:     res.SessionKey,
 		InstallationID: res.InstallationID,
 		PinRole:        res.PinRole,
-		Reason:         hmmHistoryStoredReason(s.strategyPorts, res),
-		HistoryReason:  s.strategyPorts.CostGate.HistoryReason(),
+		Fresh:          res.Fresh,
+		Decision:       res.Decision,
 		Usage: sessionpin.Usage{
 			InputTokens:         in,
 			CachedReadTokens:    cacheRead,

@@ -18,8 +18,6 @@ func pinMatchesEffectiveStrategy(strategy router.Strategy, pin sessionpin.Pin) b
 
 func decisionPolicyGroup(dec router.Decision) string { return routingpolicy.DecisionPolicyGroup(dec) }
 
-func hmmHistoryRole(role string) string { return routingpolicy.HMMHistoryRole(role) }
-
 func isUserForcedReason(reason string) bool { return routingpolicy.IsUserForcedReason(reason) }
 
 const userUnforcedReason = routingpolicy.ReasonUserUnforced
