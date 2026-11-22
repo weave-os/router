@@ -238,13 +238,10 @@ func (s *Service) bypassToAnthropic(
 		return provErr
 	}
 
-	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
-	// Capture the winning credential plan before streaming can cancel the request.
-	telemetryCtx := s.withClaudeSubscriptionProfile(ctx, nil)
+	ctx, telemetryCtx := resolveBypassCredentialsForTelemetry(s, ctx, decision.Provider, decision.Model, r.Header)
 	if claudeEnterpriseOnly(ctx) && !servedOnSubscription(ctx) {
 		return claudeEnterpriseRefusal(ctx)
 	}
-
 	outputReserve := max(contextWindowOutputReserve, feats.MaxTokens)
 	opts := translate.EmitOptions{
 		TargetModel:              decision.Model,
