@@ -11,6 +11,7 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -91,16 +92,16 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	if limit, ok := codexUsageLimitOf(a); ok {
 		return limit.wording()
 	}
-	if errors.Is(a.Err, ErrSubscriptionPoolExhausted) && (status == http.StatusUnauthorized || status == http.StatusForbidden) {
+	if errors.Is(a.Err, credentials.ErrSubscriptionPoolExhausted) && (status == http.StatusUnauthorized || status == http.StatusForbidden) {
 		return failureWording{"rejected the subscription login", "subscription login rejected"}
 	}
-	if errors.Is(a.Err, ErrSubscriptionPoolExhausted) {
+	if errors.Is(a.Err, credentials.ErrSubscriptionPoolExhausted) {
 		return failureWording{"had no subscription capacity", "subscription capacity exhausted"}
 	}
-	if errors.Is(a.Err, ErrSubscriptionPoolThrottled) {
+	if errors.Is(a.Err, credentials.ErrSubscriptionPoolThrottled) {
 		return failureWording{"had every subscription seat rate-limited", "subscription seats rate-limited"}
 	}
-	if errors.Is(a.Err, ErrSubscriptionPoolUnavailable) {
+	if errors.Is(a.Err, credentials.ErrSubscriptionPoolUnavailable) {
 		return failureWording{"had no usable subscription seat", "no usable subscription seat"}
 	}
 	if errors.Is(a.Err, translate.ErrToolCallTruncated) {
@@ -335,7 +336,7 @@ func TerminalErrorMessage(err error) string {
 	if errors.As(err, &attributed) && attributed.message != "" {
 		return attributed.message
 	}
-	if errors.Is(err, ErrSubscriptionPoolThrottled) {
+	if errors.Is(err, credentials.ErrSubscriptionPoolThrottled) {
 		return subscriptionPoolThrottledMessage
 	}
 	return upstreamCallFailedMessage

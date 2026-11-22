@@ -198,7 +198,7 @@ func TestLeaseManagedSubscriptionNeverUsesOverageAsLastResort(t *testing.T) {
 
 	_, lease, managed, err := svc.leaseManagedSubscription(managedSubscriptionTestContext(), providers.ProviderAnthropic, "claude-opus-4-8")
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	require.True(t, managed)
 	require.Empty(t, lease.AccountID)
 	assert.Equal(t, 2, leaser.next)
@@ -295,7 +295,7 @@ func TestManagedSubscriptionEnrollmentFailureDoesNotClaimCapacity(t *testing.T) 
 
 			_, _, managed, err := svc.leaseManagedSubscription(ctx, test.provider, test.model)
 
-			require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+			require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
 			require.True(t, managed)
 			require.Empty(t, leaser.providers)
 		})
@@ -331,7 +331,7 @@ func TestManagedSubscriptionEnrollmentFailureDoesNotAuthorizeAPIFallback(t *test
 
 	out, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
 	require.True(t, managed)
 	require.Empty(t, lease.AccountID)
 	require.False(t, credentials.ClaudeSubscriptionSuppressed(out))
@@ -352,7 +352,7 @@ func TestManagedSubscriptionAllPlansExhaustedPreservesSubscriptionOnly(t *testin
 		"claude-opus-4-8",
 	)
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	require.True(t, managed)
 	require.Same(t, ctx, out)
 	require.Equal(t, []subscriptions.Provider{subscriptions.ProviderClaude}, leaser.providers)
@@ -383,7 +383,7 @@ func TestLeaseManagedSubscription_LinkedFirstExhaustedPool_NoFallbackKey_Refuses
 	)
 
 	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	require.True(t, managed)
 	cls, ok := ClassifyDispatchError(err)
 	require.True(t, ok)
@@ -401,7 +401,7 @@ func TestLeaseManagedSubscription_CreditsDepletedExhaustedPool_StillRefuses(t *t
 	)
 
 	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	require.True(t, managed)
 	cls, ok := ClassifyDispatchError(err)
 	require.True(t, ok)
@@ -540,7 +540,7 @@ func TestDispatchWithFallbackRefusesPaidRecoveryAfterManagedModelDenial(t *testi
 			},
 		})
 		if requestIndex == 0 {
-			require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+			require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 		} else {
 			require.True(t, anthropicSubscriptionModelRejected(err))
 		}
@@ -606,7 +606,7 @@ func TestDispatchWithFallbackKeepsManagedModelDenialModelSpecific(t *testing.T) 
 		},
 	})
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	assert.Equal(t, 1, client.calls, "denied account/model is dispatched once")
 	_, _, managed, deniedErr := svc.leaseManagedSubscription(managedSubscriptionTestContext(), providers.ProviderAnthropic, parityAnthropicModel)
 	require.True(t, managed)
@@ -766,7 +766,7 @@ func TestDispatchWithFallbackNeverUsesPaidBindingAfterManagedExhaustion(t *testi
 		},
 	})
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	require.Equal(t, 0, paidFallback.calls)
 }
 

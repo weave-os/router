@@ -44,7 +44,7 @@ func TestClaudeEnterpriseRefusalOutranksEveryLaneMark(t *testing.T) {
 func TestClientAppRefusalOutranksEveryLaneRefusal(t *testing.T) {
 	for name, ctx := range eligibilityRefusalContexts() {
 		t.Run(name, func(t *testing.T) {
-			for _, laneErr := range []error{subscriptionPoolExhausted(ctx), credentials.SubscriptionOnlyUnavailable(ctx)} {
+			for _, laneErr := range []error{credentials.SubscriptionPoolExhausted(ctx), credentials.SubscriptionOnlyUnavailable(ctx)} {
 				err := errors.Join(ErrSubscriptionClientAppRefused, laneErr)
 
 				assert.Equal(t, refusal.SubscriptionClientAppRefused.Contract(), classifiedRefusal(t, err))
@@ -58,7 +58,7 @@ func TestProductIneligibilityOutranksEveryLaneRefusal(t *testing.T) {
 	require.ErrorIs(t, ineligible, eligibility.ErrModelIneligible)
 	for name, ctx := range eligibilityRefusalContexts() {
 		t.Run(name, func(t *testing.T) {
-			for _, laneErr := range []error{subscriptionPoolExhausted(ctx), credentials.SubscriptionOnlyUnavailable(ctx), ErrSubscriptionClientAppRefused, ErrClaudeEnterpriseSubscriptionUnavailable} {
+			for _, laneErr := range []error{credentials.SubscriptionPoolExhausted(ctx), credentials.SubscriptionOnlyUnavailable(ctx), ErrSubscriptionClientAppRefused, ErrClaudeEnterpriseSubscriptionUnavailable} {
 				assert.Equal(t, refusal.ProductIneligible.Contract(), classifiedRefusal(t, errors.Join(ineligible, laneErr)))
 			}
 		})

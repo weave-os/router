@@ -45,7 +45,7 @@ func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 
 	_, err := svc.dispatchWithFallback(ctx, in)
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
 	require.Zero(t, oauthCalls, "no included attempt is admitted after the rotation budget expired")
 	require.Zero(t, apiCalls)
 	require.Empty(t, rec.Body.String())
@@ -73,7 +73,7 @@ func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {
 
 	_, err := svc.dispatchWithFallback(ctx, in)
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
 	class, classified := ClassifyDispatchError(err)
 	require.True(t, classified)
 	require.Equal(t, http.StatusServiceUnavailable, class.Status, "a spent admission budget is not proof the pool is exhausted")

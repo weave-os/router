@@ -97,7 +97,7 @@ func TestSubscriptionOnlyUnavailableNamesTheSpentAllowanceWindow(t *testing.T) {
 
 	depleted := credentials.SubscriptionOnlyUnavailable(billing.WithSubscriptionOnly(spent, billing.SubscriptionOnlyCreditsDepleted))
 	require.ErrorIs(t, depleted, credentials.ErrCreditsExhaustedSubscriptionUnavailable, "refusal checks match the credits sentinel")
-	cls, ok := ClassifyDispatchError(errors.Join(depleted, ErrSubscriptionPoolExhausted))
+	cls, ok := ClassifyDispatchError(errors.Join(depleted, credentials.ErrSubscriptionPoolExhausted))
 	require.True(t, ok)
 	assert.Equal(t, ingress.DispatchErrorCreditsExhausted, cls.Kind)
 	assert.Equal(t, http.StatusPaymentRequired, cls.Status)

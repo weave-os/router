@@ -28,8 +28,7 @@ func TestSelectableSubscriptionProvidersCoverCallerFundedLanes(t *testing.T) {
 	}
 	serviceWithUsageSnapshot := func(token string, snap usage.Snapshot) *Service {
 		return &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
-			usageObserver: observerWithSnapshot(token, snap),
-			credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{}},
+			credentials: credentials.Brokerage{UsageObserver: observerWithSnapshot(token, snap), KeyedProviders: map[string]struct{}{}},
 		}
 	}
 
