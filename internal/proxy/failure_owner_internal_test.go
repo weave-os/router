@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/hmm"
@@ -139,7 +140,7 @@ func TestClassifyFailureOwner_Cases(t *testing.T) {
 		{"customer key over its own usage limit on a translated body", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Rejection: providers.UpstreamRejection{Kind: providers.UpstreamRejectionCredential}}, BodyTranslated: true, CustomerCredential: true}, turnrecord.FailureOwnerClient},
 		{"deployment key over its usage limit stays router-owned", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Rejection: providers.UpstreamRejection{Kind: providers.UpstreamRejectionCredential}}, BodyTranslated: true}, turnrecord.FailureOwnerRouter},
 		{"translated body rejected for a field the client sent unchanged", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusBadRequest}, BodyTranslated: true, RejectedFieldUnchanged: true}, turnrecord.FailureOwnerClient},
-		{"spend-cap lane refusal outranks the last seat's 429", failureOwnerInput{Err: errors.Join(ErrSpendCapSubscriptionUnavailable, ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests})}, turnrecord.FailureOwnerClient},
+		{"spend-cap lane refusal outranks the last seat's 429", failureOwnerInput{Err: errors.Join(credentials.ErrSpendCapSubscriptionUnavailable, ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests})}, turnrecord.FailureOwnerClient},
 		{"responses passthrough cannot switch format", failureOwnerInput{Err: errResponsesPassthroughStuck}, turnrecord.FailureOwnerRouter},
 		{"malformed custom tool arguments", failureOwnerInput{Err: fmt.Errorf("write: %w", translate.ErrCustomToolArguments), BodyTranslated: true}, turnrecord.FailureOwnerProvider},
 		{"http/2 connection lost to the provider", failureOwnerInput{Err: http2LostPing()}, turnrecord.FailureOwnerProvider},

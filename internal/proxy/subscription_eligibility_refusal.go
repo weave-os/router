@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/subscriptionlane"
@@ -14,7 +15,7 @@ func laneRefusal(ctx context.Context, on subscriptionlane.Event, refused subscri
 	if next, _ := subscriptionlane.Step(billing.SubscriptionLaneFromContext(ctx), on); next == refused {
 		return sentinel
 	}
-	return errors.Join(subscriptionOnlyUnavailable(ctx), sentinel)
+	return errors.Join(credentials.SubscriptionOnlyUnavailable(ctx), sentinel)
 }
 
 func subscriptionClientAppRefusal(ctx context.Context) error {

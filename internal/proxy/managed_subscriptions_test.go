@@ -96,7 +96,7 @@ func managedSubscriptionContext(provider auth.SubscriptionProvider) context.Cont
 		provider: {},
 	})
 	// Pool recovery tests opt into metered fallback; default-only cases use raw enrollment.
-	return withClaudeCreditFallback(WithManagedSubscriptionUsage(ctx))
+	return withClaudeCreditFallback(credentials.WithManagedSubscriptionUsage(ctx))
 }
 
 func exhaustedManagedSubscriptionContext() context.Context {
@@ -334,7 +334,7 @@ func TestManagedSubscriptionEnrollmentFailureDoesNotAuthorizeAPIFallback(t *test
 	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
 	require.True(t, managed)
 	require.Empty(t, lease.AccountID)
-	require.False(t, claudeSubscriptionSuppressed(out))
+	require.False(t, credentials.ClaudeSubscriptionSuppressed(out))
 	require.True(t, CredentialsFromContext(out).OAuth)
 	require.Empty(t, leaser.providers)
 }

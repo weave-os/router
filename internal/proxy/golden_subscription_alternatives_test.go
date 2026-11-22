@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -83,7 +84,7 @@ func goldenCodexPoolRequest(body string, accounts ...string) goldenRequest {
 		})
 	}
 	return goldenRequest{body: body, decorateContext: func(ctx context.Context) context.Context {
-		return proxy.WithManagedSubscriptionUsage(proxy.WithManagedSubscriptionCandidates(ctx, enrolled))
+		return credentials.WithManagedSubscriptionUsage(proxy.WithManagedSubscriptionCandidates(ctx, enrolled))
 	}}
 }
 

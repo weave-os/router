@@ -61,7 +61,7 @@ func TestSubscriptionFundingPaidDispatchRequiresQuotaProof(t *testing.T) {
 				ctx := WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), tc.accounts)
 				ctx = svc.withSubscriptionFundingAuthorization(ctx, nil)
 				// Exhausted-state routing and OAuth suppression must not erase admission facts.
-				ctx = context.WithValue(withSuppressedClaudeSubscription(ctx), subscriptionAPIOnlyKey{}, true)
+				ctx = context.WithValue(credentials.WithSuppressedClaudeSubscription(ctx), subscriptionAPIOnlyKey{}, true)
 				if source != "" {
 					ctx = requestcontext.WithCredentials(ctx, &Credentials{Source: source, APIKey: []byte("synthetic-api-key")})
 				}

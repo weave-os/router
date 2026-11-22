@@ -1,9 +1,8 @@
-package proxy
+package conversation
 
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
 
@@ -12,38 +11,25 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-type forceableModel struct {
-	id, provider string
-	refusal      *ForcedModelExcludedError
-	shorthands   []string
+const routingMarkerPrefix = "✦ **Weave Router** → "
+
+type ForceableModel struct {
+	ID, Provider  string
+	Refused       bool
+	RefusalReason string
+	Shorthands    []string
 }
 
-func (s *Service) handleListModelsCommand(
-	ctx context.Context,
-	w http.ResponseWriter,
-	env *translate.RequestEnvelope,
-	inputTokens int,
-) error {
-	models := s.forceableModels(ctx)
-	observability.FromContext(ctx).Debug("/list-models: answered from the force-model catalog",
-		"models", len(models),
-	)
-	ack := newCommandAcknowledgment(translate.CommandListModels)
-	ack.forceable = models
-	ack.clientApp = ClientIdentityFrom(ctx).ClientApp
-	return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
-}
-
-func (s *Service) forceableModels(ctx context.Context) []forceableModel {
+func ListForceableModels(ctx context.Context, names map[string]string, binder ForceModelBinder) []ForceableModel {
 	shorthands := make(map[string][]string)
-	for name, id := range forceModelNames() {
+	for name, id := range names {
 		if name != id {
 			shorthands[id] = append(shorthands[id], name)
 		}
 	}
-	out := make([]forceableModel, 0, len(catalog.Models))
+	out := make([]ForceableModel, 0, len(catalog.Models))
 	for _, m := range catalog.Models {
-		_, refusal := s.forcedModelBinding(ctx, m.ID, m.PrimaryProvider())
+		_, reason, refused := binder.Binding(ctx, m.ID, m.PrimaryProvider())
 		names := shorthands[m.ID]
 		sort.Slice(names, func(i, j int) bool {
 			if len(names[i]) != len(names[j]) {
@@ -51,38 +37,41 @@ func (s *Service) forceableModels(ctx context.Context) []forceableModel {
 			}
 			return names[i] < names[j]
 		})
-		out = append(out, forceableModel{
-			id: m.ID, provider: m.PrimaryProvider(), refusal: refusal, shorthands: names,
+		out = append(out, ForceableModel{
+			ID: m.ID, Provider: m.PrimaryProvider(), Refused: refused, RefusalReason: reason, Shorthands: names,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].provider != out[j].provider {
-			return out[i].provider < out[j].provider
+		if out[i].Provider != out[j].Provider {
+			return out[i].Provider < out[j].Provider
 		}
-		return out[i].id < out[j].id
+		return out[i].ID < out[j].ID
 	})
+	observability.FromContext(ctx).Debug("/list-models: answered from the force-model catalog",
+		"models", len(out),
+	)
 	return out
 }
 
 const listModelsShorthandLimit = 4
 
-func listModelsMessage(models []forceableModel, prefix string, format translate.Format) string {
+func ListModelsMessage(models []ForceableModel, prefix string, format translate.Format) string {
 	var b strings.Builder
 	available := 0
 	provider := ""
 	for _, m := range models {
-		if m.provider != provider {
-			provider = m.provider
+		if m.Provider != provider {
+			provider = m.Provider
 			b.WriteString("\n" + provider + "\n")
 		}
 		mark := "x"
-		if m.refusal != nil {
+		if m.Refused {
 			mark = " "
 		} else {
 			available++
 		}
-		row := fmt.Sprintf("  [%s] %s", mark, m.id)
-		if names := m.shorthands; len(names) > 0 {
+		row := fmt.Sprintf("  [%s] %s", mark, m.ID)
+		if names := m.Shorthands; len(names) > 0 {
 			if len(names) > listModelsShorthandLimit {
 				names = names[:listModelsShorthandLimit]
 			}
