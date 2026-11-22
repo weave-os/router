@@ -28,7 +28,7 @@ func TestHandleTextRepetitionBreak_ZeroSessionKeyWritesNoPin(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &overwritingPinStore{}
-			svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store}
+			svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), pinStore: store}
 			env, err := translate.ParseAnthropic([]byte(`{"model":"synthetic-model","messages":[{"role":"user","content":"continue"}]}`))
 			require.NoError(t, err)
 

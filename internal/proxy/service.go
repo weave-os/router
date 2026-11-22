@@ -64,7 +64,6 @@ type Service struct {
 	pinStore                     sessionpin.Store
 	escalation                   *floor.Helper
 	sessionStrategyStore         sessionstrategy.Store
-	classifierSessions           *classifierSessions
 	lifecycle                    *conversation.Lifecycle
 	prefixTrimFreeSwitch         bool
 	escapeNormalize              bool
@@ -75,8 +74,7 @@ type Service struct {
 	routing                      *routingpolicy.Policy
 	globalAutomaticExclusions    *globalAutomaticExclusionCache
 	credentials                  credentials.Brokerage
-	continuityConfig             continuity.Config
-	hmmServing
+	strategyServing
 
 	rescueConfig                   dispatch.RescueConfig
 	openAIResponsesBroad           bool
@@ -90,7 +88,6 @@ type Service struct {
 	ccTaskToolsCrossVendor         bool
 	ccAutonomySystemAppend         bool
 	ccWorkspaceSystemAppend        bool
-	bandSwap                       *bandswap.Classifier
 
 	turnSignalCaptureEnabled bool
 	webSearch                websearch.Executor
@@ -800,8 +797,7 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 		turnSignalCaptureEnabled:     true,
 		ccOrchToolsCrossVendor:       true,
 		hardPins:                     overrides.HardPins{Explore: hardPinExplore, Provider: hardPinProvider, Model: hardPinModel},
-		continuityConfig:             continuity.DefaultConfig(),
-		hmmServing:                   hmmServing{hmmConfig: continuity.DefaultAuthoritativeConfig()},
+		strategyServing:              strategyServing{continuityConfig: continuity.DefaultConfig(), hmmConfig: continuity.DefaultAuthoritativeConfig()},
 		rescueConfig: dispatch.RescueConfig{
 			SiblingFailover:             true,
 			CyberRefusalRepin:           true,

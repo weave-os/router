@@ -19,7 +19,7 @@ import (
 )
 
 func TestRoutingModelDoesNotReadLegacyBetaPreference(t *testing.T) {
-	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: errors.New("legacy preference must not be read")})
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: errors.New("legacy preference must not be read")})
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	key := [sessionpin.SessionKeyLen]byte{1}
 	installation := uuid.New()
@@ -36,7 +36,7 @@ func TestRoutingModelRedirectsLegacyBetaCommandsWithoutChangingPreferences(t *te
 		for _, commandText := range []string{"/beta", "/beta-llm"} {
 			t.Run(string(model)+commandText, func(t *testing.T) {
 				store := &betaTestPreferenceStore{}
-				svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithSessionStrategyStore(store)
+				svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithSessionStrategyStore(store)
 				ctx := router.WithStrategySelection(context.Background(), router.StrategySelection{RoutingModel: model})
 				envelope := betaTestEnvelope(t, commandText, true)
 				command, found := envelope.ExtractBetaCommand()

@@ -74,7 +74,7 @@ func TestAllowedModelsForRequest_SubsetAloneRestricts(t *testing.T) {
 }
 
 func TestExcludedModelsForRequest_SubsetExcludesComplementButPolicySetDoesNot(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}, "c": {}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}, "c": {}}}
 	ctx := ctxWithRequestSubset(ctxWithAllowedModels("a", "b"), "b")
 
 	got := s.excludedModelsForRequest(ctx)
@@ -111,7 +111,7 @@ func TestRequestedAllowedModelsForTelemetry(t *testing.T) {
 }
 
 func TestReadmitForcedModel_LiftsSubsetOnlyExclusion(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
 	ctx := ctxWithRequestSubset(context.Background(), testSol)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
@@ -126,7 +126,7 @@ func TestReadmitForcedModel_LiftsSubsetOnlyExclusion(t *testing.T) {
 }
 
 func TestReadmitForcedModel_KeepsPolicyExclusion(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
 	ctx := ctxWithRequestSubset(ctxWithAllowedModels(testSol, testTerra), testSol)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestReadmitForcedModel_KeepsPolicyExclusion(t *testing.T) {
 }
 
 func TestReadmitForcedModel_KeepsAdvisorPairingExclusion(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, "claude-fable-5-1": {}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, "claude-fable-5-1": {}}}
 	ctx := ctxWithRequestSubset(context.Background(), testSol)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"advisor_20260301","name":"advisor","model":"claude-opus-5"}]}`))
 	require.NoError(t, err)
@@ -151,7 +151,7 @@ func TestReadmitForcedModel_KeepsAdvisorPairingExclusion(t *testing.T) {
 }
 
 func TestReadmitForcedModel_NoSubsetIsNoOp(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}}}
 	req := router.Request{Candidates: router.Candidates{ExcludedModels: map[string]struct{}{testTerra: {}}}}
 	got := s.readmitForcedModel(context.Background(), req, nil, translate.RoutingFeatures{}, sessionpin.Pin{Model: testTerra})
 	assert.Contains(t, got, testTerra)
@@ -165,7 +165,7 @@ func TestModelInRequestSubset(t *testing.T) {
 }
 
 func TestForcedModelBinding_IgnoresRequestSubset(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
 	ctx := ctxWithRequestSubset(ctxWithAllowedModels(testSol, testTerra), testSol)
 
 	binding, refusal := s.forcedModelBinding(ctx, testTerra, providers.ProviderOpenAI)
@@ -221,7 +221,7 @@ func TestRequestAllowedModelsPresent(t *testing.T) {
 
 func TestReadmitForcedModel_GatewayBypassKeepsUnsignedHistoryGeminiExclusion(t *testing.T) {
 	const gemini = "gemini-3.1-pro-preview"
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{testOpus: {}, gemini: {}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{testOpus: {}, gemini: {}}}
 	ctx := context.WithValue(gatewayKeyCtx(gemini), requestcontext.InstallationAllowedModelsContextKey{}, []string{testOpus})
 	req := router.Request{Candidates: router.Candidates{ExcludedModels: s.excludedModelsForRequest(ctx)}}
 	require.Contains(t, req.Candidates.ExcludedModels, gemini)

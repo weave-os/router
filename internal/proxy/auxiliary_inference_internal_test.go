@@ -173,7 +173,7 @@ func auxTestService(t *testing.T) (*Service, *auxBillingRepo, *auxTelemetryRepo)
 	t.Helper()
 	billingRepo := &auxBillingRepo{}
 	telemetryRepo := &auxTelemetryRepo{}
-	return &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
+	return &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(),
 		billing:       billing.NewService(billingRepo).WithByokFeeRate(0.05),
 		turnTelemetry: turnTelemetry{repo: telemetryRepo},
 	}, billingRepo, telemetryRepo
