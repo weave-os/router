@@ -12,7 +12,7 @@ import (
 
 	"weave-os/router/cmd/logconfig"
 	feedbackapi "weave-os/router/internal/api/feedback"
-	token "weave-os/router/internal/feedback"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/postgres"
 
 	"github.com/gin-gonic/gin"
@@ -78,8 +78,8 @@ func checkFeedbackLinkEndToEnd(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("insert telemetry: %w", err)
 	}
 
-	signer := token.NewSigner("e2e-secret", time.Hour)
-	svc := token.NewLinks(postgres.NewFeedbackRepo(pool), signer, "https://router.example.com", nil, time.Now)
+	signer := feedback.NewSigner("e2e-secret", time.Hour)
+	svc := feedback.NewLinks(postgres.NewFeedbackRepo(pool), signer, "https://router.example.com", nil, time.Now)
 
 	engine := gin.New()
 	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(svc))
@@ -189,8 +189,8 @@ func checkFeedbackWithoutTelemetry(ctx context.Context, pool *pgxpool.Pool) erro
 		return fmt.Errorf("insert feedback: %w", err)
 	}
 
-	signer := token.NewSigner("nt-secret", time.Hour)
-	svc := token.NewLinks(postgres.NewFeedbackRepo(pool), signer, "https://router.example.com", nil, time.Now)
+	signer := feedback.NewSigner("nt-secret", time.Hour)
+	svc := feedback.NewLinks(postgres.NewFeedbackRepo(pool), signer, "https://router.example.com", nil, time.Now)
 	engine := gin.New()
 	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(svc))
 
