@@ -67,7 +67,7 @@ func (s *Service) anthropicRoutingRequest(
 	if removed := env.StripBetaArtifacts(); removed > 0 {
 		log.Info("Stripped beta artifacts from route preview", "removed_messages", removed)
 	}
-	ctx, _, err = s.applySessionStrategy(ctx, router.StrategyFromContext(ctx), installationIDFromContext(ctx), deriveBetaSessionKeyForRequest(ctx, env, apiKeyID, sessionKey))
+	ctx, _, err = s.applySessionStrategy(ctx, router.StrategyFromContext(ctx), requestcontext.InstallationIDFromContext(ctx), deriveBetaSessionKeyForRequest(ctx, env, apiKeyID, sessionKey))
 	if err != nil {
 		return ctx, router.Request{}, err
 	}
@@ -100,7 +100,7 @@ func (s *Service) anthropicRoutingRequest(
 
 	organizationID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 	installationID := ""
-	if id := installationIDFromContext(ctx); id != uuid.Nil {
+	if id := requestcontext.InstallationIDFromContext(ctx); id != uuid.Nil {
 		installationID = id.String()
 	}
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)

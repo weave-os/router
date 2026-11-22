@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
@@ -374,7 +375,7 @@ func (s *Service) bypassToAnthropic(
 	})
 	telemetry.Flush(ctx)
 
-	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
+	if installationID := requestcontext.InstallationIDFromContext(ctx); installationID != uuid.Nil {
 		userPrompt := env.EndsWithUserPrompt()
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, outcomeErr)

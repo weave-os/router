@@ -1505,7 +1505,7 @@ func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Reque
 	req.Candidates.ExcludedModels = candidates.MergeExcludedModels(req.Candidates.ExcludedModels, s.productIneligibleModels(ctx))
 	req.OrganizationID, _ = ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 	req.InstallationID = ""
-	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
+	if installationID := requestcontext.InstallationIDFromContext(ctx); installationID != uuid.Nil {
 		req.InstallationID = installationID.String()
 	}
 	clientIdentity := ClientIdentityFrom(ctx)
@@ -1670,7 +1670,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, strategy router.Str
 	if !s.ResolveCyberRefusalRepin(ctx) {
 		return
 	}
-	installationID := installationIDFromContext(ctx)
+	installationID := requestcontext.InstallationIDFromContext(ctx)
 	if installationID == uuid.Nil {
 		return
 	}
@@ -2636,7 +2636,7 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 		SurfaceProvider:               surfaceProvider,
 		Headers:                       headers,
 		ExternalKeys:                  credentials.ExternalKeysFromContext(ctx),
-		RouterKeyAuthed:               installationIDFromContext(ctx) != (uuid.UUID{}),
+		RouterKeyAuthed:               requestcontext.InstallationIDFromContext(ctx) != (uuid.UUID{}),
 		SubscriptionLanes:             subscriptionLanes,
 		InstallationExcludedProviders: installationExcludedProvidersFromContext(ctx),
 		SessionDisabledProviders:      sessionDisabledProvidersFromContext(ctx),
@@ -2656,7 +2656,7 @@ func (s *Service) hasOpenAIInfrastructureCredential(ctx context.Context, headers
 			return true
 		}
 	}
-	if installationIDFromContext(ctx) == uuid.Nil {
+	if requestcontext.InstallationIDFromContext(ctx) == uuid.Nil {
 		if client := ExtractClientCredentials(providers.ProviderOpenAI, headers); client != nil && !client.OAuth {
 			return true
 		}

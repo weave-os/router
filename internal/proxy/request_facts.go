@@ -17,7 +17,7 @@ func requestFactsFrom(ctx context.Context, headers http.Header) requestcontext.R
 		RequestID:             requestIDFor(ctx),
 		APIKeyID:              apiKeyIDFromContext(ctx),
 		ExternalID:            externalID,
-		InstallationID:        installationIDFromContext(ctx),
+		InstallationID:        requestcontext.InstallationIDFromContext(ctx),
 		Client:                ClientIdentityFrom(ctx),
 		Headers:               headers,
 		ExternalKeys:          credentials.ExternalKeysFromContext(ctx),

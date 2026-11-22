@@ -47,7 +47,7 @@ func writePreparedHandoff(w http.ResponseWriter, prepared preparedHandoff) error
 }
 
 func (s *Service) parseHandoff(ctx context.Context, body []byte) (context.Context, []byte, error) {
-	return s.lifecycle.PiHandoff(s.clock.Now).Parse(ctx, body, installationIDFromContext(ctx))
+	return s.lifecycle.PiHandoff(s.clock.Now).Parse(ctx, body, requestcontext.InstallationIDFromContext(ctx))
 }
 
 func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.Strategy, w http.ResponseWriter, env *translate.RequestEnvelope, req router.Request, route routingpolicy.TurnRoute) error {
