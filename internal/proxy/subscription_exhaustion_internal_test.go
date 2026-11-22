@@ -178,22 +178,22 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 func TestAnthropicFallbackKeyAvailable(t *testing.T) {
 	t.Run("deployment key present", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}}
-		assert.True(t, s.anthropicFallbackKeyAvailable(context.Background()))
+		assert.True(t, s.credentials.AnthropicFallbackKeyAvailable(context.Background()))
 	})
 	t.Run("BYOK present", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 		ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-api-byok")},
 		})
-		assert.True(t, s.anthropicFallbackKeyAvailable(ctx))
+		assert.True(t, s.credentials.AnthropicFallbackKeyAvailable(ctx))
 	})
 	t.Run("neither", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
-		assert.False(t, s.anthropicFallbackKeyAvailable(context.Background()))
+		assert.False(t, s.credentials.AnthropicFallbackKeyAvailable(context.Background()))
 	})
 	t.Run("nil deploymentKeyedProviders, no BYOK", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
-		assert.False(t, s.anthropicFallbackKeyAvailable(context.Background()))
+		assert.False(t, s.credentials.AnthropicFallbackKeyAvailable(context.Background()))
 	})
 }
 

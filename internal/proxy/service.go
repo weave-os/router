@@ -734,18 +734,6 @@ func servedOnBYOK(ctx context.Context) bool {
 	return creds != nil && creds.Source == credSourceBYOK
 }
 
-func byokServedForProvider(ctx context.Context, provider string) bool {
-	if provider == "" {
-		return false
-	}
-	for _, key := range credentials.ExternalKeysFromContext(ctx) {
-		if key.Provider == provider && len(key.Plaintext) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 func openaiSubscriptionFromContext(ctx context.Context) string {
 	if byokFirst(ctx, providers.ProviderOpenAI) {
 		return ""
@@ -1547,18 +1535,6 @@ func (s *Service) PassthroughToProvider(ctx context.Context, body []byte, w http
 		return s.countTokens(ctx, body, w, r)
 	}
 	return s.PassthroughToNamedProvider(ctx, providers.ProviderAnthropic, body, w, r)
-}
-
-func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http.Header) bool {
-	if s.anthropicFallbackKeyAvailable(ctx) {
-		return true
-	}
-	if s.credentials.KeyedProviders == nil && !s.credentials.BYOKOnly {
-		if s.engine.Clients().Has(providers.ProviderAnthropic) {
-			return true
-		}
-	}
-	return ExtractClientCredentials(providers.ProviderAnthropic, headers) != nil
 }
 
 func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName string, body []byte, w http.ResponseWriter, r *http.Request) error {
@@ -2643,32 +2619,11 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 	})
 }
 
-func (s *Service) hasOpenAIInfrastructureCredential(ctx context.Context, headers http.Header) bool {
-	if byokServedForProvider(ctx, providers.ProviderOpenAI) {
-		return true
-	}
-	if !s.credentials.BYOKOnly {
-		if s.credentials.KeyedProviders == nil {
-			if s.engine.Clients().Has(providers.ProviderOpenAI) {
-				return true
-			}
-		} else if _, keyed := s.credentials.KeyedProviders[providers.ProviderOpenAI]; keyed {
-			return true
-		}
-	}
-	if requestcontext.InstallationIDFromContext(ctx) == uuid.Nil {
-		if client := ExtractClientCredentials(providers.ProviderOpenAI, headers); client != nil && !client.OAuth {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *Service) openAIPaidCredentialAvailable(ctx context.Context, headers http.Header) bool {
 	if billing.WeaveCreditsDeniedFromContext(ctx) {
 		return usableBYOK(ctx, providers.ProviderOpenAI) != nil
 	}
-	return s.hasOpenAIInfrastructureCredential(ctx, headers)
+	return s.credentials.HasOpenAIInfrastructureCredential(ctx, headers, s.engine.Clients().Has)
 }
 
 func (s *Service) excludeCodexOAuthOnlyModels(

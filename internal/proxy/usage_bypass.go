@@ -90,20 +90,6 @@ func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req rou
 	return overrides.SubscriptionCoveredTarget(req, codexToken, anthropicToken)
 }
 
-func (s *Service) anthropicFallbackKeyAvailable(ctx context.Context) bool {
-	if byok := credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
-		if _, ok := byok[providers.ProviderAnthropic]; ok {
-			return true
-		}
-	}
-	if s.credentials.KeyedProviders != nil {
-		if _, ok := s.credentials.KeyedProviders[providers.ProviderAnthropic]; ok {
-			return true
-		}
-	}
-	return false
-}
-
 func anthropicOAuthCredentialRejected(err error) bool {
 	var buffered *providers.UpstreamErrorResponse
 	if !errors.As(err, &buffered) {
@@ -319,7 +305,7 @@ func (s *Service) bypassToAnthropic(
 	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) && bypassMayReroute(ctx, proxyErr) {
 		return errBypassRetryable
 	}
-	if !claudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
+	if !claudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.credentials.AnthropicFallbackKeyAvailable(ctx) &&
 		(!billing.SubscriptionOnlyFromContext(ctx) || credentials.LinkedFirst(ctx)) {
 		return errBypassRetryable
 	}
