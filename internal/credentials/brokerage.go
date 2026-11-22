@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
@@ -20,6 +21,7 @@ type Brokerage struct {
 	ManagedSubscriptions      subscriptions.Leaser
 	SessionHolds              SubscriptionSessionHolds
 	ClaudePlans               *subscriptions.PlanResolver
+	UsageObserver             *usage.Observer
 }
 
 var _ Broker = (*Brokerage)(nil)

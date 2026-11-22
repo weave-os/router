@@ -203,12 +203,12 @@ func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provi
 	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && state.QuotaExhaustedProviders[pool].After(now) {
 		return true
 	}
-	if s.usageObserver != nil {
-		key := s.usageObserver.Key([]byte(token))
-		if s.usageObserver.Rejected(key) {
+	if s.credentials.UsageObserver != nil {
+		key := s.credentials.UsageObserver.Key([]byte(token))
+		if s.credentials.UsageObserver.Rejected(key) {
 			return true
 		}
-		if snapshot, observed := s.usageObserver.Snapshot(key); observed && includedQuotaSpent(snapshot, now) {
+		if snapshot, observed := s.credentials.UsageObserver.Snapshot(key); observed && includedQuotaSpent(snapshot, now) {
 			return true
 		}
 	}
@@ -300,7 +300,7 @@ type seatAdmission struct {
 }
 
 func seatAdmissionOf(s *Service) seatAdmission {
-	return seatAdmission{now: s.clock.Now(), observer: s.usageObserver, codexExtraCredits: s.codexExtraCreditsAllowed()}
+	return seatAdmission{now: s.clock.Now(), observer: s.credentials.UsageObserver, codexExtraCredits: s.codexExtraCreditsAllowed()}
 }
 
 func (a seatAdmission) mayAdmit(ctx context.Context, provider, model string) bool {
@@ -365,7 +365,7 @@ func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate ma
 	if candidate.provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
 		return false
 	}
-	return includedQuotaObservedSpent(s.usageObserver, candidate, now)
+	return includedQuotaObservedSpent(s.credentials.UsageObserver, candidate, now)
 }
 
 func includedQuotaObservedSpent(observer *usage.Observer, candidate managedSubscriptionCandidate, now time.Time) bool {

@@ -130,8 +130,7 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 
 	t.Run("exhausted snapshot + deployment key", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
-			usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
-			credentials:   credentials.Brokerage{KeyedProviders: deploymentKeyed},
+			credentials: credentials.Brokerage{UsageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()), KeyedProviders: deploymentKeyed},
 		}
 		assert.True(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
 	})
@@ -140,26 +139,23 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 		// Without a deployment / BYOK Anthropic key, a spent plan is still
 		// unavailable: the turn is refused rather than billing overage or 429ing.
 		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
-			usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
-			credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{}},
+			credentials: credentials.Brokerage{UsageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()), KeyedProviders: map[string]struct{}{}},
 		}
 		assert.True(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
 	})
 
 	t.Run("subscription has headroom", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
-			usageObserver: observerWithSnapshot(exhaustedSubToken, usage.Snapshot{
+			credentials: credentials.Brokerage{UsageObserver: observerWithSnapshot(exhaustedSubToken, usage.Snapshot{
 				Secondary: usage.Window{UsedPercent: 0.80, WindowMinutes: 10080},
-			}),
-			credentials: credentials.Brokerage{KeyedProviders: deploymentKeyed},
+			}), KeyedProviders: deploymentKeyed},
 		}
 		assert.False(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
 	})
 
 	t.Run("no subscription token present", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
-			usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
-			credentials:   credentials.Brokerage{KeyedProviders: deploymentKeyed},
+			credentials: credentials.Brokerage{UsageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()), KeyedProviders: deploymentKeyed},
 		}
 		assert.False(t, s.claudeSubscriptionExhausted(context.Background(), http.Header{}))
 	})
@@ -172,8 +168,7 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 	t.Run("token present but never observed", func(t *testing.T) {
 		now := time.Unix(1_000_000, 0)
 		s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
-			usageObserver: usage.NewObserver([]byte("salt"), time.Minute, func() time.Time { return now }),
-			credentials:   credentials.Brokerage{KeyedProviders: deploymentKeyed},
+			credentials: credentials.Brokerage{UsageObserver: usage.NewObserver([]byte("salt"), time.Minute, func() time.Time { return now }), KeyedProviders: deploymentKeyed},
 		}
 		assert.False(t, s.claudeSubscriptionExhausted(context.Background(), headers()),
 			"a never-observed credential is cold-start slack, not exhausted")

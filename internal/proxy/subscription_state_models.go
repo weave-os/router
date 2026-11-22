@@ -219,13 +219,13 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispat
 		if !anotherSeatPoolCanServe(ctx, seatAdmissionOf(s), includedModels, target) && waitOutShortSeatThrottle(ctx, target.Provider, target.Model, err, s.clock.Now(), s.engine.RetrySleep(), &throttleWaited) {
 			continue
 		}
-		includedFailure = includedFailureAfter(includedFailure, err, ownCodexLoginRejected(ctx, in.SubscriptionStateHeaders, s.usageObserver))
+		includedFailure = includedFailureAfter(includedFailure, err, ownCodexLoginRejected(ctx, in.SubscriptionStateHeaders, s.credentials.UsageObserver))
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
 		strikeModelUnlessFundingFailure(ctx, target.Model, err)
 		if !hasFixedTarget {
 			s.holdSessionOffSubscriptionPool(ctx, target.Provider, target.Model)
 		}
-		includedModels, spentCodexModels = dropFailedIncludedModels(includedModels, target.Model, spentCodexModels, codexPlanSpentForTurn(ctx, in.SubscriptionStateHeaders, s.usageObserver, target.Provider, err, s.codexSubscriptionExhausted(ctx, in.SubscriptionStateHeaders)))
+		includedModels, spentCodexModels = dropFailedIncludedModels(includedModels, target.Model, spentCodexModels, codexPlanSpentForTurn(ctx, in.SubscriptionStateHeaders, s.credentials.UsageObserver, target.Provider, err, s.codexSubscriptionExhausted(ctx, in.SubscriptionStateHeaders)))
 		if hasFixedTarget {
 			break
 		}

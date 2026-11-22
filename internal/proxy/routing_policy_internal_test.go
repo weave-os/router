@@ -318,9 +318,8 @@ func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 
 func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
 	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
-		usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
-		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
-		clock:         func() time.Time { return time.Unix(1_000_000, 0) },
+		credentials: credentials.Brokerage{UsageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()), KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
+		clock:       func() time.Time { return time.Unix(1_000_000, 0) },
 	}
 	routed := withClaudeCreditFallback(context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken))
 	picked := withPickedModelFunding(auth.WithClientModelPassthrough(routed), true, providers.ProviderAnthropic)

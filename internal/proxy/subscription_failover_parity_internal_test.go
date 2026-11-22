@@ -311,7 +311,7 @@ func TestSubscriptionFailoverParity_PreDispatchSuppression(t *testing.T) {
 	for _, in := range parityIngresses() {
 		t.Run(in.name, func(t *testing.T) {
 			withObserver := func(svc *Service) *Service {
-				svc.usageObserver = parityObserver(in.token)
+				svc.credentials.UsageObserver = parityObserver(in.token)
 				return svc
 			}
 
@@ -340,7 +340,7 @@ func TestSubscriptionFailoverParity_PreDispatchSuppression(t *testing.T) {
 				now := time.Unix(1_700_000_000, 0)
 				o := usage.NewObserver([]byte("parity-salt"), time.Hour, func() time.Time { return now })
 				o.Record(o.Key([]byte(in.token)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.2, WindowMinutes: 300}})
-				svc.usageObserver = o
+				svc.credentials.UsageObserver = o
 				assert.False(t, in.exhausted(svc, in.subCtx(), http.Header{}),
 					"a plan with quota left must keep serving on the subscription")
 			})
@@ -526,7 +526,7 @@ func TestSubscriptionFailoverParity_ObserverWrites(t *testing.T) {
 	t.Run("codex records the rejection so later turns suppress pre-dispatch", func(t *testing.T) {
 		in := parityCodexIngress()
 		svc := in.deploymentKeyedService()
-		svc.usageObserver = usage.NewObserver([]byte("parity-salt"), time.Hour, time.Now)
+		svc.credentials.UsageObserver = usage.NewObserver([]byte("parity-salt"), time.Hour, time.Now)
 		ctx := in.subCtx()
 
 		require.False(t, in.exhausted(svc, ctx, http.Header{}), "nothing is known before the rejection")
@@ -539,7 +539,7 @@ func TestSubscriptionFailoverParity_ObserverWrites(t *testing.T) {
 	t.Run("codex records nothing for a non-quota failure", func(t *testing.T) {
 		in := parityCodexIngress()
 		svc := in.deploymentKeyedService()
-		svc.usageObserver = usage.NewObserver([]byte("parity-salt"), time.Hour, time.Now)
+		svc.credentials.UsageObserver = usage.NewObserver([]byte("parity-salt"), time.Hour, time.Now)
 		svc.recordCodexQuotaExhaustion(in.subCtx(), http.Header{}, upstreamErr(http.StatusServiceUnavailable, `{"error":{"type":"overloaded_error"}}`))
 		assert.False(t, in.exhausted(svc, in.subCtx(), http.Header{}),
 			"a transient overload must not suppress the subscription for the rest of the window")

@@ -24,8 +24,8 @@ func (s *Service) markManagedSubscriptionServed(ctx context.Context, credentialC
 		usage.SubscriptionTier = lease.Tier
 		if creds := CredentialsFromContext(credentialCtx); creds != nil {
 			usage.CredentialSource = creds.Source
-			if s.usageObserver != nil && creds.Source == credSourceSubscription {
-				if snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key(creds.APIKey)); observed {
+			if s.credentials.UsageObserver != nil && creds.Source == credSourceSubscription {
+				if snapshot, observed := s.credentials.UsageObserver.Snapshot(s.credentials.UsageObserver.Key(creds.APIKey)); observed {
 					usage.OverageInUse = snapshot.OverageInUse
 				}
 			}
@@ -65,10 +65,10 @@ func (s *Service) subscriptionOverageInUse(ctx context.Context) bool {
 		return managedUsage.OverageInUse
 	}
 	creds := CredentialsFromContext(ctx)
-	if creds == nil || creds.Source != credSourceSubscription || s.usageObserver == nil {
+	if creds == nil || creds.Source != credSourceSubscription || s.credentials.UsageObserver == nil {
 		return false
 	}
-	snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key(creds.APIKey))
+	snapshot, observed := s.credentials.UsageObserver.Snapshot(s.credentials.UsageObserver.Key(creds.APIKey))
 	return observed && snapshot.OverageInUse
 }
 
