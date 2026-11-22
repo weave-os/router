@@ -3,6 +3,7 @@ package conversation
 import (
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/sessionstrategy"
 )
 
 type Lifecycle struct {
@@ -11,6 +12,7 @@ type Lifecycle struct {
 	textRepetitionBreak          bool
 	compactionHandoverSummarizer handover.Summarizer
 	routerFeedback               feedback.RouterFeedbackStore
+	sessionStrategies            sessionstrategy.Store
 }
 
 func NewLifecycle() *Lifecycle {
@@ -59,4 +61,15 @@ func (l *Lifecycle) RouterFeedbackStore() feedback.RouterFeedbackStore {
 
 func (l *Lifecycle) SetRouterFeedbackStore(store feedback.RouterFeedbackStore) {
 	l.routerFeedback = store
+}
+
+func (l *Lifecycle) SessionStrategies() sessionstrategy.Store {
+	if l == nil {
+		return nil
+	}
+	return l.sessionStrategies
+}
+
+func (l *Lifecycle) SetSessionStrategies(store sessionstrategy.Store) {
+	l.sessionStrategies = store
 }

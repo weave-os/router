@@ -1,14 +1,12 @@
 package proxy
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"weave-os/router/internal/conversation"
-	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -19,18 +17,6 @@ import (
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
-)
-
-const (
-	betaEnabledMessage  = "Beta enabled. Type /beta again to turn it off."
-	betaDisabledMessage = "Beta disabled. Stable routing restored."
-	betaUsageMessage    = "Usage: /beta"
-	betaUnavailable     = "Beta is unavailable for this session."
-	betaPinnedMessage   = "Beta is always on for this installation; /beta has no effect."
-	qwenEnabledMessage  = "Qwen beta enabled. Type /beta-llm again to turn it off."
-	qwenDisabledMessage = "Qwen beta disabled. Stable routing restored."
-	qwenUsageMessage    = "Usage: /beta-llm"
-	qwenUnavailable     = "Qwen beta is unavailable for this session."
 )
 
 func WriteRetiredBetaRequest(w http.ResponseWriter, r *http.Request, body []byte) (bool, error) {
@@ -69,7 +55,10 @@ func internalBetaSession(ctx context.Context) bool {
 }
 
 func (s *Service) WithSessionStrategyStore(store sessionstrategy.Store) *Service {
-	s.sessionStrategyStore = store
+	if s.lifecycle == nil {
+		s.lifecycle = &conversation.Lifecycle{}
+	}
+	s.lifecycle.SetSessionStrategies(store)
 	return s
 }
 
@@ -87,10 +76,11 @@ func (s *Service) applySessionStrategy(
 	if _, managed := requestcontext.ServingIdentityFromContext(ctx); managed && !internalBetaSession(ctx) {
 		return ctx, nil
 	}
-	if s.sessionStrategyStore == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) {
+	sessionStrategies := s.lifecycle.SessionStrategies()
+	if sessionStrategies == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return ctx, nil
 	}
-	preference, found, err := s.sessionStrategyStore.Get(ctx, installationID, preferenceKey)
+	preference, found, err := sessionStrategies.Get(ctx, installationID, preferenceKey)
 	if err != nil {
 		return ctx, fmt.Errorf("load session routing strategy: %w", err)
 	}
@@ -106,7 +96,11 @@ func (s *Service) applySessionStrategy(
 	return router.WithStrategy(ctx, preference.Strategy), nil
 }
 
-func (s *Service) handleBetaCommand(
+type betaCommands struct {
+	s *Service
+}
+
+func (b betaCommands) handle(
 	ctx context.Context,
 	w http.ResponseWriter,
 	env *translate.RequestEnvelope,
@@ -116,94 +110,52 @@ func (s *Service) handleBetaCommand(
 	preferenceKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
-	if router.StrategySelectionFromContext(ctx).RoutingModelSelected() {
-		return writeBetaCommandResponse(w, env, fmt.Sprintf("Select a router with `wv router set-model %s`, `wv router set-model %s`, `wv router set-model %s`, `wv router set-model %s`, or `wv router set-model %s`, then start a new session.", router.ModelHMM, router.ModelHMMBeta, router.ModelQwen, router.ModelDecision, router.ModelAutomatic), inputTokens)
-	}
-	strategy := cmd.Strategy
-	enabledMessage, disabledMessage, usageMessage, unavailableMessage := betaEnabledMessage, betaDisabledMessage, betaUsageMessage, betaUnavailable
-	if strategy == router.StrategyHMMQwen {
-		enabledMessage, disabledMessage, usageMessage, unavailableMessage = qwenEnabledMessage, qwenDisabledMessage, qwenUsageMessage, qwenUnavailable
-		if !internalBetaSession(ctx) {
-			return writeBetaCommandResponse(w, env, unavailableMessage, inputTokens)
-		}
-	}
-	if _, managed := requestcontext.ServingIdentityFromContext(ctx); managed && !internalBetaSession(ctx) {
-		return writeBetaCommandResponse(w, env, translate.BetaRetiredMessage, inputTokens)
-	}
-	if cmd.Invalid {
-		return writeBetaCommandResponse(w, env, usageMessage, inputTokens)
-	}
-	if s.sessionStrategyStore == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) || clientSessionIDForRequest(ctx, env) == "" {
-		return writeBetaCommandResponse(w, env, unavailableMessage, inputTokens)
-	}
-	currentStrategy := router.StrategyFromContext(ctx)
-	previousStrategy := currentStrategy
-	previous, found, err := s.sessionStrategyStore.Get(ctx, installationID, preferenceKey)
+	message, err := conversation.BetaCommand{
+		Strategies: b.s.lifecycle.SessionStrategies(),
+		Policy:     b,
+		Routing:    b,
+	}.Run(ctx, conversation.BetaRequest{
+		Command:         cmd,
+		InstallationID:  installationID,
+		SessionKey:      sessionKey,
+		PreferenceKey:   preferenceKey,
+		ClientSessionID: clientSessionIDForRequest(ctx, env),
+	})
 	if err != nil {
-		return fmt.Errorf("read session routing strategy before beta toggle: %w", err)
+		return err
 	}
-	if found {
-		previousStrategy = previous.Strategy
-	}
-	if currentStrategy == strategy {
-		return writeBetaCommandResponse(w, env, betaPinnedMessage, inputTokens)
-	}
-
-	nowEnabled := false
-	available := s.PolicyStrategyAvailable(strategy)
-	if snapshot := policyregistry.ServingSnapshotFromContext(ctx); snapshot != nil {
-		available = snapshot.Routers[strategy] != nil
-	}
-	if available {
-		enabled, err := s.sessionStrategyStore.Toggle(context.WithoutCancel(ctx), sessionstrategy.Preference{
-			InstallationID: installationID,
-			SessionKey:     preferenceKey,
-			Strategy:       strategy,
-		})
-		if err != nil {
-			return fmt.Errorf("toggle beta routing: %w", err)
-		}
-		nowEnabled = enabled
-	} else {
-		wasEnabled, err := s.sessionStrategyStore.Disable(context.WithoutCancel(ctx), installationID, preferenceKey, strategy)
-		if err != nil {
-			return fmt.Errorf("disable beta routing: %w", err)
-		}
-		if !wasEnabled {
-			return writeBetaCommandResponse(w, env, unavailableMessage, inputTokens)
-		}
-	}
-
-	message := enabledMessage
-	if !nowEnabled {
-		previousStrategy = strategy
-		message = disabledMessage
-	}
-
-	log := observability.FromContext(ctx)
-	if err := s.invalidateSessionRoutingState(
-		ctx,
-		cmp.Or(previousStrategy, currentStrategy),
-		sessionKey,
-	); err != nil {
-		log.Error("post-toggle routing-state cleanup failed", "err", err)
-	}
-
-	log.Info(
-		"session beta routing toggled",
-		"strategy", strategy,
-		"enabled", nowEnabled,
-		"session_key_prefix", conversation.ShortSessionKey(sessionKey),
-	)
 	return writeBetaCommandResponse(w, env, message, inputTokens)
 }
 
-func (s *Service) invalidateSessionRoutingState(
+func (betaCommands) CurrentStrategy(ctx context.Context) router.Strategy {
+	return router.StrategyFromContext(ctx)
+}
+
+func (betaCommands) InternalOnly(strategy router.Strategy) bool {
+	return strategy == router.StrategyHMMQwen
+}
+
+func (betaCommands) InternalSession(ctx context.Context) bool { return internalBetaSession(ctx) }
+
+func (betaCommands) Managed(ctx context.Context) bool {
+	_, managed := requestcontext.ServingIdentityFromContext(ctx)
+	return managed
+}
+
+func (b betaCommands) Available(ctx context.Context, strategy router.Strategy) bool {
+	available := b.s.PolicyStrategyAvailable(strategy)
+	if snapshot := policyregistry.ServingSnapshotFromContext(ctx); snapshot != nil {
+		available = snapshot.Routers[strategy] != nil
+	}
+	return available
+}
+
+func (b betaCommands) Invalidate(
 	ctx context.Context,
 	strategy router.Strategy,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 ) error {
-	if s.pinStore == nil {
+	if b.s.pinStore == nil {
 		return nil
 	}
 	roles := []string{
@@ -224,7 +176,7 @@ func (s *Service) invalidateSessionRoutingState(
 				continue
 			}
 			seen[stateRole] = struct{}{}
-			if _, _, err := s.pinStore.Consume(context.WithoutCancel(ctx), sessionKey, stateRole, strategy); err != nil && firstErr == nil {
+			if _, _, err := b.s.pinStore.Consume(context.WithoutCancel(ctx), sessionKey, stateRole, strategy); err != nil && firstErr == nil {
 				firstErr = err
 			}
 		}
