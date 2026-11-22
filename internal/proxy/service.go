@@ -2032,61 +2032,19 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	agentForceModel := ""
 	requestBodyChanged := false
-	if !agentShadowMode && s.pinStore != nil {
-		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
-			log.Info("ProxyMessages force-model command", "force_model_cmd", cmd)
-			if cmd.FromToolResult {
-				var err error
-				agentForceModel, _, err = (forceModelCommands{s}).apply(ctx, strategy, cmd, facts.InstallationID, sessionKey, forceModelSessionKey)
-				if err != nil {
-					return err
-				}
-				requestBodyChanged = true
-			} else {
-				if err := (forceModelCommands{s}).handle(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
-					return err
-				}
-				postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-				return nil
-			}
-		}
-	}
 	if !agentShadowMode {
-		if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
-			log.Info("ProxyMessages router-feedback command")
-			if err := (routerFeedbackCommand{w: w, env: env, cmd: cmd, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, inputTokens: feats.Tokens, synthetic: !cmd.FromToolResult}).handle(ctx, s); err != nil {
-				return err
-			}
-			if !cmd.FromToolResult {
-				postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-				return nil
-			}
-			requestBodyChanged = true
-		}
-	}
-	if !agentShadowMode && env.ExtractRouterSessionCommand() {
-		log.Info("ProxyMessages router-session command")
-		if err := (routerInfoCommands{s}).session(ctx, w, env, feats.Tokens); err != nil {
+		commands, err := conversation.CommandDispatch{
+			Source:                  env,
+			Handlers:                turnCommands{s: s, w: w, env: env, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
+			Protocol:                "ProxyMessages",
+			ForceModelEnabled:       s.pinStore != nil,
+			ForceModelContinuesTurn: func(cmd translate.ForceModelResult) bool { return cmd.FromToolResult },
+			SyntheticFeedback:       func(cmd translate.RouterFeedbackResult) bool { return !cmd.FromToolResult },
+		}.Run(ctx)
+		if err != nil || commands.Handled {
 			return err
 		}
-		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
-	}
-	if !agentShadowMode && env.ExtractRouterModelsCommand() {
-		log.Info("ProxyMessages router-models command")
-		if err := (routerInfoCommands{s}).models(ctx, w, env, feats.Tokens); err != nil {
-			return err
-		}
-		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
-	}
-	if !agentShadowMode && env.ExtractListModelsCommand() {
-		log.Info("ProxyMessages list-models command")
-		if err := (routerInfoCommands{s}).listModels(ctx, w, env, feats.Tokens); err != nil {
-			return err
-		}
-		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
+		agentForceModel, requestBodyChanged = commands.AgentForceModel, commands.BodyChanged
 	}
 
 	if coalesced := env.CoalesceDuplicateToolResults(); coalesced > 0 {
@@ -3388,70 +3346,20 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	*r = *r.WithContext(ctx)
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 
-	agentForceModel := ""
-	requestBodyChanged := false
-	if s.pinStore != nil {
-		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
-			if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
-				routingEnv.ExtractForceModelCommand()
-			}
-			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
-			if agentForceModelContinuesTurn(ctx, cmd) {
-				var err error
-				agentForceModel, _, err = (forceModelCommands{s}).apply(ctx, strategy, cmd, facts.InstallationID, sessionKey, forceModelSessionKey)
-				if err != nil {
-					return err
-				}
-				requestBodyChanged = true
-			} else {
-				if err := (forceModelCommands{s}).handle(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
-					return err
-				}
-				postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-				return nil
-			}
-		}
+	commands, err := conversation.CommandDispatch{
+		Source:                  chatCommandSource{RequestEnvelope: env, routing: routingEnvelopeForRequest(ctx, env)},
+		Handlers:                turnCommands{s: s, w: w, env: env, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
+		Protocol:                "ProxyOpenAIChatCompletion",
+		ForceModelEnabled:       s.pinStore != nil,
+		ForceModelContinuesTurn: func(cmd translate.ForceModelResult) bool { return agentForceModelContinuesTurn(ctx, cmd) },
+		SyntheticFeedback: func(cmd translate.RouterFeedbackResult) bool {
+			return !cmd.FromToolResult || codexSkillTurnFrom(ctx) == translate.CodexSkillTurnFeedback
+		},
+	}.Run(ctx)
+	if err != nil || commands.Handled {
+		return err
 	}
-	if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
-		if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
-			routingEnv.ExtractRouterFeedbackCommand()
-		}
-		log.Info("ProxyOpenAIChatCompletion router-feedback command")
-		skillFeedback := codexSkillTurnFrom(ctx) == translate.CodexSkillTurnFeedback
-		synthetic := !cmd.FromToolResult || skillFeedback
-		if err := (routerFeedbackCommand{w: w, env: env, cmd: cmd, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, inputTokens: feats.Tokens, synthetic: synthetic}).handle(ctx, s); err != nil {
-			return err
-		}
-		if synthetic {
-			postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-			return nil
-		}
-		requestBodyChanged = true
-	}
-	if env.ExtractRouterSessionCommand() {
-		log.Info("ProxyOpenAIChatCompletion router-session command")
-		if err := (routerInfoCommands{s}).session(ctx, w, env, feats.Tokens); err != nil {
-			return err
-		}
-		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
-	}
-	if env.ExtractRouterModelsCommand() {
-		log.Info("ProxyOpenAIChatCompletion router-models command")
-		if err := (routerInfoCommands{s}).models(ctx, w, env, feats.Tokens); err != nil {
-			return err
-		}
-		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
-	}
-	if env.ExtractListModelsCommand() {
-		log.Info("ProxyOpenAIChatCompletion list-models command")
-		if err := (routerInfoCommands{s}).listModels(ctx, w, env, feats.Tokens); err != nil {
-			return err
-		}
-		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
-	}
+	agentForceModel, requestBodyChanged := commands.AgentForceModel, commands.BodyChanged
 
 	if coalesced := env.CoalesceDuplicateToolResults(); coalesced > 0 {
 		log.Info("Coalesced duplicate tool results before dispatch", "coalesced", coalesced)
