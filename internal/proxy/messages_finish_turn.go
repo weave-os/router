@@ -93,17 +93,17 @@ type messagesTurnUsage struct {
 }
 
 func finishMessagesTurn(ctx context.Context, s *Service, t *messagesFinishedTurn) error {
-	u := messagesTurnUsageFor(ctx, s, t)
-	obs := recordMessagesUpstream(ctx, s, t, u)
-	settleMessagesTurn(ctx, s, t, u, messagesSubscriberTelemetry(ctx, s, t, u, obs))
-	completeMessagesTurn(ctx, s, t, u, strikeMessagesArms(ctx, s, t))
+	usage := messagesTurnUsageFor(ctx, s, t)
+	obs := recordMessagesUpstream(ctx, s, t, usage)
+	settleMessagesTurn(ctx, s, t, usage, messagesSubscriberTelemetry(ctx, s, t, usage, obs))
+	completeMessagesTurn(ctx, s, t, usage, strikeMessagesArms(ctx, s, t))
 	policyRespBody, policyRespTrunc := capturedResponse(t.policyOutcomeCap)
 	var policyResp *policyOutcomeResponse
 	if t.policyOutcomeCap != nil {
 		policyResp = &policyOutcomeResponse{Body: policyRespBody, Truncated: policyRespTrunc}
 	}
 	if !t.agentShadowMode {
-		s.reportPolicyOutcome(ctx, t.routeRes, t.decision, t.effortServed, t.finalProvider, t.fastServed, t.feats.Tokens, u.in, u.out, u.cacheCreation, u.cacheRead, u.usageMods, t.routeMs, t.proxyMs, t.proxyErr, policyResp)
+		s.reportPolicyOutcome(ctx, t.routeRes, t.decision, t.effortServed, t.finalProvider, t.fastServed, t.feats.Tokens, usage.in, usage.out, usage.cacheCreation, usage.cacheRead, usage.usageMods, t.routeMs, t.proxyMs, t.proxyErr, policyResp)
 	}
 	return t.proxyErr
 }
@@ -140,12 +140,12 @@ func messagesTurnUsageFor(ctx context.Context, s *Service, t *messagesFinishedTu
 	return messagesTurnUsage{nativeRespSummary: nativeRespSummary, terminalFinishReason: terminalFinishReason, terminalToolUse: terminalToolUse, endedOnToolUse: endedOnToolUse, toolErrorTally: toolErrorTally, in: in, out: out, cacheCreation: cacheCreation, cacheRead: cacheRead, usageMods: usageMods, baselineWarmPrefill: baselineWarmPrefill, requestedInputCost: requestedInputCost}
 }
 
-func recordMessagesUpstream(ctx context.Context, s *Service, t *messagesFinishedTurn, u messagesTurnUsage) observationContext {
+func recordMessagesUpstream(ctx context.Context, s *Service, t *messagesFinishedTurn, usage messagesTurnUsage) observationContext {
 	upstreamBuilder, obs := recordUpstreamSpan(ctx, s.clock, upstreamSpan{
 		extendedAttrs: true, taskArm: t.taskArm, respSummary: t.respSummary, refusal: t.refusalObs, fastServed: t.fastServed, crossFormat: t.crossFormat,
 		facts: t.facts, feats: t.feats, decision: t.decision, provider: t.finalProvider, routeRes: &t.routeRes, sessionKey: t.sessionKey,
-		extractor: t.extractor, inputTokens: u.in, outputTokens: u.out, cacheCreation: u.cacheCreation, cacheRead: u.cacheRead, usageMods: u.usageMods,
-		requestedInputCost: u.requestedInputCost, baselineWarmPrefill: u.baselineWarmPrefill, reqPricing: t.reqPricing, actPricing: t.actPricing,
+		extractor: t.extractor, inputTokens: usage.in, outputTokens: usage.out, cacheCreation: usage.cacheCreation, cacheRead: usage.cacheRead, usageMods: usage.usageMods,
+		requestedInputCost: usage.requestedInputCost, baselineWarmPrefill: usage.baselineWarmPrefill, reqPricing: t.reqPricing, actPricing: t.actPricing,
 		subscriptionServed: s.costNeutralSubscriptionServed(ctx), proxyMs: t.proxyMs, requestStart: t.requestStart, proxyStart: t.proxyStart, proxyErr: t.proxyErr,
 		effortServed: t.effortServed, captureMode: s.effectiveCaptureMode(ctx), strategyPorts: s.strategyPorts, strategy: t.strategy,
 		subscriptionAttrs: func(b *telemetry.AttrBuilder) {
@@ -169,23 +169,23 @@ func recordMessagesUpstream(ctx context.Context, s *Service, t *messagesFinished
 	telemetry.Flush(ctx)
 
 	if !t.agentShadowMode {
-		s.recordTurnUsage(ctx, t.routeRes, t.finalProvider, t.decision.ServedIdentity(), u.in, u.out, u.cacheCreation, u.cacheRead, t.extractor.OutputLimitReached())
+		s.recordTurnUsage(ctx, t.routeRes, t.finalProvider, t.decision.ServedIdentity(), usage.in, usage.out, usage.cacheCreation, usage.cacheRead, t.extractor.OutputLimitReached())
 		s.clearRecoveredCooldown(ctx, t.routeRes, t.decision.Model, t.proxyErr)
 	}
 	return obs
 }
 
-func messagesSubscriberTelemetry(ctx context.Context, s *Service, t *messagesFinishedTurn, u messagesTurnUsage, obs observationContext) *turnrecord.InsertTelemetryParams {
+func messagesSubscriberTelemetry(ctx context.Context, s *Service, t *messagesFinishedTurn, usage messagesTurnUsage, obs observationContext) *turnrecord.InsertTelemetryParams {
 	var subscriberTelemetry *turnrecord.InsertTelemetryParams
 	if !t.agentShadowMode && t.facts.InstallationID != uuid.Nil {
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, t.proxyErr)
-		degenerateShadow := t.proxyErr == nil && !u.nativeRespSummary && isDegenerateResponse(u.out, t.respSummary.ToolUseBlocks, t.respSummary.StopReason, t.respSummary.StopReasonDemoted)
+		degenerateShadow := t.proxyErr == nil && !usage.nativeRespSummary && isDegenerateResponse(usage.out, t.respSummary.ToolUseBlocks, t.respSummary.StopReason, t.respSummary.StopReasonDemoted)
 		if degenerateShadow && !t.agentShadowMode {
 			t.log.Info("router.degenerate_shadow",
 				"model", t.decision.Model,
 				"provider", t.finalProvider,
-				"output_tokens", u.out,
+				"output_tokens", usage.out,
 				"tool_use_blocks", t.respSummary.ToolUseBlocks,
 				"stop_reason", t.respSummary.StopReason,
 				"upstream_finish_reason", t.respSummary.UpstreamFinishReason,
@@ -193,7 +193,7 @@ func messagesSubscriberTelemetry(ctx context.Context, s *Service, t *messagesFin
 			)
 			s.evictPinAfterDegenerateResponse(ctx, t.strategy, t.stickyHit, t.decision.Reason, t.facts.InstallationID, t.routeRes.SessionKey, stickyStateRole(t.routeRes))
 		}
-		tel := messagesTelemetryRow(ctx, s, t, u, obs)
+		tel := messagesTelemetryRow(ctx, s, t, usage, obs)
 		tel.DegenerateShadow = boolPtrOrNil(degenerateShadow)
 		tel.CredentialKeyPrefix, tel.CredentialKeySuffix, tel.CredentialSource = credentialKeyPrefix, credentialKeySuffix, credSource
 		applyServedTurnTelemetry(ctx, s.strategyPorts, &tel, t.routeRes, t.decision, t.effortServed)
@@ -208,7 +208,7 @@ func messagesSubscriberTelemetry(ctx context.Context, s *Service, t *messagesFin
 	return subscriberTelemetry
 }
 
-func messagesTelemetryRow(ctx context.Context, s *Service, t *messagesFinishedTurn, u messagesTurnUsage, obs observationContext) turnrecord.InsertTelemetryParams {
+func messagesTelemetryRow(ctx context.Context, s *Service, t *messagesFinishedTurn, usage messagesTurnUsage, obs observationContext) turnrecord.InsertTelemetryParams {
 	return turnrecord.InsertTelemetryParams{
 		InstallationID:           t.facts.InstallationID.String(),
 		APIKeyID:                 apiKeyIDFromContext(ctx),
@@ -226,12 +226,12 @@ func messagesTelemetryRow(ctx context.Context, s *Service, t *messagesFinishedTu
 		StickyHit:                t.stickyHit,
 		PinTier:                  t.routeRes.PinTier,
 		EmbedInput:               t.embedInput,
-		InputTokens:              int32(u.in),
-		OutputTokens:             int32(u.out),
-		RequestedInputCostUSD:    u.requestedInputCost,
-		RequestedOutputCostUSD:   catalog.EffectiveOutputCost(catalog.PromptTokens(u.in, u.cacheCreation, u.cacheRead, t.decision.Provider), u.out, t.reqPricing, u.usageMods),
-		ActualInputCostUSD:       catalog.EffectiveInputCost(u.in, u.cacheCreation, u.cacheRead, t.actPricing, t.decision.Provider, u.usageMods),
-		ActualOutputCostUSD:      catalog.EffectiveOutputCost(catalog.PromptTokens(u.in, u.cacheCreation, u.cacheRead, t.decision.Provider), u.out, t.actPricing, u.usageMods),
+		InputTokens:              int32(usage.in),
+		OutputTokens:             int32(usage.out),
+		RequestedInputCostUSD:    usage.requestedInputCost,
+		RequestedOutputCostUSD:   catalog.EffectiveOutputCost(catalog.PromptTokens(usage.in, usage.cacheCreation, usage.cacheRead, t.decision.Provider), usage.out, t.reqPricing, usage.usageMods),
+		ActualInputCostUSD:       catalog.EffectiveInputCost(usage.in, usage.cacheCreation, usage.cacheRead, t.actPricing, t.decision.Provider, usage.usageMods),
+		ActualOutputCostUSD:      catalog.EffectiveOutputCost(catalog.PromptTokens(usage.in, usage.cacheCreation, usage.cacheRead, t.decision.Provider), usage.out, t.actPricing, usage.usageMods),
 		RouteLatencyMs:           t.routeMs,
 		UpstreamLatencyMs:        t.proxyMs,
 		TotalLatencyMs:           s.clock.Now().Sub(t.requestStart).Milliseconds(),
@@ -261,9 +261,9 @@ func messagesTelemetryRow(ctx context.Context, s *Service, t *messagesFinishedTu
 		CaptureMode:              obs.CaptureMode,
 		DebugRef:                 obs.DebugRef,
 		TTFTMs:                   obs.TTFTMs,
-		CacheCreationTokens:      cacheTokenPtr(u.cacheCreation),
-		CacheCreation1hTokens:    cacheCreation1hPtr(u.cacheCreation, u.usageMods.CacheCreation1h),
-		CacheReadTokens:          cacheTokenPtr(u.cacheRead),
+		CacheCreationTokens:      cacheTokenPtr(usage.cacheCreation),
+		CacheCreation1hTokens:    cacheCreation1hPtr(usage.cacheCreation, usage.usageMods.CacheCreation1h),
+		CacheReadTokens:          cacheTokenPtr(usage.cacheRead),
 		Speed:                    string(t.extractor.Speed()),
 		InferenceGeo:             string(t.extractor.InferenceGeo()),
 		ReasoningTokens:          cacheTokenPtr(t.extractor.ReasoningTokens()),
@@ -276,10 +276,10 @@ func messagesTelemetryRow(ctx context.Context, s *Service, t *messagesFinishedTu
 		UpstreamFinishReason:     stringPtrOrEmpty(t.respSummary.UpstreamFinishReason),
 		StopReason:               stringPtrOrEmpty(t.respSummary.StopReason),
 		ToolUseBlocks:            int32PtrIfKnown(int32(t.respSummary.ToolUseBlocks), t.respSummary.StopReason != ""),
-		InvalidToolArgsBlocks:    int32PtrIfKnown(int32(t.respSummary.InvalidToolArgsBlocks), t.respSummary.StopReason != "" && !u.nativeRespSummary),
-		LastToolUseName:          u.terminalToolUse.Name,
-		LastToolUseInputBytes:    int32PtrIfKnown(int32(u.terminalToolUse.InputBytes), u.endedOnToolUse),
-		ToolErrorCounts:          toolErrorCountsJSON(u.toolErrorTally),
+		InvalidToolArgsBlocks:    int32PtrIfKnown(int32(t.respSummary.InvalidToolArgsBlocks), t.respSummary.StopReason != "" && !usage.nativeRespSummary),
+		LastToolUseName:          usage.terminalToolUse.Name,
+		LastToolUseInputBytes:    int32PtrIfKnown(int32(usage.terminalToolUse.InputBytes), usage.endedOnToolUse),
+		ToolErrorCounts:          toolErrorCountsJSON(usage.toolErrorTally),
 		AutonomyAppendFired:      boolPtrOrNil(autonomyAppendFired(t.opts, t.finalProvider)),
 		WorkspaceAppendFired:     boolPtrOrNil(workspaceAppendFired(t.opts, t.finalProvider)),
 		FailoverUsed:             boolPtrTrue(t.rescue.failoverUsed),
@@ -292,23 +292,23 @@ func messagesTelemetryRow(ctx context.Context, s *Service, t *messagesFinishedTu
 		ToolResultBytes:          toolResultBytesPtr(t.inboundLastUser, t.tt),
 		UserPrompt:               &t.inboundUserPrompt,
 		ErrorClass:               classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks),
-		FailureOwner:             turnFailureOwnerAfterFinish(ctx, t.proxyErr, classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), u.terminalFinishReason),
+		FailureOwner:             turnFailureOwnerAfterFinish(ctx, t.proxyErr, classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), usage.terminalFinishReason),
 		LatestToolCallCounts:     t.inboundLatestToolCalls,
 		UnifiedLimitHeaders:      unifiedLimitHeadersJSON(ctx),
 		CodexLimitHeaders:        codexLimitHeadersJSON(ctx),
 	}
 }
 
-func settleMessagesTurn(ctx context.Context, s *Service, t *messagesFinishedTurn, u messagesTurnUsage, subscriberTelemetry *turnrecord.InsertTelemetryParams) {
+func settleMessagesTurn(ctx context.Context, s *Service, t *messagesFinishedTurn, usage messagesTurnUsage, subscriberTelemetry *turnrecord.InsertTelemetryParams) {
 	var subscriberSettlement subscriberSettlementState
-	if turnUsageBillable(ctx, t.proxyErr, u.in, u.out, u.cacheCreation, u.cacheRead) && !t.agentShadowMode {
-		subscriberSettlement = s.emitBilling(ctx, t.facts.RequestID, t.facts.ExternalID, t.feats.Model, t.decision, t.actPricing, t.routeRes, u.in, u.out, u.cacheCreation, u.cacheRead, u.usageMods)
+	if turnUsageBillable(ctx, t.proxyErr, usage.in, usage.out, usage.cacheCreation, usage.cacheRead) && !t.agentShadowMode {
+		subscriberSettlement = s.emitBilling(ctx, t.facts.RequestID, t.facts.ExternalID, t.feats.Model, t.decision, t.actPricing, t.routeRes, usage.in, usage.out, usage.cacheCreation, usage.cacheRead, usage.usageMods)
 		if t.compactionHandoverOutcome.Invoked && !t.compactionHandoverOutcome.FallbackToFullHistory {
 			s.billAuxiliaryInference(ctx, t.facts.RequestID, auxSuffixCompactionHandoverSummry, t.facts.ExternalID, t.compactionHandoverOutcome.SummaryUsage)
 		}
 	}
 	if subscriberTelemetry != nil {
-		applyTelemetrySettlement(subscriberTelemetry, turnUsageBillable(ctx, t.proxyErr, u.in, u.out, u.cacheCreation, u.cacheRead), subscriberSettlement)
+		applyTelemetrySettlement(subscriberTelemetry, turnUsageBillable(ctx, t.proxyErr, usage.in, usage.out, usage.cacheCreation, usage.cacheRead), subscriberSettlement)
 		s.fireTelemetry(ctx, *subscriberTelemetry)
 	}
 }
@@ -353,12 +353,12 @@ func strikeMessagesArms(ctx context.Context, s *Service, t *messagesFinishedTurn
 	return armStrikeLogFieldsWithPrimaryReason(armDemoted, armDemotionReasonValue, rescuedArmDemoted, rescuedArmDemotionReason)
 }
 
-func completeMessagesTurn(ctx context.Context, s *Service, t *messagesFinishedTurn, u messagesTurnUsage, armStrikeFields []any) {
+func completeMessagesTurn(ctx context.Context, s *Service, t *messagesFinishedTurn, usage messagesTurnUsage, armStrikeFields []any) {
 	logToolCallIssues(t.log, t.respSummary.ToolCallIssues, t.decision.Model, t.finalProvider, t.routeRes.SessionKey)
 
 	if t.preludeBuf.Committed() {
 		t.streamCut.noteCut(t.proxyErr)
 	}
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	t.log.Info("ProxyMessages complete", append(append([]any{"requested_model", t.feats.Model, "baseline_model", s.baselineFor(ctx, t.feats.Model), "decision_model", t.decision.Model, "decision_provider", t.decision.Provider, "primary_provider", t.rescue.primaryProvider, "primary_model", t.rescue.primaryModel, "fallback_attempts", t.winnerIdx, "failover_used", t.rescue.failoverUsed, "failover_attempted", t.rescue.failoverAttempted, "subscription_failover", t.rescue.subscriptionFailoverUsed, "decision_reason", t.decision.Reason, "requested_tier", t.routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(t.decision.Model).String(), "embedded_tokens", len(t.promptText) / 4, "total_input_tokens", t.feats.Tokens, "context_estimate_tokens", t.overflowEstimate, "has_tools", t.feats.HasTools, "message_count", t.feats.MessageCount, "last_kind", t.feats.LastKind, "last_preview", s.zdrLogField(ctx, t.feats.LastPreview), "embed_input", t.embedInput, "cross_format", t.crossFormat, "sticky_hit", t.stickyHit, "route_ms", t.routeMs, "proxy_ms", t.proxyMs, "proxy_err", t.proxyErr, "error_class", classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, t.proxyErr, classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), u.terminalFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(t.proxyErr)), "upstream_status", upstreamStatus(t.proxyErr), "upstream_finish_reason", t.respSummary.UpstreamFinishReason, "resp_stop_reason", t.respSummary.StopReason, "resp_refusal", t.refusalObs.refused, "resp_refusal_category", t.refusalObs.category, "stop_reason_promoted", t.respSummary.StopReasonPromoted, "tool_use_blocks", t.respSummary.ToolUseBlocks, "invalid_tool_args_blocks", t.respSummary.InvalidToolArgsBlocks, "last_tool_use_name", u.terminalToolUse.Name, "last_tool_use_input_bytes", u.terminalToolUse.InputBytes, "ended_on_tool_use", u.endedOnToolUse, "tool_error_counts", u.toolErrorTally, "text_only_turn_nudged", t.respSummary.TextOnlyTurnNudged, "stop_reason_demoted", t.respSummary.StopReasonDemoted, "suppressed_tool_calls", t.respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(t.respSummary.ToolCallIssues), "cc_only_tools_stripped", t.reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", t.reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", t.reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", t.reqStats.GeminiValidatedToolMode, "resp_output_tokens", t.respSummary.OutputTokens, "resp_reasoning_tokens", t.extractor.ReasoningTokens(), "prelude_committed", t.preludeBuf.Committed(), "routing_marker", t.marker, "prior_served_model", t.routeRes.PriorServedModel, "hard_pinned", t.routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(t.facts.Client), "subscription_tier", servedSubscriptionTier}, append(append(append(armStrikeFields, plannerLogFields(t.routeRes)...), t.streamCut.completionLogFields()...), t.rateLimit.CompletionLogFields()...)...), downgradeShadowLogFields(t.routeRes)...)...)
+	t.log.Info("ProxyMessages complete", append(append([]any{"requested_model", t.feats.Model, "baseline_model", s.baselineFor(ctx, t.feats.Model), "decision_model", t.decision.Model, "decision_provider", t.decision.Provider, "primary_provider", t.rescue.primaryProvider, "primary_model", t.rescue.primaryModel, "fallback_attempts", t.winnerIdx, "failover_used", t.rescue.failoverUsed, "failover_attempted", t.rescue.failoverAttempted, "subscription_failover", t.rescue.subscriptionFailoverUsed, "decision_reason", t.decision.Reason, "requested_tier", t.routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(t.decision.Model).String(), "embedded_tokens", len(t.promptText) / 4, "total_input_tokens", t.feats.Tokens, "context_estimate_tokens", t.overflowEstimate, "has_tools", t.feats.HasTools, "message_count", t.feats.MessageCount, "last_kind", t.feats.LastKind, "last_preview", s.zdrLogField(ctx, t.feats.LastPreview), "embed_input", t.embedInput, "cross_format", t.crossFormat, "sticky_hit", t.stickyHit, "route_ms", t.routeMs, "proxy_ms", t.proxyMs, "proxy_err", t.proxyErr, "error_class", classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, t.proxyErr, classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), usage.terminalFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(t.proxyErr)), "upstream_status", upstreamStatus(t.proxyErr), "upstream_finish_reason", t.respSummary.UpstreamFinishReason, "resp_stop_reason", t.respSummary.StopReason, "resp_refusal", t.refusalObs.refused, "resp_refusal_category", t.refusalObs.category, "stop_reason_promoted", t.respSummary.StopReasonPromoted, "tool_use_blocks", t.respSummary.ToolUseBlocks, "invalid_tool_args_blocks", t.respSummary.InvalidToolArgsBlocks, "last_tool_use_name", usage.terminalToolUse.Name, "last_tool_use_input_bytes", usage.terminalToolUse.InputBytes, "ended_on_tool_use", usage.endedOnToolUse, "tool_error_counts", usage.toolErrorTally, "text_only_turn_nudged", t.respSummary.TextOnlyTurnNudged, "stop_reason_demoted", t.respSummary.StopReasonDemoted, "suppressed_tool_calls", t.respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(t.respSummary.ToolCallIssues), "cc_only_tools_stripped", t.reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", t.reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", t.reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", t.reqStats.GeminiValidatedToolMode, "resp_output_tokens", t.respSummary.OutputTokens, "resp_reasoning_tokens", t.extractor.ReasoningTokens(), "prelude_committed", t.preludeBuf.Committed(), "routing_marker", t.marker, "prior_served_model", t.routeRes.PriorServedModel, "hard_pinned", t.routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(t.facts.Client), "subscription_tier", servedSubscriptionTier}, append(append(append(armStrikeFields, plannerLogFields(t.routeRes)...), t.streamCut.completionLogFields()...), t.rateLimit.CompletionLogFields()...)...), downgradeShadowLogFields(t.routeRes)...)...)
 }
