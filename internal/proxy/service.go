@@ -1542,13 +1542,6 @@ func (s *Service) RouteAnthropicRequest(ctx context.Context, body []byte, header
 	return s.Route(ctx, req)
 }
 
-func (s *Service) PassthroughToProvider(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
-	if isCountTokensRequest(r) {
-		return s.countTokens(ctx, body, w, r)
-	}
-	return s.PassthroughToNamedProvider(ctx, providers.ProviderAnthropic, body, w, r)
-}
-
 func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http.Header) bool {
 	if s.anthropicFallbackKeyAvailable(ctx) {
 		return true
@@ -1559,47 +1552,6 @@ func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http
 		}
 	}
 	return ExtractClientCredentials(providers.ProviderAnthropic, headers) != nil
-}
-
-func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName string, body []byte, w http.ResponseWriter, r *http.Request) error {
-	log := observability.FromContext(ctx)
-	p, err := s.engine.Clients().Upstream(providerName)
-	if err != nil {
-		return err
-	}
-	ctx = resolveAndInjectCredentials(ctx, providerName, "", r.Header)
-
-	if providerName == providers.ProviderAnthropic && len(body) > 0 {
-		if canon, had, cerr := translate.CanonicalizeModelInBody(body); cerr == nil && had {
-			body = canon
-		}
-		if bare, had, cerr := translate.StripProviderPrefixInBody(body, providerName); cerr == nil && had {
-			body = bare
-		}
-	}
-
-	var prep providers.PreparedRequest
-	if providerName == providers.ProviderAnthropic && len(body) > 0 {
-		env, parseErr := translate.ParseAnthropic(body)
-		if parseErr == nil {
-			prep, err = env.PrepareAnthropicPassthrough(r.Header)
-			if err != nil {
-				return fmt.Errorf("prepare passthrough: %w", err)
-			}
-		} else {
-			prep = providers.PreparedRequest{Body: body, Headers: translate.AnthropicPassthroughHeadersForBody(r.Header, body)}
-		}
-	} else if providerName == providers.ProviderAnthropic {
-		prep = providers.PreparedRequest{Body: body, Headers: translate.AnthropicPassthroughHeadersForBody(r.Header, body)}
-	} else {
-		prep = providers.PreparedRequest{Body: body, Headers: make(http.Header)}
-	}
-
-	proxyStart := s.clock.Now()
-	proxyErr := p.Passthrough(ctx, prep, w, r)
-	proxyMs := s.clock.Now().Sub(proxyStart).Milliseconds()
-	log.Info("PassthroughToProvider complete", "provider", providerName, "proxy_ms", proxyMs, "proxy_err", proxyErr)
-	return proxyErr
 }
 
 func logUpstreamBody(log *slog.Logger, sessionKey [sessionpin.SessionKeyLen]byte, decision router.Decision, feats translate.RoutingFeatures, body []byte) {
