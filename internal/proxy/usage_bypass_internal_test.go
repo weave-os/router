@@ -663,7 +663,6 @@ func TestBypass_EmitsUsageAndCost(t *testing.T) {
 	assert.InDelta(t, wantIn, spanFloat(t, sp, "cost.requested_input_usd"), 1e-9)
 }
 
-// bypassCaptureTelemetry records turnrecord.InsertTelemetryParams rows for assertions.
 // Only InsertRequestTelemetry matters; the read methods satisfy the interface.
 type bypassCaptureTelemetry struct {
 	panicTelemetryRepo // inherit no-op reads
