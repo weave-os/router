@@ -57,7 +57,7 @@ func (p routerFeedbackPorts) ServedModel(ctx context.Context, strategy router.St
 }
 
 func (p routerFeedbackPorts) UpsertRequestFeedback(ctx context.Context, request conversation.RequestFeedback) error {
-	return p.s.feedbackRepo.Upsert(ctx, feedback.UpsertFeedbackParams{
+	return p.s.feedbackLinks.repo.Upsert(ctx, feedback.UpsertFeedbackParams{
 		InstallationID: request.InstallationID,
 		ExternalID:     request.ExternalID,
 		RequestID:      request.RequestID,
@@ -91,7 +91,7 @@ func newRouterFeedback(s *Service) conversation.RouterFeedback {
 	if s.pinStore != nil {
 		recorder.ServedModels = ports
 	}
-	if s.feedbackRepo != nil {
+	if s.feedbackLinks.repo != nil {
 		recorder.Requests = ports
 	}
 	return recorder

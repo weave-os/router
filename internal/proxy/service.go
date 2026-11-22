@@ -20,7 +20,6 @@ import (
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
-	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/ingress"
@@ -120,10 +119,8 @@ type Service struct {
 	defaultBaselineModel     string
 	billing                  *billing.Service
 	clock                    auth.Clock
-	feedbackRepo             feedback.FeedbackRepository
-	feedbackSigner           *feedback.Signer
+	feedbackLinks            feedbackLinks
 	piHandoffSecret          []byte
-	feedbackBaseURL          string
 	usageObserver            *usage.Observer
 }
 
