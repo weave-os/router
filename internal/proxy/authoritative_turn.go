@@ -18,7 +18,7 @@ type authoritativeTurn struct {
 	req            router.Request
 	pin            sessionpin.Pin
 	pinFound       bool
-	hmmHistory     sessionpin.Pin
+	switchHistory  sessionpin.Pin
 	fresh          router.Decision
 	prefixBroken   bool
 	sessionPins    routingpolicy.SessionPins
@@ -27,7 +27,7 @@ type authoritativeTurn struct {
 
 func serveAuthoritativeTurn(ctx context.Context, s *Service, res *routingpolicy.TurnRoute, in authoritativeTurn) (routingpolicy.TurnRoute, error) {
 	return routingpolicy.AuthoritativeTurn{
-		Request: in.req, Pin: in.pin, PinFound: in.pinFound, HMMHistory: in.hmmHistory, Fresh: in.fresh, PrefixBroken: in.prefixBroken,
+		Request: in.req, Pin: in.pin, PinFound: in.pinFound, SwitchHistory: in.switchHistory, Fresh: in.fresh, PrefixBroken: in.prefixBroken,
 		PlannerTokens: s.plannerTokensFor(ctx, in.env, in.feats), Pins: in.sessionPins, InstallationID: in.installationID,
 		Ports: s.strategyPorts, Scorer: strategyScorer{s: s, strategy: in.strategy}, Settings: authoritativeSettingsFor(ctx, s), Now: s.clock.Now,
 	}.Serve(ctx, res)

@@ -45,7 +45,7 @@ type AuthoritativeTurn struct {
 	Request        router.Request
 	Pin            sessionpin.Pin
 	PinFound       bool
-	HMMHistory     sessionpin.Pin
+	SwitchHistory  sessionpin.Pin
 	Fresh          router.Decision
 	PrefixBroken   bool
 	PlannerTokens  int

@@ -92,12 +92,12 @@ func (t AuthoritativeTurn) cacheShadow(activePin sessionpin.Pin) AuthorityCacheS
 		return AuthorityCacheShadow{}
 	}
 	_, plannerDecision, sticky, stayModel := CostGatedDecision(t.Ports, t.Settings.CostGate, continuity.CostGateInput{
-		Request: t.Request, ActivePin: activePin, HMMHistory: t.HMMHistory, Fresh: fresh,
+		Request: t.Request, ActivePin: activePin, HMMHistory: t.SwitchHistory, Fresh: fresh,
 		EstimatedInputTokens: t.PlannerTokens, PrefixBroken: t.PrefixBroken, Planner: t.Settings.Planner, Now: t.Now(),
 	})
 	stayProvider := activePin.Provider
 	stayIdentity := stayModel
-	stayPin, stayPinOK := t.Ports.CostGate.StayPin(t.Settings.CostGate, t.Request, activePin, t.HMMHistory, t.Now())
+	stayPin, stayPinOK := t.Ports.CostGate.StayPin(t.Settings.CostGate, t.Request, activePin, t.SwitchHistory, t.Now())
 	if stayPinOK && stayPin.Model == stayModel {
 		stayProvider = stayPin.Provider
 		stayIdentity = stayPin.Decision().ServedIdentity()

@@ -25,8 +25,8 @@ func hmmCostGateServe(ctx context.Context, s *Service, input continuity.CostGate
 	return s.strategyPorts.CostGate.Serve(hmmCostGateFor(s), input, priorServedModel)
 }
 
-func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {
-	return s.strategyPorts.CostGate.StayPin(hmmCostGateFor(s), req, activePin, hmmHistory, s.clock.Now())
+func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, switchHistory sessionpin.Pin) (sessionpin.Pin, bool) {
+	return s.strategyPorts.CostGate.StayPin(hmmCostGateFor(s), req, activePin, switchHistory, s.clock.Now())
 }
 
 func hmmEffectiveInputUSDPer1M(model string, inputTokens int) (float64, bool) {
