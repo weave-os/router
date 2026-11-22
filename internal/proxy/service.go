@@ -1978,17 +1978,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	rateLimit, facts, requestStart := turn.rateLimit, turn.facts, turn.start
 	log := observability.FromContext(ctx)
 
-	ctx = withSubscriptionOnlyWarningEcho(ctx, body)
-	replayedModel := translate.LastAnnouncedMessagesModel(body)
-	body, stripErr := stripRoutingMarkerFromMessages(body)
-	if stripErr != nil {
-		log.Error("Failed to strip routing marker from inbound messages", "err", stripErr)
-		return fmt.Errorf("strip routing marker: %w", stripErr)
-	}
-
-	footerEchoed := translate.FeedbackFooterInHistory(body)
-	if echoed, _ := ctx.Value(responsesFooterEchoedContextKey{}).(bool); echoed {
-		footerEchoed = true
+	ctx, body, replayedModel, footerEchoed, err := stripInboundEchoes(ctx, log, body, "inbound")
+	if err != nil {
+		return err
 	}
 	parsed, parseErr := s.ingress.Anthropic.ParseMessages(ctx, body)
 	if parseErr != nil {
@@ -2029,21 +2021,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if preparingHandoff(ctx) && !s.canPrepareHandoff(ctx, env, feats, r.Header, body) {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
 	}
-	promptText := feats.PromptText
-	embedInput := "concatenated_stream"
-	if feats.OnlyUserMessageText != "" {
-		promptText = feats.OnlyUserMessageText
-		embedInput = "only_user_message"
-	}
-
-	log.Info("ProxyMessages start",
-		"requested_model", feats.Model,
-		"stream", env.Stream(),
-		"message_count", feats.MessageCount,
-		"has_tools", feats.HasTools,
-		"total_input_tokens", feats.Tokens,
-		"prompt_preview", s.zdrLogField(ctx, observability.Preview(promptText, 200)),
-	)
+	promptText, embedInput := turnPromptText(feats)
+	logTurnStart(log, "ProxyMessages start", env.Stream(), feats, s.zdrLogField(ctx, observability.Preview(promptText, 200)))
 
 	if !agentShadowMode {
 		betaSessionKey := deriveBetaSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
@@ -2132,12 +2111,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if requestBodyChanged {
 		feats = env.RoutingFeatures()
 		ctx = withRequestImageCount(ctx, feats.ImageCount)
-		promptText = feats.PromptText
-		embedInput = "concatenated_stream"
-		if feats.OnlyUserMessageText != "" {
-			promptText = feats.OnlyUserMessageText
-			embedInput = "only_user_message"
-		}
+		promptText, embedInput = turnPromptText(feats)
 	}
 
 	forceModel := agentForceModel
@@ -3617,21 +3591,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	rateLimit, facts, requestStart := turn.rateLimit, turn.facts, turn.start
 	log := observability.FromContext(ctx)
 
-	ctx = withSubscriptionOnlyWarningEcho(ctx, body)
-	replayedModel := translate.LastAnnouncedMessagesModel(body)
+	ctx, body, replayedModel, footerEchoed, err := stripInboundEchoes(ctx, log, body, "OpenAI")
+	if err != nil {
+		return err
+	}
 	if replayedModel == "" {
 		replayedModel, _ = ctx.Value(responsesReplayedModelContextKey{}).(string)
-	}
-	strippedBody, stripErr := stripRoutingMarkerFromMessages(body)
-	if stripErr != nil {
-		log.Error("Failed to strip routing marker from OpenAI messages", "err", stripErr)
-		return fmt.Errorf("strip routing marker: %w", stripErr)
-	}
-	body = strippedBody
-
-	footerEchoed := translate.FeedbackFooterInHistory(body)
-	if echoed, _ := ctx.Value(responsesFooterEchoedContextKey{}).(bool); echoed {
-		footerEchoed = true
 	}
 	env, body, parseErr := s.ingress.OpenAIChat.Parse(ctx, body)
 	if parseErr != nil {
@@ -3661,21 +3626,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if codexTitleGen {
 		feats.TitleGenHint = true
 	}
-	promptText := feats.PromptText
-	embedInput := "concatenated_stream"
-	if feats.OnlyUserMessageText != "" {
-		promptText = feats.OnlyUserMessageText
-		embedInput = "only_user_message"
-	}
-
-	log.Info("ProxyOpenAIChatCompletion start",
-		"requested_model", feats.Model,
-		"stream", env.Stream(),
-		"message_count", feats.MessageCount,
-		"has_tools", feats.HasTools,
-		"total_input_tokens", feats.Tokens,
-		"prompt_preview", s.zdrLogField(ctx, observability.Preview(promptText, 200)),
-	)
+	promptText, embedInput := turnPromptText(feats)
+	logTurnStart(log, "ProxyOpenAIChatCompletion start", env.Stream(), feats, s.zdrLogField(ctx, observability.Preview(promptText, 200)))
 
 	betaSessionKey := deriveBetaSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 	if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
@@ -3772,12 +3724,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if codexTitleGen {
 			feats.TitleGenHint = true
 		}
-		promptText = feats.PromptText
-		embedInput = "concatenated_stream"
-		if feats.OnlyUserMessageText != "" {
-			promptText = feats.OnlyUserMessageText
-			embedInput = "only_user_message"
-		}
+		promptText, embedInput = turnPromptText(feats)
 	}
 
 	forceModel := agentForceModel
