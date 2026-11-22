@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,7 +40,6 @@ import (
 	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
-	"weave-os/router/internal/sse"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
@@ -2321,10 +2319,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	credentialCtx := resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
-	w.Header().Set(requestcontext.HeaderRouterDecision, decision.Reason)
-	w.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
-	w.Header().Set(requestcontext.HeaderRouterModel, decision.Model)
-	w.Header().Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	setDecisionHeaders(w.Header(), decision)
 	setContextEstimateHeaders(w.Header(), overflowEstimate, outputReserve)
 	if !agentShadowMode {
 		s.setFeedbackLinkHeader(ctx, w, facts.InstallationID, facts.ExternalID, facts.RequestID, auth.UserIDFrom(ctx))
@@ -2393,16 +2388,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	clientSink := w
 	var streamCost *streamCostWriter
 	if env.Stream() && !agentShadowMode {
-		streamCost = newStreamCostWriter(clientSink)
-		clientSink = streamCost
-		if s.ingress.Keepalive > 0 {
-			keepalive := sse.NewKeepaliveWriter(clientSink, ingress.AnthropicPingFrame, s.ingress.Keepalive)
-			defer keepalive.Close()
-			clientSink = keepalive
-		}
-		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoed); footer != "" {
-			clientSink = translate.NewAnthropicRoutingFooterWriter(clientSink, footer)
-		}
+		var closeKeepalive func()
+		clientSink, streamCost, closeKeepalive = anthropicStreamSink(w, s.ingress.Keepalive, func() string {
+			return s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoed)
+		})
+		defer closeKeepalive()
 	}
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
@@ -3601,10 +3591,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return err
 	}
 
-	w.Header().Set(requestcontext.HeaderRouterDecision, decision.Reason)
-	w.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
-	w.Header().Set(requestcontext.HeaderRouterModel, decision.Model)
-	w.Header().Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	setDecisionHeaders(w.Header(), decision)
 	setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), outputReserveOAI)
 	s.setFeedbackLinkHeader(ctx, w, facts.InstallationID, facts.ExternalID, facts.RequestID, auth.UserIDFrom(ctx))
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -166,10 +165,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	pinAgeSec := routeRes.PinAgeSec
 	s.logPlannerOutcome(ctx, routeRes)
 
-	w.Header().Set(requestcontext.HeaderRouterDecision, decision.Reason)
-	w.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
-	w.Header().Set(requestcontext.HeaderRouterModel, decision.Model)
-	w.Header().Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	setDecisionHeaders(w.Header(), decision)
 	setContextEstimateHeaders(w.Header(), overflowEstimate, outputReserve)
 	s.setFeedbackLinkHeader(ctx, w, facts.InstallationID, facts.ExternalID, facts.RequestID, "")
 
