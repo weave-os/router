@@ -18,10 +18,9 @@ func HistoryRole(role string) string {
 }
 
 func LoadHistory(ctx context.Context, rows continuity.HistoryRows, sessionKey [sessionpin.SessionKeyLen]byte, role string) sessionpin.Pin {
-	log := observability.FromContext(ctx)
 	pin, found, err := rows.Store.Get(ctx, sessionKey, HistoryRole(role))
 	if err != nil {
-		log.Error("HMM switch-history store unavailable", "err", err)
+		observability.FromContext(ctx).Error("HMM switch-history store unavailable", "err", err)
 		return sessionpin.Pin{}
 	}
 	if !found {

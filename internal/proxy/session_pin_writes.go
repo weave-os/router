@@ -20,8 +20,7 @@ func (s *Service) recordSwitchHistory(ctx context.Context, res routingpolicy.Tur
 		return
 	}
 	strategy := strategyForTurnLoopResult(res)
-	rows := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).HistoryRows()
-	role, usageRecorded := s.strategyPorts.History.RecordTurnHistory(strategyContext(ctx, strategy), rows, continuity.TurnHistoryRecord{
+	role, usageRecorded := s.strategyPorts.History.RecordTurnHistory(strategyContext(ctx, strategy), routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).HistoryRows(), continuity.TurnHistoryRecord{
 		SessionKey:     res.SessionKey,
 		InstallationID: res.InstallationID,
 		PinRole:        res.PinRole,
