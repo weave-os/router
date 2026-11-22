@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
-	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
 
@@ -35,5 +34,5 @@ func conditionalModelsObserver(snapshot usage.Snapshot) *usage.Observer {
 func TestPreferredModelsForRequest_SeparatesInstallationAndSubscriptionPreferences(t *testing.T) {
 	ctx := context.WithValue(context.Background(), requestcontext.InstallationPreferredModelsContextKey{}, []string{"grok-4.1-fast", "gpt-5.6-sol"})
 
-	assert.Equal(t, []string{"grok-4.1-fast", "gpt-5.6-sol"}, (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).preferredModelsForRequest(ctx))
+	assert.Equal(t, []string{"grok-4.1-fast", "gpt-5.6-sol"}, preferredModelsForRequest(ctx))
 }

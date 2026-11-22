@@ -189,6 +189,20 @@ func (sp SessionPins) WriteNew(ctx context.Context, installationID uuid.UUID, se
 	sp.Upsert(ctx, pinstate.WithColumns(p, sessionpin.StrategyColumns{PolicyGroup: DecisionPolicyGroup(chosen)}))
 }
 
+func (sp SessionPins) WriteRepin(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, role, provider, model, reason string) error {
+	return sp.store.Upsert(context.WithoutCancel(ctx), sessionpin.Pin{
+		SessionKey:     sessionKey,
+		Role:           role,
+		InstallationID: installationID,
+		Provider:       provider,
+		Model:          model,
+		Reason:         reason,
+		Strategy:       sp.strategy,
+		TurnCount:      1,
+		PinnedUntil:    PinExpiry(reason, sp.now()),
+	})
+}
+
 func (sp SessionPins) Upsert(ctx context.Context, p sessionpin.Pin) {
 	log := observability.FromContext(ctx)
 	if p.Strategy == "" {

@@ -12,17 +12,23 @@ import (
 	"weave-os/router/internal/router/llmescalation"
 )
 
+type llmEscalationAdmin struct {
+	dashboard     escalationdashboard.Store
+	configuration llmescalation.ConfigurationStore
+	invalidate    func(string)
+}
+
 var ErrEscalationJudgeUnavailable = errors.New("escalation judge is unavailable")
 
 const escalationDashboardSnapshotTTL = 15 * time.Minute
 
 func (s *Service) WithEscalationDashboard(store escalationdashboard.Store) *Service {
-	s.escalationDashboardStore = store
+	s.llmEscalationAdmin.dashboard = store
 	return s
 }
 
 func (s *Service) EscalationDashboard(ctx context.Context, filter escalationdashboard.Filter) (escalationdashboard.Snapshot, error) {
-	if s.escalationDashboardStore == nil {
+	if s.llmEscalationAdmin.dashboard == nil {
 		return escalationdashboard.Snapshot{}, ErrEscalationJudgeUnavailable
 	}
 	if filter.Limit < 1 || filter.Limit > 200 {
@@ -35,12 +41,12 @@ func (s *Service) EscalationDashboard(ctx context.Context, filter escalationdash
 	if filter.Cursor == "" {
 		filter.CapturedAt = now
 		filter.ExpiresAt = now.Add(escalationDashboardSnapshotTTL)
-		stored, err = s.escalationDashboardStore.CreateSnapshot(ctx, filter)
+		stored, err = s.llmEscalationAdmin.dashboard.CreateSnapshot(ctx, filter)
 	} else {
 		var snapshotID string
 		snapshotID, pageStart, err = escalationdashboard.DecodeCursor(filter.Cursor)
 		if err == nil {
-			stored, err = s.escalationDashboardStore.SnapshotPage(ctx, snapshotID, pageStart, filter.Limit, now)
+			stored, err = s.llmEscalationAdmin.dashboard.SnapshotPage(ctx, snapshotID, pageStart, filter.Limit, now)
 		}
 	}
 	if err != nil {
@@ -83,8 +89,8 @@ type LLMEscalationDetail struct {
 }
 
 func (s *Service) WithEscalationConfiguration(store llmescalation.ConfigurationStore, invalidate func(string), activeEnabled bool) *Service {
-	s.llmEscalationConfiguration = store
-	s.llmEscalationInvalidate = invalidate
+	s.llmEscalationAdmin.configuration = store
+	s.llmEscalationAdmin.invalidate = invalidate
 	s.escalationHelper().WithSwitchyardActive(activeEnabled)
 	return s
 }
@@ -126,10 +132,10 @@ func (s *Service) GetLLMEscalationSession(ctx context.Context, installationID, e
 }
 
 func (s *Service) EscalationSelection(ctx context.Context, installationID string) (llmescalation.Selection, error) {
-	if s.llmEscalationConfiguration == nil {
+	if s.llmEscalationAdmin.configuration == nil {
 		return llmescalation.Selection{}, ErrEscalationJudgeUnavailable
 	}
-	selection, err := s.llmEscalationConfiguration.GetSelection(ctx, installationID)
+	selection, err := s.llmEscalationAdmin.configuration.GetSelection(ctx, installationID)
 	if err != nil {
 		return selection, err
 	}
@@ -137,7 +143,7 @@ func (s *Service) EscalationSelection(ctx context.Context, installationID string
 }
 
 func (s *Service) UpdateEscalationSelection(ctx context.Context, installationID string, update llmescalation.SelectionUpdate) (llmescalation.Selection, error) {
-	if s.llmEscalationConfiguration == nil {
+	if s.llmEscalationAdmin.configuration == nil {
 		return llmescalation.Selection{}, ErrEscalationJudgeUnavailable
 	}
 	usesJudge := update.Active == flags.EscalationClassifierSwitchyard || update.Shadow == flags.EscalationClassifierSwitchyard
@@ -151,12 +157,12 @@ func (s *Service) UpdateEscalationSelection(ctx context.Context, installationID 
 	if update.Active == flags.EscalationClassifierSwitchyard && !s.escalationHelper().SwitchyardActiveEnabled() {
 		return llmescalation.Selection{}, fmt.Errorf("%w: active rollout is disabled", ErrEscalationJudgeUnavailable)
 	}
-	selection, err := s.llmEscalationConfiguration.SetSelection(ctx, installationID, update)
+	selection, err := s.llmEscalationAdmin.configuration.SetSelection(ctx, installationID, update)
 	if err != nil {
 		return selection, err
 	}
-	if s.llmEscalationInvalidate != nil {
-		s.llmEscalationInvalidate(installationID)
+	if s.llmEscalationAdmin.invalidate != nil {
+		s.llmEscalationAdmin.invalidate(installationID)
 	}
 	return s.withEscalationReadiness(selection), nil
 }

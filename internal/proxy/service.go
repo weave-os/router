@@ -33,13 +33,12 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation/floor"
-	"weave-os/router/internal/router/escalationdashboard"
-	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/routingpolicy/overrides"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -69,20 +68,12 @@ type Service struct {
 	translationMetrics           telemetry.TranslationMetrics
 	pinStore                     sessionpin.Store
 	escalation                   *floor.Helper
-	escalationDashboardStore     escalationdashboard.Store
-	llmEscalationConfiguration   llmescalation.ConfigurationStore
-	llmEscalationInvalidate      func(string)
+	llmEscalationAdmin           llmEscalationAdmin
 	classifierSessions           *classifierSessions
 	lifecycle                    *conversation.Lifecycle
 	prefixTrimFreeSwitch         bool
 	escapeNormalize              bool
-	hardPinExplore               bool
-	explicitUtilityHardPin       bool
-	hardPinProvider              string
-	hardPinModel                 string
-	hardPinResolver              HardPinResolver
-	subAgentProvider             string
-	subAgentModel                string
+	hardPins                     overrides.HardPins
 	captureMode                  ContentCaptureMode
 	captureMaxBytes              int
 	redactor                     Redactor
@@ -91,8 +82,6 @@ type Service struct {
 	credentials                  credentials.Brokerage
 	continuityConfig             continuity.Config
 	hmmServing
-	policyDeadlineFallback     bool
-	policyDeadlineDefaultModel string
 
 	rescueConfig                   dispatch.RescueConfig
 	openAIResponsesBroad           bool
@@ -456,21 +445,7 @@ func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
 	if planHasDedicatedServingPolicy(ctx) && !subscriptionStateModelsEnabled(ctx) {
 		return nil
 	}
-	policy := installationAllowedModelSet(ctx)
-	subset := requestAllowedModelSet(ctx)
-	if subset == nil {
-		return policy
-	}
-	if policy == nil {
-		return subset
-	}
-	out := make(map[string]struct{}, len(subset))
-	for m := range subset {
-		if _, ok := policy[m]; ok {
-			out[m] = struct{}{}
-		}
-	}
-	return out
+	return candidates.IntersectAllowed(installationAllowedModelSet(ctx), requestAllowedModelSet(ctx))
 }
 
 func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
@@ -487,19 +462,10 @@ func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
 	if !hasSelectedStateModels {
 		return allowed
 	}
-	if allowed == nil {
-		if stateModels == nil {
-			return make(map[string]struct{})
-		}
-		return stateModels
+	if stateModels == nil {
+		stateModels = make(map[string]struct{})
 	}
-	intersection := make(map[string]struct{})
-	for model := range stateModels {
-		if _, permitted := allowed[model]; permitted {
-			intersection[model] = struct{}{}
-		}
-	}
-	return intersection
+	return candidates.IntersectAllowed(allowed, stateModels)
 }
 
 func modelPermittedByAllowlist(ctx context.Context, model string) bool {
@@ -512,14 +478,7 @@ func modelPermittedByAllowlist(ctx context.Context, model string) bool {
 }
 
 func (s *Service) routableUniverse() map[string]struct{} {
-	if s.availableModels != nil {
-		return s.availableModels
-	}
-	out := make(map[string]struct{}, len(catalog.Models))
-	for _, m := range catalog.Models {
-		out[m.ID] = struct{}{}
-	}
-	return out
+	return candidates.RoutableUniverse(s.availableModels)
 }
 
 func subscriptionRoutingDisabledForRequest(ctx context.Context) bool {
@@ -562,33 +521,14 @@ func (s *Service) policyExcludedModels(ctx context.Context) map[string]struct{} 
 }
 
 func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]struct{}) map[string]struct{} {
-	ineligible := s.productIneligibleModels(ctx)
-	if override := s.routing.ExcludedModelsOverride(); override != nil {
-		return candidates.MergeExcludedModels(override, ineligible)
-	}
-	excluded := installationExcludedModelsFromContext(ctx)
-	out := make(map[string]struct{}, len(excluded))
-	for _, m := range excluded {
-		out[m] = struct{}{}
-	}
-	for m := range ineligible {
-		out[m] = struct{}{}
-	}
-
-	if allowed != nil {
-		for model := range s.routableUniverse() {
-			if _, ok := allowed[model]; !ok {
-				out[model] = struct{}{}
-			}
-		}
-	}
-	for model := range s.gatewayUnservedModelsForRequest(ctx) {
-		out[model] = struct{}{}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return candidates.ExcludedModels(candidates.ExclusionSources{
+		Override:             s.routing.ExcludedModelsOverride(),
+		ProductIneligible:    s.productIneligibleModels(ctx),
+		InstallationExcluded: installationExcludedModelsFromContext(ctx),
+		Allowed:              allowed,
+		Available:            s.availableModels,
+		GatewayUnserved:      func() map[string]struct{} { return s.gatewayUnservedModelsForRequest(ctx) },
+	})
 }
 
 func (s *Service) productIneligibleModels(ctx context.Context) map[string]struct{} {
@@ -669,20 +609,15 @@ func installationFastModeModelsFromContext(ctx context.Context) []string {
 	return out
 }
 
-func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
-	var preferred []string
+func preferredModelsForRequest(ctx context.Context) []string {
+	var subscriptionModels, installationPreferred []string
 	if subscriptionStateModelsEnabled(ctx) {
-		preferred = slices.Clone(installationSubscriptionModelsWhenActiveFromContext(ctx))
+		subscriptionModels = installationSubscriptionModelsWhenActiveFromContext(ctx)
 	}
-	if planHasDedicatedServingPolicy(ctx) {
-		return preferred
+	if !planHasDedicatedServingPolicy(ctx) {
+		installationPreferred = installationPreferredModelsFromContext(ctx)
 	}
-	for _, model := range installationPreferredModelsFromContext(ctx) {
-		if !slices.Contains(preferred, model) {
-			preferred = append(preferred, model)
-		}
-	}
-	return preferred
+	return candidates.PreferredModels(subscriptionModels, installationPreferred)
 }
 
 func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
@@ -721,39 +656,6 @@ const extendedContextTriggerTokens = 140_000
 
 func shouldEnableExtendedContext(est, outputReserve int) bool {
 	return est+outputReserve > extendedContextTriggerTokens
-}
-
-func (s *Service) restrictToTier(excluded map[string]struct{}, tier catalog.Tier) (map[string]struct{}, bool) {
-	if tier == catalog.TierUnknown {
-		return excluded, false
-	}
-	out := make(map[string]struct{}, len(excluded))
-	for k := range excluded {
-		out[k] = struct{}{}
-	}
-	inTierEligible := 0
-	consider := func(model string) {
-		if catalog.TierFor(model) == tier {
-			if _, alreadyExcluded := excluded[model]; !alreadyExcluded {
-				inTierEligible++
-			}
-			return
-		}
-		out[model] = struct{}{}
-	}
-	if s.availableModels != nil {
-		for model := range s.availableModels {
-			consider(model)
-		}
-	} else {
-		for _, m := range catalog.Models {
-			consider(m.ID)
-		}
-	}
-	if inTierEligible == 0 {
-		return excluded, false
-	}
-	return out, true
 }
 
 func subscriptionProvidersForRequest(ctx context.Context) map[string]struct{} {
@@ -904,9 +806,7 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 		prefixTrimFreeSwitch:         true,
 		turnSignalCaptureEnabled:     true,
 		ccOrchToolsCrossVendor:       true,
-		hardPinExplore:               hardPinExplore,
-		hardPinProvider:              hardPinProvider,
-		hardPinModel:                 hardPinModel,
+		hardPins:                     overrides.HardPins{Explore: hardPinExplore, Provider: hardPinProvider, Model: hardPinModel},
 		continuityConfig:             continuity.DefaultConfig(),
 		hmmServing:                   hmmServing{hmmConfig: continuity.DefaultAuthoritativeConfig()},
 		rescueConfig: dispatch.RescueConfig{
@@ -1112,12 +1012,16 @@ func (s *Service) WithHMMConfig(cfg continuity.AuthoritativeConfig) *Service {
 }
 
 func (s *Service) WithPolicyDeadlineFallback(enabled bool) *Service {
-	s.policyDeadlineFallback = enabled
+	deadline := s.routing.Deadline()
+	deadline.Fallback = enabled
+	s.routing = s.routing.WithDeadline(deadline)
 	return s
 }
 
 func (s *Service) WithPolicyDeadlineDefaultModel(model string) *Service {
-	s.policyDeadlineDefaultModel = model
+	deadline := s.routing.Deadline()
+	deadline.DefaultModel = model
+	s.routing = s.routing.WithDeadline(deadline)
 	return s
 }
 
@@ -1225,22 +1129,17 @@ func (s *Service) WithAvailableModels(models map[string]struct{}) *Service {
 	return s
 }
 
-type HardPinRequest struct {
-	EnabledProviders map[string]struct{}
-	ExcludedModels   map[string]struct{}
-	CustomBindings   map[string][]string
-	GatewayProviders map[string]struct{}
-}
+type HardPinRequest = overrides.HardPinRequest
 
-type HardPinResolver func(HardPinRequest) (provider, model string, ok bool)
+type HardPinResolver = overrides.HardPinResolver
 
 func (s *Service) WithExplicitUtilityHardPin(enabled bool) *Service {
-	s.explicitUtilityHardPin = enabled
+	s.hardPins.ExplicitUtility = enabled
 	return s
 }
 
 func (s *Service) WithHardPinResolver(resolver HardPinResolver) *Service {
-	s.hardPinResolver = resolver
+	s.hardPins.Resolver = resolver
 	return s
 }
 
@@ -1250,8 +1149,7 @@ func (s *Service) WithDefaultBaselineModel(model string) *Service {
 }
 
 func (s *Service) WithSubAgentOverride(provider, model string) *Service {
-	s.subAgentProvider = provider
-	s.subAgentModel = model
+	s.hardPins.SubAgentProvider, s.hardPins.SubAgentModel = provider, model
 	return s
 }
 
@@ -1305,7 +1203,7 @@ func (s *Service) WithExcludedModelsOverride(models []string) *Service {
 }
 
 func (s *Service) WithRoutingPolicy(p *routingpolicy.Policy) *Service {
-	s.routing = p.WithExcludedModelsOverride(s.ExcludedModelsOverride())
+	s.routing = p.WithExcludedModelsOverride(s.ExcludedModelsOverride()).WithDeadline(s.routing.Deadline())
 	return s
 }
 
@@ -1909,18 +1807,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, strategy router.Str
 			"from_model", served.Model, "fallback_model", fbModel, "refusal_category", category)
 		return
 	}
-	pin := sessionpin.Pin{
-		SessionKey:     sessionKey,
-		Role:           role,
-		InstallationID: installationID,
-		Provider:       fbProvider,
-		Model:          fbModel,
-		Reason:         reasonCyberRefusalRepin,
-		Strategy:       strategy,
-		TurnCount:      1,
-		PinnedUntil:    pinExpiry(reasonCyberRefusalRepin, s.clock.Now()),
-	}
-	if err := s.pinStore.Upsert(context.WithoutCancel(ctx), pin); err != nil {
+	if err := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).WriteRepin(ctx, installationID, sessionKey, role, fbProvider, fbModel, reasonCyberRefusalRepin); err != nil {
 		log.Error("cyber-refusal re-pin: pin upsert failed", "err", err, "from_model", served.Model, "to_model", fbModel)
 		return
 	}
@@ -2030,61 +1917,19 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	agentForceModel := ""
 	requestBodyChanged := false
-	if !agentShadowMode && s.pinStore != nil {
-		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
-			log.Info("ProxyMessages force-model command", "force_model_cmd", cmd)
-			if cmd.FromToolResult {
-				var err error
-				agentForceModel, _, err = (forceModelCommands{s}).apply(ctx, strategy, cmd, facts.InstallationID, sessionKey, forceModelSessionKey)
-				if err != nil {
-					return err
-				}
-				requestBodyChanged = true
-			} else {
-				if err := (forceModelCommands{s}).handle(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
-					return err
-				}
-				postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-				return nil
-			}
-		}
-	}
 	if !agentShadowMode {
-		if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
-			log.Info("ProxyMessages router-feedback command")
-			if err := (routerFeedbackCommand{w: w, env: env, cmd: cmd, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, inputTokens: feats.Tokens, synthetic: !cmd.FromToolResult}).handle(ctx, s); err != nil {
-				return err
-			}
-			if !cmd.FromToolResult {
-				postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-				return nil
-			}
-			requestBodyChanged = true
-		}
-	}
-	if !agentShadowMode && env.ExtractRouterSessionCommand() {
-		log.Info("ProxyMessages router-session command")
-		if err := (routerInfoCommands{s}).session(ctx, w, env, feats.Tokens); err != nil {
+		outcome, err := conversation.CommandDispatch{
+			Source:                  env,
+			Handlers:                turnCommands{s: s, w: w, env: env, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
+			Protocol:                "ProxyMessages",
+			ForceModelEnabled:       s.pinStore != nil,
+			ForceModelContinuesTurn: func(cmd translate.ForceModelResult) bool { return cmd.FromToolResult },
+			SyntheticFeedback:       func(cmd translate.RouterFeedbackResult) bool { return !cmd.FromToolResult },
+		}.Run(ctx)
+		if err != nil || outcome.Handled {
 			return err
 		}
-		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
-	}
-	if !agentShadowMode && env.ExtractRouterModelsCommand() {
-		log.Info("ProxyMessages router-models command")
-		if err := (routerInfoCommands{s}).models(ctx, w, env, feats.Tokens); err != nil {
-			return err
-		}
-		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
-	}
-	if !agentShadowMode && env.ExtractListModelsCommand() {
-		log.Info("ProxyMessages list-models command")
-		if err := (routerInfoCommands{s}).listModels(ctx, w, env, feats.Tokens); err != nil {
-			return err
-		}
-		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
+		agentForceModel, requestBodyChanged = outcome.AgentForceModel, outcome.BodyChanged
 	}
 
 	if coalesced := env.CoalesceDuplicateToolResults(); coalesced > 0 {
@@ -2193,7 +2038,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		GatewayProviders:             eligibility.GatewayProviders,
 		SubscriptionProviders:        s.selectableSubscriptionProviders(ctx, r.Header),
 		Candidates:                   prefilteredCandidates(ctx, excluded, prefiltered),
-		PreferredModels:              s.preferredModelsForRequest(ctx),
+		PreferredModels:              preferredModelsForRequest(ctx),
 		RoutingKnobs:                 routingKnobsForRequest(ctx),
 		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
 		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
@@ -2249,27 +2094,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			return err
 		}
 
-		if s.pinStore != nil && !isUnpinnedScoredTurn(routeRes.TurnType) {
-			sessionKey := deriveSessionKeyForRequest(ctx, env, facts.APIKeyID)
-			role := roleForTier(catalog.TierFor(feats.Model))
-			pin, _ := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).Load(ctx, sessionKey, role)
-			hmmHistory := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).LoadHMMHistory(ctx, sessionKey, role)
-			forceHistory := s.loadForceModelHistory(ctx, sessionKey, role)
-			routeRes.SessionKey = sessionKey
-			routeRes.applySwitchHistory(pin, hmmHistory, forceHistory)
-		}
-
+		reloadUsageBypassSession(ctx, s, strategy, env, facts.APIKeyID, feats.Model, &routeRes)
 		routeRes.UsageBypass = false
 		if !linkedSubscriptionRetry {
-			rerouteCtx, rerouteSpan := startRoutingSpan(ctx, strategy, req)
-			decision, rerouteErr := s.routeFor(rerouteCtx, strategy, req)
-			finishRoutingSpan(rerouteSpan, decision, rerouteErr)
-			if rerouteErr != nil {
-				log.Error("Reroute after usage-bypass failure failed", "err", rerouteErr)
-				return rerouteErr
+			if err := rerouteAfterUsageBypass(ctx, s, log, strategy, req, &routeRes); err != nil {
+				return err
 			}
-			routeRes.Decision, routeRes.UserForced = decision, false
-			routeRes.Fresh = decision
 		}
 	}
 
@@ -2282,7 +2112,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	stickyHit := routeRes.StickyHit
 	pinAgeSec := routeRes.PinAgeSec
 	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
-	s.logPlannerOutcome(ctx, routeRes)
+	logPlannerOutcome(ctx, s.strategyPorts, routeRes)
 
 	toolBearingTurn := inboundToolCallCount > 0 || inboundLastUser.HasToolResult
 	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && toolBearingTurn && s.lifecycle.NoProgress() != nil {
@@ -2718,7 +2548,7 @@ func stickyStateRole(res turnLoopResult) string {
 	return res.PinRole
 }
 
-func (s *Service) logPlannerOutcome(ctx context.Context, res turnLoopResult) {
+func logPlannerOutcome(ctx context.Context, ports continuity.StrategyPorts, res turnLoopResult) {
 	if !res.PlannerDecision.Evaluated() {
 		return
 	}
@@ -2739,7 +2569,7 @@ func (s *Service) logPlannerOutcome(ctx context.Context, res turnLoopResult) {
 		return
 	}
 	message := "router stayed on pinned model"
-	if isHMMDecision(s.strategyPorts, res.Fresh) {
+	if isHMMDecision(ports, res.Fresh) {
 		message = "router stayed on previous HMM model"
 	}
 	log.Info(message,
@@ -2758,53 +2588,31 @@ func isHMMTurn(ports continuity.StrategyPorts, res turnLoopResult) bool {
 }
 
 func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
-	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategyForTurnLoopResult(res))
-	if servedModel == "" || res.InstallationID == uuid.Nil {
+	if servedModel == "" || res.InstallationID == uuid.Nil || res.SessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return
 	}
-	var zeroKey [sessionpin.SessionKeyLen]byte
-	if res.SessionKey == zeroKey {
-		return
-	}
-	hasUsage := in != 0 || out != 0 || cacheCreation != 0 || cacheRead != 0
-	strategyCtx := strategyContext(ctx, strategyForTurnLoopResult(res))
-	historyProvider := servedProvider
-	if !hasUsage {
-		if prior := sessionPins.LoadHMMHistory(strategyCtx, res.SessionKey, res.PinRole); prior.Provider != "" {
-			historyProvider = prior.Provider
-		}
-	}
-	role := hmmHistoryRole(res.PinRole)
-	sessionPins.Upsert(strategyCtx, sessionpin.Pin{
+	strategy := strategyForTurnLoopResult(res)
+	role, usageRecorded := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).RecordHMMTurn(strategyContext(ctx, strategy), routingpolicy.HMMTurnRecord{
 		SessionKey:     res.SessionKey,
-		Role:           role,
 		InstallationID: res.InstallationID,
-		Provider:       historyProvider,
+		PinRole:        res.PinRole,
 		Reason:         hmmHistoryStoredReason(s.strategyPorts, res),
-		Strategy:       strategyForTurnLoopResult(res),
-		TurnCount:      1,
-		PinnedUntil:    pinExpiry(s.strategyPorts.CostGate.HistoryReason(), s.clock.Now()),
+		HistoryReason:  s.strategyPorts.CostGate.HistoryReason(),
+		Usage: sessionpin.Usage{
+			InputTokens:         in,
+			CachedReadTokens:    cacheRead,
+			CachedWriteTokens:   cacheCreation,
+			OutputTokens:        out,
+			OutputLimitReached:  outputLimitReached,
+			ServedModel:         servedModel,
+			ServedProvider:      servedProvider,
+			PriorServedModel:    res.PriorServedModel,
+			SessionEverSwitched: res.SessionEverSwitched,
+		},
 	})
-	if !hasUsage {
-		return
+	if usageRecorded {
+		s.recordTokenizerObservation(ctx, res, role, servedProvider, in, cacheCreation, cacheRead)
 	}
-	now := s.clock.Now()
-	if err := s.pinStore.UpdateUsage(strategyCtx, res.SessionKey, role, sessionpin.Usage{
-		Strategy:            strategyForTurnLoopResult(res),
-		InputTokens:         in,
-		CachedReadTokens:    cacheRead,
-		CachedWriteTokens:   cacheCreation,
-		OutputTokens:        out,
-		OutputLimitReached:  outputLimitReached,
-		EndedAt:             now,
-		ServedModel:         servedModel,
-		ServedProvider:      servedProvider,
-		PriorServedModel:    res.PriorServedModel,
-		SessionEverSwitched: res.SessionEverSwitched,
-	}); err != nil {
-		observability.Get().Error("HMM switch-history writeback failed", "err", err)
-	}
-	s.recordTokenizerObservation(ctx, res, role, servedProvider, in, cacheCreation, cacheRead)
 }
 
 func hmmHistoryStoredReason(ports continuity.StrategyPorts, res turnLoopResult) string {
@@ -2865,13 +2673,20 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 	}
 	organizationID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 	installationID, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
-	trainingAllowed := policyTrainingAllowedForRequest(ctx)
-	clientIdentity := ClientIdentityFrom(ctx)
-	selectedServedModelMatch := routeDecision.Model == decision.Model
-	authoritativeModelMismatch := routeMetadata.AuthoritativePerTurnSelection &&
-		!selectedServedModelMatch
-	if authoritativeModelMismatch {
-		trainingAllowed = false
+	classifier := s.strategyPorts.Facts.ClassifierTelemetryOf(routeMetadata)
+	outcome := routingpolicy.PolicyOutcome{
+		Route: routeMetadata, Selected: routeDecision, ServedModel: decision.Model, ServedProvider: finalProvider,
+		OrganizationID: organizationID, InstallationID: installationID,
+		ClientApp: ClientIdentityFrom(ctx).TelemetryClientApp(), RolloutID: policyRolloutIDFromContext(ctx),
+		CaptureMode: s.effectiveCaptureMode(ctx).String(), RequestTrainingAllowed: policyTrainingAllowedForRequest(ctx),
+		ClassifierArtifactID: classifier.ArtifactID, ClassifierArtifactSHA256: classifier.ArtifactSHA256,
+		Effort: routingpolicy.PolicyOutcomeEffort{Arm: effort.Arm, Selected: effort.Selected, Sent: effort.Sent, Source: effort.Source, Mismatch: effort.Mismatch()},
+		Status: upstreamStatus(proxyErr), Err: proxyErr,
+		EstimatedInputTokens: estimatedInputTokens, InputTokens: inputTokens, OutputTokens: outputTokens,
+		CacheCreationTokens: cacheCreation, CacheReadTokens: cacheRead,
+		RouteLatencyMs: routeMs, UpstreamLatencyMs: proxyMs, TurnType: string(res.TurnType), StickyHit: res.StickyHit,
+	}
+	if outcome.AuthoritativeModelMismatch() {
 		log := observability.FromContext(ctx)
 		if isAuthoritativePinHoldMismatch(res, decision) {
 			log.Info(
@@ -2890,9 +2705,7 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 			)
 		}
 	}
-	effortMismatch := effort.Mismatch()
-	if effortMismatch {
-		trainingAllowed = false
+	if outcome.Effort.Mismatch {
 		observability.FromContext(ctx).Warn(
 			"Selected effort did not match the effort sent upstream",
 			"route_id", routeMetadata.RouteID,
@@ -2903,64 +2716,12 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 			"effort_source", effort.Source,
 		)
 	}
-	payload := map[string]interface{}{
-		"route_id":                         routeMetadata.RouteID,
-		"strategy":                         routeMetadata.Strategy,
-		"organization_id":                  organizationID,
-		"installation_id":                  installationID,
-		"client_app":                       clientIdentity.TelemetryClientApp(),
-		"rollout_id":                       policyRolloutIDFromContext(ctx),
-		"training_allowed":                 trainingAllowed,
-		"capture_mode":                     s.effectiveCaptureMode(ctx).String(),
-		"policy_route_key":                 routeMetadata.PolicyRouteKey,
-		"policy_artifact_id":               routeMetadata.PolicyArtifactID,
-		"policy_artifact_sha256":           routeMetadata.PolicyArtifactSHA256,
-		"roster_version":                   routeMetadata.RosterVersion,
-		"classifier_artifact_id":           s.strategyPorts.Facts.ClassifierTelemetryOf(routeMetadata).ArtifactID,
-		"classifier_artifact_sha256":       s.strategyPorts.Facts.ClassifierTelemetryOf(routeMetadata).ArtifactSHA256,
-		"selection_policy_release_id":      routeMetadata.SelectionPolicyReleaseID,
-		"selection_policy_sha256":          routeMetadata.SelectionPolicySHA256,
-		"selection_head_generation":        routeMetadata.SelectionHeadGeneration,
-		"sidecar_schema_version":           routeMetadata.SidecarSchemaVersion,
-		"selected_model":                   routeDecision.Model,
-		"selected_provider":                routeDecision.Provider,
-		"served_model":                     decision.Model,
-		"served_provider":                  finalProvider,
-		"decision_model":                   routeDecision.Model,
-		"decision_provider":                routeDecision.Provider,
-		"selected_served_model_match":      selectedServedModelMatch,
-		"arm_effort":                       effort.Arm,
-		"selected_effort":                  effort.Selected,
-		"sent_effort":                      effort.Sent,
-		"effort_source":                    effort.Source,
-		"selected_sent_effort_match":       !effortMismatch,
-		"authoritative_per_turn_selection": routeMetadata.AuthoritativePerTurnSelection,
-		"status":                           upstreamStatus(proxyErr),
-		"error":                            "",
-		"estimated_input_tokens":           estimatedInputTokens,
-		"input_tokens":                     inputTokens,
-		"output_tokens":                    outputTokens,
-		"cache_creation_tokens":            cacheCreation,
-		"cache_read_tokens":                cacheRead,
-		"route_latency_ms":                 routeMs,
-		"upstream_latency_ms":              proxyMs,
-		"turn_type":                        string(res.TurnType),
-		"sticky_hit":                       res.StickyHit,
-	}
-	switch {
-	case authoritativeModelMismatch:
-		payload["training_exclusion_reason"] = "selected_served_model_mismatch"
-	case effortMismatch:
-		payload["training_exclusion_reason"] = "selected_sent_effort_mismatch"
-	}
-	if trainingAllowed && response != nil {
+	payload := outcome.Payload()
+	if outcome.TrainingAllowed() && response != nil {
 		payload["response_body_truncated"] = response.Truncated
 		if !response.Truncated {
 			payload["response_text"] = translate.AnthropicClientResponseText(response.Body)
 		}
-	}
-	if proxyErr != nil {
-		payload["error"] = proxyErr.Error()
 	}
 	if price, ok := servedPricing(finalProvider, decision.Model, servedFast); ok {
 		inputCost := catalog.EffectiveInputCost(inputTokens, cacheCreation, cacheRead, price, finalProvider, usageMods)
@@ -2994,19 +2755,10 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 	if !ok {
 		return anchor
 	}
-	large, small := pin.OrderedBandPair()
-	served := large
-	if band == bandswap.Small {
-		served = small
-	}
+	served := candidates.BandSwapTarget(pin, band)
 	if served.Model != pin.Model {
-		if _, available := s.availableModels[served.Model]; !available {
-			return anchor
-		}
-		if hasImages && (!catalog.AcceptsImages(served.Model) || imageCount > 0 && !catalog.AcceptsImageCount(served.Model, imageCount, enabledProviders)) {
-			return anchor
-		}
-		if _, excluded := excludedModels[served.Model]; excluded {
+		eligibility := candidates.BandSwapEligibility{Available: s.availableModels, Excluded: excludedModels, EnabledProviders: enabledProviders, HasImages: hasImages, ImageCount: imageCount}
+		if !eligibility.Admits(served) {
 			return anchor
 		}
 		if _, disabled := s.globalAutomaticExcludedModels(ctx)[served.Model]; disabled {
@@ -3014,11 +2766,6 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 		}
 		if !s.engine.Clients().Has(served.Provider) {
 			return anchor
-		}
-		if enabledProviders != nil {
-			if _, ok := enabledProviders[served.Provider]; !ok {
-				return anchor
-			}
 		}
 	}
 	observability.FromContext(ctx).Info("band swap served",
@@ -3103,23 +2850,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 	if !codexAvailable || (!paidFallbackForbiddenFor(ctx, providers.ProviderOpenAI) && s.openAIPaidCredentialAvailable(ctx, headers)) {
 		return excluded
 	}
-	for _, model := range catalog.Models {
-		if codexSubscriptionCanAttemptModel(model.ID) {
-			continue
-		}
-		for _, binding := range model.Providers {
-			if enabledProviders != nil {
-				if _, enabled := enabledProviders[binding.Provider]; !enabled {
-					continue
-				}
-			}
-			if binding.Provider == providers.ProviderOpenAI {
-				excluded = candidates.ExcludingModel(excluded, model.ID)
-			}
-			break
-		}
-	}
-	return excluded
+	return candidates.ExcludeCodexOAuthOnlyModels(enabledProviders, excluded)
 }
 
 func addTimingAttrs(ctx context.Context, b *telemetry.AttrBuilder) {
@@ -3386,70 +3117,20 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	*r = *r.WithContext(ctx)
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 
-	agentForceModel := ""
-	requestBodyChanged := false
-	if s.pinStore != nil {
-		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
-			if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
-				routingEnv.ExtractForceModelCommand()
-			}
-			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
-			if agentForceModelContinuesTurn(ctx, cmd) {
-				var err error
-				agentForceModel, _, err = (forceModelCommands{s}).apply(ctx, strategy, cmd, facts.InstallationID, sessionKey, forceModelSessionKey)
-				if err != nil {
-					return err
-				}
-				requestBodyChanged = true
-			} else {
-				if err := (forceModelCommands{s}).handle(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
-					return err
-				}
-				postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-				return nil
-			}
-		}
+	outcome, err := conversation.CommandDispatch{
+		Source:                  chatCommandSource{RequestEnvelope: env, routing: routingEnvelopeForRequest(ctx, env)},
+		Handlers:                turnCommands{s: s, w: w, env: env, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
+		Protocol:                "ProxyOpenAIChatCompletion",
+		ForceModelEnabled:       s.pinStore != nil,
+		ForceModelContinuesTurn: func(cmd translate.ForceModelResult) bool { return agentForceModelContinuesTurn(ctx, cmd) },
+		SyntheticFeedback: func(cmd translate.RouterFeedbackResult) bool {
+			return !cmd.FromToolResult || codexSkillTurnFrom(ctx) == translate.CodexSkillTurnFeedback
+		},
+	}.Run(ctx)
+	if err != nil || outcome.Handled {
+		return err
 	}
-	if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
-		if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
-			routingEnv.ExtractRouterFeedbackCommand()
-		}
-		log.Info("ProxyOpenAIChatCompletion router-feedback command")
-		skillFeedback := codexSkillTurnFrom(ctx) == translate.CodexSkillTurnFeedback
-		synthetic := !cmd.FromToolResult || skillFeedback
-		if err := (routerFeedbackCommand{w: w, env: env, cmd: cmd, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, inputTokens: feats.Tokens, synthetic: synthetic}).handle(ctx, s); err != nil {
-			return err
-		}
-		if synthetic {
-			postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-			return nil
-		}
-		requestBodyChanged = true
-	}
-	if env.ExtractRouterSessionCommand() {
-		log.Info("ProxyOpenAIChatCompletion router-session command")
-		if err := (routerInfoCommands{s}).session(ctx, w, env, feats.Tokens); err != nil {
-			return err
-		}
-		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
-	}
-	if env.ExtractRouterModelsCommand() {
-		log.Info("ProxyOpenAIChatCompletion router-models command")
-		if err := (routerInfoCommands{s}).models(ctx, w, env, feats.Tokens); err != nil {
-			return err
-		}
-		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
-	}
-	if env.ExtractListModelsCommand() {
-		log.Info("ProxyOpenAIChatCompletion list-models command")
-		if err := (routerInfoCommands{s}).listModels(ctx, w, env, feats.Tokens); err != nil {
-			return err
-		}
-		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
-	}
+	agentForceModel, requestBodyChanged := outcome.AgentForceModel, outcome.BodyChanged
 
 	if coalesced := env.CoalesceDuplicateToolResults(); coalesced > 0 {
 		log.Info("Coalesced duplicate tool results before dispatch", "coalesced", coalesced)
@@ -3550,7 +3231,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
 		SubscriptionProviders:        s.selectableSubscriptionProviders(ctx, r.Header),
 		Candidates:                   prefilteredCandidates(ctx, excludedOAI, prefiltered),
-		PreferredModels:              s.preferredModelsForRequest(ctx),
+		PreferredModels:              preferredModelsForRequest(ctx),
 		RoutingKnobs:                 routingKnobsForRequest(ctx),
 		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
 		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
@@ -3584,7 +3265,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	stickyHit := routeRes.StickyHit
 	pinTier := routeRes.PinTier
 	pinAgeSec := routeRes.PinAgeSec
-	s.logPlannerOutcome(ctx, routeRes)
+	logPlannerOutcome(ctx, s.strategyPorts, routeRes)
 
 	if facts.Client.ClientApp == requestcontext.ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {

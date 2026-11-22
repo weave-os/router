@@ -314,37 +314,3 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 	assert.Equal(t, translate.ReasonUserForceModel, res.Decision.Reason)
 	assert.False(t, res.HardPinned)
 }
-
-// Guards the empty-pool escape hatch: with no in-tier candidate, the helper
-// must return ok=false rather than hand the scorer an empty pool.
-func TestRestrictToTier_FallsBackWhenNoInTierCandidate(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
-		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}})
-
-	excluded := map[string]struct{}{"deepseek/deepseek-v4-pro": {}}
-	out, ok := svc.restrictToTier(excluded, catalog.TierHigh)
-	assert.False(t, ok, "no high-tier model is available, so the constraint must not apply")
-	assert.Equal(t, excluded, out, "the original denylist is returned unchanged on fallback")
-}
-
-// Every available model outside the target tier gets excluded; in-tier
-// models stay eligible.
-func TestRestrictToTier_ExcludesOtherTiers(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
-		WithAvailableModels(map[string]struct{}{
-			"claude-opus-5":     {}, // high
-			"claude-haiku-4-5":  {}, // low
-			"claude-sonnet-4-6": {}, // mid
-		})
-
-	out, ok := svc.restrictToTier(nil, catalog.TierHigh)
-	require.True(t, ok)
-	_, haikuExcluded := out["claude-haiku-4-5"]
-	_, sonnetExcluded := out["claude-sonnet-4-6"]
-	_, opusExcluded := out["claude-opus-5"]
-	assert.True(t, haikuExcluded, "low-tier excluded")
-	assert.True(t, sonnetExcluded, "mid-tier excluded")
-	assert.False(t, opusExcluded, "high-tier stays eligible")
-}
