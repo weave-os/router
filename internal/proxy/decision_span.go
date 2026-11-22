@@ -2,13 +2,17 @@ package proxy
 
 import (
 	"context"
+	"math"
 	"time"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/continuity"
+	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
@@ -91,4 +95,154 @@ func recordDecisionSpan(ctx context.Context, clock auth.Clock, span decisionSpan
 		Attrs: builder.Build(),
 	})
 	telemetry.Flush(ctx)
+}
+
+func logPlannerOutcome(ctx context.Context, ports continuity.StrategyPorts, res routingpolicy.TurnRoute) {
+	if !res.PlannerDecision.Evaluated() {
+		return
+	}
+	log := observability.FromContext(ctx)
+	if res.PlannerDecision.Outcome == planner.OutcomeSwitch {
+		log.Info("router switched models",
+			"from", res.PinModel,
+			"to", res.Decision.Model,
+			"reason", res.PlannerDecision.Reason,
+			"expected_savings_usd", res.PlannerDecision.ExpectedSavingsUSD,
+			"eviction_cost_usd", res.PlannerDecision.EvictionCostUSD,
+			"threshold_usd", res.PlannerDecision.ThresholdUSD,
+			"pin_cache_warm", !res.PlannerDecision.PinCacheCold,
+			"handover_invoked", res.Handover.Invoked,
+			"handover_fallback_to_full_history", res.Handover.FallbackToFullHistory,
+			"handover_latency_ms", res.Handover.LatencyMS,
+		)
+		return
+	}
+	message := "router stayed on pinned model"
+	if isHMMDecision(ports, res.Fresh) {
+		message = "router stayed on previous HMM model"
+	}
+	log.Info(message,
+		"model", res.Decision.Model,
+		"pin_model", res.PinModel,
+		"reason", res.PlannerDecision.Reason,
+		"expected_savings_usd", res.PlannerDecision.ExpectedSavingsUSD,
+		"eviction_cost_usd", res.PlannerDecision.EvictionCostUSD,
+		"threshold_usd", res.PlannerDecision.ThresholdUSD,
+		"pin_cache_warm", !res.PlannerDecision.PinCacheCold,
+	)
+}
+
+func plannerLogFields(res routingpolicy.TurnRoute) []any {
+	var pinCacheWarm any
+	if res.PlannerDecision.Evaluated() {
+		pinCacheWarm = !res.PlannerDecision.PinCacheCold
+	}
+	return []any{
+		"planner_outcome", plannerOutcomeAttr(res),
+		"planner_reason", res.PlannerDecision.Reason,
+		"planner_expected_savings_usd", res.PlannerDecision.ExpectedSavingsUSD,
+		"planner_eviction_cost_usd", res.PlannerDecision.EvictionCostUSD,
+		"planner_threshold_usd", res.PlannerDecision.ThresholdUSD,
+		"planner_pin_model", res.PinModel,
+		"planner_fresh_model", res.Fresh.Model,
+		"planner_chosen_model", res.Decision.Model,
+		"planner_pin_cache_warm", pinCacheWarm,
+		"cache_pin_provider", res.PinProvider,
+		"cache_prefix_stable", !res.PrefixBroken,
+		"cache_prior_turn_gap_ms", res.PriorTurnGapMS,
+		"planner_pin_price_fallback", res.PlannerDecision.PinPriceFallback,
+		"planner_fresh_price_fallback", res.PlannerDecision.FreshPriceFallback,
+	}
+}
+
+func applyPlannerAttrs(b *telemetry.AttrBuilder, res routingpolicy.TurnRoute) {
+	if res.PlannerDecision.Evaluated() {
+		b.String("planner.outcome", plannerOutcomeAttr(res)).
+			String("planner.reason", res.PlannerDecision.Reason).
+			Float64("planner.expected_savings_usd", res.PlannerDecision.ExpectedSavingsUSD).
+			Float64("planner.eviction_cost_usd", res.PlannerDecision.EvictionCostUSD).
+			Float64("planner.threshold_usd", res.PlannerDecision.ThresholdUSD).
+			String("planner.pin_model", res.PinModel).
+			String("planner.fresh_model", res.Fresh.Model).
+			String("planner.chosen_model", res.Decision.Model).
+			Bool("planner.pin_cache_warm", !res.PlannerDecision.PinCacheCold).
+			String("cache.pin_provider", res.PinProvider).
+			Bool("cache.prefix_stable", !res.PrefixBroken).
+			Bool("planner.pin_price_fallback", res.PlannerDecision.PinPriceFallback).
+			Bool("planner.fresh_price_fallback", res.PlannerDecision.FreshPriceFallback)
+		if res.PriorTurnGapMS != nil {
+			b.Int64("cache.prior_turn_gap_ms", *res.PriorTurnGapMS)
+		}
+		if res.PlannerDecision.ShadowComputed {
+			b.String("planner.shadow_outcome", plannerOutcome(res.PlannerDecision.ShadowOutcome)).
+				Float64("planner.shadow_expected_savings_usd", res.PlannerDecision.ShadowExpectedSavingsUSD).
+				Float64("planner.shadow_stay_cost_usd", res.PlannerDecision.ShadowStayCostUSD).
+				Float64("planner.shadow_switch_cost_usd", res.PlannerDecision.ShadowSwitchCostUSD)
+		}
+	}
+	b.Bool("handover.invoked", res.Handover.Invoked).
+		Int64("handover.latency_ms", res.Handover.LatencyMS).
+		Int64("handover.summary_tokens", int64(res.Handover.SummaryTokens)).
+		Bool("handover.fallback_to_full_history", res.Handover.FallbackToFullHistory)
+}
+
+func plannerOutcomeAttr(res routingpolicy.TurnRoute) string {
+	if !res.PlannerDecision.Evaluated() {
+		return "skipped"
+	}
+	switch res.PlannerDecision.Outcome {
+	case planner.OutcomeStay:
+		return "stay"
+	case planner.OutcomeSwitch:
+		return "switch"
+	default:
+		return "skipped"
+	}
+}
+
+func applySidecarAttrs(b *telemetry.AttrBuilder, res routingpolicy.TurnRoute) {
+	if res.Fresh.Metadata == nil {
+		return
+	}
+	if st := res.Fresh.Metadata.SidecarTimings; st != nil {
+		if st.EmbedMs != nil {
+			b.Int64("latency.embed_ms", int64(math.Round(*st.EmbedMs)))
+		}
+		if st.SelectMs != nil {
+			b.Int64("latency.sidecar_select_ms", int64(math.Round(*st.SelectMs)))
+		}
+		if st.OtherMs != nil {
+			b.Int64("latency.sidecar_other_ms", int64(math.Round(*st.OtherMs)))
+		}
+	}
+	if ss := res.Fresh.Metadata.SidecarStats; ss != nil {
+		if ss.EmbedCacheHits != nil {
+			b.Int64("routing.embed_cache_hits", *ss.EmbedCacheHits)
+		}
+		if ss.EmbedCacheMisses != nil {
+			b.Int64("routing.embed_cache_misses", *ss.EmbedCacheMisses)
+		}
+		if ss.EmbedCacheEvictions != nil {
+			b.Int64("routing.embed_cache_evictions", *ss.EmbedCacheEvictions)
+		}
+		if ss.RoutesInflight != nil {
+			b.Int64("routing.sidecar_inflight", *ss.RoutesInflight)
+		}
+		if ss.OverrunsLive != nil {
+			b.Int64("routing.sidecar_overruns_live", *ss.OverrunsLive)
+		}
+	}
+}
+
+func applyRoutingStateAttrs(
+	b *telemetry.AttrBuilder,
+	res routingpolicy.TurnRoute,
+	servedIdentity string,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+) {
+	b.String("routing.session_key", sessionKeyHex(sessionKey)).
+		String("routing.pin_role", res.PinRole).
+		String("routing.prior_served_model", res.PriorServedModel).
+		Bool("routing.model_changed", res.PriorServedModel != "" && res.PriorServedModel != servedIdentity).
+		Bool("routing.llm_escalation_applied", res.Escalation().LLMApplied())
 }

@@ -2,15 +2,12 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 )
-
-var ErrWeaveCreditsDisabled = errors.New("weave credits are disabled and no customer plan or provider key can serve this request")
 
 const forcedModelUnfundedReason = "Weave credits are turned off for your organization, and none of your plans or provider API keys can serve the forced model"
 
@@ -59,7 +56,7 @@ func applyWeaveCreditsPolicy(ctx context.Context, enabled map[string]struct{}) (
 		}
 	}
 	if len(out) == 0 {
-		return nil, ErrWeaveCreditsDisabled
+		return nil, credentials.ErrWeaveCreditsDisabled
 	}
 	return out, nil
 }

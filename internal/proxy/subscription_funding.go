@@ -52,7 +52,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 	admissionCtx := ctx
 	return dispatch.WithAuthorization(ctx, func(callCtx context.Context, target inference.Target) error {
 		if billing.WeaveCreditsDeniedFromContext(callCtx) && !credentials.CustomerFunded(CredentialsFromContext(callCtx)) {
-			return ErrWeaveCreditsDisabled
+			return credentials.ErrWeaveCreditsDisabled
 		}
 		if claudeEnterpriseTarget(callCtx, target) || claudeEnterpriseTurn(callCtx) {
 			return claudeEnterpriseFunding(callCtx, target, s.supportsSubscriptionTransport(target.Provider))

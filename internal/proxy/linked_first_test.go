@@ -279,7 +279,7 @@ func TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_RefusesPaidReroute(t *tes
 				body = []byte(`{"model":"` + bypassRequestedMdl + `","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 			}
 			ctx := billing.WithWeaveCreditsDenied(billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyLinkedFirst))
-			require.ErrorIs(t, svc.ProxyMessages(ctx, body, rec, req), proxy.ErrWeaveCreditsDisabled)
+			require.ErrorIs(t, svc.ProxyMessages(ctx, body, rec, req), credentials.ErrWeaveCreditsDisabled)
 
 			assert.Positive(t, p.subscriptionCalls)
 			assert.Zero(t, p.paidCalls, "a client-app refusal cannot authorize organization-credit inference")
