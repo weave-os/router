@@ -1422,13 +1422,6 @@ func sseKeepaliveInterval() time.Duration {
 	return time.Duration(sec) * time.Second
 }
 
-func boolDefault(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
-}
-
 func parseEnvDurationMs(key string, fallback time.Duration) time.Duration {
 	raw := config.GetOr(key, "")
 	if raw == "" {
