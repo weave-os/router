@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
@@ -117,7 +118,7 @@ func TestSubscriptionAdmissionBoundsSkippedAccountsAndOmitsUnknownModel(t *testi
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: leases}).WithUsageObserver(observerWithSnapshot("private-access-token", usage.Snapshot{OverageInUse: true}))
 	ctx := observability.WithLogger(managedSubscriptionTestContext(), slog.New(slog.NewJSONHandler(&output, nil)))
 	_, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "caller-controlled-secret")
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	require.True(t, managed)
 	require.Empty(t, lease.AccountID)
 	var event struct {
@@ -157,7 +158,7 @@ func TestSubscriptionAdmissionReportsRepeatedLeaseWithoutLooping(t *testing.T) {
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser).WithUsageObserver(observerWithSnapshot("private-access-token", usage.Snapshot{OverageInUse: true}))
 	ctx := observability.WithLogger(managedSubscriptionTestContext(), slog.New(slog.NewJSONHandler(&output, nil)))
 	_, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String())
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	require.True(t, managed)
 	require.Empty(t, lease.AccountID)
 	require.Len(t, leaser.owners, 2)

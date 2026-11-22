@@ -57,9 +57,9 @@ func TestClassifyDispatchError_SubscriptionPoolFailures(t *testing.T) {
 		statusCode int
 		logLevel   string
 	}{
-		{name: "exhausted", err: proxy.ErrSubscriptionPoolExhausted, kind: ingress.DispatchErrorSubscriptionPoolExhausted, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
-		{name: "unavailable", err: proxy.ErrSubscriptionPoolUnavailable, kind: ingress.DispatchErrorSubscriptionPoolUnavailable, statusCode: http.StatusServiceUnavailable, logLevel: "error"},
-		{name: "throttled", err: proxy.ErrSubscriptionPoolThrottled, kind: ingress.DispatchErrorSubscriptionPoolThrottled, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
+		{name: "exhausted", err: credentials.ErrSubscriptionPoolExhausted, kind: ingress.DispatchErrorSubscriptionPoolExhausted, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
+		{name: "unavailable", err: credentials.ErrSubscriptionPoolUnavailable, kind: ingress.DispatchErrorSubscriptionPoolUnavailable, statusCode: http.StatusServiceUnavailable, logLevel: "error"},
+		{name: "throttled", err: credentials.ErrSubscriptionPoolThrottled, kind: ingress.DispatchErrorSubscriptionPoolThrottled, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

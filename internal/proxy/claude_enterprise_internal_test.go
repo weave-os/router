@@ -130,14 +130,14 @@ func TestVerifiedClaudeEnterpriseMovesFromIncludedUsageToOverage(t *testing.T) {
 		"Anthropic-Ratelimit-Unified-Overage-In-Use":       []string{"true"},
 	}}
 	service := ingress.quotaService(upstream)
-	service.usageObserver.Record(service.usageObserver.Key([]byte(ingress.token)), usage.Snapshot{
+	service.credentials.UsageObserver.Record(service.credentials.UsageObserver.Key([]byte(ingress.token)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.5, WindowMinutes: 300},
 	})
 	ctx := enterpriseOnlyContext(context.WithValue(routerKeyedCtx(), credentials.AnthropicSubscriptionContextKey{}, ingress.token))
 	for range 2 {
 		recorder, request, body := ingress.request(t, false)
 		require.NoError(t, ingress.call(service, ctx, body, recorder, request))
-		snapshot, observed := service.usageObserver.Snapshot(service.usageObserver.Key([]byte(ingress.token)))
+		snapshot, observed := service.credentials.UsageObserver.Snapshot(service.credentials.UsageObserver.Key([]byte(ingress.token)))
 		require.True(t, observed)
 		require.True(t, snapshot.OverageInUse)
 		require.InDelta(t, 0.5, snapshot.Primary.UsedPercent, 1e-9)

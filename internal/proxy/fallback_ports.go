@@ -79,7 +79,7 @@ func (subscriptionCoverage) EligibilityRefusal(ctx context.Context, model string
 }
 
 func (subscriptionCoverage) PoolExhausted(ctx context.Context) error {
-	return subscriptionPoolExhausted(ctx)
+	return credentials.SubscriptionPoolExhausted(ctx)
 }
 
 type subscriptionLanes struct{ s *Service }

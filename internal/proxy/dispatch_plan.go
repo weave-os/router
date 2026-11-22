@@ -53,10 +53,10 @@ func (s *Service) afterSubscriptionRotationBudget(ctx context.Context, decision 
 	if forcedClaudeClientAppRefused(ctx, decision, nil) {
 		return errors.Join(subscriptionClientAppRefusal(ctx), rotationErr)
 	}
-	if errors.Is(rotationErr, ErrSubscriptionPoolUnavailable) {
+	if errors.Is(rotationErr, credentials.ErrSubscriptionPoolUnavailable) {
 		return rotationErr
 	}
-	return errors.Join(subscriptionPoolExhausted(ctx), rotationErr)
+	return errors.Join(credentials.SubscriptionPoolExhausted(ctx), rotationErr)
 }
 
 func recordWinningCredentials(ctx, credentialCtx context.Context) {

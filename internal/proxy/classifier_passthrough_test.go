@@ -199,7 +199,7 @@ func TestClassifier_ExhaustedSubscription_NoFallbackRefusesBeforeDispatch(t *tes
 	svc, fr, p, _ := classifierPassthroughFixture(t, exhaustedObserver())
 	rec, req := classifierRequest(t.Context())
 
-	require.ErrorIs(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req), proxy.ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req), credentials.ErrSubscriptionPoolExhausted)
 	assert.Equal(t, 0, fr.routeCalls)
 	assert.Empty(t, p.proxyCreds, "known spent credential cannot be dispatched")
 }

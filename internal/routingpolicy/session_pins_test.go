@@ -133,3 +133,22 @@ func TestSessionPinsLoadHMMHistory(t *testing.T) {
 	assert.Equal(t, "prior", pins.LoadHMMHistory(ctx, sessionKey, "").Model, "history survives pin expiry")
 	assert.Empty(t, pins.LoadHMMHistory(ctx, sessionKey, "other").Model)
 }
+
+func TestSessionPinsWriteRepinStoresAFreshPinForTheTarget(t *testing.T) {
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	store := newMemPinStore()
+	key := [sessionpin.SessionKeyLen]byte{9}
+	installationID := uuid.New()
+
+	require.NoError(t, routingpolicy.NewSessionPins(store, func() time.Time { return now }, "hmm").
+		WriteRepin(context.Background(), installationID, key, "main_loop", "openai", "gpt-x", "cyber-refusal-repin"))
+
+	pin, found, err := store.Get(context.Background(), key, "main_loop")
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, sessionpin.Pin{
+		SessionKey: key, Role: "main_loop", InstallationID: installationID,
+		Provider: "openai", Model: "gpt-x", Reason: "cyber-refusal-repin",
+		Strategy: "hmm", TurnCount: 1, PinnedUntil: routingpolicy.PinExpiry("cyber-refusal-repin", now),
+	}, pin)
+}

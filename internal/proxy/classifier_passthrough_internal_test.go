@@ -95,19 +95,19 @@ func TestClassifierPassthroughEngaged(t *testing.T) {
 		},
 		{
 			name: "cold observer is slack, not exhaustion",
-			svc:  &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})), usageObserver: usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)},
+			svc:  &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)}},
 			ctx:  subCtx, headers: http.Header{},
 			req: router.Request{RequestedModel: claude}, turnType: turntype.Classifier, want: true,
 		},
 		{
 			name: "high utilization is fine: no threshold on the classifier lane",
-			svc:  &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})), usageObserver: observerAt(usage.Snapshot{Primary: usage.Window{UsedPercent: 0.95, WindowMinutes: 300}})},
+			svc:  &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: observerAt(usage.Snapshot{Primary: usage.Window{UsedPercent: 0.95, WindowMinutes: 300}})}},
 			ctx:  subCtx, headers: http.Header{},
 			req: router.Request{RequestedModel: claude}, turnType: turntype.Classifier, want: true,
 		},
 		{
 			name: "observed-exhausted subscription disengages",
-			svc:  &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})), usageObserver: observerAt(usage.Snapshot{Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080}})},
+			svc:  &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: observerAt(usage.Snapshot{Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080}})}},
 			ctx:  subCtx, headers: http.Header{},
 			req: router.Request{RequestedModel: claude}, turnType: turntype.Classifier, want: false,
 		},
@@ -134,7 +134,7 @@ func TestUsageBypassDecision_ClassifierLaneOutranksUsageBypass(t *testing.T) {
 	obs.Record(obs.Key([]byte(classifierTestSubToken)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
-	svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})), usageObserver: obs}
+	svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: obs}}
 	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, classifierTestSubToken)
 	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	req := router.Request{RequestedModel: model}

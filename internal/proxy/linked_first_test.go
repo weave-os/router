@@ -198,7 +198,7 @@ func TestLinkedFirst_Anthropic_SpentClaudePlan_NoFallbackKey_RefusesPoolExhauste
 	rec, req, body := bypassRequest(t)
 	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyLinkedFirst)
 	err := svc.ProxyMessages(ctx, body, rec, req)
-	require.ErrorIs(t, err, proxy.ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	assert.Empty(t, p.proxyBodies, "a plan already known to be spent must not be dispatched on when nothing else can serve")
 }
 
