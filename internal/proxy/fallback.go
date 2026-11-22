@@ -114,46 +114,52 @@ func copyReplayedErrorHeaders(dst, upstream http.Header, bodyRewritten bool) {
 	}
 }
 
+type sseErrorFrame struct {
+	fallbackBody      string
+	prefix            string
+	translateUpstream func([]byte) []byte
+	classifiedBody    func(ingress.DispatchErrorClass) []byte
+}
+
+var (
+	anthropicSSEErrorFrame = sseErrorFrame{
+		fallbackBody:      `{"type":"error","error":{"type":"api_error","message":""}}`,
+		prefix:            "event: error\ndata: ",
+		translateUpstream: translate.OpenAIToAnthropicError,
+		classifiedBody:    anthropicErrorFrameBody,
+	}
+	openAISSEErrorFrame = sseErrorFrame{
+		fallbackBody:      `{"error":{"message":"","type":"server_error","code":"upstream_error"}}`,
+		prefix:            "data: ",
+		translateUpstream: translate.AnthropicErrorAsOpenAI,
+		classifiedBody:    openAIErrorFrameBody,
+	}
+)
+
 func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
-	var resp *providers.UpstreamErrorResponse
-	status := http.StatusBadGateway
-	body, _ := sjson.SetBytes([]byte(`{"type":"error","error":{"type":"api_error","message":""}}`), "error.message", attributedStreamFailure(err))
-	switch cls, classified := ClassifyDispatchError(err); {
-	case classified && cls.Kind == ingress.DispatchErrorContextWindowExceeded:
-		status = cls.Status
-		body = anthropicErrorFrameBody(cls)
-	case errors.As(err, &resp):
-		status = resp.Status
-		body = attributedErrorBody(translate.OpenAIToAnthropicError(resp.Body), err)
-	case classified:
-		status = cls.Status
-		body = anthropicErrorFrameBody(cls)
-	}
-	_, _ = sink.Write([]byte("event: error\ndata: "))
-	_, _ = sse.WriteJSONChunk(sink, body)
-	_, _ = sink.Write([]byte("\n\n"))
-	if f, ok := sink.(http.Flusher); ok {
-		f.Flush()
-	}
-	return &providers.UpstreamStatusError{Status: status, Cause: err}
+	return emitSSEErrorEvent(sink, err, anthropicSSEErrorFrame)
 }
 
 func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
+	return emitSSEErrorEvent(sink, err, openAISSEErrorFrame)
+}
+
+func emitSSEErrorEvent(sink http.ResponseWriter, err error, frame sseErrorFrame) error {
 	var resp *providers.UpstreamErrorResponse
 	status := http.StatusBadGateway
-	body, _ := sjson.SetBytes([]byte(`{"error":{"message":"","type":"server_error","code":"upstream_error"}}`), "error.message", attributedStreamFailure(err))
+	body, _ := sjson.SetBytes([]byte(frame.fallbackBody), "error.message", attributedStreamFailure(err))
 	switch cls, classified := ClassifyDispatchError(err); {
 	case classified && cls.Kind == ingress.DispatchErrorContextWindowExceeded:
 		status = cls.Status
-		body = openAIErrorFrameBody(cls)
+		body = frame.classifiedBody(cls)
 	case errors.As(err, &resp):
 		status = resp.Status
-		body = attributedErrorBody(translate.AnthropicErrorAsOpenAI(resp.Body), err)
+		body = attributedErrorBody(frame.translateUpstream(resp.Body), err)
 	case classified:
 		status = cls.Status
-		body = openAIErrorFrameBody(cls)
+		body = frame.classifiedBody(cls)
 	}
-	_, _ = sink.Write([]byte("data: "))
+	_, _ = sink.Write([]byte(frame.prefix))
 	_, _ = sse.WriteJSONChunk(sink, body)
 	_, _ = sink.Write([]byte("\n\n"))
 	if f, ok := sink.(http.Flusher); ok {
