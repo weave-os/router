@@ -214,6 +214,8 @@ test("project setup protects credentials and refuses already tracked credential 
   for (const target of ["claude", "codex", "opencode", "pi"]) await runInstallerAt(project, [`--${target}`, "--scope", "project", "--non-interactive", "--base-url", baseUrl], { cwd: project, envOverrides: { PATH: "" } });
   assert.doesNotMatch(fs.readFileSync(path.join(project, ".claude", "settings.json"), "utf8"), /rk_test_native_windows/);
   assert.match(fs.readFileSync(path.join(project, ".claude", "settings.local.json"), "utf8"), /rk_test_native_windows/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(project, ".claude", "settings.json"), "utf8")).env.WEAVE_ROUTER_CONFIG_VERSION, undefined);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(project, ".claude", "settings.local.json"), "utf8")).env.WEAVE_ROUTER_CONFIG_VERSION, "1");
   const untrackedFiles = (await runFile("git", ["-C", project, "ls-files", "--others", "--exclude-standard"])).stdout;
   for (const config of [".claude/settings.local.json", ".codex/config.toml", "opencode.json", ".pi/models.json"]) assert.equal(untrackedFiles.includes(config), false);
   const trackedProject = path.join(temporaryHome, "tracked-project");
@@ -364,6 +366,7 @@ test("project setup handles large Git indexes without listing unrelated paths", 
   execFileSync("git", ["-C", project, "update-index", "--index-info"], { input: indexEntries });
   await runInstallerAt(project, ["--codex", "--scope", "project", "--non-interactive", "--base-url", baseUrl], { cwd: project });
   assert.equal(TOML.parse(fs.readFileSync(path.join(project, ".codex", "config.toml"), "utf8")).model_provider, "weave");
+  assert.equal(TOML.parse(fs.readFileSync(path.join(project, ".codex", "config.toml"), "utf8")).model_providers.weave.http_headers["X-Weave-Router-Config-Version"], "1");
 });
 
 test("a Claude upgrade from older install state saves and restores a newly managed variable", async () => {
@@ -374,8 +377,10 @@ test("a Claude upgrade from older install state saves and restores a newly manag
   fs.writeFileSync(path.join(home, ".claude", ".weave-router-state.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL: { exists: false }, ENABLE_TOOL_SEARCH: { exists: false } } }));
   await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
   assert.equal(JSON.parse(fs.readFileSync(settingsPath, "utf8")).env.CLAUDE_CODE_AUTO_MODE_SERVER, "0");
+  assert.equal(JSON.parse(fs.readFileSync(settingsPath, "utf8")).env.WEAVE_ROUTER_CONFIG_VERSION, "1");
   await runInstallerAt(home, ["--claude", "--uninstall"]);
   assert.equal(JSON.parse(fs.readFileSync(settingsPath, "utf8")).env.CLAUDE_CODE_AUTO_MODE_SERVER, "1");
+  assert.equal(JSON.parse(fs.readFileSync(settingsPath, "utf8")).env.WEAVE_ROUTER_CONFIG_VERSION, undefined);
 });
 
 test("Codex uninstall after upgrading a stateless install removes the managed provider", async () => {
