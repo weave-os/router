@@ -5,7 +5,7 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
 )

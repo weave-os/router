@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/proxy/usage"
 
 	"github.com/gin-gonic/gin"
 )

@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/credentials/usage"
 
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"

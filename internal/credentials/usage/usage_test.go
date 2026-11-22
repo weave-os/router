@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/credentials/usage"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

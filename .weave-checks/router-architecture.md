@@ -16,7 +16,7 @@ otherwise PASS immediately.
 `internal/router`, `internal/providers` (the root interface package, not its adapters),
 `internal/translate`, `internal/sse`, `internal/timing`, `internal/requestcontext`,
 `internal/feedback`, `internal/router/{breaker,catalog,handover,planner,policy,sessionpin,turntype}`
-and `internal/proxy/usage`. `internal/websearch` is pure too. This is not a ban on
+and `internal/credentials/usage`. `internal/websearch` is pure too. This is not a ban on
 I/O in every descendant: `internal/providers/<adapter>` packages are adapters.
 
 ## Flag
