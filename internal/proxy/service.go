@@ -10,9 +10,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"weave-os/router/internal/auth"
@@ -39,7 +37,6 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/routingpolicy/overrides"
-	"weave-os/router/internal/sse"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
@@ -54,9 +51,7 @@ import (
 )
 
 type Service struct {
-	recoveryProbeMu     sync.Mutex
-	recoveryProbeLeases map[string]localRecoveryProbeLease
-	nextRecoveryProbeID uint64
+	recoveryProbes routingpolicy.RecoveryProbeLeases
 
 	strategies                   map[router.Strategy]registeredStrategy
 	engine                       *dispatch.Engine
@@ -887,96 +882,6 @@ func (s *Service) WithRescuedFailureArmDemotion(enabled bool) *Service {
 func (s *Service) WithTransientRateLimit(enabled bool, cooldownSeconds int) *Service {
 	s.throttling.RateLimit = dispatch.NewRateLimitPolicy(enabled, cooldownSeconds)
 	return s
-}
-
-const recoveryProbeLeaseDuration = 15 * time.Minute
-
-type localRecoveryProbeLease struct {
-	id    uint64
-	until time.Time
-}
-
-func (s *Service) recoveryProbeLeaseFor(ctx context.Context) time.Duration {
-	leaseFor := recoveryProbeLeaseDuration
-	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
-		if untilDeadline := deadline.Add(time.Minute).Sub(s.clock.Now()); untilDeadline > leaseFor {
-			leaseFor = untilDeadline
-		}
-	}
-	return leaseFor
-}
-
-func (s *Service) acquireRecoveryProbe(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, model string) (func(), bool) {
-	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) || model == "" {
-		return func() {}, true
-	}
-	leaseFor := s.recoveryProbeLeaseFor(ctx)
-	if store, ok := s.pinStore.(sessionpin.RecoveryProbeStore); ok {
-		token := uuid.New()
-		acquired, err := store.AcquireRecoveryProbe(ctx, sessionKey, model, token, leaseFor)
-		if err != nil {
-			observability.FromContext(ctx).Warn("failed to acquire recovery probe lease; keeping model out for this request", "model", model, "err", err)
-			return nil, false
-		}
-		if !acquired {
-			return nil, false
-		}
-		var once sync.Once
-		return func() {
-			once.Do(func() {
-				releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
-				defer cancel()
-				if err := store.ReleaseRecoveryProbe(releaseCtx, sessionKey, model, token); err != nil {
-					observability.FromContext(ctx).Warn("failed to release recovery probe lease; it will expire", "model", model, "err", err)
-				}
-			})
-		}, true
-	}
-	key := string(sessionKey[:]) + "\x00" + model
-	now := s.clock.Now()
-	s.recoveryProbeMu.Lock()
-	if lease, exists := s.recoveryProbeLeases[key]; exists && now.Before(lease.until) {
-		s.recoveryProbeMu.Unlock()
-		return nil, false
-	}
-	if s.recoveryProbeLeases == nil {
-		s.recoveryProbeLeases = make(map[string]localRecoveryProbeLease)
-	}
-	s.nextRecoveryProbeID++
-	leaseID := s.nextRecoveryProbeID
-	s.recoveryProbeLeases[key] = localRecoveryProbeLease{id: leaseID, until: now.Add(leaseFor)}
-	s.recoveryProbeMu.Unlock()
-
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			s.recoveryProbeMu.Lock()
-			if s.recoveryProbeLeases[key].id == leaseID {
-				delete(s.recoveryProbeLeases, key)
-			}
-			s.recoveryProbeMu.Unlock()
-		})
-	}, true
-}
-
-func (s *Service) clearRecoveredCooldown(ctx context.Context, res turnLoopResult, servedModel string, proxyErr error) {
-	observedUntil, probed := res.CooldownProbes[servedModel]
-	if !probed || proxyErr != nil {
-		return
-	}
-	store, ok := s.pinStore.(sessionpin.RecoveryProbeStore)
-	if !ok {
-		return
-	}
-	pinRole := res.PinRole
-	if pinRole == "" {
-		pinRole = sessionpin.DefaultRole
-	}
-	for _, role := range demotionRoles(pinRole, pinRole) {
-		if err := store.ClearDemotionCooldown(context.WithoutCancel(ctx), res.SessionKey, role, servedModel, observedUntil); err != nil {
-			observability.FromContext(ctx).Warn("failed to clear recovered cooldown; next turns keep probing", "model", servedModel, "role", role, "err", err)
-		}
-	}
 }
 
 func (s *Service) WithNativeAnthropicResponseSignals(enabled bool) *Service {
@@ -2149,10 +2054,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	credentialCtx := resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
-	w.Header().Set(requestcontext.HeaderRouterDecision, decision.Reason)
-	w.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
-	w.Header().Set(requestcontext.HeaderRouterModel, decision.Model)
-	w.Header().Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	setDecisionHeaders(w.Header(), decision)
 	setContextEstimateHeaders(w.Header(), overflowEstimate, outputReserve)
 	if !agentShadowMode {
 		s.setFeedbackLinkHeader(ctx, w, facts.InstallationID, facts.ExternalID, facts.RequestID, auth.UserIDFrom(ctx))
@@ -2221,16 +2123,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	clientSink := w
 	var streamCost *streamCostWriter
 	if env.Stream() && !agentShadowMode {
-		streamCost = newStreamCostWriter(clientSink)
-		clientSink = streamCost
-		if s.ingress.Keepalive > 0 {
-			keepalive := sse.NewKeepaliveWriter(clientSink, ingress.AnthropicPingFrame, s.ingress.Keepalive)
-			defer keepalive.Close()
-			clientSink = keepalive
-		}
-		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoed); footer != "" {
-			clientSink = translate.NewAnthropicRoutingFooterWriter(clientSink, footer)
-		}
+		var closeKeepalive func()
+		clientSink, streamCost, closeKeepalive = anthropicStreamSink(w, s.ingress.Keepalive, func() string {
+			return s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoed)
+		})
+		defer closeKeepalive()
 	}
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
@@ -3280,10 +3177,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return err
 	}
 
-	w.Header().Set(requestcontext.HeaderRouterDecision, decision.Reason)
-	w.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
-	w.Header().Set(requestcontext.HeaderRouterModel, decision.Model)
-	w.Header().Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	setDecisionHeaders(w.Header(), decision)
 	setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), outputReserveOAI)
 	s.setFeedbackLinkHeader(ctx, w, facts.InstallationID, facts.ExternalID, facts.RequestID, auth.UserIDFrom(ctx))
 

@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 )
 
 const DefaultRateLimitCooldownSeconds = dispatch.DefaultRateLimitCooldownSeconds
@@ -145,7 +146,7 @@ func applyDemotionCooldowns(ctx context.Context, s *Service, req *router.Request
 			continue
 		}
 		if !probed {
-			if release, acquired := s.acquireRecoveryProbe(ctx, res.SessionKey, model); acquired {
+			if release, acquired := s.recoveryProbes.Acquire(ctx, s.pinStore, s.clock.Now, res.SessionKey, model); acquired {
 				res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
 				res.CooldownProbes = map[string]time.Time{model: expired[model]}
 				probed = true
@@ -158,4 +159,16 @@ func applyDemotionCooldowns(ctx context.Context, s *Service, req *router.Request
 		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, res.CooldownProbeDeniedModels)
 	}
 	return ctx, demoted
+}
+
+func clearRecoveredCooldown(ctx context.Context, s *Service, res turnLoopResult, servedModel string, proxyErr error) {
+	observedUntil, probed := res.CooldownProbes[servedModel]
+	if !probed || proxyErr != nil {
+		return
+	}
+	pinRole := res.PinRole
+	if pinRole == "" {
+		pinRole = sessionpin.DefaultRole
+	}
+	routingpolicy.ClearRecoveredCooldown(ctx, s.pinStore, res.SessionKey, demotionRoles(pinRole, pinRole), servedModel, observedUntil)
 }

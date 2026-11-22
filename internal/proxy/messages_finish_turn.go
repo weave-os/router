@@ -170,7 +170,7 @@ func recordMessagesUpstream(ctx context.Context, s *Service, t *messagesFinished
 
 	if !t.agentShadowMode {
 		s.recordTurnUsage(ctx, t.routeRes, t.finalProvider, t.decision.ServedIdentity(), usage.in, usage.out, usage.cacheCreation, usage.cacheRead, t.extractor.OutputLimitReached())
-		s.clearRecoveredCooldown(ctx, t.routeRes, t.decision.Model, t.proxyErr)
+		clearRecoveredCooldown(ctx, s, t.routeRes, t.decision.Model, t.proxyErr)
 	}
 	return obs
 }

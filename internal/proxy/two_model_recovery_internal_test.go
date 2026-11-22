@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 )
 
 const recoveryOpusModel = "claude-opus-5-5"
@@ -79,31 +80,31 @@ func TestLocalRecoveryProbeLeaseExpires(t *testing.T) {
 	svc.clock = func() time.Time { return now }
 	key := nonZeroSessionKey()
 
-	_, acquired := svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	_, acquired := svc.recoveryProbes.Acquire(context.Background(), svc.pinStore, svc.clock.Now, key, recoveryOpusModel)
 	require.True(t, acquired)
-	_, acquired = svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	_, acquired = svc.recoveryProbes.Acquire(context.Background(), svc.pinStore, svc.clock.Now, key, recoveryOpusModel)
 	assert.False(t, acquired, "a live lease admits one probe")
 
-	now = now.Add(recoveryProbeLeaseDuration)
-	release, acquired := svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	now = now.Add(routingpolicy.RecoveryProbeLeaseDuration)
+	release, acquired := svc.recoveryProbes.Acquire(context.Background(), svc.pinStore, svc.clock.Now, key, recoveryOpusModel)
 	require.True(t, acquired, "an abandoned lease frees after its safety duration")
 	release()
-	_, acquired = svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	_, acquired = svc.recoveryProbes.Acquire(context.Background(), svc.pinStore, svc.clock.Now, key, recoveryOpusModel)
 	assert.True(t, acquired, "a released lease frees immediately")
 }
 
 func TestRecoveryProbeLeaseCoversRequestDeadline(t *testing.T) {
 	svc, _ := cooldownTurnLoopService(&rolePinStore{byRole: map[string]sessionpin.Pin{}}, true)
 
-	assert.Equal(t, recoveryProbeLeaseDuration, svc.recoveryProbeLeaseFor(context.Background()))
+	assert.Equal(t, routingpolicy.RecoveryProbeLeaseDuration, routingpolicy.RecoveryProbeLeaseFor(context.Background(), svc.clock.Now()))
 
 	ctx, cancel := context.WithDeadline(context.Background(), rateLimitTestNow.Add(30*time.Minute))
 	defer cancel()
-	assert.Equal(t, 31*time.Minute, svc.recoveryProbeLeaseFor(ctx), "a longer request keeps its lease one minute past the deadline")
+	assert.Equal(t, 31*time.Minute, routingpolicy.RecoveryProbeLeaseFor(ctx, svc.clock.Now()), "a longer request keeps its lease one minute past the deadline")
 
 	short, cancelShort := context.WithDeadline(context.Background(), rateLimitTestNow.Add(time.Minute))
 	defer cancelShort()
-	assert.Equal(t, recoveryProbeLeaseDuration, svc.recoveryProbeLeaseFor(short), "a short request keeps the safety duration")
+	assert.Equal(t, routingpolicy.RecoveryProbeLeaseDuration, routingpolicy.RecoveryProbeLeaseFor(short, svc.clock.Now()), "a short request keeps the safety duration")
 }
 
 type clearedCooldown struct {
@@ -149,16 +150,16 @@ func TestRecoveredProbeClearsCooldownFromBothRows(t *testing.T) {
 	svc, _ := cooldownTurnLoopService(store, true)
 	result := runDemotionTurnLoop(t, svc, context.Background())
 	result.releaseCooldownProbes()
-	require.Equal(t, []time.Duration{recoveryProbeLeaseDuration}, store.leaseFor)
+	require.Equal(t, []time.Duration{routingpolicy.RecoveryProbeLeaseDuration}, store.leaseFor)
 	require.Equal(t, map[string]time.Time{recoveryOpusModel: expired}, result.CooldownProbes)
 
-	svc.clearRecoveredCooldown(context.Background(), result, freshTurnModel, nil)
+	clearRecoveredCooldown(context.Background(), svc, result, freshTurnModel, nil)
 	assert.Empty(t, store.cleared, "a turn served by another model recovers nothing")
 
-	svc.clearRecoveredCooldown(context.Background(), result, recoveryOpusModel, &providers.UpstreamErrorResponse{Status: http.StatusBadGateway})
+	clearRecoveredCooldown(context.Background(), svc, result, recoveryOpusModel, &providers.UpstreamErrorResponse{Status: http.StatusBadGateway})
 	assert.Empty(t, store.cleared, "a failed probe leaves the cooldown for the strike to rewrite")
 
-	svc.clearRecoveredCooldown(context.Background(), result, recoveryOpusModel, nil)
+	clearRecoveredCooldown(context.Background(), svc, result, recoveryOpusModel, nil)
 	assert.Equal(t, []clearedCooldown{
 		{role: sessionpin.DefaultRole, model: recoveryOpusModel, until: expired},
 		{role: hmmHistoryRole(sessionpin.DefaultRole), model: recoveryOpusModel, until: expired},
