@@ -42,12 +42,14 @@ var ioFreePackagePatterns = []string{
 
 var injectedClockPackagePatterns = []string{
 	"./internal/auth/...",
+	"./internal/credentials/usage/...",
 	"./internal/proxy/...",
 	"./internal/router/planner/...",
 }
 
 var safeGoPackagePatterns = []string{
 	"./internal/auth/...",
+	"./internal/credentials/usage/...",
 	"./internal/proxy/...",
 	"./internal/pubsub/...",
 }
