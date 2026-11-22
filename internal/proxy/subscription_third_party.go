@@ -20,7 +20,7 @@ const subscriptionThirdPartyDenialTTL = credentials.SubscriptionModelDenialTTL
 var ErrSubscriptionClientAppRefused = errors.New("claude subscription refused third-party client")
 
 func markSubscriptionClientAppRefused(ctx context.Context) {
-	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); usage != nil {
 		usage.ClientAppRefused = true
 	}
 }
@@ -45,7 +45,7 @@ func claudePoolRefusesClientApp(ctx context.Context) bool {
 	if spendsPool, _ := ctx.Value(clientAppRefusalPaidFallbackKey{}).(bool); !spendsPool {
 		return false
 	}
-	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 	return usage != nil && usage.ClientAppRefused
 }
 
@@ -53,7 +53,7 @@ func forcedClaudeClientAppRefused(ctx context.Context, decision router.Decision,
 	if creds != nil && (creds.OAuth || creds.Source == credSourceBYOK) || clientAppRefusalPaidFallback(ctx) {
 		return false
 	}
-	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 	return usage != nil && usage.ClientAppRefused && strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel)
 }
 

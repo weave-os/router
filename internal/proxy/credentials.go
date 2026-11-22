@@ -28,7 +28,7 @@ func CredentialsFromContext(ctx context.Context) *Credentials {
 	if override, set := ctx.Value(CredentialsContextKey{}).(*Credentials); set && override == nil {
 		return nil
 	}
-	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.Finished {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); usage != nil && usage.Finished {
 		return usage.WinningCredentials
 	}
 	return requestcontext.CredentialsFromContext(ctx)

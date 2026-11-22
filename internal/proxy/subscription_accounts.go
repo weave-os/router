@@ -56,8 +56,8 @@ type leasedAccount struct {
 	account int
 }
 
-func managedSubscriptionUsageOf(ctx context.Context) *ManagedSubscriptionUsage {
-	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+func managedSubscriptionUsageOf(ctx context.Context) *credentials.ManagedSubscriptionUsage {
+	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 	return usage
 }
 
