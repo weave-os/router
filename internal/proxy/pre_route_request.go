@@ -27,7 +27,7 @@ func prefilterTurn(ctx context.Context, s *Service, in turnPrefilterInput) (int,
 	baseExcluded := s.excludeCodexOAuthOnlyModels(ctx, in.header, in.eligibility.EnabledProviders, s.excludedModelsForRequest(ctx))
 	prefiltered := candidates.Prefilter(candidates.PrefilterRequest{
 		Envelope: in.env, ImageCount: in.feats.ImageCount, OutputReserve: outputReserve, Eligibility: in.eligibility,
-		Excluded: baseExcluded, Available: s.availableModels,
+		Excluded: baseExcluded, Available: s.routing.AvailableModels(),
 		AdvisorExclusions: advisorExclusions(in.env, s.routableUniverse()), ExcludeAdvisorOutranking: in.excludeAdvisorOutranking,
 	})
 	logPrefilter(in.log, in.env, in.feats.ImageCount, outputReserve, prefiltered)

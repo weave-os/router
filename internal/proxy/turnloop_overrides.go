@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"sort"
 
 	"github.com/google/uuid"
 
@@ -158,7 +159,7 @@ func (t *hardPinnedTurnServing) serveForcedPin(ctx context.Context) bool {
 }
 
 func (t *hardPinnedTurnServing) serveProbe(ctx context.Context) (bool, error) {
-	if t.res.TurnType != turntype.Probe || t.s.hardPins.ExplicitUtility {
+	if t.res.TurnType != turntype.Probe || t.s.routing.HardPins().ExplicitUtility {
 		return false, nil
 	}
 	t.res.SessionKey = [sessionpin.SessionKeyLen]byte{}
@@ -178,7 +179,7 @@ func (t *hardPinnedTurnServing) serveProbe(ctx context.Context) (bool, error) {
 }
 
 func (t *hardPinnedTurnServing) serveDeploymentHardPin(ctx context.Context) (bool, error) {
-	resolver, provider, model := t.s.hardPins.Target(t.res.TurnType)
+	resolver, provider, model := t.s.routing.HardPins().Target(t.res.TurnType)
 	provider, model, err := utilityHardPinTarget(ctx, t.req, t.res.TurnType, resolver, provider, model)
 	if err != nil {
 		return true, err
@@ -189,4 +190,16 @@ func (t *hardPinnedTurnServing) serveDeploymentHardPin(ctx context.Context) (boo
 	t.res.Origin = policy.OverrideSourceDeployment
 	t.res.PinTier = candidates.HardPinReason(t.res.TurnType)
 	return true, nil
+}
+
+func sortedEnabledKeys(m map[string]struct{}) []string {
+	if len(m) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

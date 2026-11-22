@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/handover"
@@ -17,9 +16,9 @@ type CompactionHandover struct {
 	Now        func() time.Time
 }
 
-func (h CompactionHandover) Run(ctx context.Context, env *translate.RequestEnvelope, decisionModel string, scope router.Request) dispatch.HandoverOutcome {
+func (h CompactionHandover) Run(ctx context.Context, env *translate.RequestEnvelope, decisionModel string, scope router.Request) handover.Outcome {
 	log := observability.FromContext(ctx)
-	var out dispatch.HandoverOutcome
+	var out handover.Outcome
 	out.Invoked = true
 
 	if h.Summarizer == nil {

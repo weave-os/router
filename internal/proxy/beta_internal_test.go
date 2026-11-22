@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
@@ -65,12 +66,12 @@ func TestQwenBetaToggleUsesAdmittedClassifierAndInternalIdentity(t *testing.T) {
 			response := httptest.NewRecorder()
 			var sessionKey [sessionstrategy.SessionKeyLen]byte
 			sessionKey[0] = 1
-			require.NoError(t, svc.handleBetaCommand(ctx, response, env, command, uuid.New(), sessionKey, sessionKey, 1))
+			require.NoError(t, (betaCommands{svc}).handle(ctx, response, env, command, uuid.New(), sessionKey, sessionKey, 1))
 			if tt.wantEnabled {
-				assert.Contains(t, response.Body.String(), qwenEnabledMessage)
+				assert.Contains(t, response.Body.String(), conversation.QwenEnabledMessage)
 				assert.Equal(t, router.StrategyHMMQwen, store.preference.Strategy)
 			} else {
-				assert.Contains(t, response.Body.String(), qwenUnavailable)
+				assert.Contains(t, response.Body.String(), conversation.QwenUnavailable)
 			}
 			assert.Equal(t, tt.wantEnabled, store.found)
 		})
@@ -259,12 +260,12 @@ func TestHandleBetaCommandTogglesAndAcknowledges(t *testing.T) {
 	var sessionKey [sessionstrategy.SessionKeyLen]byte
 	sessionKey[0] = 1
 
-	for _, want := range []string{betaEnabledMessage, betaDisabledMessage} {
+	for _, want := range []string{conversation.BetaEnabledMessage, conversation.BetaDisabledMessage} {
 		env := betaTestEnvelope(t, "/beta", true)
 		cmd, found := env.ExtractBetaCommand()
 		require.True(t, found)
 		response := httptest.NewRecorder()
-		require.NoError(t, svc.handleBetaCommand(
+		require.NoError(t, (betaCommands{svc}).handle(
 			context.Background(), response, env, cmd, installationID, sessionKey, sessionKey, 1,
 		))
 		assert.Equal(t, "✦ **Weave Router** → "+want+"\n\n", gjson.Get(response.Body.String(), "content.0.text").String())
@@ -291,8 +292,8 @@ func TestHandleBetaCommandIsInertWhenInstallationPinnedToBeta(t *testing.T) {
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
 
 	response := httptest.NewRecorder()
-	require.NoError(t, svc.handleBetaCommand(ctx, response, env, cmd, uuid.New(), sessionKey, sessionKey, 1))
-	assert.Equal(t, "✦ **Weave Router** → "+betaPinnedMessage+"\n\n", gjson.Get(response.Body.String(), "content.0.text").String())
+	require.NoError(t, (betaCommands{svc}).handle(ctx, response, env, cmd, uuid.New(), sessionKey, sessionKey, 1))
+	assert.Equal(t, "✦ **Weave Router** → "+conversation.BetaPinnedMessage+"\n\n", gjson.Get(response.Body.String(), "content.0.text").String())
 	assert.Equal(t, 0, store.toggles, "an installation pin must not be shadowed by a session toggle")
 	assert.Empty(t, pins.consumedStrategy)
 }
@@ -310,8 +311,8 @@ func TestHandleBetaCommandAcceptsHeaderOnlyClientSession(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
 
 	response := httptest.NewRecorder()
-	require.NoError(t, svc.handleBetaCommand(ctx, response, env, cmd, uuid.New(), sessionKey, sessionKey, 1))
-	assert.Equal(t, "✦ **Weave Router** → "+betaEnabledMessage+"\n\n", gjson.Get(response.Body.String(), "content.0.text").String())
+	require.NoError(t, (betaCommands{svc}).handle(ctx, response, env, cmd, uuid.New(), sessionKey, sessionKey, 1))
+	assert.Equal(t, "✦ **Weave Router** → "+conversation.BetaEnabledMessage+"\n\n", gjson.Get(response.Body.String(), "content.0.text").String())
 	assert.Equal(t, 1, store.toggles)
 }
 
@@ -340,7 +341,7 @@ func TestHandleBetaCommandOverlappingTogglesAcknowledgeDistinctStates(t *testing
 			cmd, found := env.ExtractBetaCommand()
 			assert.True(t, found)
 			response := httptest.NewRecorder()
-			assert.NoError(t, svc.handleBetaCommand(
+			assert.NoError(t, (betaCommands{svc}).handle(
 				context.Background(), response, env, cmd, installationID, sessionKey, sessionKey, 1,
 			))
 			acknowledgements <- gjson.Get(response.Body.String(), "content.0.text").String()
@@ -354,8 +355,8 @@ func TestHandleBetaCommandOverlappingTogglesAcknowledgeDistinctStates(t *testing
 		acked = append(acked, text)
 	}
 	assert.ElementsMatch(t, []string{
-		"✦ **Weave Router** → " + betaEnabledMessage + "\n\n",
-		"✦ **Weave Router** → " + betaDisabledMessage + "\n\n",
+		"✦ **Weave Router** → " + conversation.BetaEnabledMessage + "\n\n",
+		"✦ **Weave Router** → " + conversation.BetaDisabledMessage + "\n\n",
 	}, acked)
 	assert.Equal(t, 2, store.toggles)
 	assert.False(t, store.found, "two overlapping toggles from stable must land back on stable")
@@ -373,10 +374,10 @@ func TestHandleBetaCommandRejectsArgumentsWithoutStateChange(t *testing.T) {
 	var sessionKey [sessionstrategy.SessionKeyLen]byte
 	sessionKey[0] = 1
 
-	require.NoError(t, svc.handleBetaCommand(
+	require.NoError(t, (betaCommands{svc}).handle(
 		context.Background(), response, env, cmd, uuid.New(), sessionKey, sessionKey, 1,
 	))
-	assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), betaUsageMessage)
+	assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), conversation.BetaUsageMessage)
 	assert.Zero(t, store.toggles)
 }
 
@@ -402,10 +403,10 @@ func TestHandleBetaCommandRequiresClientSessionAndAvailablePolicy(t *testing.T) 
 			var sessionKey [sessionstrategy.SessionKeyLen]byte
 			sessionKey[0] = 1
 
-			require.NoError(t, svc.handleBetaCommand(
+			require.NoError(t, (betaCommands{svc}).handle(
 				context.Background(), response, env, cmd, uuid.New(), sessionKey, sessionKey, 1,
 			))
-			assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), betaUnavailable)
+			assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), conversation.BetaUnavailable)
 			assert.Zero(t, store.toggles)
 		})
 	}
@@ -423,7 +424,7 @@ func TestHandleBetaCommandWriteFailureLeavesStablePinsUntouched(t *testing.T) {
 	var sessionKey [sessionstrategy.SessionKeyLen]byte
 	sessionKey[0] = 1
 
-	err := svc.handleBetaCommand(
+	err := (betaCommands{svc}).handle(
 		context.Background(), httptest.NewRecorder(), env, cmd, uuid.New(), sessionKey, sessionKey, 1,
 	)
 
@@ -450,13 +451,13 @@ func TestHandleBetaCommandCanDisablePersistedBetaWhilePolicyUnavailable(t *testi
 	require.True(t, found)
 	response := httptest.NewRecorder()
 
-	require.NoError(t, svc.handleBetaCommand(
+	require.NoError(t, (betaCommands{svc}).handle(
 		context.Background(), response, env, cmd, installationID, sessionKey, sessionKey, 1,
 	))
 	assert.False(t, store.found)
 	assert.Equal(t, 1, store.disables)
 	assert.Zero(t, store.toggles, "an unavailable policy must never flip the preference")
-	assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), betaDisabledMessage)
+	assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), conversation.BetaDisabledMessage)
 }
 
 func TestHandleBetaCommandOverlappingTogglesCannotReenableUnavailableBeta(t *testing.T) {
@@ -489,7 +490,7 @@ func TestHandleBetaCommandOverlappingTogglesCannotReenableUnavailableBeta(t *tes
 			cmd, found := env.ExtractBetaCommand()
 			assert.True(t, found)
 			response := httptest.NewRecorder()
-			assert.NoError(t, svc.handleBetaCommand(
+			assert.NoError(t, (betaCommands{svc}).handle(
 				context.Background(), response, env, cmd, installationID, sessionKey, sessionKey, 1,
 			))
 			acknowledgements <- gjson.Get(response.Body.String(), "content.0.text").String()
@@ -503,8 +504,8 @@ func TestHandleBetaCommandOverlappingTogglesCannotReenableUnavailableBeta(t *tes
 		acked = append(acked, text)
 	}
 	assert.ElementsMatch(t, []string{
-		"✦ **Weave Router** → " + betaDisabledMessage + "\n\n",
-		"✦ **Weave Router** → " + betaUnavailable + "\n\n",
+		"✦ **Weave Router** → " + conversation.BetaDisabledMessage + "\n\n",
+		"✦ **Weave Router** → " + conversation.BetaUnavailable + "\n\n",
 	}, acked)
 	assert.False(t, store.found, "beta must stay off while its policy is unavailable")
 }
@@ -607,9 +608,9 @@ func TestProxyEntrypointsInterceptBetaWithoutRoutingUpstream(t *testing.T) {
 			}
 			require.NoError(t, err)
 			if tt.openAI {
-				assert.Contains(t, gjson.Get(response.Body.String(), "choices.0.message.content").String(), betaEnabledMessage)
+				assert.Contains(t, gjson.Get(response.Body.String(), "choices.0.message.content").String(), conversation.BetaEnabledMessage)
 			} else {
-				assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), betaEnabledMessage)
+				assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), conversation.BetaEnabledMessage)
 			}
 			assert.True(t, store.found)
 			assert.Zero(t, stableRouter.calls)
@@ -634,7 +635,7 @@ func TestBetaToggleSelectsBetaThenRestoresStableRouter(t *testing.T) {
 	enableEnv := betaTestEnvelope(t, "/beta", true)
 	enableCmd, found := enableEnv.ExtractBetaCommand()
 	require.True(t, found)
-	require.NoError(t, svc.handleBetaCommand(
+	require.NoError(t, (betaCommands{svc}).handle(
 		baseCtx, httptest.NewRecorder(), enableEnv, enableCmd, installationID, sessionKey, sessionKey, 1,
 	))
 	betaCtx, _, err := svc.applySessionStrategy(baseCtx, router.StrategyFromContext(baseCtx), installationID, sessionKey)
@@ -647,7 +648,7 @@ func TestBetaToggleSelectsBetaThenRestoresStableRouter(t *testing.T) {
 	disableEnv := betaTestEnvelope(t, "/beta", true)
 	disableCmd, found := disableEnv.ExtractBetaCommand()
 	require.True(t, found)
-	require.NoError(t, svc.handleBetaCommand(
+	require.NoError(t, (betaCommands{svc}).handle(
 		baseCtx, httptest.NewRecorder(), disableEnv, disableCmd, installationID, sessionKey, sessionKey, 1,
 	))
 	stableCtx, _, err := svc.applySessionStrategy(baseCtx, router.StrategyFromContext(baseCtx), installationID, sessionKey)

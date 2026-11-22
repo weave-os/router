@@ -234,7 +234,7 @@ func TestCodexImageRequest_ServesOnLinkedCodexSubscription(t *testing.T) {
 			telemetry := &codexImageTelemetry{rows: make(chan turnrecord.InsertTelemetryParams, 1)}
 			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts()).WithManagedSubscriptions(seat)
 			ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "00000000-0000-0000-0000-000000000001")
-			ctx = proxy.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{{ID: "seat-1", Provider: auth.SubscriptionProvider(subscriptions.ProviderCodex), Enabled: true}})
+			ctx = credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{{ID: "seat-1", Provider: auth.SubscriptionProvider(subscriptions.ProviderCodex), Enabled: true}})
 
 			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(ctx, http.Header{"X-Weave-Router-Key": {"rk-synthetic"}}, proxy.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
 
@@ -280,7 +280,7 @@ func TestCodexImageRequest_FallsBackToSavedKeyWhenLinkedCodexQuotaIsSpent(t *tes
 	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts()).WithManagedSubscriptions(&linkedCodexSeat{})
 	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "00000000-0000-0000-0000-000000000001")
 	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-synthetic-byok")}})
-	ctx = proxy.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{{ID: "seat-1", Provider: auth.SubscriptionProvider(subscriptions.ProviderCodex), Enabled: true}})
+	ctx = credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{{ID: "seat-1", Provider: auth.SubscriptionProvider(subscriptions.ProviderCodex), Enabled: true}})
 
 	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(ctx, http.Header{}, proxy.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
 
