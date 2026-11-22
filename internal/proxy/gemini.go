@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/ingress"
@@ -19,10 +18,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
-	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
-
-	"github.com/google/uuid"
 )
 
 var ErrGeminiCrossFormatUnsupported = ingress.ErrGeminiCrossFormatUnsupported
@@ -274,141 +270,12 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		actPricing = actBindingPricing
 	}
 
-	in, out := extractor.Tokens()
-	cacheCreation, cacheRead := extractor.CacheTokens()
-	usageMods := extractor.UsageModifiers()
-	baselineWarmPrefill := routeRes.baselineWarmPrefillTokens(requestStart, cacheCreation, cacheRead, decision.Model, s.baselineFor(ctx, feats.Model), routeRequest.HistoryTruncated)
-	requestedInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, baselineWarmPrefill, reqPricing, decision.Provider, usageMods)
-	if responseBuffer != nil && proxyErr == nil {
-		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
-	}
-	geminiUpstreamBuilder, geminiObs := recordUpstreamSpan(ctx, s.clock, upstreamSpan{
-		facts: facts, feats: feats, decision: decision, provider: decision.Provider, routeRes: &routeRes, sessionKey: sessionKey,
-		extractor: extractor, inputTokens: in, outputTokens: out, cacheCreation: cacheCreation, cacheRead: cacheRead, usageMods: usageMods,
-		requestedInputCost: requestedInputCost, baselineWarmPrefill: baselineWarmPrefill, reqPricing: reqPricing, actPricing: actPricing,
-		subscriptionServed: s.costNeutralSubscriptionServed(ctx), proxyMs: proxyMs, requestStart: requestStart, proxyStart: proxyStart, proxyErr: proxyErr,
-		effortServed: effortServed, captureMode: s.effectiveCaptureMode(ctx), strategyPorts: s.strategyPorts, strategy: strategy,
-		subscriptionAttrs: func(b *telemetry.AttrBuilder) { s.applySubscriptionSpanTelemetry(ctx, b, feats.Model, decision.Model) },
+	return finishGeminiTurn(ctx, s, &geminiFinishedTurn{
+		w: w, body: body, rateLimit: rateLimit, log: log, requestStart: requestStart, facts: facts, inboundLastUser: inboundLastUser,
+		inboundUserPrompt: inboundUserPrompt, responseBuffer: responseBuffer, feats: feats, promptText: promptText, embedInput: embedInput,
+		sessionKey: sessionKey, strategy: strategy, routeRequest: routeRequest, routeMs: routeMs, routeRes: routeRes, decision: decision, tt: tt,
+		stickyHit: stickyHit, pinTier: pinTier, pinAgeSec: pinAgeSec, reqPricing: reqPricing, actPricing: actPricing, effortServed: effortServed,
+		proxyStart: proxyStart, extractor: extractor, contentCap: contentCap, preludeBuf: preludeBuf, primaryDecision: primaryDecision,
+		proxyErr: proxyErr, primaryFailureErr: primaryFailureErr, proxyMs: proxyMs, primaryProvider: primaryProvider, finalProvider: finalProvider,
 	})
-	respBody, respTrunc := capturedResponse(contentCap)
-	s.recordCallLog(ctx, geminiUpstreamBuilder.Build(), routeMs, proxyErr, body, respBody, respTrunc)
-	telemetry.Flush(ctx)
-
-	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
-	s.clearRecoveredCooldown(ctx, routeRes, decision.Model, proxyErr)
-
-	var subscriberTelemetry *turnrecord.InsertTelemetryParams
-	if facts.InstallationID != uuid.Nil {
-		credentialKeyPrefix, credentialKeySuffix, credentialSource := s.credentialKeyParts(ctx)
-		s.markServedExternalKeyUsed(ctx, proxyErr)
-		errorClass := classifyTurnError(proxyErr, "", 0)
-		if errorClass == "" && extractor.OutputLimitReached() {
-			errorClass = turnrecord.TurnErrorMaxTokens
-		}
-		telemetryParams := turnrecord.InsertTelemetryParams{
-			InstallationID:         facts.InstallationID.String(),
-			APIKeyID:               apiKeyIDFromContext(ctx),
-			RequestID:              facts.RequestID,
-			SpanType:               "router.upstream",
-			TraceID:                facts.RequestID,
-			Timestamp:              requestStart,
-			RequestedModel:         feats.Model,
-			DecisionModel:          decision.Model,
-			DecisionProvider:       finalProvider,
-			DecisionReason:         telemetryDecisionReason(ctx, decision.Reason),
-			RequestedAllowedModels: requestedAllowedModelsForTelemetry(ctx),
-			EstimatedInputTokens:   int32(feats.Tokens),
-			ContextSnapshot:        contextSnapshotJSON(w.Header(), facts.RequestID, feats.Model, requestStart, s.clock.Now()),
-			StickyHit:              stickyHit,
-			PinTier:                routeRes.PinTier,
-			EmbedInput:             embedInput,
-			InputTokens:            int32(in),
-			OutputTokens:           int32(out),
-			RequestedInputCostUSD:  requestedInputCost,
-			RequestedOutputCostUSD: catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, finalProvider), out, reqPricing, usageMods),
-			ActualInputCostUSD:     catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, finalProvider, usageMods),
-			ActualOutputCostUSD:    catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, finalProvider), out, actPricing, usageMods),
-			RouteLatencyMs:         routeMs,
-			UpstreamLatencyMs:      proxyMs,
-			TotalLatencyMs:         s.clock.Now().Sub(requestStart).Milliseconds(),
-			CrossFormat:            false,
-			UpstreamStatusCode:     int32(upstreamStatus(proxyErr)),
-			CandidateModels:        geminiObs.CandidateModels,
-			ChosenScore:            geminiObs.ChosenScore,
-			CandidateScores:        geminiObs.CandidateScores,
-			Propensity:             geminiObs.Propensity,
-			Strategy:               geminiObs.Strategy,
-			RouteID:                geminiObs.RouteID,
-			PolicyRouteKey:         geminiObs.PolicyRouteKey,
-			PolicyArtifactID:       geminiObs.PolicyArtifactID,
-			PolicyArtifactSHA256:   geminiObs.PolicyArtifactSHA256,
-			RosterVersion:          geminiObs.RosterVersion,
-			SidecarSchemaVersion:   geminiObs.SidecarSchemaVersion,
-			TrainingAllowed:        geminiObs.TrainingAllowed,
-			CaptureMode:            geminiObs.CaptureMode,
-			DebugRef:               geminiObs.DebugRef,
-			TTFTMs:                 geminiObs.TTFTMs,
-			CacheCreationTokens:    cacheTokenPtr(cacheCreation),
-			CacheReadTokens:        cacheTokenPtr(cacheRead),
-			ReasoningTokens:        cacheTokenPtr(extractor.ReasoningTokens()),
-			DeviceID:               facts.Client.DeviceID,
-			SessionID:              facts.Client.SessionID,
-			RouterUserID:           auth.UserIDFrom(ctx),
-			ClientApp:              facts.Client.TelemetryClientApp(),
-			TurnType:               string(routeRes.TurnType),
-			RolloutID:              geminiObs.RolloutID,
-			FailoverUsed:           boolPtrTrue(finalProvider != primaryProvider),
-			SessionKey:             sessionKey[:],
-			Role:                   routeRes.PinRole,
-			FreshDecisionModel:     geminiObs.FreshDecisionModel,
-			FreshCandidateScores:   geminiObs.FreshCandidateScores,
-			PinAgeSec:              int64PtrIf(stickyHit && pinAgeSec > 0, pinAgeSec),
-			ToolResultBytes:        toolResultBytesPtr(inboundLastUser, tt),
-			ErrorClass:             errorClass,
-			FailureOwner:           turnFailureOwnerFor(ctx, proxyErr, errorClass),
-			UserPrompt:             &inboundUserPrompt,
-			CredentialKeyPrefix:    credentialKeyPrefix,
-			CredentialKeySuffix:    credentialKeySuffix,
-			CredentialSource:       credentialSource,
-		}
-		applyServedTurnTelemetry(ctx, s.strategyPorts, &telemetryParams, routeRes, decision, effortServed)
-		subscriberTelemetry = &telemetryParams
-	}
-
-	var subscriberSettlement subscriberSettlementState
-	if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
-		subscriberSettlement = s.emitBilling(ctx, facts.RequestID, facts.ExternalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead, usageMods)
-	}
-	if subscriberTelemetry != nil {
-		applyTelemetrySettlement(subscriberTelemetry, turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead), subscriberSettlement)
-		s.fireTelemetry(ctx, *subscriberTelemetry)
-	}
-
-	armDemoted := ""
-	var armDemotionReason sessionpin.DemotionReason
-	primaryFailureDemoted := ""
-	var primaryFailureDemotionReason sessionpin.DemotionReason
-	if !routeRes.CallerModelPassthrough {
-		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
-		armDemoted = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(preludeBuf), routeRes.HardPinned, proxyErr, decision.Model, decision.Reason, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
-		if armDemoted != "" {
-			armDemotionReason = sessionpin.DemotionReasonCommittedStreamFailure
-		}
-		if providers.IsResponseHeaderTimeout(primaryFailureErr) && (proxyErr != nil || decision.Model != primaryDecision.Model) {
-			primaryFailureDemoted, primaryFailureDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, false, routeRes.HardPinned, primaryFailureErr, primaryDecision, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
-		}
-		if proxyErr != nil {
-			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, false, committed(preludeBuf), routeRes.HardPinned, primaryFailureErr, primaryDecision, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
-			if unrescuedStallDemoted != "" {
-				armDemoted = unrescuedStallDemoted
-				armDemotionReason = sessionpin.DemotionReasonUnrescuedStall
-			}
-		}
-	}
-
-	demotionLogFields := armStrikeLogFieldsWithPrimaryReason(armDemoted, armDemotionReason, primaryFailureDemoted, primaryFailureDemotionReason)
-	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	log.Info("ProxyGeminiGenerateContent complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, "", 0), "failure_owner", turnFailureOwnerFor(ctx, proxyErr, classifyTurnError(proxyErr, "", 0)), "upstream_status", upstreamStatus(proxyErr), "credential_source", servedCredentialSource, "client_app", completionLogClientApp(facts.Client), "subscription_tier", servedSubscriptionTier}, demotionLogFields...), append(plannerLogFields(routeRes), rateLimit.CompletionLogFields()...)...)...)
-	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, decision.Provider, false, feats.Tokens, in, out, cacheCreation, cacheRead, usageMods, routeMs, proxyMs, proxyErr, nil)
-	return proxyErr
 }
