@@ -235,13 +235,3 @@ func (sp SessionPins) AnchorForceModelHistory(
 		PinnedUntil:    PinNeverExpires,
 	})
 }
-
-func (sp SessionPins) LoadSwitchHistory(
-	ctx context.Context,
-	forced ForceModelPins,
-	sessionKey [sessionpin.SessionKeyLen]byte,
-	role string,
-) (pin, hmmHistory, forceHistory sessionpin.Pin) {
-	pin, _ = sp.Load(ctx, sessionKey, role)
-	return pin, sp.LoadHMMHistory(ctx, sessionKey, role), forced.LoadHistory(ctx, sessionKey, role)
-}

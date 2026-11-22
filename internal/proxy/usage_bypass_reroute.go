@@ -15,10 +15,11 @@ func reloadUsageBypassSession(ctx context.Context, s *Service, strategy router.S
 		return
 	}
 	sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
-	pin, hmmHistory, forceHistory := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).
-		LoadSwitchHistory(ctx, routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now), sessionKey, roleForTier(catalog.TierFor(model)))
+	role := roleForTier(catalog.TierFor(model))
+	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy)
+	pin, _ := sessionPins.Load(ctx, sessionKey, role)
 	routeRes.SessionKey = sessionKey
-	routeRes.applySwitchHistory(pin, hmmHistory, forceHistory)
+	routeRes.applySwitchHistory(pin, sessionPins.LoadHMMHistory(ctx, sessionKey, role), routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).LoadHistory(ctx, sessionKey, role))
 }
 
 func rerouteAfterUsageBypass(ctx context.Context, s *Service, log *slog.Logger, strategy router.Strategy, req router.Request, routeRes *turnLoopResult) error {

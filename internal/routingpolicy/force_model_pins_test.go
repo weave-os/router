@@ -74,25 +74,3 @@ func TestForceModelPinsLoadHistoryServesOnlyLiveRows(t *testing.T) {
 
 	assert.Equal(t, sessionpin.Pin{}, routingpolicy.NewForceModelPins(nil, time.Now).LoadHistory(context.Background(), key, ""))
 }
-
-func TestSessionPinsLoadSwitchHistoryReadsAllThreeRows(t *testing.T) {
-	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	clock := func() time.Time { return now }
-	store := newMemPinStore()
-	key := [sessionpin.SessionKeyLen]byte{5}
-	until := now.Add(time.Hour)
-	for role, model := range map[string]string{
-		sessionpin.DefaultRole:                  "pinned",
-		routingpolicy.HMMHistoryRole(""):        "hmm",
-		routingpolicy.ForceModelHistoryRole(""): "forced",
-	} {
-		require.NoError(t, store.Upsert(context.Background(), sessionpin.Pin{SessionKey: key, Role: role, Model: model, PinnedUntil: until}))
-	}
-
-	pin, hmmHistory, forceHistory := routingpolicy.NewSessionPins(store, clock, "").
-		LoadSwitchHistory(context.Background(), routingpolicy.NewForceModelPins(store, clock), key, sessionpin.DefaultRole)
-
-	assert.Equal(t, "pinned", pin.Model)
-	assert.Equal(t, "hmm", hmmHistory.Model)
-	assert.Equal(t, "forced", forceHistory.Model)
-}
