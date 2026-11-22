@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 )
 
 const claudeRejectedTokenHold = 30 * time.Minute

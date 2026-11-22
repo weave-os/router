@@ -10,8 +10,8 @@ import (
 	"weave-os/router/internal/dispatch"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

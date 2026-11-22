@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/postgres"
-	"weave-os/router/internal/proxy/usage"
 )
 
 func TestSeatUsageKeepsTheNewestObservationPerUserAndProvider(t *testing.T) {

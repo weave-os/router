@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"weave-os/router/internal/routingpolicy"
 
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/dispatch"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/subscriptions"

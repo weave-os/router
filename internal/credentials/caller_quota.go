@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/subscriptions"
 )
 
