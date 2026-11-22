@@ -13,7 +13,7 @@ import (
 )
 
 type turnAdmissionServices interface {
-	withClassifierInput(ctx context.Context, body []byte, endpoint router.TranslationEndpoint) (context.Context, error)
+	withClassifierInput(ctx context.Context, strategy router.Strategy, body []byte, endpoint router.TranslationEndpoint) (context.Context, error)
 	effectiveCaptureMode(ctx context.Context) ContentCaptureMode
 	checkUserMonthlySpendLimit(ctx context.Context, headers http.Header, routePath string) (context.Context, error)
 	withUsageObserver(ctx context.Context, headers http.Header) context.Context
@@ -23,13 +23,14 @@ type turnAdmissionServices interface {
 
 var _ turnAdmissionServices = (*Service)(nil)
 
-func withTurnInput(ctx context.Context, s turnAdmissionServices, body []byte, headers http.Header, endpoint router.TranslationEndpoint) (context.Context, error) {
+func withTurnInput(ctx context.Context, s turnAdmissionServices, body []byte, headers http.Header, endpoint router.TranslationEndpoint) (context.Context, router.Strategy, error) {
 	ctx = withAttemptTrace(ctx, body, headers)
-	ctx, err := s.withClassifierInput(ctx, body, endpoint)
+	strategy := router.StrategyFromContext(ctx)
+	ctx, err := s.withClassifierInput(ctx, strategy, body, endpoint)
 	if err != nil {
-		return ctx, err
+		return ctx, strategy, err
 	}
-	return requestcontext.WithContentLogging(ctx, s.effectiveCaptureMode(ctx) != CaptureOff), nil
+	return requestcontext.WithContentLogging(ctx, s.effectiveCaptureMode(ctx) != CaptureOff), strategy, nil
 }
 
 type admittedTurn struct {
