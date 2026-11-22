@@ -3,13 +3,13 @@ package proxy
 import (
 	"context"
 	"strings"
-	"weave-os/router/internal/requestcontext"
-	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
