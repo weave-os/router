@@ -1663,6 +1663,42 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, strategy router.Strat
 	s.repinOffRefusingModel(ctx, strategy, sessionKey, role, served, obs.category, "")
 }
 
+func (s *Service) repinOffRefusingModel(ctx context.Context, strategy router.Strategy, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision, category, avoidProvider string) {
+	if s.pinStore == nil {
+		return
+	}
+	if !s.ResolveCyberRefusalRepin(ctx) {
+		return
+	}
+	installationID := installationIDFromContext(ctx)
+	if installationID == uuid.Nil {
+		return
+	}
+	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return
+	}
+	if strings.HasPrefix(served.Reason, translate.ReasonUserForceModel) {
+		return
+	}
+	log := observability.FromContext(ctx)
+	fbModel, fbProvider, ok := s.cyberRefusalFallback(ctx, strategy, sessionKey, role, served, avoidProvider)
+	if !ok {
+		log.Warn("safety refusal observed but no distinct fallback model available; not re-pinning",
+			"from_model", served.Model, "fallback_model", fbModel, "refusal_category", category)
+		return
+	}
+	if err := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).WriteRepin(ctx, installationID, sessionKey, role, fbProvider, fbModel, reasonCyberRefusalRepin); err != nil {
+		log.Error("cyber-refusal re-pin: pin upsert failed", "err", err, "from_model", served.Model, "to_model", fbModel)
+		return
+	}
+	log.Info("safety refusal — re-pinned session off refusing model",
+		"session_key", conversation.ShortSessionKey(sessionKey),
+		"refusal_category", category,
+		"from_model", served.Model,
+		"to_model", fbModel,
+		"to_provider", fbProvider)
+}
+
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
 	ctx = withWeaveCreditsFunding(ctx, r.Header)
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
