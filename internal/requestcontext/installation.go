@@ -17,3 +17,8 @@ func InstallationIDFromContext(ctx context.Context) uuid.UUID {
 	}
 	return id
 }
+
+type UsageBypassConfig struct {
+	Enabled   bool
+	Threshold *float64
+}

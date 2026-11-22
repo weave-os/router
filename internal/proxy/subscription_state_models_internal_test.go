@@ -290,7 +290,7 @@ func TestSubscriptionStateModelsIntersectGlobalAllowlist(t *testing.T) {
 }
 
 func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
-	for _, surface := range []string{routePathMessages, routePathChatCompletions, routePathResponses} {
+	for _, surface := range []string{requestcontext.RoutePathMessages, requestcontext.RoutePathChatCompletions, requestcontext.RoutePathResponses} {
 		for _, scenario := range []struct {
 			name          string
 			claude, codex bool
@@ -340,16 +340,16 @@ func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
 				ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, activeModels)
 				ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 				body := `{"model":"auto","stream":true,"max_tokens":100,"messages":[{"role":"user","content":"synthetic task"}]}`
-				if surface == routePathResponses {
+				if surface == requestcontext.RoutePathResponses {
 					body = `{"model":"auto","stream":true,"input":[{"role":"user","content":"synthetic task"}]}`
 				}
 				rec := httptest.NewRecorder()
 				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, surface, strings.NewReader(body))
 				var err error
 				switch surface {
-				case routePathMessages:
+				case requestcontext.RoutePathMessages:
 					err = svc.ProxyMessages(ctx, []byte(body), rec, req)
-				case routePathResponses:
+				case requestcontext.RoutePathResponses:
 					err = svc.ProxyOpenAIResponses(ctx, []byte(body), rec, req)
 				default:
 					err = svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
@@ -396,7 +396,7 @@ func TestSubscriptionStateModelsClassifierUsesPaidSet(t *testing.T) {
 	body := `{"model":"` + stateClaudeModel + `","stream":true,"max_tokens":64,"thinking":{"type":"disabled"},"system":"You are a security monitor.","messages":[{"role":"user","content":"grade this action"}]}`
 	rec := httptest.NewRecorder()
 
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathMessages, strings.NewReader(body))))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, requestcontext.RoutePathMessages, strings.NewReader(body))))
 
 	require.Equal(t, statePaidModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	require.Equal(t, []string{statePaidModel}, models)
@@ -541,7 +541,7 @@ func TestSubscriptionStateModelsStrictDirectSubscription(t *testing.T) {
 	ctx := credentials.WithManagedSubscriptionUsage(context.Background())
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+conditionalModelsSubscriptionToken)
 	request := router.Request{RequestedModel: stateClaudeModel, Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})}
@@ -557,7 +557,7 @@ func TestSubscriptionStateModelsStrictDirectSubscription(t *testing.T) {
 				require.True(t, servedOnSubscription(attemptCtx))
 				require.Equal(t, conditionalModelsSubscriptionToken, string(CredentialsFromContext(attemptCtx).APIKey))
 				buffer.Seal()
-				return upstream.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, routePathMessages, nil))
+				return upstream.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, requestcontext.RoutePathMessages, nil))
 			}, nil
 		},
 		OnAlternative: func(target router.Decision) { winner = target },
@@ -621,7 +621,7 @@ func TestSubscriptionStateModelsCodexNativeAttemptAfterCrossFamilyPick(t *testin
 
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}],"tools":[{"type":"custom","name":"exec"}]}`
 	rec := httptest.NewRecorder()
-	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, requestcontext.RoutePathResponses, strings.NewReader(body)))
 
 	require.NoError(t, err)
 	require.Equal(t, []string{stateCodexModel}, models, "the included Codex plan serves the turn")
@@ -677,7 +677,7 @@ func TestSubscriptionStateModelsRevokedCodexLoginFallsBackWithReconnectNotice(t 
 
 			body := fmt.Sprintf(`{"model":"auto","stream":%v,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}]}`, tc.stream)
 			rec := httptest.NewRecorder()
-			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
+			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, requestcontext.RoutePathResponses, strings.NewReader(body)))
 
 			require.NoError(t, err)
 			assert.Equal(t, 1, paidCalls, "the exhausted model set serves a turn the revoked login cannot")
@@ -733,7 +733,7 @@ func TestSubscriptionStateModelsCodexCustomToolAfterCrossFamilyPick(t *testing.T
 
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"list files"}]}],"tools":[{"type":"custom","name":"exec","description":"run a script"}]}`
 	rec := httptest.NewRecorder()
-	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, requestcontext.RoutePathResponses, strings.NewReader(body)))
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"function"}, toolTypes, "the swapped attempt is emitted onto Responses from the chat projection")
@@ -820,7 +820,7 @@ func TestSubscriptionStateModelsResponsesClientGrid(t *testing.T) {
 
 					body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}]` + toolsJSON + `}`
 					rec := httptest.NewRecorder()
-					err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
+					err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, requestcontext.RoutePathResponses, strings.NewReader(body)))
 
 					assertResponsesClientGridOutcome(t, scenario.name+"/"+client+"/"+toolsName, err, models, rec)
 				})

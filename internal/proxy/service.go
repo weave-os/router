@@ -131,15 +131,10 @@ type SessionCooldownProbeDeniedModelsContextKey struct{}
 
 type SessionStrikeReadmitModelsContextKey struct{}
 
-type UsageBypassConfig struct {
-	Enabled   bool
-	Threshold *float64
-}
-
-func usageBypassFromContext(ctx context.Context) (UsageBypassConfig, bool) {
-	cfg, ok := ctx.Value(requestcontext.InstallationUsageBypassContextKey{}).(UsageBypassConfig)
+func usageBypassFromContext(ctx context.Context) (requestcontext.UsageBypassConfig, bool) {
+	cfg, ok := ctx.Value(requestcontext.InstallationUsageBypassContextKey{}).(requestcontext.UsageBypassConfig)
 	if !ok || !cfg.Enabled {
-		return UsageBypassConfig{}, false
+		return requestcontext.UsageBypassConfig{}, false
 	}
 	return cfg, true
 }
