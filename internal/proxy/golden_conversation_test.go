@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -236,7 +237,7 @@ func handoffCtx(prepare bool) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
 		ctx = router.WithStrategy(ctx, router.StrategyHMM)
 		if prepare {
-			ctx = proxy.WithHandoffPreparation(ctx)
+			ctx = conversation.WithHandoffPreparation(ctx)
 		}
 		return ctx
 	}

@@ -1,6 +1,8 @@
 package conversation
 
 import (
+	"time"
+
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/sessionstrategy"
@@ -14,6 +16,7 @@ type Lifecycle struct {
 	compactionHandoverSummarizer handover.Summarizer
 	routerFeedback               feedback.RouterFeedbackStore
 	sessionStrategies            sessionstrategy.Store
+	piHandoffSecret              []byte
 }
 
 func NewLifecycle() *Lifecycle {
@@ -84,4 +87,15 @@ func (l *Lifecycle) SessionStrategies() sessionstrategy.Store {
 
 func (l *Lifecycle) SetSessionStrategies(store sessionstrategy.Store) {
 	l.sessionStrategies = store
+}
+
+func (l *Lifecycle) PiHandoff(now func() time.Time) PiHandoff {
+	if l == nil {
+		return PiHandoff{Now: now}
+	}
+	return PiHandoff{Secret: l.piHandoffSecret, Now: now}
+}
+
+func (l *Lifecycle) SetPiHandoffSecret(secret []byte) {
+	l.piHandoffSecret = secret
 }

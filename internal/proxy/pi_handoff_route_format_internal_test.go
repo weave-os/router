@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/routingpolicy"
 )
@@ -29,14 +30,15 @@ var (
 
 func TestPiHandoffRouteTokenFormatIsStable(t *testing.T) {
 	route := populatedHandoffRoute(t)
-	svc := &Service{piHandoffSecret: piHandoffFixtureSecret, clock: func() time.Time { return piHandoffFixtureMinted }}
-	claims := handoffClaims{
-		Purpose: handoffContinuation, APIKeyID: "fixture-key", SessionID: "fixture-session",
+	svc := &Service{lifecycle: &conversation.Lifecycle{}, clock: func() time.Time { return piHandoffFixtureMinted }}
+	svc.lifecycle.SetPiHandoffSecret(piHandoffFixtureSecret)
+	claims := conversation.HandoffClaims{
+		Purpose: conversation.HandoffContinuation, APIKeyID: "fixture-key", SessionID: "fixture-session",
 		RequestedModel: "fixture-model", Tools: "fixture-tools", Reasoning: "fixture-reasoning", Route: route,
 	}
 
 	if *updatePiHandoffFixture {
-		token, err := svc.mintHandoff(claims)
+		token, err := svc.lifecycle.PiHandoff(svc.clock.Now).Mint(claims)
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(piHandoffFixturePath, []byte(token+"\n"), 0o600))
 	}
@@ -46,16 +48,16 @@ func TestPiHandoffRouteTokenFormatIsStable(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, claims.APIKeyID)
 	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, route.InstallationID.String())
-	parsed, _, err := svc.parseHandoff(ctx, []byte(`{"`+piHandoffField+`":"`+token+`"}`))
+	parsed, _, err := svc.parseHandoff(ctx, []byte(`{"`+conversation.PiHandoffField+`":"`+token+`"}`))
 	require.NoError(t, err)
-	decoded := handoffFromContext(parsed)
+	decoded := conversation.HandoffFromContext(parsed)
 	require.NotNil(t, decoded)
 
 	assert.Equal(t, route, decoded.Route, "a token signed before the change must decode to the same route values")
 	resigned, err := jwt.NewWithClaims(jwt.SigningMethodHS256, *decoded).SignedString(piHandoffFixtureSecret)
 	require.NoError(t, err)
 	assert.Equal(t, token, resigned, "re-signing the decoded claims must reproduce the fixture token byte for byte")
-	minted, err := svc.mintHandoff(claims)
+	minted, err := svc.lifecycle.PiHandoff(svc.clock.Now).Mint(claims)
 	require.NoError(t, err)
 	assert.Equal(t, token, minted, "current code must mint the fixture token byte for byte")
 }

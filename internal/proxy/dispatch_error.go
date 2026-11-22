@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/ingress"
@@ -71,10 +72,10 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 		return refusalClass(ingress.DispatchErrorSubscriptionPoolUnavailable, refusal.SubscriptionPoolUnavailable,
 			"Subscription account service is temporarily unavailable.",
 			"error", "Subscription account pool unavailable"), true
-	case errors.Is(err, ErrHandoffInvalid):
-		return ingress.DispatchErrorClass{Kind: ingress.DispatchErrorHandoff, Status: http.StatusConflict, Message: handoffInvalidMessage, LogLevel: "warn", LogMessage: "Pi handoff rejected"}, true
-	case errors.Is(err, ErrHandoffUnavailable):
-		return ingress.DispatchErrorClass{Kind: ingress.DispatchErrorHandoff, Status: http.StatusServiceUnavailable, Message: handoffUnavailableMessage, LogLevel: "warn", LogMessage: "Pi handoff unavailable"}, true
+	case errors.Is(err, conversation.ErrHandoffInvalid):
+		return ingress.DispatchErrorClass{Kind: ingress.DispatchErrorHandoff, Status: http.StatusConflict, Message: conversation.HandoffInvalidMessage, LogLevel: "warn", LogMessage: "Pi handoff rejected"}, true
+	case errors.Is(err, conversation.ErrHandoffUnavailable):
+		return ingress.DispatchErrorClass{Kind: ingress.DispatchErrorHandoff, Status: http.StatusServiceUnavailable, Message: conversation.HandoffUnavailableMessage, LogLevel: "warn", LogMessage: "Pi handoff unavailable"}, true
 	case errors.As(err, &forcedExcluded):
 		return ingress.DispatchErrorClass{
 			Kind:       ingress.DispatchErrorForcedModelExcluded,

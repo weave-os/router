@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
@@ -20,7 +21,7 @@ import (
 func PrepareHandoffHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
 	messages := MessagesHandler(svc, authSvc)
 	return func(c *gin.Context) {
-		c.Request = c.Request.WithContext(proxy.WithHandoffPreparation(c.Request.Context()))
+		c.Request = c.Request.WithContext(conversation.WithHandoffPreparation(c.Request.Context()))
 		messages(c)
 	}
 }

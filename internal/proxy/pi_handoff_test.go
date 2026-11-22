@@ -14,6 +14,7 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -43,7 +44,7 @@ func handoffTestService() (*Service, *betaTestRouter, *betaCaptureProvider, cont
 func prepareTestHandoff(t *testing.T, svc *Service, ctx context.Context) preparedHandoff {
 	t.Helper()
 	recorder := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyMessages(WithHandoffPreparation(ctx), []byte(handoffTestBody), recorder, httptest.NewRequestWithContext(ctx, "POST", "/v1/route/handoff", nil)))
+	require.NoError(t, svc.ProxyMessages(conversation.WithHandoffPreparation(ctx), []byte(handoffTestBody), recorder, httptest.NewRequestWithContext(ctx, "POST", "/v1/route/handoff", nil)))
 	var prepared preparedHandoff
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &prepared), recorder.Body.String())
 	require.NotEmpty(t, prepared.Token)
@@ -60,20 +61,20 @@ func TestPiHandoffPreparationDoesNotDispatchAndContinuationDoesNotReclassify(t *
 	classifier.decision.Model = "claude-haiku-4-5"
 	body, err := sjson.Set(handoffTestBody, "messages.0.content", "Compacted parser context; implement the remaining checks.")
 	require.NoError(t, err)
-	body, err = sjson.Set(body, piHandoffField, prepared.Token)
+	body, err = sjson.Set(body, conversation.PiHandoffField, prepared.Token)
 	require.NoError(t, err)
 	recorder := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), recorder, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil)))
 	require.Equal(t, 1, classifier.calls)
 	require.Equal(t, prepared.Model, gjson.GetBytes(upstream.body, "model").String())
-	require.False(t, gjson.GetBytes(upstream.body, piHandoffField).Exists())
+	require.False(t, gjson.GetBytes(upstream.body, conversation.PiHandoffField).Exists())
 	require.Contains(t, string(upstream.body), "Compacted parser context")
 }
 
 func TestPiHandoffRejectsTamperingIdentityAndExpiration(t *testing.T) {
 	svc, _, upstream, ctx := handoffTestService()
 	prepared := prepareTestHandoff(t, svc, ctx)
-	body, err := sjson.Set(handoffTestBody, piHandoffField, prepared.Token)
+	body, err := sjson.Set(handoffTestBody, conversation.PiHandoffField, prepared.Token)
 	require.NoError(t, err)
 	for _, test := range []struct {
 		name  string
@@ -85,29 +86,29 @@ func TestPiHandoffRejectsTamperingIdentityAndExpiration(t *testing.T) {
 		{"tampered", ctx, prepared.Token + "invalid"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			altered, err := sjson.Set(body, piHandoffField, test.token)
+			altered, err := sjson.Set(body, conversation.PiHandoffField, test.token)
 			require.NoError(t, err)
 			_, _, err = svc.parseHandoff(test.ctx, []byte(altered))
-			require.ErrorIs(t, err, ErrHandoffInvalid)
+			require.ErrorIs(t, err, conversation.ErrHandoffInvalid)
 		})
 	}
 	parsed, _, err := svc.parseHandoff(ctx, []byte(body))
 	require.NoError(t, err)
-	claims := handoffFromContext(parsed)
+	claims := conversation.HandoffFromContext(parsed)
 	claims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(-time.Minute))
-	expired, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(svc.piHandoffSecret)
+	expired, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(svc.lifecycle.PiHandoff(nil).Secret)
 	require.NoError(t, err)
-	body, err = sjson.Set(body, piHandoffField, expired)
+	body, err = sjson.Set(body, conversation.PiHandoffField, expired)
 	require.NoError(t, err)
 	_, _, err = svc.parseHandoff(ctx, []byte(body))
-	require.ErrorIs(t, err, ErrHandoffInvalid)
+	require.ErrorIs(t, err, conversation.ErrHandoffInvalid)
 	require.Empty(t, upstream.body)
 }
 
 func TestPiHandoffRevalidatesSessionConfigurationAndEligibility(t *testing.T) {
 	svc, _, _, ctx := handoffTestService()
 	prepared := prepareTestHandoff(t, svc, ctx)
-	body, err := sjson.Set(handoffTestBody, piHandoffField, prepared.Token)
+	body, err := sjson.Set(handoffTestBody, conversation.PiHandoffField, prepared.Token)
 	require.NoError(t, err)
 	parsed, clean, err := svc.parseHandoff(ctx, []byte(body))
 	require.NoError(t, err)
@@ -131,13 +132,13 @@ func TestPiHandoffRevalidatesSessionConfigurationAndEligibility(t *testing.T) {
 			changed := req
 			mutation.apply(&changed)
 			_, err := svc.resumeHandoff(parsed, router.StrategyFromContext(parsed), env, changed, false)
-			require.ErrorIs(t, err, ErrHandoffInvalid)
+			require.ErrorIs(t, err, conversation.ErrHandoffInvalid)
 		})
 	}
 	otherSession, err := translate.ParseAnthropic([]byte(strings.ReplaceAll(string(clean), "handoff-test", "other-session")))
 	require.NoError(t, err)
 	_, err = svc.resumeHandoff(parsed, router.StrategyFromContext(parsed), otherSession, req, false)
-	require.ErrorIs(t, err, ErrHandoffInvalid)
+	require.ErrorIs(t, err, conversation.ErrHandoffInvalid)
 }
 
 func TestPiHandoffDisabledAndUtilityTurnsDoNotDispatch(t *testing.T) {
@@ -146,12 +147,12 @@ func TestPiHandoffDisabledAndUtilityTurnsDoNotDispatch(t *testing.T) {
 		body, err := sjson.Set(handoffTestBody, "messages.0.content", prompt)
 		require.NoError(t, err)
 		recorder := httptest.NewRecorder()
-		require.NoError(t, svc.ProxyMessages(WithHandoffPreparation(ctx), []byte(body), recorder, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/route/handoff", nil)))
+		require.NoError(t, svc.ProxyMessages(conversation.WithHandoffPreparation(ctx), []byte(body), recorder, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/route/handoff", nil)))
 		require.True(t, gjson.GetBytes(recorder.Body.Bytes(), "bypass").Bool())
 	}
-	svc.piHandoffSecret = nil
-	err := svc.ProxyMessages(WithHandoffPreparation(ctx), []byte(handoffTestBody), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/route/handoff", nil))
-	require.ErrorIs(t, err, ErrHandoffUnavailable)
+	svc.lifecycle.SetPiHandoffSecret(nil)
+	err := svc.ProxyMessages(conversation.WithHandoffPreparation(ctx), []byte(handoffTestBody), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/route/handoff", nil))
+	require.ErrorIs(t, err, conversation.ErrHandoffUnavailable)
 	require.Zero(t, classifier.calls)
 	require.Empty(t, upstream.body)
 }
@@ -169,12 +170,12 @@ func TestPiHandoffSummaryUsesPreviousModelWithoutReclassifyingOrWritingUsageToIt
 	prepared := prepareTestHandoff(t, svc, ctx)
 	require.NotEmpty(t, prepared.SummaryToken)
 	pinWrites := len(store.upserts)
-	body, err := sjson.Set(handoffTestBody, piHandoffField, prepared.SummaryToken)
+	body, err := sjson.Set(handoffTestBody, conversation.PiHandoffField, prepared.SummaryToken)
 	require.NoError(t, err)
 	parsed, _, err := svc.parseHandoff(ctx, []byte(body))
 	require.NoError(t, err)
-	require.Equal(t, inference.PurposeClientCompaction, handoffFromContext(parsed).Route.Purpose)
-	require.Equal(t, policy.OverrideSourceSession, handoffFromContext(parsed).Route.Origin)
+	require.Equal(t, inference.PurposeClientCompaction, conversation.HandoffFromContext(parsed).Route.Purpose)
+	require.Equal(t, policy.OverrideSourceSession, conversation.HandoffFromContext(parsed).Route.Origin)
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil)))
 	require.Equal(t, "claude-sonnet-4-6", gjson.GetBytes(upstream.body, "model").String())
 	require.Equal(t, 1, classifier.calls)
@@ -196,7 +197,7 @@ func TestPiHandoffRecordsEscalationOutcomeOnlyAfterContinuation(t *testing.T) {
 	for _, session := range store.sessions {
 		require.Nil(t, session.PreviousOutcome, "preparation has no inference outcome")
 	}
-	body, err := sjson.Set(handoffTestBody, piHandoffField, prepared.Token)
+	body, err := sjson.Set(handoffTestBody, conversation.PiHandoffField, prepared.Token)
 	require.NoError(t, err)
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil)))
 	require.Len(t, observer.requests, 1)
@@ -209,19 +210,19 @@ func TestPiHandoffRecordsEscalationOutcomeOnlyAfterContinuation(t *testing.T) {
 func TestPiHandoffRejectsConcurrentForceAndCrossSessionCommandsBeforeMutation(t *testing.T) {
 	svc, _, upstream, ctx := handoffTestService()
 	prepared := prepareTestHandoff(t, svc, ctx)
-	body, err := sjson.Set(handoffTestBody, piHandoffField, prepared.Token)
+	body, err := sjson.Set(handoffTestBody, conversation.PiHandoffField, prepared.Token)
 	require.NoError(t, err)
 	store := newStubPinStore()
 	store.getFound = true
 	store.getPin = sessionpin.Pin{Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic, Reason: translate.ReasonUserForceModel, PinnedUntil: time.Now().Add(time.Hour)}
 	svc.pinStore = store
 	err = svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil))
-	require.ErrorIs(t, err, ErrHandoffInvalid)
+	require.ErrorIs(t, err, conversation.ErrHandoffInvalid)
 	for _, prompt := range []string{"/beta", "/force-model claude-opus-4-7", "/unforce-model"} {
 		changed, err := sjson.Set(body, "messages.0.content", prompt)
 		require.NoError(t, err)
 		err = svc.ProxyMessages(ctx, []byte(changed), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil))
-		require.ErrorIs(t, err, ErrHandoffInvalid)
+		require.ErrorIs(t, err, conversation.ErrHandoffInvalid)
 	}
 	require.Empty(t, upstream.body)
 	require.Empty(t, store.upserts)
@@ -231,7 +232,7 @@ func TestForceParentDoesNotRejectChildHandoff(t *testing.T) {
 	svc, _, _, ctx := handoffTestService()
 	svc.pinStore = newForceModelMapStore()
 	prepared := prepareTestHandoff(t, svc, ctx)
-	body, err := sjson.Set(handoffTestBody, piHandoffField, prepared.Token)
+	body, err := sjson.Set(handoffTestBody, conversation.PiHandoffField, prepared.Token)
 	require.NoError(t, err)
 	parsed, clean, err := svc.parseHandoff(ctx, []byte(body))
 	require.NoError(t, err)
@@ -239,7 +240,7 @@ func TestForceParentDoesNotRejectChildHandoff(t *testing.T) {
 	require.NoError(t, err)
 	_, req, err := svc.anthropicRoutingRequest(parsed, clean, nil, "handoff-test")
 	require.NoError(t, err)
-	claims := handoffFromContext(parsed)
+	claims := conversation.HandoffFromContext(parsed)
 	apiKeyID, _ := parsed.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	installationID := claims.Route.InstallationID
 	controlKey := deriveForceModelSessionKeyForRequest(parsed, env, apiKeyID, claims.Route.SessionKey)
@@ -248,5 +249,5 @@ func TestForceParentDoesNotRejectChildHandoff(t *testing.T) {
 	_, err = svc.resumeHandoff(parsed, router.StrategyFromContext(parsed), env, req, true)
 	require.NoError(t, err, "parent-only force must preserve a child's prepared continuation")
 	_, err = svc.resumeHandoff(parsed, router.StrategyFromContext(parsed), env, req, false)
-	require.ErrorIs(t, err, ErrHandoffInvalid, "the force still invalidates a parent continuation")
+	require.ErrorIs(t, err, conversation.ErrHandoffInvalid, "the force still invalidates a parent continuation")
 }
