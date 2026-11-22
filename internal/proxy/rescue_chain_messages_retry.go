@@ -9,12 +9,12 @@ import (
 )
 
 func (m *messagesRescue) baselineRescue(ctx context.Context) context.Context {
-	preludeBuf := m.preludeBuf
-	if m.proxyErr != nil && !preludeBuf.Committed() &&
-		((m.baselineEligible && (providers.IsRetryable(m.proxyErr) || providers.IsUpstreamModelNotFound(m.proxyErr))) ||
-			(m.baselineViable && (m.capabilityRejected || translate.IsIntrinsicallyIncompatible(m.proxyErr) || m.crossBindingRejected))) {
+	preludeBuf := m.PreludeBuf
+	if m.ProxyErr != nil && !preludeBuf.Committed() &&
+		((m.baselineEligible && (providers.IsRetryable(m.ProxyErr) || providers.IsUpstreamModelNotFound(m.ProxyErr))) ||
+			(m.baselineViable && (m.capabilityRejected || translate.IsIntrinsicallyIncompatible(m.ProxyErr) || m.CrossBindingRejected))) {
 		ctx = m.dispatchBaseline(ctx)
-	} else if m.baselineViable && !m.rescueArmed && m.proxyErr != nil {
+	} else if m.baselineViable && !m.RescueArmed && m.ProxyErr != nil {
 		m.flushDeferredErr()
 	}
 	return ctx
@@ -22,14 +22,14 @@ func (m *messagesRescue) baselineRescue(ctx context.Context) context.Context {
 
 func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 	s := m.svc
-	r := m.r
-	log := m.log
-	env := m.env
-	routeRes := m.routeRes
-	opts := m.opts
-	preludeBuf := m.preludeBuf
+	r := m.HTTPRequest
+	log := m.Log
+	env := m.Env
+	routeRes := m.RouteRes
+	opts := m.Opts
+	preludeBuf := m.PreludeBuf
 	feats := m.feats
-	baselineDecision := m.decision
+	baselineDecision := m.Decision
 	baselineDecision.Model = m.baselineModel
 	baselineDecision.Provider = providers.ProviderAnthropic
 	baselineDecision.Effort = ""
@@ -37,40 +37,40 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 	baselineOpts.ModelSwitched = baseModelOf(routeRes.PriorServedModel) != m.baselineModel ||
 		routeRes.SessionEverSwitched
 	baselineCtx := subscriptionStatePaidRescueContext(ctx, m.baselineModel)
-	baselineSubExhausted := m.credentials.ClaudeSubscriptionExhausted(ctx, r.Header)
+	baselineSubExhausted := m.Credentials.ClaudeSubscriptionExhausted(ctx, r.Header)
 	if baselineSubExhausted {
 		baselineCtx = withSuppressedClaudeSubscription(baselineCtx)
 	}
-	baselineCtx = m.credentials.ResolveCredentials(baselineCtx, providers.ProviderAnthropic, m.baselineModel, r.Header)
+	baselineCtx = m.Credentials.ResolveCredentials(baselineCtx, providers.ProviderAnthropic, m.baselineModel, r.Header)
 	baselineOpts.FastMode = fastModeForAttempt(baselineCtx, m.baselineModel, providers.ProviderAnthropic)
 	baselinePrep, baselineEmitErr := env.PrepareAnthropic(r.Header, baselineOpts)
 	if baselineEmitErr != nil {
 		log.Error("Baseline failover: emit Anthropic body failed; surfacing original error", "err", baselineEmitErr, "baseline_model", m.baselineModel)
-		if !m.rescueArmed {
+		if !m.RescueArmed {
 			m.flushDeferredErr()
 		}
 	} else {
 		log.Warn("Baseline failover: retrying requested model on Anthropic",
-			"failed_model", m.decision.Model,
-			"failed_provider", m.primaryProvider,
+			"failed_model", m.Decision.Model,
+			"failed_provider", m.PrimaryProvider,
 			"baseline_model", m.baselineModel,
-			"err", m.proxyErr)
+			"err", m.ProxyErr)
 		if baselineSubExhausted {
 			ctx = withSuppressedClaudeSubscription(ctx)
 		}
-		m.effortServed = baselineEffort
-		baselineBindings := m.routing.ResolveBindingsForDispatch(baselineCtx, baselineDecision)
-		baselineMarker := m.markers.WithFailureDetail(ctx, m.markers.Baseline(ctx, m.baselineModel))
-		baselineNotice := m.markers.ClaudeNotice(ctx, baselineOpts.TargetModel, baselineMarker)
+		m.EffortServed = baselineEffort
+		baselineBindings := m.Routing.ResolveBindingsForDispatch(baselineCtx, baselineDecision)
+		baselineMarker := m.Markers.WithFailureDetail(ctx, m.Markers.Baseline(ctx, m.baselineModel))
+		baselineNotice := m.Markers.ClaudeNotice(ctx, baselineOpts.TargetModel, baselineMarker)
 		baselineNotice = addRoutingFundingSource(baselineCtx, m.seats, providers.ProviderAnthropic, baselineOpts.TargetModel, baselineNotice)
 		baselineAttempt := m.anthropicTierAttemptFor(baselineOpts, baselinePrep, baselineNotice).attempt(m.recordFastServed)
 		*m.fastServed = baselineOpts.FastMode
 		*m.crossFormat = false
-		*m.respSummary = translate.ResponseSummary{}
-		*m.reqStats = providers.RequestMutationStats{}
+		*m.RespSummary = translate.ResponseSummary{}
+		*m.ReqStats = providers.RequestMutationStats{}
 		logUpstreamBody(log, routeRes.SessionKey, baselineDecision, feats, baselinePrep.Body)
-		m.winnerIdx, m.proxyErr = s.dispatchWithFallback(baselineCtx, dispatch.FailoverInputs{
-			Writer:          m.contentSink,
+		m.WinnerIdx, m.ProxyErr = s.dispatchWithFallback(baselineCtx, dispatch.FailoverInputs{
+			Writer:          m.ContentSink,
 			Prelude:         preludeBuf,
 			InitialDecision: baselineDecision,
 			Bindings:        baselineBindings,
@@ -79,84 +79,84 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 			Purpose:         routeRes.DispatchPurpose(inference.PurposeAnthropicMessages),
 			Origin:          routeRes.RescueOrigin(),
 		})
-		m.subscriptionPoolFailure = isSubscriptionPoolError(m.proxyErr)
-		m.decision = baselineDecision
-		m.bindings = baselineBindings
-		m.baselineAttempted = true
-		m.baselineFailoverUsed = m.proxyErr == nil
+		m.SubscriptionPoolFailure = isSubscriptionPoolError(m.ProxyErr)
+		m.Decision = baselineDecision
+		m.Bindings = baselineBindings
+		m.BaselineAttempted = true
+		m.baselineFailoverUsed = m.ProxyErr == nil
 	}
 	return ctx
 }
 
 func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 	s := m.svc
-	r := m.r
-	log := m.log
-	env := m.env
-	routeRes := m.routeRes
-	opts := m.opts
-	preludeBuf := m.preludeBuf
+	r := m.HTTPRequest
+	log := m.Log
+	env := m.Env
+	routeRes := m.RouteRes
+	opts := m.Opts
+	preludeBuf := m.PreludeBuf
 	feats := m.feats
-	if m.subscriptionRetryEligible && !paidFallbackForbiddenForModelOnProvider(ctx, m.decision.Provider, m.decision.Model) && !m.baselineAttempted && m.proxyErr != nil &&
+	if m.subscriptionRetryEligible && !paidFallbackForbiddenForModelOnProvider(ctx, m.Decision.Provider, m.Decision.Model) && !m.BaselineAttempted && m.ProxyErr != nil &&
 		!preludeBuf.Committed() &&
-		(providers.IsRetryable(m.proxyErr) || anthropicOAuthCredentialRejected(m.proxyErr) || anthropicSubscriptionModelRejected(m.proxyErr) || anthropicSubscriptionThirdPartyRefused(m.proxyErr)) {
+		(providers.IsRetryable(m.ProxyErr) || anthropicOAuthCredentialRejected(m.ProxyErr) || anthropicSubscriptionModelRejected(m.ProxyErr) || anthropicSubscriptionThirdPartyRefused(m.ProxyErr)) {
 		m.subscriptionRetryRan = true
-		recordOwnClaudeLoginRejected(ctx, r.Header, m.usageObserver, m.clock.Now(), m.proxyErr)
-		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), m.decision.Model)
-		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, m.decision.Model, r.Header)
+		recordOwnClaudeLoginRejected(ctx, r.Header, m.usageObserver, m.clock.Now(), m.ProxyErr)
+		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), m.Decision.Model)
+		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, m.Decision.Model, r.Header)
 		subOpts := opts
-		subOpts.FastMode = fastModeForAttempt(subCtx, m.decision.Model, providers.ProviderAnthropic)
+		subOpts.FastMode = fastModeForAttempt(subCtx, m.Decision.Model, providers.ProviderAnthropic)
 		subPrep, subEmitErr := env.PrepareAnthropic(r.Header, subOpts)
 		if subEmitErr != nil {
-			log.Error("Subscription failover: emit Anthropic body failed; surfacing original error", "err", subEmitErr, "model", m.decision.Model)
-			if !m.rescueArmed {
+			log.Error("Subscription failover: emit Anthropic body failed; surfacing original error", "err", subEmitErr, "model", m.Decision.Model)
+			if !m.RescueArmed {
 				m.flushDeferredErr()
 			}
-		} else if subBindings := m.routing.ResolveBindingsForDispatch(subCtx, m.decision); len(subBindings) == 0 {
+		} else if subBindings := m.Routing.ResolveBindingsForDispatch(subCtx, m.Decision); len(subBindings) == 0 {
 			log.Warn("Subscription failover: no fallback Anthropic binding available; surfacing original error",
-				"model", m.decision.Model,
-				"err", m.proxyErr,
-				"upstream_status", upstreamStatus(m.proxyErr))
-			if !m.rescueArmed {
+				"model", m.Decision.Model,
+				"err", m.ProxyErr,
+				"upstream_status", upstreamStatus(m.ProxyErr))
+			if !m.RescueArmed {
 				m.flushDeferredErr()
 			}
 		} else {
 			log.Warn("Subscription failover: subscription rejected the turn, retrying requested model on Weave key",
-				"model", m.decision.Model,
-				"err", m.proxyErr,
-				"upstream_status", upstreamStatus(m.proxyErr))
-			subNotice := m.markers.ClaudeNotice(m.markers.WithOwnClaudeRejectionNudge(ctx), subOpts.TargetModel, m.marker)
+				"model", m.Decision.Model,
+				"err", m.ProxyErr,
+				"upstream_status", upstreamStatus(m.ProxyErr))
+			subNotice := m.Markers.ClaudeNotice(m.Markers.WithOwnClaudeRejectionNudge(ctx), subOpts.TargetModel, m.Marker)
 			subNotice = addRoutingFundingSource(subCtx, m.seats, providers.ProviderAnthropic, subOpts.TargetModel, subNotice)
 			subAttempt := m.anthropicTierAttemptFor(subOpts, subPrep, subNotice).attempt(m.recordFastServed)
 			*m.fastServed = subOpts.FastMode
 			*m.crossFormat = false
-			*m.respSummary = translate.ResponseSummary{}
-			*m.reqStats = providers.RequestMutationStats{}
-			logUpstreamBody(log, routeRes.SessionKey, m.decision, feats, subPrep.Body)
+			*m.RespSummary = translate.ResponseSummary{}
+			*m.ReqStats = providers.RequestMutationStats{}
+			logUpstreamBody(log, routeRes.SessionKey, m.Decision, feats, subPrep.Body)
 			m.subscriptionFailoverAttempted = true
-			subscriptionErr := m.proxyErr
-			m.winnerIdx, m.proxyErr = s.dispatchWithFallback(subCtx, dispatch.FailoverInputs{
-				Writer:                 m.contentSink,
+			subscriptionErr := m.ProxyErr
+			m.WinnerIdx, m.ProxyErr = s.dispatchWithFallback(subCtx, dispatch.FailoverInputs{
+				Writer:                 m.ContentSink,
 				Prelude:                preludeBuf,
-				InitialDecision:        m.decision,
+				InitialDecision:        m.Decision,
 				Bindings:               subBindings,
 				Attempt:                subAttempt,
 				FlushErr:               m.flushErrAsAnthropic,
-				DeferFlushOnExhaustion: m.rescueArmed,
+				DeferFlushOnExhaustion: m.RescueArmed,
 				Purpose:                routeRes.DispatchPurpose(inference.PurposeAnthropicMessages),
-				Origin:                 routeRes.DispatchOrigin(m.decision),
+				Origin:                 routeRes.DispatchOrigin(m.Decision),
 			})
-			m.subscriptionPoolFailure = isSubscriptionPoolError(m.proxyErr)
-			m.bindings = subBindings
-			m.subscriptionFailoverUsed = m.proxyErr == nil
-			if credentialRejectionStands(subscriptionErr, m.proxyErr, anthropicOAuthCredentialRejected) {
-				m.proxyErr = subscriptionErr
-				m.subscriptionPoolFailure = false
+			m.SubscriptionPoolFailure = isSubscriptionPoolError(m.ProxyErr)
+			m.Bindings = subBindings
+			m.subscriptionFailoverUsed = m.ProxyErr == nil
+			if credentialRejectionStands(subscriptionErr, m.ProxyErr, anthropicOAuthCredentialRejected) {
+				m.ProxyErr = subscriptionErr
+				m.SubscriptionPoolFailure = false
 				m.flushDeferredErr()
 			}
 		}
 	}
-	if m.subscriptionRetryEligible && !m.rescueArmed && !m.baselineAttempted && !m.subscriptionRetryRan && m.proxyErr != nil && !preludeBuf.Committed() {
+	if m.subscriptionRetryEligible && !m.RescueArmed && !m.BaselineAttempted && !m.subscriptionRetryRan && m.ProxyErr != nil && !preludeBuf.Committed() {
 		m.flushDeferredErr()
 	}
 }
