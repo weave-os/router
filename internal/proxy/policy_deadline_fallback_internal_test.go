@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -322,4 +323,18 @@ func TestTurnLoop_DeadlineFallbackContractViolationStillFailsClosed(t *testing.T
 
 	require.Error(t, err, "a contract violation must fail closed even with fallback enabled, a pin, and a tier-3 default")
 	assert.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+}
+
+func TestWithRoutingPolicyKeepsDeadlineSettingsInEitherOrder(t *testing.T) {
+	want := routingpolicy.PolicyDeadline{Fallback: true, DefaultModel: "model-a"}
+
+	before := (&Service{}).WithExcludedModelsOverride([]string{"model-x"}).
+		WithPolicyDeadlineFallback(true).WithPolicyDeadlineDefaultModel("model-a").
+		WithRoutingPolicy(routingpolicy.New(nil))
+	assert.Equal(t, want, before.routing.Deadline())
+	assert.Equal(t, []string{"model-x"}, before.ExcludedModelsOverride())
+
+	after := (&Service{}).WithRoutingPolicy(routingpolicy.New(nil)).
+		WithPolicyDeadlineFallback(true).WithPolicyDeadlineDefaultModel("model-a")
+	assert.Equal(t, want, after.routing.Deadline())
 }
