@@ -30,6 +30,12 @@ func hmmCostGatedDecision(ctx context.Context, s *Service, input continuity.Cost
 	return input.Fresh, plan, false, stayPin.Model
 }
 
+func hmmCostGateServe(ctx context.Context, s *Service, input continuity.CostGateInput, priorServedModel string) continuity.CostGateServe {
+	input.Planner = plannerConfigFor(ctx, s.continuityConfig.Planner)
+	input.Now = s.clock.Now()
+	return s.strategyPorts.CostGate.Serve(hmmCostGateFor(s), input, priorServedModel)
+}
+
 func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {
 	return s.strategyPorts.CostGate.StayPin(hmmCostGateFor(s), req, activePin, hmmHistory, s.clock.Now())
 }

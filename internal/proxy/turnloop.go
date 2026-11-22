@@ -21,7 +21,6 @@ import (
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalation/floor"
-	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/telemetry/turnrecord"
 
@@ -754,35 +753,24 @@ func (s *Service) runTurnLoop(
 				Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
 				EstimatedInputTokens: s.plannerTokensFor(ctx, env, feats), PrefixBroken: prefixBroken,
 			}
-			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := hmmCostGatedDecision(ctx, s, hmmGateInput)
-			res.Decision = hmmDecision
-			res.PlannerDecision = hmmPlannerDecision
-			if heldEffort := s.strategyPorts.Upgrade.EffortHysteresisHold(fresh, res.PriorServedModel, hmmDecision.Model, hmmDecision.Effort); heldEffort != "" {
-				res.Decision.Effort = heldEffort
-				res.PlannerDecision.Reason = s.strategyPorts.Upgrade.AppendEffortHysteresisReason(res.PlannerDecision.Reason)
+			served := hmmCostGateServe(ctx, s, hmmGateInput, res.PriorServedModel)
+			res.Decision, res.PlannerDecision, res.PinTier = served.Decision, served.Planner, served.PinTier
+			if served.HeldEffort != "" {
 				log.Info("HMM effort hysteresis held incumbent",
 					"incumbent", res.PriorServedModel,
-					"challenger_effort", hmmDecision.Effort,
-					"serving_effort", heldEffort,
+					"challenger_effort", served.ChallengerEffort,
+					"serving_effort", served.HeldEffort,
 				)
 			}
-			if hmmStayModel != "" {
-				res.PinModel = hmmStayModel
-				if hmmPin, ok := hmmStayPin(s, req, activePin, hmmHistory); ok && hmmPin.Model == hmmStayModel {
+			if served.StayModel != "" {
+				res.PinModel = served.StayModel
+				if hmmPin, ok := hmmStayPin(s, req, activePin, hmmHistory); ok && hmmPin.Model == served.StayModel {
 					applyPinEvidence(s.strategyPorts, &res, hmmPin, s.clock.Now())
 				}
 			}
-			if hmmSticky {
+			if served.Sticky {
 				res.StickyHit = true
-				res.PinTier = "hmm_ev_stay_" + hmmPlannerDecision.Reason
 				res.StickyRole = hmmHistoryRole(res.PinRole)
-			} else {
-				res.PinTier = "hmm_fresh_unpinned"
-				if hmmPlannerDecision.Outcome == planner.OutcomeStay && hmmPlannerDecision.Evaluated() {
-					res.PinTier = "hmm_ev_same_" + hmmPlannerDecision.Reason
-				} else if hmmPlannerDecision.EvaluatedAgainstPin() {
-					res.PinTier = "hmm_ev_switch_" + hmmPlannerDecision.Reason
-				}
 			}
 			hmmShadowStayPin, _ := hmmStayPin(s, req, activePin, hmmHistory)
 			logSwitchShadow(ctx, hmmShadowStayPin, hmmGateInput, s.clock.Now(), res)

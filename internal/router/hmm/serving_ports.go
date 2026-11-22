@@ -64,4 +64,8 @@ func (servingPorts) StayPin(gate continuity.CostGateConfig, req router.Request, 
 	return CostGate(gate).StayPin(req, activePin, history, now)
 }
 
+func (servingPorts) Serve(gate continuity.CostGateConfig, input CostGateInput, priorServedModel string) continuity.CostGateServe {
+	return CostGate(gate).Serve(input, priorServedModel)
+}
+
 func (servingPorts) HistoryReason() string { return HistoryReason }

@@ -34,7 +34,18 @@ type UpgradeJudge interface {
 type CostGate interface {
 	Decide(gate CostGateConfig, input CostGateInput) (sessionpin.Pin, planner.Decision, bool)
 	StayPin(gate CostGateConfig, req router.Request, activePin, history sessionpin.Pin, now time.Time) (sessionpin.Pin, bool)
+	Serve(gate CostGateConfig, input CostGateInput, priorServedModel string) CostGateServe
 	HistoryReason() string
+}
+
+type CostGateServe struct {
+	Decision         router.Decision
+	Planner          planner.Decision
+	Sticky           bool
+	StayModel        string
+	ChallengerEffort string
+	HeldEffort       string
+	PinTier          string
 }
 
 type StrategyPorts struct {

@@ -67,7 +67,7 @@ var (
 	routerLayerHelperFuncs  = []string{continuityPackagePath, plannerPackagePath, floorPackagePath}
 	routerLayerHelperPorts  = map[string][]string{
 		continuityPackagePath + ".UpgradeJudge": nil,
-		continuityPackagePath + ".CostGate":     {"Decide", "StayPin"},
+		continuityPackagePath + ".CostGate":     {"Decide", "StayPin", "Serve"},
 		floorPackagePath + ".Helper":            {"Begin", "Settle", "SettleLLM", "ApplyLLM"},
 		floorPackagePath + ".Turn":              {"Apply"},
 	}
