@@ -298,18 +298,7 @@ func (s *Service) loadForceModelHistory(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) sessionpin.Pin {
-	if s.pinStore == nil {
-		return sessionpin.Pin{}
-	}
-	pin, found, err := s.pinStore.Get(ctx, sessionKey, forceModelHistoryRole(role))
-	if err != nil {
-		observability.FromContext(ctx).Error("force-model history lookup failed", "err", err)
-		return sessionpin.Pin{}
-	}
-	if !found || !pin.PinnedUntil.After(s.clock.Now()) {
-		return sessionpin.Pin{}
-	}
-	return pin
+	return routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).LoadHistory(ctx, sessionKey, role)
 }
 
 func forceModelClearRoles() []string {

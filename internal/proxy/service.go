@@ -2151,27 +2151,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			return err
 		}
 
-		if s.pinStore != nil && !isUnpinnedScoredTurn(routeRes.TurnType) {
-			sessionKey := deriveSessionKeyForRequest(ctx, env, facts.APIKeyID)
-			role := roleForTier(catalog.TierFor(feats.Model))
-			pin, _ := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).Load(ctx, sessionKey, role)
-			hmmHistory := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).LoadHMMHistory(ctx, sessionKey, role)
-			forceHistory := s.loadForceModelHistory(ctx, sessionKey, role)
-			routeRes.SessionKey = sessionKey
-			routeRes.applySwitchHistory(pin, hmmHistory, forceHistory)
-		}
-
+		reloadUsageBypassSession(ctx, s, strategy, env, facts.APIKeyID, feats.Model, &routeRes)
 		routeRes.UsageBypass = false
 		if !linkedSubscriptionRetry {
-			rerouteCtx, rerouteSpan := startRoutingSpan(ctx, strategy, req)
-			decision, rerouteErr := s.routeFor(rerouteCtx, strategy, req)
-			finishRoutingSpan(rerouteSpan, decision, rerouteErr)
-			if rerouteErr != nil {
-				log.Error("Reroute after usage-bypass failure failed", "err", rerouteErr)
-				return rerouteErr
+			if err := rerouteAfterUsageBypass(ctx, s, log, strategy, req, &routeRes); err != nil {
+				return err
 			}
-			routeRes.Decision, routeRes.UserForced = decision, false
-			routeRes.Fresh = decision
 		}
 	}
 
