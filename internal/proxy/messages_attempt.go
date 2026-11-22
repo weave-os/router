@@ -43,7 +43,7 @@ type messagesAttemptDeps struct {
 }
 
 func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
-	targetNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, deps.request.Header, deps.svc.usageObserver), deps.request.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
+	targetNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, deps.request.Header, deps.svc.credentials.UsageObserver), deps.request.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
 	targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(deps.svc), target.Provider, target.Model, targetNotice)
 	switch providers.FamilyFor(target.Provider) {
 	case providers.FamilyAnthropic:

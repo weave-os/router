@@ -169,14 +169,14 @@ func TestCodexOAuthCredentialRejected(t *testing.T) {
 func TestCodexReconnectNudgeDistinguishesRejectedCredentialsFromSpentQuota(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {
-			svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), usageObserver: usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)}
+			svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), credentials: credentials.Brokerage{UsageObserver: usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)}}
 			ctx := codexSubscriptionTestCtx()
 			resolved := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, codexCoveredModel, http.Header{})
 			svc.recordCodexCredentialUnusable(ctx, CredentialsFromContext(resolved), &providers.UpstreamErrorResponse{
 				Status: status, Body: []byte(`{"error":{"type":"usage_limit_reached"}}`),
 			})
 			require.True(t, svc.codexSubscriptionExhausted(ctx, http.Header{}))
-			nudge := codexSubscriptionReconnectNudge(ctx, http.Header{}, svc.usageObserver)
+			nudge := codexSubscriptionReconnectNudge(ctx, http.Header{}, svc.credentials.UsageObserver)
 			if status == http.StatusTooManyRequests {
 				assert.Contains(t, nudge, "plan is out of usage")
 				assert.NotContains(t, nudge, "login was rejected")
@@ -193,8 +193,7 @@ func TestCodexReconnectNudgeDistinguishesRejectedCredentialsFromSpentQuota(t *te
 // as having slack and every later turn re-buys the same rejected round-trip.
 func TestCodexQuotaExhaustion_RecordedForLaterTurns(t *testing.T) {
 	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
-		usageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now),
-		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
+		credentials: credentials.Brokerage{UsageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now), KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
 	}
 	ctx := codexSubscriptionTestCtx()
 	headers := http.Header{}
@@ -263,8 +262,7 @@ func TestCodexQuotaExhaustion_SuppressionLastsUntilThePlanResets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := time.Now()
 			svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
-				usageObserver: usage.NewObserver([]byte("test-salt"), time.Minute, func() time.Time { return clock }),
-				credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
+				credentials: credentials.Brokerage{UsageObserver: usage.NewObserver([]byte("test-salt"), time.Minute, func() time.Time { return clock }), KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
 			}
 			ctx, headers := codexSubscriptionTestCtx(), http.Header{}
 
@@ -382,7 +380,7 @@ func TestCodexRescue_FailedRetryWritesNothingIntoACommittedResponsesStream(t *te
 // credential the turn has would leave it unable to dispatch at all, which is
 // strictly worse than letting the subscription answer.
 func TestCodexSubscriptionExhausted_NoFallbackKey(t *testing.T) {
-	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), usageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), credentials: credentials.Brokerage{UsageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)}}
 	ctx := codexSubscriptionTestCtx()
 
 	svc.recordCodexQuotaExhaustion(ctx, http.Header{}, &providers.UpstreamErrorResponse{

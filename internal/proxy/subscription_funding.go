@@ -161,7 +161,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 	if pool == subscriptions.ProviderCodex {
 		token = codexToken
 	}
-	callerQuotaUnproven := token != "" && !s.callerQuotaSpent(ctx, pool, token, now)
+	callerQuotaUnproven := token != "" && !s.credentials.CallerQuotaSpent(ctx, pool, token, now)
 	if throttledBlocker {
 		if err := callerPlanRefusal(ctx, pool, callerQuotaUnproven, now); err != nil {
 			return err
@@ -197,22 +197,6 @@ func triedSubscriptionFallsBackToCredits(ctx context.Context) bool {
 	}
 	passthrough, _ := callerRoutingState(ctx)
 	return !passthrough
-}
-
-func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provider, token string, now time.Time) bool {
-	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil && state.QuotaExhaustedProviders[pool].After(now) {
-		return true
-	}
-	if s.usageObserver != nil {
-		key := s.usageObserver.Key([]byte(token))
-		if s.usageObserver.Rejected(key) {
-			return true
-		}
-		if snapshot, observed := s.usageObserver.Snapshot(key); observed && includedQuotaSpent(snapshot, now) {
-			return true
-		}
-	}
-	return false
 }
 
 const subscriptionUnavailableCooldown = time.Minute
@@ -300,7 +284,7 @@ type seatAdmission struct {
 }
 
 func seatAdmissionOf(s *Service) seatAdmission {
-	return seatAdmission{now: s.clock.Now(), observer: s.usageObserver, codexExtraCredits: s.codexExtraCreditsAllowed()}
+	return seatAdmission{now: s.clock.Now(), observer: s.credentials.UsageObserver, codexExtraCredits: s.codexExtraCreditsAllowed()}
 }
 
 func (a seatAdmission) mayAdmit(ctx context.Context, provider, model string) bool {
@@ -365,7 +349,7 @@ func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate ma
 	if candidate.provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
 		return false
 	}
-	return includedQuotaObservedSpent(s.usageObserver, candidate, now)
+	return includedQuotaObservedSpent(s.credentials.UsageObserver, candidate, now)
 }
 
 func includedQuotaObservedSpent(observer *usage.Observer, candidate managedSubscriptionCandidate, now time.Time) bool {
@@ -373,7 +357,7 @@ func includedQuotaObservedSpent(observer *usage.Observer, candidate managedSubsc
 		return false
 	}
 	snapshot, observed := observer.Snapshot(observer.Key([]byte("subscription-account:" + candidate.accountID)))
-	return observed && includedQuotaSpent(snapshot, now)
+	return observed && credentials.IncludedQuotaSpent(snapshot, now)
 }
 
 func recordedQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
@@ -386,10 +370,6 @@ func recordedQuotaExhausted(ctx context.Context, candidate managedSubscriptionCa
 		return false
 	}
 	return candidate.state == auth.SubscriptionAccountStateExhausted && candidate.resetAt.After(now)
-}
-
-func includedQuotaSpent(snapshot usage.Snapshot, now time.Time) bool {
-	return (snapshot.OverageInUse && snapshot.UnifiedResetAt.After(now)) || snapshot.ExhaustedAsOf(now)
 }
 
 func credentialRejectionStands(subscriptionErr, retryErr error, credentialRejected func(error) bool) bool {

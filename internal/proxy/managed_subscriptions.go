@@ -91,7 +91,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	if !s.supportsSubscriptionTransport(provider) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
-	if callerLoginServesFirst(ctx, model, s.usageObserver, &s.credentials.SubscriptionModels, s.clock.Now()) {
+	if callerLoginServesFirst(ctx, model, s.credentials.UsageObserver, &s.credentials.SubscriptionModels, s.clock.Now()) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 
@@ -245,15 +245,15 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 }
 
 func (s *Service) managedSubscriptionUsageSnapshot(accountID, accessToken string) (usage.Snapshot, bool) {
-	if s.usageObserver == nil || accessToken == "" {
+	if s.credentials.UsageObserver == nil || accessToken == "" {
 		return usage.Snapshot{}, false
 	}
 	if accountID != "" {
-		if snapshot, found := s.usageObserver.Snapshot(s.usageObserver.Key([]byte("subscription-account:" + accountID))); found {
+		if snapshot, found := s.credentials.UsageObserver.Snapshot(s.credentials.UsageObserver.Key([]byte("subscription-account:" + accountID))); found {
 			return snapshot, true
 		}
 	}
-	return s.usageObserver.Snapshot(s.usageObserver.Key([]byte(accessToken)))
+	return s.credentials.UsageObserver.Snapshot(s.credentials.UsageObserver.Key([]byte(accessToken)))
 }
 
 func (s *Service) managedProviderFallbackAvailable(ctx context.Context, provider subscriptions.Provider) bool {

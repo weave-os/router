@@ -39,8 +39,8 @@ func (s *Service) withClaudeSubscriptionProfile(ctx context.Context, headers htt
 		return ctx
 	}
 	plan := s.credentials.ClaudePlans.Resolve(ctx, token)
-	if s.usageObserver != nil {
-		plan = credentials.ClaudePlanFromUsage(plan, s.usageObserver, token)
+	if s.credentials.UsageObserver != nil {
+		plan = credentials.ClaudePlanFromUsage(plan, s.credentials.UsageObserver, token)
 	}
 	ctx = context.WithValue(ctx, claudeSubscriptionPlanKey{}, plan)
 	if creds != nil {

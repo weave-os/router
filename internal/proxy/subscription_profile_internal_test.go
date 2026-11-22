@@ -80,7 +80,7 @@ func TestOrdinaryClaudePlanRetainsPaidRecoveryWithEnterpriseFlag(t *testing.T) {
 			ingress := parityAnthropicIngress()
 			upstream := &parityUpstream{okBody: ingress.upstreamOK(false)}
 			service := ingress.quotaService(upstream).WithClaudeSubscriptionPlanReader(subscriptionPlanReaderFunc(func(context.Context, []byte) (providers.SubscriptionPlan, error) { return plan, nil }))
-			service.usageObserver.Record(service.usageObserver.Key([]byte(ingress.token)), usage.Snapshot{Secondary: usage.Window{UsedPercent: 1, WindowMinutes: 10080, ResetAt: time.Now().Add(time.Hour)}})
+			service.credentials.UsageObserver.Record(service.credentials.UsageObserver.Key([]byte(ingress.token)), usage.Snapshot{Secondary: usage.Window{UsedPercent: 1, WindowMinutes: 10080, ResetAt: time.Now().Add(time.Hour)}})
 			ctx := flags.WithOverrides(ingress.subCtx(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: true}})
 			recorder, request, body := ingress.request(t, false)
 
