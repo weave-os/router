@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 )
@@ -106,7 +107,7 @@ func TestTurnLoopUserPromptClearsTurnStrikes(t *testing.T) {
 		assert.NotContains(t, req.Candidates.AutomaticExcludedModels, demotedPinModel)
 	}
 	assert.NotContains(t, res.SessionDemotedModels, demotedPinModel)
-	assert.ElementsMatch(t, []string{sessionpin.DefaultRole, hmmHistoryRole(sessionpin.DefaultRole)}, store.cleared)
+	assert.ElementsMatch(t, []string{sessionpin.DefaultRole, hmm.HistoryRole(sessionpin.DefaultRole)}, store.cleared)
 }
 
 // With session-lifetime demotion off, a rescued primary failure is still kept
@@ -122,8 +123,8 @@ func TestRescuedFailureStrikesModelForAgentTurn(t *testing.T) {
 	served := router.Decision{Model: freshTurnModel, Reason: "cluster:v0.2"}
 	svc.strikeRescuedModelsForTurn(ctx, nil, served, false, nonZeroSessionKey(), sessionpin.DefaultRole, sessionpin.DefaultRole)
 	assert.Equal(t, map[string][]string{
-		sessionpin.DefaultRole:                 {demotedArm},
-		hmmHistoryRole(sessionpin.DefaultRole): {demotedArm},
+		sessionpin.DefaultRole:                  {demotedArm},
+		hmm.HistoryRole(sessionpin.DefaultRole): {demotedArm},
 	}, store.strikes)
 }
 

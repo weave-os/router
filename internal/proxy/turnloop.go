@@ -478,7 +478,7 @@ func (s *Service) runTurnLoop(
 	pin, pinFound, noStoredState := sessionPins.LoadWithStoreState(ctx, res.SessionKey, res.PinRole)
 	res.SessionFirstTurn = noStoredState
 	clearedPinReason := routingpolicy.ClearedPinReason(pin, pinFound)
-	hmmHistory := sessionPins.LoadHMMHistory(ctx, res.SessionKey, res.PinRole)
+	switchHistory := loadSwitchHistory(ctx, s.strategyPorts, sessionPins, res.SessionKey, res.PinRole)
 	forceHistory := sessionpin.Pin{}
 	if forceModelFound || forceModelCleared {
 		forceHistory = s.loadForceModelHistory(ctx, res.SessionKey, res.PinRole)
@@ -519,14 +519,14 @@ func (s *Service) runTurnLoop(
 	} else if pinFound && isUserForcedReason(pin.Reason) {
 		forcedProvider = pin.Provider
 	}
-	if disabledProviders := candidates.SessionDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders, forcedProvider); len(disabledProviders) > 0 {
+	if disabledProviders := candidates.SessionDisabledProviders(pin.DisabledProviders, switchHistory.DisabledProviders, forcedProvider); len(disabledProviders) > 0 {
 		res.SessionDisabledProviders = disabledProviders
 		req.EnabledProviders = candidates.WithoutProviders(req.EnabledProviders, disabledProviders)
 	}
-	demoted := sessionDemotedModels(ctx, s, env, &res, pin, hmmHistory)
+	demoted := sessionDemotedModels(ctx, s, env, &res, pin, switchHistory)
 	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.ImageCount), req.HasTools)
 	if s.ResolveTransientRateLimit(ctx) && (!forceModelFound || !candidates.ForcedPinEligible(forceModelPin, req)) {
-		ctx, demoted = applyDemotionCooldowns(ctx, s, &req, &res, demoted, mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns))
+		ctx, demoted = applyDemotionCooldowns(ctx, s, &req, &res, demoted, mergeDemotionCooldowns(pin.DemotionCooldowns, switchHistory.DemotionCooldowns))
 	}
 	if len(demoted) > 0 {
 		res.SessionDemotedModels = demoted
@@ -534,9 +534,9 @@ func (s *Service) runTurnLoop(
 			req.Candidates.AutomaticExcludedModels = addToSet(req.Candidates.AutomaticExcludedModels, model)
 		}
 	}
-	applySwitchHistory(&res, pin, hmmHistory, forceHistory)
+	applySwitchHistory(&res, pin, switchHistory, forceHistory)
 	req, res.ObservedOverflowModels = s.excludeObservedOverflowModels(ctx, req, res, max(contextWindowOutputReserve, feats.MaxTokens))
-	req.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory, s.clock.Now())
+	req.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, switchHistory, s.clock.Now())
 	res.EscalateEffort = pinFound && !pin.LastTurnEndedAt.IsZero() &&
 		(pin.LastOutputTokens == 0 || pin.ConsecutiveUpstreamErrors > 0)
 	if pinFound {
@@ -579,7 +579,7 @@ func (s *Service) runTurnLoop(
 	}
 
 	reusable := turnPin{pin: pin, found: pinFound}
-	dropPinRuledOutLastTurn(ctx, s, env, &req, &res, &reusable, hmmHistory)
+	dropPinRuledOutLastTurn(ctx, s, env, &req, &res, &reusable, switchHistory)
 	screenPinContextWindow(ctx, s, env, feats, &res, &req, &reusable)
 	screenPinForRequest(ctx, req, &reusable)
 	pin, pinFound = reusable.pin, reusable.found
@@ -603,9 +603,9 @@ func (s *Service) runTurnLoop(
 		res.PinModel = commandContinuation.Model
 		res.PinAgeSec = pinAge(commandContinuation, s.clock.Now())
 		if forceModelCleared {
-			applySwitchHistory(&res, commandContinuation, hmmHistory, forceHistory, forceModelPin)
+			applySwitchHistory(&res, commandContinuation, switchHistory, forceHistory, forceModelPin)
 		} else {
-			applySwitchHistory(&res, commandContinuation, hmmHistory, forceHistory)
+			applySwitchHistory(&res, commandContinuation, switchHistory, forceHistory)
 		}
 		res.EscalateEffort = !commandContinuation.LastTurnEndedAt.IsZero() &&
 			(commandContinuation.LastOutputTokens == 0 || commandContinuation.ConsecutiveUpstreamErrors > 0)
@@ -628,7 +628,7 @@ func (s *Service) runTurnLoop(
 		req.Session.SlidingThresholdPinGroup = escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)
 	}
 	return sessionTurnFor(ctx, s, sessionTurnInput{
-		env: env, feats: feats, strategy: strategy, req: req, pin: pin, pinFound: pinFound, hmmHistory: hmmHistory,
+		env: env, feats: feats, strategy: strategy, req: req, pin: pin, pinFound: pinFound, switchHistory: switchHistory,
 		prefixBroken: prefixBroken, sessionPins: sessionPins, installationID: installationID, reqHeaders: reqHeaders,
 		forcedTier: forcedTierFloor,
 	}).RouteEscalated(ctx, s.escalationHelper(), s.escalationFacts(ctx, env, res, apiKeyID), res)
@@ -703,14 +703,14 @@ func latestServedTurn(pins ...sessionpin.Pin) (sessionpin.Pin, bool) {
 func buildPolicyTurnContext(
 	req router.Request,
 	res routingpolicy.TurnRoute,
-	activePin, hmmHistory sessionpin.Pin,
+	activePin, switchHistory sessionpin.Pin,
 	now time.Time,
 ) *router.PolicyTurnContext {
 	previous := activePin
-	if hmmHistory.LastServedModel != "" &&
+	if switchHistory.LastServedModel != "" &&
 		(previous.LastServedModel == "" ||
-			hmmHistory.LastTurnEndedAt.After(previous.LastTurnEndedAt)) {
-		previous = hmmHistory
+			switchHistory.LastTurnEndedAt.After(previous.LastTurnEndedAt)) {
+		previous = switchHistory
 	}
 	cacheState := router.PolicyCacheStateUnknown
 	var priorOutputTokens *int
@@ -729,7 +729,7 @@ func buildPolicyTurnContext(
 		}
 	}
 	visibleTurnIndex := max(userTurns-1, 0)
-	sessionTurnCount := max(activePin.TurnCount, hmmHistory.TurnCount)
+	sessionTurnCount := max(activePin.TurnCount, switchHistory.TurnCount)
 	previousProvider := ""
 	if res.PriorServedModel != "" {
 		previousProvider = previous.Provider

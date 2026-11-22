@@ -136,7 +136,7 @@ func (t SessionTurn) serveCostGate(ctx context.Context, res *TurnRoute) TurnRout
 		activePin = t.Pin
 	}
 	gateInput := continuity.CostGateInput{
-		Request: t.Request, ActivePin: activePin, HMMHistory: t.HMMHistory, Fresh: t.Fresh,
+		Request: t.Request, ActivePin: activePin, HMMHistory: t.SwitchHistory, Fresh: t.Fresh,
 		EstimatedInputTokens: t.PlannerTokens, PrefixBroken: t.PrefixBroken,
 	}
 	serveInput := gateInput
@@ -153,15 +153,15 @@ func (t SessionTurn) serveCostGate(ctx context.Context, res *TurnRoute) TurnRout
 	}
 	if served.StayModel != "" {
 		res.PinModel = served.StayModel
-		if hmmPin, ok := t.Ports.CostGate.StayPin(t.Settings.CostGate, t.Request, activePin, t.HMMHistory, t.Now()); ok && hmmPin.Model == served.StayModel {
+		if hmmPin, ok := t.Ports.CostGate.StayPin(t.Settings.CostGate, t.Request, activePin, t.SwitchHistory, t.Now()); ok && hmmPin.Model == served.StayModel {
 			ApplyPinEvidence(t.Ports, res, hmmPin, t.Now())
 		}
 	}
 	if served.Sticky {
 		res.StickyHit = true
-		res.StickyRole = HMMHistoryRole(res.PinRole)
+		res.StickyRole = t.Ports.History.HistoryRole(res.PinRole)
 	}
-	shadowStayPin, _ := t.Ports.CostGate.StayPin(t.Settings.CostGate, t.Request, activePin, t.HMMHistory, t.Now())
+	shadowStayPin, _ := t.Ports.CostGate.StayPin(t.Settings.CostGate, t.Request, activePin, t.SwitchHistory, t.Now())
 	logSwitchShadow(ctx, shadowStayPin, gateInput, t.Now(), *res)
 	return *res
 }

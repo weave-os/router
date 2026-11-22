@@ -68,7 +68,7 @@ func TestBaselineWarmPrefillTokens_UsesBaselineProviderTTL(t *testing.T) {
 // A fresh HMM switch has no thread pin; the prior served turn lives only on
 // the HMM history pin, and its timing and size must come from that same pin.
 func TestApplySwitchHistory_ReadsThePriorTurnFromTheSelectedPin(t *testing.T) {
-	hmmHistory := sessionpin.Pin{
+	switchHistory := sessionpin.Pin{
 		LastServedModel:      "claude-opus-5",
 		Provider:             providers.ProviderAnthropic,
 		LastTurnEndedAt:      priorTurnEndedAt(2 * time.Minute),
@@ -76,7 +76,7 @@ func TestApplySwitchHistory_ReadsThePriorTurnFromTheSelectedPin(t *testing.T) {
 		LastCachedReadTokens: 98_000,
 	}
 	var turnResult routingpolicy.TurnRoute
-	applySwitchHistory(&turnResult, sessionpin.Pin{}, hmmHistory)
+	applySwitchHistory(&turnResult, sessionpin.Pin{}, switchHistory)
 
 	assert.Equal(t, 100_000, baselineWarmPrefillTokens(turnResult, time.Now(), 110_000, 0, "gpt-5.6-sol", "claude-opus-5", false))
 }

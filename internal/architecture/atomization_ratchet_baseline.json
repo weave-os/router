@@ -1,6 +1,7 @@
 {
   "schema_version": "atomization_ratchet_v1",
   "ratchets": {
+    "hmm_history_identifier_references": {},
     "hmm_pin_field_references": {},
     "proxy_escalation_internal_references": {},
     "proxy_hmm_metadata_references": {},

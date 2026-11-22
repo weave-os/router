@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
@@ -130,7 +131,7 @@ func (s *Service) demoteArmForSession(
 		log.Warn("session pin store cannot persist a cooldown, demoting for the session", "model", model, "reason", string(reason))
 		cooldownUntil = time.Time{}
 	}
-	for _, strikeRole := range demotionRoles(role, pinRole) {
+	for _, strikeRole := range demotionRoles(s.strategyPorts.History, role, pinRole) {
 		expired := expiredSessionPin(target.installationID, target.sessionKey, strikeRole, string(reason), target.strategy, s.clock.Now())
 		var err error
 		if cooldownUntil.IsZero() {
@@ -166,9 +167,9 @@ func (s *Service) demoteArmForSession(
 	return true
 }
 
-func demotionRoles(role, pinRole string) []string {
+func demotionRoles(history continuity.SwitchHistory, role, pinRole string) []string {
 	roles := make([]string, 0, 3)
-	for _, candidate := range []string{role, pinRole, hmmHistoryRole(pinRole)} {
+	for _, candidate := range []string{role, pinRole, history.HistoryRole(pinRole)} {
 		if !slices.Contains(roles, candidate) {
 			roles = append(roles, candidate)
 		}
