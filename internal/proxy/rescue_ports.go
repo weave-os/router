@@ -29,7 +29,7 @@ func (p rescueCredentialPort) ResolveCredentials(ctx context.Context, provider, 
 }
 
 func (p rescueCredentialPort) RecordSubscriptionUnavailable(ctx context.Context, provider, model string, attemptErr error) {
-	p.s.recordSubscriptionUnavailable(ctx, provider, model, attemptErr)
+	recordSubscriptionUnavailable(ctx, provider, model, attemptErr, p.s.clock.Now())
 }
 
 func (p rescueCredentialPort) SubscriptionPoolUnavailable(ctx context.Context, provider, model string) bool {

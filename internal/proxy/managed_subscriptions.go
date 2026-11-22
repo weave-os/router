@@ -185,7 +185,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		}
 		if s.credentials.SubscriptionModels.ManagedDenied(managedOverloadOwner(lease.AccountID), lease.AccountID, provider, model, s.clock.Now()) {
 			diagnostics.skip(lease, subscriptionSkipOverloadCooldown)
-			s.markSubscriptionPoolUnavailable(ctx, poolProvider)
+			markSubscriptionPoolUnavailable(ctx, poolProvider, s.clock.Now())
 			lease.Release()
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue

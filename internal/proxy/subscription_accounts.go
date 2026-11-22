@@ -252,11 +252,11 @@ func (l *accountLoop) rotationAfterFailure(bookkeepingCtx, credentialCtx, attemp
 	s, decision := l.s, l.decision
 	rotate := leased.managed && (s.recordManagedSubscriptionFailure(bookkeepingCtx, decision.Provider, decision.Model, leased.lease, attemptErr) || providers.IsRetryable(attemptErr))
 	if leased.managed && !committed(l.in.Prelude) {
-		s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
+		recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr, s.clock.Now())
 	}
 	if !leased.managed && !committed(l.in.Prelude) && codexSubscriptionRotates(credentialCtx, attemptErr) {
 		s.recordCodexCredentialUnusable(bookkeepingCtx, CredentialsFromContext(credentialCtx), attemptErr)
-		s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
+		recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr, s.clock.Now())
 		attemptCtx = resolveAndInjectCredentials(withSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
 		rotate = true
 	}
