@@ -66,7 +66,7 @@ func (s *Service) classifierPrincipal(ctx context.Context) (router.ClassifierThr
 	if _, managed := requestcontext.ServingIdentityFromContext(ctx); managed {
 		return router.ClassifierThread{}, router.ErrClassifierUnavailable
 	}
-	installation := installationIDFromContext(ctx)
+	installation := requestcontext.InstallationIDFromContext(ctx)
 	credential, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	if _, allowed := s.classifierSessions.allowedInstallations[installation]; !allowed || credential == "" {
 		return router.ClassifierThread{}, router.ErrClassifierThreadInvalid

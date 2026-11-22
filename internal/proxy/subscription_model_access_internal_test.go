@@ -198,7 +198,7 @@ func TestClassifierRescuePolicyReadsServedAndDeniedModelsOfTheWinningCredential(
 	access := &svc.credentials.SubscriptionModels
 	access.MarkServedForCaller(winning, providers.ProviderAnthropic, "claude-sonnet-5-5", now)
 	access.MarkServedForCaller(requested, providers.ProviderAnthropic, "claude-haiku-5-5", now)
-	access.Deny(winning.APIKey, "claude-opus-5-5", now.Add(time.Hour))
+	access.DenyForProvider(winning.APIKey, "", "claude-opus-5-5", now.Add(time.Hour))
 
 	policy := newClassifierRescuePolicy(ctx, svc)
 

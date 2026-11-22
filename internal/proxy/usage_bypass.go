@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
@@ -87,20 +88,6 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req router.Request) (provider, token string, covered bool) {
 	codexToken, anthropicToken := presentSubscriptionTokens(ctx, headers)
 	return overrides.SubscriptionCoveredTarget(req, codexToken, anthropicToken)
-}
-
-func (s *Service) anthropicFallbackKeyAvailable(ctx context.Context) bool {
-	if byok := credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
-		if _, ok := byok[providers.ProviderAnthropic]; ok {
-			return true
-		}
-	}
-	if s.credentials.KeyedProviders != nil {
-		if _, ok := s.credentials.KeyedProviders[providers.ProviderAnthropic]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 func anthropicOAuthCredentialRejected(err error) bool {
@@ -318,7 +305,7 @@ func (s *Service) bypassToAnthropic(
 	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) && bypassMayReroute(ctx, proxyErr) {
 		return errBypassRetryable
 	}
-	if !claudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
+	if !claudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.credentials.AnthropicFallbackKeyAvailable(ctx) &&
 		(!billing.SubscriptionOnlyFromContext(ctx) || credentials.LinkedFirst(ctx)) {
 		return errBypassRetryable
 	}
@@ -374,7 +361,7 @@ func (s *Service) bypassToAnthropic(
 	})
 	telemetry.Flush(ctx)
 
-	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
+	if installationID := requestcontext.InstallationIDFromContext(ctx); installationID != uuid.Nil {
 		userPrompt := env.EndsWithUserPrompt()
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, outcomeErr)

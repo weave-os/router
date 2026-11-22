@@ -98,7 +98,7 @@ func parityAnthropicIngress() parityIngress {
 			return withClaudeCreditFallback(context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, parityInstallationID))
 		},
 		servedOnSub:       servedOnSubscription,
-		fallbackAvailable: (*Service).anthropicFallbackKeyAvailable,
+		fallbackAvailable: func(s *Service, ctx context.Context) bool { return s.credentials.AnthropicFallbackKeyAvailable(ctx) },
 		exhausted:         (*Service).claudeSubscriptionExhausted,
 		suppress:          credentials.WithSuppressedClaudeSubscription,
 		tokenRejected:     anthropicOAuthCredentialRejected,

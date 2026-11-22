@@ -259,7 +259,7 @@ func (s *Service) managedSubscriptionUsageSnapshot(accountID, accessToken string
 func (s *Service) managedProviderFallbackAvailable(ctx context.Context, provider subscriptions.Provider) bool {
 	switch provider {
 	case subscriptions.ProviderClaude:
-		return s.anthropicFallbackKeyAvailable(ctx)
+		return s.credentials.AnthropicFallbackKeyAvailable(ctx)
 	case subscriptions.ProviderCodex:
 		return s.openaiFallbackKeyAvailable(ctx)
 	default:

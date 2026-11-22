@@ -16,7 +16,6 @@ import (
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
-	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 )
 
@@ -439,16 +438,4 @@ func safeUpstreamRequestID(headers http.Header) string {
 		}
 	}
 	return ""
-}
-
-func installationIDFromContext(ctx context.Context) uuid.UUID {
-	raw, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
-	if raw == "" {
-		return uuid.Nil
-	}
-	id, err := uuid.Parse(raw)
-	if err != nil {
-		return uuid.Nil
-	}
-	return id
 }
