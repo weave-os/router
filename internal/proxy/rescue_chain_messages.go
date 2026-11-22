@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"weave-os/router/internal/router/handover"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -35,7 +36,7 @@ type messagesRescue struct {
 	fastServed              *bool
 	crossFormat             *bool
 
-	compactionHandoverOutcome dispatch.HandoverOutcome
+	compactionHandoverOutcome handover.Outcome
 
 	baselineModel             string
 	baselineViable            bool

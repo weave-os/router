@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+	"weave-os/router/internal/router/handover"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/conversation"
@@ -52,7 +53,7 @@ type messagesFinishedTurn struct {
 	stickyHit                 bool
 	pinAgeSec                 int64
 	routeMs                   int64
-	compactionHandoverOutcome dispatch.HandoverOutcome
+	compactionHandoverOutcome handover.Outcome
 	reqPricing                catalog.Pricing
 	actPricing                catalog.Pricing
 	opts                      translate.EmitOptions
