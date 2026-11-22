@@ -315,7 +315,7 @@ func TestAuthorizeSubscriptionAPI_ProviderOverloadAuthorizesPaidRescue(t *testin
 	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "claude-token", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
 		"the mark is scoped to the pool that failed")
 
-	now = now.Add(subscriptionUnavailableCooldown + time.Second)
+	now = now.Add(credentials.SubscriptionUnavailableCooldown + time.Second)
 	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
 		"the capacity mark is bounded by its cooldown")
 }

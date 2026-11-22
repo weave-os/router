@@ -27,7 +27,7 @@ func leaseOrMarkLeasedOut(ctx context.Context, leaser subscriptions.Leaser, owne
 }
 
 func includedLaneCannotServe(ctx context.Context, pool subscriptions.Provider, target inference.Target, now time.Time) bool {
-	return subscriptionProviderUnavailable(ctx, pool, now) || includedLaneLeasedOut(ctx, pool, target, now)
+	return credentials.SubscriptionProviderUnavailable(ctx, pool, now) || includedLaneLeasedOut(ctx, pool, target, now)
 }
 
 func includedLaneLeasedOut(ctx context.Context, pool subscriptions.Provider, target inference.Target, now time.Time) bool {
