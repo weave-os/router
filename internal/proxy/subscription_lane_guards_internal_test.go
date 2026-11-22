@@ -24,7 +24,7 @@ import (
 
 func TestSessionHoldRequiresAnUnavailablePoolMark(t *testing.T) {
 	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), clock: time.Now}
-	ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
+	ctx := context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
 
 	svc.holdSessionOffSubscriptionPool(ctx, providers.ProviderOpenAI, stateCodexModel)
 
@@ -33,7 +33,7 @@ func TestSessionHoldRequiresAnUnavailablePoolMark(t *testing.T) {
 }
 
 func TestForcedClaudeClientAppRefusalIgnoresTurnsOnTheCallersOwnCredential(t *testing.T) {
-	usage := &ManagedSubscriptionUsage{ClientAppRefused: true}
+	usage := &credentials.ManagedSubscriptionUsage{ClientAppRefused: true}
 	ctx := context.WithValue(context.Background(), credentials.ManagedSubscriptionUsageContextKey{}, usage)
 	forced := router.Decision{Reason: translate.ReasonUserForceModel}
 
@@ -63,7 +63,7 @@ func TestRejectedOwnCodexLoginOutranksALaterRateLimit(t *testing.T) {
 }
 
 func TestEnterpriseCapRescueNeedsAUsableAnthropicKey(t *testing.T) {
-	refused := context.WithValue(context.Background(), credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
+	refused := context.WithValue(context.Background(), credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
 
 	assert.False(t, claudeEnterpriseCapRescue(refused), "with no customer key the cap has nothing to rescue onto")
 	keyed := context.WithValue(refused, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
@@ -194,7 +194,7 @@ func TestPlanForbiddenPaidFallbackKeepsTheCustomerKeyOut(t *testing.T) {
 }
 
 func TestClearedCredentialsOverrideTheWinningSubscription(t *testing.T) {
-	usage := &ManagedSubscriptionUsage{Finished: true, WinningCredentials: &Credentials{APIKey: []byte("sk-ant-oat01-winning"), OAuth: true}}
+	usage := &credentials.ManagedSubscriptionUsage{Finished: true, WinningCredentials: &Credentials{APIKey: []byte("sk-ant-oat01-winning"), OAuth: true}}
 	ctx := context.WithValue(context.Background(), credentials.ManagedSubscriptionUsageContextKey{}, usage)
 	require.Same(t, usage.WinningCredentials, CredentialsFromContext(ctx))
 

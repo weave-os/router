@@ -42,7 +42,7 @@ type commandAcknowledgment struct {
 	sessionID                             string
 	clientApp                             string
 	routable, excluded, automaticExcluded map[string]struct{}
-	forceable                             []forceableModel
+	forceable                             []conversation.ForceableModel
 	feedback                              feedbackAcknowledgment
 	rating                                string
 }
@@ -63,7 +63,7 @@ func (ack commandAcknowledgment) render(format translate.Format) string {
 	case translate.CommandRouterModels:
 		return conversation.RouterModelsMessage(ack.routable, ack.excluded, ack.automaticExcluded, directivePrefix(ack.clientApp), format)
 	case translate.CommandListModels:
-		return listModelsMessage(ack.forceable, directivePrefix(ack.clientApp), format)
+		return conversation.ListModelsMessage(ack.forceable, directivePrefix(ack.clientApp), format)
 	case translate.CommandRouterFeedback:
 		rf := directivePrefix(ack.clientApp) + "rf"
 		switch ack.feedback {

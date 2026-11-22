@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptionlane"
@@ -62,19 +63,11 @@ func subscriptionStatePaidRescueDecisions(ctx context.Context, candidates []rout
 }
 
 func releaseUnservableLinkedFirst(ctx context.Context, decision router.Decision) (context.Context, bool) {
-	if !linkedFirst(ctx) {
+	if !credentials.LinkedFirst(ctx) {
 		return ctx, false
 	}
 	observability.FromContext(ctx).Info("Linked subscription cannot serve the routed model; continuing on organization credits",
 		"decision_provider", decision.Provider, "decision_model", decision.Model)
-	return billing.ReleaseLinkedFirst(ctx), true
-}
-
-func releaseThrottledLinkedFirst(ctx context.Context) (context.Context, bool) {
-	if !linkedFirst(ctx) {
-		return ctx, false
-	}
-	observability.FromContext(ctx).Info("Linked subscription rejected the turn; rerouting on organization credits")
 	return billing.ReleaseLinkedFirst(ctx), true
 }
 

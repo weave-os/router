@@ -56,8 +56,8 @@ type leasedAccount struct {
 	account int
 }
 
-func managedSubscriptionUsageOf(ctx context.Context) *ManagedSubscriptionUsage {
-	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+func managedSubscriptionUsageOf(ctx context.Context) *credentials.ManagedSubscriptionUsage {
+	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 	return usage
 }
 
@@ -143,7 +143,7 @@ func (l *accountLoop) oauthTransportFallback(ctx, attemptCtx context.Context) (c
 		if subscriptionAttemptOnly(ctx) || paidFallbackForbidden(ctx) || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderCodex) && decision.Provider == providers.ProviderOpenAI || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderClaude) && decision.Provider == providers.ProviderAnthropic {
 			return nil, dispatch.Abort{Err: subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)}
 		}
-		attemptCtx = resolveAndInjectCredentials(withSuppressedClaudeSubscription(withSuppressedCodexSubscription(attemptCtx)), decision.Provider, decision.Model, http.Header{})
+		attemptCtx = resolveAndInjectCredentials(credentials.WithSuppressedClaudeSubscription(withSuppressedCodexSubscription(attemptCtx)), decision.Provider, decision.Model, http.Header{})
 	}
 	return attemptCtx, nil
 }
@@ -198,7 +198,7 @@ func (l *accountLoop) admitLeased(ctx, credentialCtx context.Context, leased lea
 		if claudeEnterpriseTurn(ctx) {
 			return dispatch.Abort{Err: claudeEnterpriseRefusal(ctx)}
 		}
-		return dispatch.Abort{Err: subscriptionOnlyUnavailable(ctx)}
+		return dispatch.Abort{Err: credentials.SubscriptionOnlyUnavailable(ctx)}
 	}
 	if creds := CredentialsFromContext(credentialCtx); creds != nil && creds.OAuth {
 		if state := managedSubscriptionUsageOf(ctx); state != nil {

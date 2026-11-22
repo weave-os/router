@@ -129,7 +129,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 			require.Equal(t, 200, response.StatusCode, string(payload))
 			require.Contains(t, string(payload), "identity answer")
 			require.Len(t, bearers, before+1)
-			winner := mustAs[*proxy.ManagedSubscriptionUsage](t, winners[len(winners)-1])
+			winner := mustAs[*credentials.ManagedSubscriptionUsage](t, winners[len(winners)-1])
 			identity := resolvedOwners[len(resolvedOwners)-1]
 			if scenario.wantTier == auth.SubscriptionTierPersonal {
 				require.Equal(t, subject.String(), identity.SubscriberID)

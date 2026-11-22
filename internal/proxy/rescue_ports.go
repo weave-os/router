@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -144,7 +145,7 @@ var _ dispatch.RescueFunding = rescueFundingPort{}
 
 func (rescueFundingPort) WithSiblingFunding(ctx context.Context, decision router.Decision) context.Context {
 	ctx = withClaudeEnterpriseTurn(ctx, decision)
-	return WithManagedSubscriptionUsage(ctx)
+	return credentials.WithManagedSubscriptionUsage(ctx)
 }
 
 func (rescueFundingPort) PaidRescueDecisions(ctx context.Context, candidates []router.Decision) []router.Decision {

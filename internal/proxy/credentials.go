@@ -28,7 +28,7 @@ func CredentialsFromContext(ctx context.Context) *Credentials {
 	if override, set := ctx.Value(CredentialsContextKey{}).(*Credentials); set && override == nil {
 		return nil
 	}
-	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.Finished {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); usage != nil && usage.Finished {
 		return usage.WinningCredentials
 	}
 	return requestcontext.CredentialsFromContext(ctx)
@@ -77,7 +77,7 @@ func clearCredentials(ctx context.Context) context.Context {
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
 	subDisabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
 	resolution := credentials.Resolve(requestFactsFrom(ctx, headers), provider, credentials.Suppression{
-		Claude: claudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model),
+		Claude: credentials.ClaudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model),
 		Codex:  codexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || codexChatEndpoint(ctx) || subDisabled || !codexSubscriptionCanAttemptModel(model),
 	})
 	if resolution.Credentials == nil {

@@ -28,12 +28,12 @@ import (
 var ErrGeminiCrossFormatUnsupported = ingress.ErrGeminiCrossFormatUnsupported
 
 func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
-	ctx = withWeaveCreditsFunding(ctx, r.Header)
+	ctx, strategy := withWeaveCreditsFunding(ctx, r.Header), router.StrategyFromContext(ctx)
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, s.ingress.Gemini.TraceBody(body), r.Header)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
-	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointGeminiGenerate)
+	ctx, returnErr = s.withClassifierInput(ctx, strategy, body, router.EndpointGeminiGenerate)
 	if returnErr != nil {
 		return returnErr
 	}
@@ -72,12 +72,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	feats := env.RoutingFeatures()
 	ctx = withRequestImageCount(ctx, feats.ImageCount)
-	promptText := feats.PromptText
-	embedInput := "concatenated_stream"
-	if feats.OnlyUserMessageText != "" {
-		promptText = feats.OnlyUserMessageText
-		embedInput = "only_user_message"
-	}
+	promptText, embedInput := turnPromptText(feats)
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	ctx, log, sessionKey = bindRequestLogger(ctx, env, facts.APIKeyID, facts.RequestID, "gemini_generate_content")
@@ -93,7 +88,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		logInboundRequestDiagnostics(log, env)
 	}
 
-	subAgentHint, strategy := r.Header.Get("x-weave-subagent-type"), router.StrategyFromContext(ctx)
+	subAgentHint := r.Header.Get("x-weave-subagent-type")
 
 	forceCluster, forceErr := applyForceClusterHeader(s.strategyPorts, ctx, strategy, r)
 	if forceErr != nil {

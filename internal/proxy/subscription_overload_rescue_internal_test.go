@@ -91,7 +91,7 @@ func TestCodexPlanOverload_RescuedBySiblingCandidate(t *testing.T) {
 	body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 	require.NoError(t, err, "the sibling must serve the turn the overloaded plan model could not")
 	assert.GreaterOrEqual(t, primary.calls, 1)
@@ -109,7 +109,7 @@ func TestCodexPlanOverload_NoSiblingSurfacesUpstreamError(t *testing.T) {
 	body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 	require.Error(t, err)
 	assert.Equal(t, 0, sibling.calls)
@@ -145,7 +145,7 @@ func proxyCodexResponsesOverload(t *testing.T, withSibling bool) (*codexInStream
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 	return primary, sibling, rec, err
 }
@@ -208,13 +208,13 @@ func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
 			body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 			rec := httptest.NewRecorder()
 			ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
-			ctx = WithManagedSubscriptionUsage(ctx)
+			ctx = credentials.WithManagedSubscriptionUsage(ctx)
 			ctx = outOfRosterBillingCtx(ctx)
 			err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 			require.Error(t, err)
 			assert.Equal(t, 0, sibling.calls, "no paid sibling without a plan 5xx")
 			assert.Empty(t, repo.snapshot())
-			state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
+			state := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 			assert.Empty(t, state.UnavailableProviders)
 		})
 	}
@@ -299,7 +299,7 @@ func TestSubscriptionSiblingAllowed(t *testing.T) {
 func TestAuthorizeSubscriptionAPI_ProviderOverloadAuthorizesPaidRescue(t *testing.T) {
 	now := time.Now()
 	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), clock: func() time.Time { return now }}
-	ctx := WithManagedSubscriptionUsage(context.Background())
+	ctx := credentials.WithManagedSubscriptionUsage(context.Background())
 	ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "acct-1", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 
 	denied := svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{})
@@ -349,7 +349,7 @@ func TestCodexPlanOverloadAfterReasoning_RescuedBySiblingCandidate(t *testing.T)
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 
 	require.NoError(t, err, "the sibling must serve the turn the plan model failed before output")
