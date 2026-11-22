@@ -26,6 +26,9 @@ const (
 	hmmPackagePath             = routerPackagePath + "/hmm"
 	escalationPackagePath      = routerPackagePath + "/escalation"
 	escalationJudgePackagePath = modulePath + "/internal/escalationjudge"
+	continuityPackagePath      = routerPackagePath + "/continuity"
+	plannerPackagePath         = routerPackagePath + "/planner"
+	floorPackagePath           = escalationPackagePath + "/floor"
 )
 
 const (
@@ -37,6 +40,7 @@ const (
 	ratchetHMMPinFields           = "hmm_pin_field_references"
 	ratchetProxyEscalation        = "proxy_escalation_internal_references"
 	ratchetServingStrategyNames   = "serving_strategy_constant_references"
+	ratchetProxyRouterLayerCalls  = "proxy_router_layer_helper_calls"
 )
 
 var atomizationRatchetFixes = map[string]string{
@@ -47,6 +51,7 @@ var atomizationRatchetFixes = map[string]string{
 	ratchetServingStrategyImports: "serving-layer packages may reach a strategy only through router.Router, router.Request and router.Decision; wire the concrete strategy in cmd/router instead of importing its package",
 	ratchetProxyEscalation:        "internal/proxy must not drive escalation scoring, judging or state (escalation.Store/Observer, llmescalation.Judge, internal/escalationjudge); call the helper in internal/router/escalation/floor and pass it turn facts",
 	ratchetServingStrategyNames:   "serving-layer packages must not branch on named strategies (router.StrategyHMM*, StrategyLLMClassifier, ...); move the strategy-specific behavior into the strategy package or behind a router capability and pass the serving layer a strategy-neutral fact",
+	ratchetProxyRouterLayerCalls:  "internal/proxy must not sequence router-layer helpers (continuity/planner/escalation-floor functions, the UpgradeJudge and CostGate decision ports, escalation floor Begin/Apply/Settle); call them from the strategy in internal/router/hmm or the session turn in internal/routingpolicy and hand proxy the result",
 	ratchetHMMPinFields:           "HMM-only session pin fields (sessionpin.Pin.PolicyGroup, ConsecutiveDowngradeVotes, ConsecutiveUpgradeVotes) are read and written only by the accessor in internal/router/hmm",
 }
 
@@ -59,6 +64,13 @@ var (
 	hmmOnlyMetadataFields   = []string{"PolicyGroup", "ArmScores", "SelectionTrace"}
 	hmmOnlyMetadataPrefixes = []string{"Classifier"}
 	escalationInternalPorts = map[string][]string{escalationPackagePath: {"Store", "Observer"}, routerPackagePath + "/llmescalation": {"Judge"}}
+	routerLayerHelperFuncs  = []string{continuityPackagePath, plannerPackagePath, floorPackagePath}
+	routerLayerHelperPorts  = map[string][]string{
+		continuityPackagePath + ".UpgradeJudge": nil,
+		continuityPackagePath + ".CostGate":     {"Decide", "StayPin"},
+		floorPackagePath + ".Helper":            {"Begin", "Settle", "SettleLLM", "ApplyLLM"},
+		floorPackagePath + ".Turn":              {"Apply"},
+	}
 )
 
 type atomizationBaseline struct {
@@ -106,6 +118,9 @@ func TestAtomizationRatchetsDetectSyntheticViolations(t *testing.T) {
 		}},
 		{fixture: "proxy_escalation", want: atomizationCounts{
 			ratchetProxyEscalation: {"internal/architecture/testdata/atomization/proxy_escalation": 3},
+		}},
+		{fixture: "proxy_router_layer", want: atomizationCounts{
+			ratchetProxyRouterLayerCalls: {"internal/architecture/testdata/atomization/proxy_router_layer": 9},
 		}},
 		{fixture: "pin_fields", want: atomizationCounts{
 			ratchetHMMPinFields: {"internal/architecture/testdata/atomization/pin_fields": 4},
@@ -302,7 +317,36 @@ func proxyCallViolations(info *types.Info, call *ast.CallExpr, object types.Obje
 	if isHMMPolicyPrefixCheck(info, call, object) {
 		found = append(found, ratchetProxyReasonComparisons)
 	}
+	if isRouterLayerHelperCall(object) {
+		found = append(found, ratchetProxyRouterLayerCalls)
+	}
 	return found
+}
+
+// isRouterLayerHelperCall reports calls that sequence router-layer routing
+// helpers. Constructors and defaults (New*, Default*), result accessors on
+// value types and the strategy-neutral Ownership/DecisionFacts ports stay
+// allowed.
+func isRouterLayerHelperCall(object types.Object) bool {
+	function, ok := object.(*types.Func)
+	if !ok || function.Pkg() == nil {
+		return false
+	}
+	recv := function.Signature().Recv()
+	if recv == nil {
+		name := function.Name()
+		return slices.Contains(routerLayerHelperFuncs, function.Pkg().Path()) && !strings.HasPrefix(name, "New") && !strings.HasPrefix(name, "Default")
+	}
+	recvType := recv.Type()
+	if pointer, isPointer := recvType.(*types.Pointer); isPointer {
+		recvType = pointer.Elem()
+	}
+	named, ok := types.Unalias(recvType).(*types.Named)
+	if !ok || named.Obj().Pkg() == nil {
+		return false
+	}
+	methods, listed := routerLayerHelperPorts[named.Obj().Pkg().Path()+"."+named.Obj().Name()]
+	return listed && (methods == nil || slices.Contains(methods, function.Name()))
 }
 
 func isEscalationInternalCall(object types.Object) bool {

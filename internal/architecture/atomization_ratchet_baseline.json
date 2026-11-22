@@ -5,6 +5,9 @@
     "proxy_escalation_internal_references": {},
     "proxy_hmm_metadata_references": {},
     "proxy_reason_string_comparisons": {},
+    "proxy_router_layer_helper_calls": {
+      "internal/proxy": 19
+    },
     "serving_strategy_constant_references": {
       "internal/api/admin": 6,
       "internal/api/anthropic": 2,
