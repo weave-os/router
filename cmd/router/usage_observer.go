@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/config"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/credentials/usage"
 )
 
 func newUsageObserver(logger *slog.Logger, seats usage.SeatUsageRecorder) *usage.Observer {

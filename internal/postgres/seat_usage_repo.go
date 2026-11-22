@@ -7,8 +7,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/postgres/dbbudget"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/sqlc"
 )
 

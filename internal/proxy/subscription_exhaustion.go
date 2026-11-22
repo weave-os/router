@@ -6,8 +6,8 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 )
 
 func (s *Service) claudeSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
