@@ -57,8 +57,8 @@ import (
 )
 
 type Service struct {
-	externalKeyUsage    credentials.ExternalKeyUsageRecorder
-	recoveryProbes      routingpolicy.RecoveryProbeLeases
+	externalKeyUsage credentials.ExternalKeyUsageRecorder
+	recoveryProbes   routingpolicy.RecoveryProbeLeases
 
 	strategies                   map[router.Strategy]registeredStrategy
 	engine                       *dispatch.Engine
