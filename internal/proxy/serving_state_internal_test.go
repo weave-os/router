@@ -61,7 +61,7 @@ func TestManagedRebindIsolatesLearnedStateAndPreservesForceIntent(t *testing.T) 
 func TestManagedAdmissionIgnoresPersistedBetaPreference(t *testing.T) {
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	ctx = requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{StateNamespace: "admitted"})
-	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: context.DeadlineExceeded})
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: context.DeadlineExceeded})
 	selected, _, err := svc.applySessionStrategy(ctx, router.StrategyFromContext(ctx), [16]byte{1}, [16]byte{1})
 	require.NoError(t, err, "managed requests must not even read retired beta preferences")
 	require.Equal(t, router.StrategyHMMEmbedding, router.StrategyFromContext(selected))

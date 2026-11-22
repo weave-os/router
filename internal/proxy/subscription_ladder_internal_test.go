@@ -27,7 +27,7 @@ func TestSelectableSubscriptionProvidersCoverCallerFundedLanes(t *testing.T) {
 		})
 	}
 	serviceWithUsageSnapshot := func(token string, snap usage.Snapshot) *Service {
-		return &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
+		return &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(),
 			credentials: credentials.Brokerage{UsageObserver: observerWithSnapshot(token, snap), KeyedProviders: map[string]struct{}{}},
 		}
 	}
@@ -40,17 +40,17 @@ func TestSelectableSubscriptionProvidersCoverCallerFundedLanes(t *testing.T) {
 		want    []string
 		absent  []string
 	}{
-		{name: "direct Claude Code login", svc: &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}, ctx: routerKeyedCtx(), headers: claudeLogin, want: []string{providers.ProviderAnthropic}, absent: []string{providers.ProviderOpenAI}},
-		{name: "direct Codex login", svc: &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}, ctx: routerKeyedCtx(), headers: codexLogin, want: []string{providers.ProviderOpenAI}, absent: []string{providers.ProviderAnthropic}},
-		{name: "own Anthropic API key", svc: &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}, ctx: ownKeys(providers.ProviderAnthropic), headers: http.Header{}, want: []string{providers.ProviderAnthropic}},
-		{name: "own OpenAI API key", svc: &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}, ctx: ownKeys(providers.ProviderOpenAI), headers: http.Header{}, want: []string{providers.ProviderOpenAI}},
+		{name: "direct Claude Code login", svc: &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}, ctx: routerKeyedCtx(), headers: claudeLogin, want: []string{providers.ProviderAnthropic}, absent: []string{providers.ProviderOpenAI}},
+		{name: "direct Codex login", svc: &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}, ctx: routerKeyedCtx(), headers: codexLogin, want: []string{providers.ProviderOpenAI}, absent: []string{providers.ProviderAnthropic}},
+		{name: "own Anthropic API key", svc: &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}, ctx: ownKeys(providers.ProviderAnthropic), headers: http.Header{}, want: []string{providers.ProviderAnthropic}},
+		{name: "own OpenAI API key", svc: &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}, ctx: ownKeys(providers.ProviderOpenAI), headers: http.Header{}, want: []string{providers.ProviderOpenAI}},
 		{name: "Claude login billing usage overage", svc: serviceWithUsageSnapshot(exhaustedSubToken, usage.Snapshot{OverageInUse: true}), ctx: routerKeyedCtx(), headers: claudeLogin, want: []string{providers.ProviderAnthropic}},
 		{name: "Claude login billing overage past a full included window", svc: serviceWithUsageSnapshot(exhaustedSubToken, usage.Snapshot{OverageInUse: true, Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080}}), ctx: routerKeyedCtx(), headers: claudeLogin, want: []string{providers.ProviderAnthropic}},
 		{name: "Codex login billing extra usage", svc: serviceWithUsageSnapshot(codexTestJWT, usage.Snapshot{OverageInUse: true}), ctx: routerKeyedCtx(), headers: codexLogin, want: []string{providers.ProviderOpenAI}},
 		{name: "spent Claude login keeps the lane with an own key", svc: serviceWithUsageSnapshot(exhaustedSubToken, exhaustedSnapshot()), ctx: ownKeys(providers.ProviderAnthropic), headers: claudeLogin, want: []string{providers.ProviderAnthropic}},
 		{name: "spent Claude login without an own key leaves the lane", svc: serviceWithUsageSnapshot(exhaustedSubToken, exhaustedSnapshot()), ctx: routerKeyedCtx(), headers: claudeLogin, absent: []string{providers.ProviderAnthropic}},
-		{name: "no caller funding", svc: &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}, ctx: routerKeyedCtx(), headers: http.Header{}, absent: []string{providers.ProviderAnthropic, providers.ProviderOpenAI}},
-		{name: "subscription routing disabled", svc: &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}, ctx: context.WithValue(routerKeyedCtx(), requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true), headers: claudeLogin, absent: []string{providers.ProviderAnthropic, providers.ProviderOpenAI}},
+		{name: "no caller funding", svc: &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}, ctx: routerKeyedCtx(), headers: http.Header{}, absent: []string{providers.ProviderAnthropic, providers.ProviderOpenAI}},
+		{name: "subscription routing disabled", svc: &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}, ctx: context.WithValue(routerKeyedCtx(), requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true), headers: claudeLogin, absent: []string{providers.ProviderAnthropic, providers.ProviderOpenAI}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

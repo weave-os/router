@@ -52,7 +52,7 @@ func upgradeTestFresh() router.Decision {
 
 func TestUpgradeShadowUsesCacheRulesAndExplicitIntent(t *testing.T) {
 	margin := 0.2
-	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) {
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) {
 		c.AuthorityCacheShadow = true
 		c.UpgradeGate = true
 		c.UpgradeShadow = hmm.UpgradeShadowConfig{MarginThreshold: &margin}
@@ -95,7 +95,7 @@ func TestUpgradeShadowUsesCacheRulesAndExplicitIntent(t *testing.T) {
 }
 
 func TestUpgradeShadowAgeAndAbsentPin(t *testing.T) {
-	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) {
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) {
 		c.AuthorityCacheShadow = true
 		c.UpgradeShadow = hmm.UpgradeShadowConfig{StalePinAfter: time.Hour}
 	})
@@ -188,7 +188,7 @@ func TestUpgradeShadowLogsNullableEvidence(t *testing.T) {
 	var output bytes.Buffer
 	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
 	fresh, pin := upgradeTestFresh(), upgradeTestPin()
-	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) {
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) {
 		c.AuthorityCacheShadow = true
 		c.UpgradeGate = true
 	})
@@ -283,7 +283,7 @@ func TestUpgradeShadowPreservesHigherPrecedencePaths(t *testing.T) {
 func TestEvidenceUpgradeVotesResetWhenProposalLeavesSameGroup(t *testing.T) {
 	margin := 0.05
 	threshold := 0.15
-	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) { c.UpgradeShadow = hmm.UpgradeShadowConfig{MarginThreshold: &threshold} })
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) { c.UpgradeShadow = hmm.UpgradeShadowConfig{MarginThreshold: &threshold} })
 	pin := upgradeTestPin()
 	pin.ConsecutiveUpgradeVotes = 2
 	fresh := upgradeTestFresh()

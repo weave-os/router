@@ -40,7 +40,7 @@ func TestAllowedModelsForRequest_BuildsSet(t *testing.T) {
 // The allowlist is enforced by desugaring into the exclusion set: every
 // routable model absent from a non-empty allowlist must come back excluded.
 func TestExcludedModelsForRequest_AllowlistExcludesTheComplement(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{
 		"keep-me": {}, "drop-me": {}, "drop-me-too": {},
 	}}
 
@@ -54,7 +54,7 @@ func TestExcludedModelsForRequest_AllowlistExcludesTheComplement(t *testing.T) {
 
 // Allowlist and exclusions compose: effective set = allowlist minus exclusions.
 func TestExcludedModelsForRequest_AllowlistUnionsWithExclusions(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{
 		"a": {}, "b": {}, "c": {},
 	}}
 
@@ -67,7 +67,7 @@ func TestExcludedModelsForRequest_AllowlistUnionsWithExclusions(t *testing.T) {
 }
 
 func TestExcludedModelsForRequest_EmptyAllowlistIsANoOp(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}}}
 
 	assert.Nil(t, s.excludedModelsForRequest(context.Background()))
 
@@ -78,7 +78,7 @@ func TestExcludedModelsForRequest_EmptyAllowlistIsANoOp(t *testing.T) {
 // An undeployed allowlist entry (e.g. stale after catalog removal) must
 // be a silent no-op, not an error that breaks routing for remaining models.
 func TestExcludedModelsForRequest_UndeployedAllowlistEntryIgnored(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}}}
 
 	got := s.excludedModelsForRequest(ctxWithAllowedModels("a", "retired-model"))
 
@@ -90,7 +90,7 @@ func TestExcludedModelsForRequest_UndeployedAllowlistEntryIgnored(t *testing.T) 
 // WhollyUnroutableAllowlistEmptiesThePool: no routable entry means the
 // desugaring excludes the entire pool, so every routed request 400s.
 func TestExcludedModelsForRequest_WhollyUnroutableAllowlistEmptiesThePool(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}}}
 
 	got := s.excludedModelsForRequest(ctxWithAllowedModels("not-routable-1", "not-routable-2"))
 
@@ -99,14 +99,14 @@ func TestExcludedModelsForRequest_WhollyUnroutableAllowlistEmptiesThePool(t *tes
 
 // RoutableModels must match the desugaring universe exactly.
 func TestRoutableModels_MatchesDesugaringUniverse(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}}}
 
 	assert.Equal(t, s.routableUniverse(), s.RoutableModels())
 }
 
 // The accessor must return a copy so callers cannot mutate routing state.
 func TestRoutableModels_ReturnsACopy(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}}}
 
 	got := s.RoutableModels()
 	got["injected"] = struct{}{}
@@ -125,7 +125,7 @@ func TestRoutableModels_NilServiceReportsUnknownUniverse(t *testing.T) {
 // a deployment is not silently constrained by one org's allowlist.
 func TestExcludedModelsForRequest_EnvOverrideBypassesAllowlist(t *testing.T) {
 	override := map[string]struct{}{"env-excluded": {}}
-	s := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}}}).WithExcludedModelsOverride([]string{"env-excluded"})
+	s := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}}}).WithExcludedModelsOverride([]string{"env-excluded"})
 
 	got := s.excludedModelsForRequest(ctxWithAllowedModels("a"))
 
@@ -136,7 +136,7 @@ func TestExcludedModelsForRequest_EnvOverrideBypassesAllowlist(t *testing.T) {
 // nil availableModels means "every catalog model is routable". Missing this
 // would make the allowlist a silent no-op on such deployments.
 func TestRoutableUniverse_NilAvailableModelsFallsBackToCatalog(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 
 	universe := s.routableUniverse()
 
@@ -148,7 +148,7 @@ func TestRoutableUniverse_NilAvailableModelsFallsBackToCatalog(t *testing.T) {
 }
 
 func TestExcludedModelsForRequest_AllowlistAppliesWithNilAvailableModels(t *testing.T) {
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 	require.NotEmpty(t, catalog.Models, "catalog must be non-empty for this test to mean anything")
 	keep := catalog.Models[0].ID
 

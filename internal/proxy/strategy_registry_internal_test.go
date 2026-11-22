@@ -46,7 +46,7 @@ func (r *registryRouter) Route(_ context.Context, request router.Request) (route
 }
 
 func serviceWithDefaultRouter(r router.Router) *Service {
-	return (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: r})
+	return (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: r})
 }
 
 func TestRouteWithoutStrategyContextUsesHMMEmbeddingDefault(t *testing.T) {
@@ -136,7 +136,7 @@ func TestPolicyStrategyRegistryFailsClosedForUnknownStrategy(t *testing.T) {
 func TestPolicyCapabilitiesReadsRefreshedRouterCapabilities(t *testing.T) {
 	strategy := router.Strategy("future-policy")
 	policyRouter := &dynamicCapabilityRouter{}
-	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
 		Strategy:     strategy,
 		Router:       policyRouter,
 		Capabilities: policy.Capabilities{},
@@ -155,7 +155,7 @@ func TestPolicyCapabilitiesReadsRefreshedRouterCapabilities(t *testing.T) {
 func TestPolicyStrategyAvailableReadsDynamicReadiness(t *testing.T) {
 	strategy := router.Strategy("future-policy")
 	policyRouter := &availabilityRouter{}
-	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   policyRouter,
 	})
