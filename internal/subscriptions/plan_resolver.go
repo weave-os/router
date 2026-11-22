@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
