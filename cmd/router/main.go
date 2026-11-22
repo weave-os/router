@@ -30,6 +30,7 @@ import (
 	"weave-os/router/internal/escalationmodal"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/apm"
 	"weave-os/router/internal/observability/otel"
@@ -1212,6 +1213,7 @@ func main() {
 		SubscriberAllowance:      subscriberAllowanceSvc,
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 		PolicyStatus:             policyStatus,
+		Errors:                   ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage},
 	}, servingAdmission, routingDistribution), defaultStrategy))
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture

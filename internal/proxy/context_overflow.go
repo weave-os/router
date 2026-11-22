@@ -21,10 +21,8 @@ import (
 
 const contextOverflowMessage = "prompt is too long: the conversation exceeds the model's context window. Compact the conversation or start a new session."
 
-const openAIContextOverflowCode = "context_length_exceeded"
-
 var upstreamContextOverflowMarkers = []string{
-	openAIContextOverflowCode,
+	ingress.OpenAIContextOverflowCode,
 	"model_context_window_exceeded",
 	"prompt is too long",
 	"maximum context length",
@@ -74,13 +72,6 @@ var contextWindowExceededClass = ingress.DispatchErrorClass{
 	Message:    contextOverflowMessage,
 	LogLevel:   "warn",
 	LogMessage: "Request exceeds the served model's context window; returned to the client to compact",
-}
-
-func OpenAIErrorCode(kind ingress.DispatchErrorKind) string {
-	if kind == ingress.DispatchErrorContextWindowExceeded {
-		return openAIContextOverflowCode
-	}
-	return ""
 }
 
 type CompactionUnservableError struct {

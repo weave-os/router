@@ -13,6 +13,7 @@ import (
 	anthropicapi "weave-os/router/internal/api/anthropic"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -155,7 +156,7 @@ func errorEnvelope(t *testing.T, body []byte) map[string]any {
 func messagesEngine(svc *proxy.Service) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.POST("/v1/messages", anthropicapi.MessagesHandler(svc, nil))
+	engine.POST("/v1/messages", anthropicapi.MessagesHandler(svc, nil, errorVocabulary))
 	return engine
 }
 
@@ -364,7 +365,7 @@ func TestMessagesHandler_AgentShadowDoesNotUpsertRouterUser(t *testing.T) {
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	})
-	engine.POST("/v1/messages", anthropicapi.MessagesHandler(svc, authSvc))
+	engine.POST("/v1/messages", anthropicapi.MessagesHandler(svc, authSvc, errorVocabulary))
 	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}],"metadata":{"user_id":"{\"account_uuid\":\"real-account\",\"email\":\"person@example.com\"}"},"max_tokens":4096}`)
 
 	recorder := postMessages(t.Context(), engine, body)
@@ -576,7 +577,7 @@ func TestRouteAnthropicRequest_DropsMissingInstallationIDInsteadOfForwardingRaw(
 func passthroughEngine(svc *proxy.Service) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(svc))
+	engine.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(svc, errorVocabulary))
 	return engine
 }
 
@@ -634,3 +635,5 @@ func TestMessagesHandler_UnservableCompactionTellsClientNotToRetry(t *testing.T)
 	assert.Equal(t, "false", rec.Header().Get("x-should-retry"))
 	assert.NotContains(t, rec.Body.String(), "Compact the conversation")
 }
+
+var errorVocabulary = ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage}

@@ -24,7 +24,7 @@ const (
 	streamGenerateContentSuffix = ":streamGenerateContent"
 )
 
-func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
+func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service, errs ingress.ErrorVocabulary) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
@@ -66,7 +66,7 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 		c.Request = c.Request.WithContext(ctx)
 
 		if err := svc.ProxyGeminiGenerateContent(c.Request.Context(), body, c.Writer, c.Request); err != nil {
-			cls, ok := proxy.ClassifyDispatchError(err)
+			cls, ok := errs.Classify(err)
 			if ok && cls.Kind == ingress.DispatchErrorUpstreamStatus {
 				if c.Writer.Written() {
 					return
@@ -94,7 +94,7 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 				return
 			}
 			log.Error("Gemini proxy failed", "err", err)
-			writeGeminiError(c, http.StatusBadGateway, "UPSTREAM_ERROR", proxy.TerminalErrorMessage(err))
+			writeGeminiError(c, http.StatusBadGateway, "UPSTREAM_ERROR", errs.TerminalMessage(err))
 		}
 	}
 }

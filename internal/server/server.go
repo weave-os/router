@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
@@ -99,6 +100,7 @@ type Features struct {
 	DefaultStrategy          router.Strategy
 	InternalServiceToken     string
 	Admin                    admin.Config
+	Errors                   ingress.ErrorVocabulary
 }
 
 func (f Features) defaultStrategy() router.Strategy {
@@ -303,8 +305,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	messagesMiddleware = append(messagesMiddleware, policyPinMiddleware...)
 	messagesMiddleware = append(messagesMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	messagesGroup := engine.Group("", messagesMiddleware...)
-	messagesGroup.POST("/v1/messages", anthropicapi.MessagesHandler(proxySvc, authSvc))
-	messagesGroup.POST("/v1/route/handoff", anthropicapi.PrepareHandoffHandler(proxySvc, authSvc))
+	messagesGroup.POST("/v1/messages", anthropicapi.MessagesHandler(proxySvc, authSvc, features.Errors))
+	messagesGroup.POST("/v1/route/handoff", anthropicapi.PrepareHandoffHandler(proxySvc, authSvc, features.Errors))
 
 	chatCompletionMiddleware := []gin.HandlerFunc{
 		middleware.WithTimingEntry(),
@@ -334,12 +336,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	chatCompletionWithoutPolicyPin := append([]gin.HandlerFunc(nil), chatCompletionMiddleware...)
 	chatCompletionMiddleware = append(chatCompletionMiddleware, policyPinMiddleware...)
 	chatCompletionGroup := engine.Group("", chatCompletionMiddleware...)
-	chatCompletionGroup.POST("/v1/chat/completions", openaiapi.ChatCompletionHandler(proxySvc, authSvc))
+	chatCompletionGroup.POST("/v1/chat/completions", openaiapi.ChatCompletionHandler(proxySvc, authSvc, features.Errors))
 	chatCompletionWithoutPolicyPinGroup := engine.Group("", chatCompletionWithoutPolicyPin...)
-	chatCompletionWithoutPolicyPinGroup.POST("/v1/responses", openaiapi.ResponsesHandler(proxySvc, authSvc))
-	chatCompletionWithoutPolicyPinGroup.POST("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler(proxySvc, authSvc))
+	chatCompletionWithoutPolicyPinGroup.POST("/v1/responses", openaiapi.ResponsesHandler(proxySvc, authSvc, features.Errors))
+	chatCompletionWithoutPolicyPinGroup.POST("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler(proxySvc, authSvc, features.Errors))
 
-	registerClientPassthroughRoutes(engine, authSvc, proxySvc, byokRequiresOptIn, features.ServingAdmission, servingAdmissionMiddleware, features.SeatUsage)
+	registerClientPassthroughRoutes(engine, authSvc, proxySvc, byokRequiresOptIn, features.ServingAdmission, servingAdmissionMiddleware, features.SeatUsage, features.Errors)
 
 	sessionCostGroup := engine.Group("",
 		middleware.WithTimeout(sessionCostTimeout),

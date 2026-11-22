@@ -91,7 +91,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		finalize := func() error { return wrapper.FinalizeError(proxyErr) }
 		if isContextOverflow(proxyErr) {
 			finalize = func() error {
-				return wrapper.FailContextOverflow(gjson.GetBytes(chatBody, "stream").Bool(), openAIContextOverflowCode, contextOverflowMessage)
+				return wrapper.FailContextOverflow(gjson.GetBytes(chatBody, "stream").Bool(), ingress.OpenAIContextOverflowCode, contextOverflowMessage)
 			}
 		}
 		if finErr := finalize(); finErr != nil {
