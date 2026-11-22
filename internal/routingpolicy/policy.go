@@ -5,6 +5,7 @@ import (
 
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/routingpolicy/overrides"
 )
 
 var ErrNoPlanResolver = errors.New("routing policy has no plan resolver")
@@ -17,6 +18,9 @@ type Policy struct {
 	plans                  *policy.PlanResolver
 	excludedModelsOverride map[string]struct{}
 	deadline               PolicyDeadline
+	availableModels        map[string]struct{}
+	defaultBaselineModel   string
+	hardPins               overrides.HardPins
 }
 
 type PolicyDeadline struct {
@@ -66,5 +70,67 @@ func (p *Policy) WithDeadline(deadline PolicyDeadline) *Policy {
 		*out = *p
 	}
 	out.deadline = deadline
+	return out
+}
+
+func (p *Policy) WithPlansFrom(src *Policy) *Policy {
+	out := p.clone()
+	out.plans = nil
+	if src != nil {
+		out.plans = src.plans
+	}
+	return out
+}
+
+func (p *Policy) AvailableModels() map[string]struct{} {
+	if p == nil {
+		return nil
+	}
+	return p.availableModels
+}
+
+func (p *Policy) WithAvailableModels(models map[string]struct{}) *Policy {
+	out := p.clone()
+	out.availableModels = nil
+	if models != nil {
+		out.availableModels = make(map[string]struct{}, len(models))
+		for m := range models {
+			out.availableModels[m] = struct{}{}
+		}
+	}
+	return out
+}
+
+func (p *Policy) DefaultBaselineModel() string {
+	if p == nil {
+		return ""
+	}
+	return p.defaultBaselineModel
+}
+
+func (p *Policy) WithDefaultBaselineModel(model string) *Policy {
+	out := p.clone()
+	out.defaultBaselineModel = model
+	return out
+}
+
+func (p *Policy) HardPins() overrides.HardPins {
+	if p == nil {
+		return overrides.HardPins{}
+	}
+	return p.hardPins
+}
+
+func (p *Policy) WithHardPins(hardPins overrides.HardPins) *Policy {
+	out := p.clone()
+	out.hardPins = hardPins
+	return out
+}
+
+func (p *Policy) clone() *Policy {
+	out := &Policy{}
+	if p != nil {
+		*out = *p
+	}
 	return out
 }

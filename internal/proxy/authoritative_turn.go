@@ -59,7 +59,7 @@ func serveAuthoritativeTurn(ctx context.Context, s *Service, res *turnLoopResult
 		if rerouteErr != nil {
 			return *res, rerouteErr
 		}
-		if !routingpolicy.ExcludedRerouteServable(rerouted, in.req, s.availableModels) {
+		if !routingpolicy.ExcludedRerouteServable(rerouted, in.req, s.routing.AvailableModels()) {
 			return *res, fmt.Errorf("authoritative policy returned excluded model %q after reroute: %w", rerouted.Model, router.ErrNoEligibleProvider)
 		}
 		res.Fresh = rerouted
