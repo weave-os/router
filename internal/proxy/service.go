@@ -1624,7 +1624,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		agentForceModel, requestBodyChanged = outcome.AgentForceModel, outcome.BodyChanged
 	}
 
-	ctx, pre, handled, err := assembleMessagesPreRoute(ctx, s, messagesPreRouteInput{
+	ctx, preRoute, handled, err := assembleMessagesPreRoute(ctx, s, messagesPreRouteInput{
 		w: w, r: r, body: body, log: log, env: env, facts: facts, strategy: strategy, clientBudget: clientBudget,
 		agentShadowMode: agentShadowMode, agentForceModel: agentForceModel, requestBodyChanged: requestBodyChanged,
 		sessionKey: sessionKey, forceModelSessionKey: forceModelSessionKey, feats: feats, promptText: promptText, embedInput: embedInput,
@@ -1632,10 +1632,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if handled || err != nil {
 		return err
 	}
-	feats, promptText, embedInput = pre.feats, pre.promptText, pre.embedInput
-	taskArm, req, routeStart, outputReserve, overflowEstimate := pre.taskArm, pre.req, pre.routeStart, pre.outputReserve, pre.overflowEstimate
-	inboundSpiralSignals, inboundSpiralReasons, inboundSpiralComputed := pre.inboundSpiralSignals, pre.inboundSpiralReasons, pre.inboundSpiralComputed
-	inboundToolCallCount, inboundLastUser, inboundUserPrompt, inboundLatestToolCalls := pre.inboundToolCallCount, pre.inboundLastUser, pre.inboundUserPrompt, pre.inboundLatestToolCalls
+	feats, promptText, embedInput = preRoute.feats, preRoute.promptText, preRoute.embedInput
+	taskArm, req, routeStart, outputReserve, overflowEstimate := preRoute.taskArm, preRoute.req, preRoute.routeStart, preRoute.outputReserve, preRoute.overflowEstimate
+	inboundSpiralSignals, inboundSpiralReasons, inboundSpiralComputed := preRoute.inboundSpiralSignals, preRoute.inboundSpiralReasons, preRoute.inboundSpiralComputed
+	inboundToolCallCount, inboundLastUser, inboundUserPrompt, inboundLatestToolCalls := preRoute.inboundToolCallCount, preRoute.inboundLastUser, preRoute.inboundUserPrompt, preRoute.inboundLatestToolCalls
 	routeRes, _, routeErr := routeTurn(ctx, s, s.clock, log, routeTurnRequest{
 		Request:        req,
 		Started:        routeStart,
