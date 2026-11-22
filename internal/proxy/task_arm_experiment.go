@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
@@ -135,7 +136,7 @@ func applyTaskArmAttrs(b *telemetry.AttrBuilder, turn taskArmTurn, servedModel s
 
 func forceClusterForTurn(ports continuity.StrategyPorts, ctx context.Context, turnReq turnRequest, r *http.Request, env *translate.RequestEnvelope, feats translate.RoutingFeatures, forceModel string) (string, taskArmTurn, error) {
 	forceCluster, err := applyForceClusterHeader(ports, ctx, turnReq.Strategy, r)
-	if err != nil || handoffFromContext(ctx) != nil {
+	if err != nil || conversation.HandoffFromContext(ctx) != nil {
 		return forceCluster, taskArmTurn{}, err
 	}
 	hint := subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type"))

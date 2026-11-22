@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
@@ -129,8 +130,8 @@ func TestClassifyFailureOwner_Cases(t *testing.T) {
 		{"upstream 404", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusNotFound}}, turnrecord.FailureOwnerRouter},
 		{"status argument wins over chain", failureOwnerInput{Err: errors.New("boom"), Status: http.StatusServiceUnavailable}, turnrecord.FailureOwnerProvider},
 		{"hmm outage", failureOwnerInput{Err: fmt.Errorf("route: %w", hmm.ErrHMMUnavailable)}, turnrecord.FailureOwnerRouter},
-		{"handoff unavailable", failureOwnerInput{Err: ErrHandoffUnavailable}, turnrecord.FailureOwnerRouter},
-		{"handoff invalid", failureOwnerInput{Err: ErrHandoffInvalid}, turnrecord.FailureOwnerClient},
+		{"handoff unavailable", failureOwnerInput{Err: conversation.ErrHandoffUnavailable}, turnrecord.FailureOwnerRouter},
+		{"handoff invalid", failureOwnerInput{Err: conversation.ErrHandoffInvalid}, turnrecord.FailureOwnerClient},
 		{"context overflow", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 250000 tokens > 200000 maximum"}}`)}, BodyTranslated: true}, turnrecord.FailureOwnerClient},
 		{"subscription pool exhausted", failureOwnerInput{Err: fmt.Errorf("dispatch: %w", credentials.ErrSubscriptionPoolExhausted)}, turnrecord.FailureOwnerRouter},
 		{"subscription pool exhausted by an upstream 429 on every seat", failureOwnerInput{Err: errors.Join(credentials.ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"detail":"Rate limit exceeded"}`)})}, turnrecord.FailureOwnerProvider},

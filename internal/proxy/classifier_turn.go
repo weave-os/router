@@ -8,6 +8,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -33,7 +34,7 @@ func (s *Service) withClassifierInput(ctx context.Context, strategy router.Strat
 	if _, pinned := router.HonouredPolicyPin(ctx); pinned {
 		return ctx, router.ErrClassifierThreadInvalid
 	}
-	if preparingHandoff(ctx) || gjson.GetBytes(body, piSessionField).Exists() || gjson.GetBytes(body, piHandoffField).Exists() {
+	if conversation.PreparingHandoff(ctx) || gjson.GetBytes(body, conversation.PiSessionField).Exists() || gjson.GetBytes(body, conversation.PiHandoffField).Exists() {
 		return ctx, router.ErrClassifierThreadInvalid
 	}
 	var observation translate.EscalationObservation

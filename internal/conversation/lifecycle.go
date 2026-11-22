@@ -1,6 +1,8 @@
 package conversation
 
 import (
+	"time"
+
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/router/handover"
 )
@@ -12,6 +14,7 @@ type Lifecycle struct {
 	summarizer                   handover.Summarizer
 	compactionHandoverSummarizer handover.Summarizer
 	routerFeedback               feedback.RouterFeedbackStore
+	piHandoffSecret              []byte
 }
 
 func NewLifecycle() *Lifecycle {
@@ -71,4 +74,15 @@ func (l *Lifecycle) RouterFeedbackStore() feedback.RouterFeedbackStore {
 
 func (l *Lifecycle) SetRouterFeedbackStore(store feedback.RouterFeedbackStore) {
 	l.routerFeedback = store
+}
+
+func (l *Lifecycle) PiHandoff(now func() time.Time) PiHandoff {
+	if l == nil {
+		return PiHandoff{Now: now}
+	}
+	return PiHandoff{Secret: l.piHandoffSecret, Now: now}
+}
+
+func (l *Lifecycle) SetPiHandoffSecret(secret []byte) {
+	l.piHandoffSecret = secret
 }

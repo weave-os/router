@@ -97,7 +97,6 @@ type Service struct {
 	billing                  *billing.Service
 	clock                    auth.Clock
 	feedbackLinks            feedbackLinks
-	piHandoffSecret          []byte
 }
 
 type registeredStrategy struct {
@@ -1757,8 +1756,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
 	env, body, modelVariant1M := parsed.Envelope, parsed.Body, parsed.ModelVariant1M
-	if claims := piSessionFromContext(ctx); claims != nil && !claims.matches(ctx, env) {
-		return ErrHandoffInvalid
+	if claims := conversation.PiSessionFromContext(ctx); claims != nil && !piSessionMatches(ctx, claims, env) {
+		return conversation.ErrHandoffInvalid
 	}
 	var responseBuffer *responseCostBuffer
 	if !env.Stream() {
@@ -1787,7 +1786,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if err := validateHandoffEnvelope(ctx, env, r.Header, body); err != nil {
 		return err
 	}
-	if preparingHandoff(ctx) && !s.canPrepareHandoff(ctx, env, feats, r.Header, body) {
+	if conversation.PreparingHandoff(ctx) && !s.canPrepareHandoff(ctx, env, feats, r.Header, body) {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
 	}
 	promptText, embedInput := turnPromptText(feats)
@@ -1806,7 +1805,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		*r = *r.WithContext(ctx)
 	}
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
-	if preparingHandoff(ctx) && !s.authoritativePerTurnSelection(ctx, strategy) {
+	if conversation.PreparingHandoff(ctx) && !s.authoritativePerTurnSelection(ctx, strategy) {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
 	}
 
@@ -1877,11 +1876,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	enabledProviders := eligibility.EnabledProviders
 
-	if !preparingHandoff(ctx) && s.serveNativeWebSearch(ctx, body, feats.Model, env.Stream(), feats.Tokens, enabledProviders, r.Header, w) {
+	if !conversation.PreparingHandoff(ctx) && s.serveNativeWebSearch(ctx, body, feats.Model, env.Stream(), feats.Tokens, enabledProviders, r.Header, w) {
 		return nil
 	}
 
-	if !preparingHandoff(ctx) {
+	if !conversation.PreparingHandoff(ctx) {
 		if handled, searchErr := s.serveCodexWebSearch(ctx, body, feats.Model, env.Stream(), enabledProviders, r, w); handled {
 			return searchErr
 		}
@@ -1916,7 +1915,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		IsUserPrompt:   inboundUserPrompt,
 	}, func(routeCtx context.Context) (routingpolicy.TurnRoute, error) {
 		switch {
-		case handoffFromContext(ctx) != nil:
+		case conversation.HandoffFromContext(ctx) != nil:
 			return s.resumeHandoff(routeCtx, strategy, env, req, turntype.IsSubAgent(env, subAgentHintForRequest(routeCtx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(routeCtx))))
 		case agentShadowMode:
 			return s.runAgentShadowEvaluationRoute(routeCtx, env, feats, facts.InstallationID, req, agentShadowEval)
@@ -1926,7 +1925,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	defer routeRes.ReleaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
-		if !preparingHandoff(ctx) {
+		if !conversation.PreparingHandoff(ctx) {
 			s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseAnthropic)
 		}
 	}()
@@ -1936,7 +1935,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
 	ctx = withPickedModelFunding(ctx, routeRes.CallerModelPassthrough, routeRes.Decision.Provider)
 	ctx = s.withTurnOverloadProbe(ctx, routeRes)
-	if preparingHandoff(ctx) {
+	if conversation.PreparingHandoff(ctx) {
 		return s.finishHandoffPreparation(ctx, strategy, w, env, req, routeRes)
 	}
 	ctx = withRouteSessionState(ctx, routeRes)

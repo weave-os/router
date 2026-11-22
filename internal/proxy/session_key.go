@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"log/slog"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -84,7 +85,7 @@ func deriveSessionKeyForRequest(ctx context.Context, env *translate.RequestEnvel
 		digest := sha256.Sum256([]byte("classifier-thread:" + thread.InstallationID.String() + ":" + thread.ThreadID.String()))
 		return [sessionpin.SessionKeyLen]byte(digest[:sessionpin.SessionKeyLen])
 	}
-	if claims := piSessionFromContext(ctx); claims != nil && claims.APIKeyID == apiKeyID && claims.matches(ctx, env) {
+	if claims := conversation.PiSessionFromContext(ctx); claims != nil && claims.APIKeyID == apiKeyID && piSessionMatches(ctx, claims, env) {
 		return claims.SessionKey
 	}
 	key := deriveSessionKey(env, sessionCredentialIdentity(ctx, apiKeyID), clientSessionIDForRequest(ctx, env))
