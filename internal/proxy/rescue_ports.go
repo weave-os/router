@@ -19,6 +19,7 @@ func rescuePortsFor(s *Service) dispatch.RescuePorts {
 		Funding:     rescueFundingPort{},
 		Attempts:    rescueAttemptPort{s},
 		Overflow:    rescueOverflowPort{},
+		Render:      rescueRenderPort{},
 		Dispatch:    s.dispatchWithFallback,
 	}
 }
@@ -178,4 +179,74 @@ func (rescueOverflowPort) IsContextOverflow(err error) bool {
 
 func (rescueOverflowPort) RescuesCompactionOverflow(turnType turntype.TurnType, err error) bool {
 	return rescuesCompactionOverflow(turnType, err)
+}
+
+func (rescueCredentialPort) ResolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
+	return resolveAndInjectCredentials(ctx, provider, model, headers)
+}
+
+func (rescueCredentialPort) SuppressCodexSubscription(ctx context.Context) context.Context {
+	return withSuppressedCodexSubscription(ctx)
+}
+
+func (rescueCredentialPort) ServedOnCodexSubscription(ctx context.Context) bool {
+	return servedOnCodexSubscription(ctx)
+}
+
+func (rescueCredentialPort) SubscriptionCredentialFallbackUsed(ctx context.Context) bool {
+	return subscriptionCredentialFallbackUsed(ctx)
+}
+
+func (rescueCredentialPort) SubscriptionStateModelsEnabled(ctx context.Context) bool {
+	return subscriptionStateModelsEnabled(ctx)
+}
+
+func (rescueCredentialPort) AnthropicOAuthRejected(err error) bool {
+	return anthropicOAuthCredentialRejected(err)
+}
+
+func (rescueCredentialPort) AnthropicSubscriptionModelRejected(err error) bool {
+	return anthropicSubscriptionModelRejected(err)
+}
+
+func (rescueCredentialPort) AnthropicThirdPartyRefused(err error) bool {
+	return anthropicSubscriptionThirdPartyRefused(err)
+}
+
+func (rescueCredentialPort) CodexOAuthRejected(err error) bool {
+	return codexOAuthCredentialRejected(err)
+}
+
+func (rescueCredentialPort) CodexSubscriptionModelRejected(err error) bool {
+	return codexSubscriptionModelRejected(err)
+}
+
+func (rescueCredentialPort) CredentialRejectionStands(subscriptionErr, retryErr error, credentialRejected func(error) bool) bool {
+	return credentialRejectionStands(subscriptionErr, retryErr, credentialRejected)
+}
+
+func (rescueFundingPort) PaidFallbackForbidden(ctx context.Context, model string) bool {
+	return paidFallbackForbiddenForModel(ctx, model)
+}
+
+func (rescueFundingPort) PaidFallbackForbiddenOnProvider(ctx context.Context, provider, model string) bool {
+	return paidFallbackForbiddenForModelOnProvider(ctx, provider, model)
+}
+
+func (rescueFundingPort) PaidCapacityUnfunded(ctx context.Context) bool {
+	return paidCapacityUnfunded(ctx)
+}
+
+func (rescueOverflowPort) AsCompactionUnservable(turnType turntype.TurnType, decision router.Decision, err error) error {
+	return asCompactionUnservable(turnType, decision, err)
+}
+
+type rescueRenderPort struct{}
+
+func (rescueRenderPort) FlushOpenAIError(w http.ResponseWriter, err error) {
+	flushUpstreamErrorAsOpenAI(w, err)
+}
+
+func (rescueRenderPort) EmitOpenAISSEError(w http.ResponseWriter, err error) error {
+	return emitOpenAISSEErrorEvent(w, err)
 }
