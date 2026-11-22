@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/eligibility"
@@ -21,8 +22,8 @@ func TestRefusalContract_AnthropicType(t *testing.T) {
 	}{
 		{err: eligibility.ErrModelIneligible, want: "permission_error"},
 		{err: proxy.ErrSubscriptionClientAppRefused, want: "permission_error"},
-		{err: proxy.ErrSpendCapSubscriptionUnavailable, want: "billing_error"},
-		{err: proxy.ErrCreditsExhaustedSubscriptionUnavailable, want: "billing_error"},
+		{err: credentials.ErrSpendCapSubscriptionUnavailable, want: "billing_error"},
+		{err: credentials.ErrCreditsExhaustedSubscriptionUnavailable, want: "billing_error"},
 		{err: proxy.ErrWeaveCreditsDisabled, want: "billing_error"},
 		{err: proxy.ErrClaudeEnterpriseSubscriptionUnavailable, want: "billing_error"},
 		{err: proxy.ErrSubscriptionPoolExhausted, want: "rate_limit_error"},

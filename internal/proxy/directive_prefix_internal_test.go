@@ -76,7 +76,7 @@ func TestRouterSessionCommand_AnswersSyntheticallyFromRequestIdentity(t *testing
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleRouterSessionCommand(
+	require.NoError(t, (routerInfoCommands{svc}).session(
 		codexCtx("01a08ca1-6f83-7233-9e53-bc6c07d2a805"), rec, env, 10))
 
 	assert.Contains(t, rec.Body.String(), "01a08ca1-6f83-7233-9e53-bc6c07d2a805")

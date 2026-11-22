@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -79,7 +80,7 @@ func proxyPinnedCodexOverload(t *testing.T, pinFound bool) (*anthropicServingCli
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	ctx = router.WithStrategy(ctx, strategy)
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyLinkedFirst)
 	err := svc.ProxyOpenAIResponses(ctx, []byte(pinnedOverloadToolTurnBody), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", pinnedOverloadToolTurnBody))
 	return sibling, rec, err

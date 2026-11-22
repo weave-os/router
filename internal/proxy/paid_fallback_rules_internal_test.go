@@ -69,10 +69,10 @@ func paidFallbackBindings() []paidFallbackFacts {
 		}},
 		{"enterprise-seat", withEnterpriseSeat},
 		{"enterprise-cap-refused", func(ctx context.Context) context.Context {
-			return context.WithValue(withEnterpriseSeat(ctx), credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
+			return context.WithValue(withEnterpriseSeat(ctx), credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
 		}},
 		{"enterprise-cap-refused-attempt", func(ctx context.Context) context.Context {
-			ctx = context.WithValue(withEnterpriseSeat(ctx), credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
+			ctx = context.WithValue(withEnterpriseSeat(ctx), credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
 			return context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
 		}},
 	}

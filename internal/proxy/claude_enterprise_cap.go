@@ -19,7 +19,7 @@ func claudeEnterpriseCapRefused(err error) bool {
 }
 
 func claudeEnterpriseCapRescue(ctx context.Context) bool {
-	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 	return state != nil && state.ClaudeEnterpriseCapRefused && usableBYOK(ctx, providers.ProviderAnthropic) != nil
 }
 
@@ -39,12 +39,12 @@ func claudeEnterpriseCapRotation(credentialCtx, attemptCtx context.Context, deci
 	if !servedOnSubscription(credentialCtx) || !claudeEnterpriseTurn(credentialCtx) || !claudeEnterpriseCapRefused(attemptErr) {
 		return attemptCtx, false
 	}
-	state, _ := credentialCtx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := credentialCtx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 	if state == nil || usableBYOK(credentialCtx, providers.ProviderAnthropic) == nil {
 		return attemptCtx, false
 	}
 	state.ClaudeEnterpriseCapRefused = true
-	return resolveAndInjectCredentials(withSuppressedClaudeSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{}), true
+	return resolveAndInjectCredentials(credentials.WithSuppressedClaudeSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{}), true
 }
 
 func bypassMayReroute(ctx context.Context, err error) bool {

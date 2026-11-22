@@ -154,7 +154,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				if scenario.forceWithEffort {
 					request.Header.Set(requestcontext.ForceModelHeader, gatewayCompactionOpusModel+":high")
 				}
-				err = svc.ProxyMessages(WithManagedSubscriptionUsage(ctx), body, recorder, request)
+				err = svc.ProxyMessages(credentials.WithManagedSubscriptionUsage(ctx), body, recorder, request)
 				return recorder, err
 			}
 
