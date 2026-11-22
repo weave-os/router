@@ -464,21 +464,7 @@ func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
 	if planHasDedicatedServingPolicy(ctx) && !subscriptionStateModelsEnabled(ctx) {
 		return nil
 	}
-	policy := installationAllowedModelSet(ctx)
-	subset := requestAllowedModelSet(ctx)
-	if subset == nil {
-		return policy
-	}
-	if policy == nil {
-		return subset
-	}
-	out := make(map[string]struct{}, len(subset))
-	for m := range subset {
-		if _, ok := policy[m]; ok {
-			out[m] = struct{}{}
-		}
-	}
-	return out
+	return candidates.IntersectAllowed(installationAllowedModelSet(ctx), requestAllowedModelSet(ctx))
 }
 
 func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
@@ -495,19 +481,10 @@ func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
 	if !hasSelectedStateModels {
 		return allowed
 	}
-	if allowed == nil {
-		if stateModels == nil {
-			return make(map[string]struct{})
-		}
-		return stateModels
+	if stateModels == nil {
+		stateModels = make(map[string]struct{})
 	}
-	intersection := make(map[string]struct{})
-	for model := range stateModels {
-		if _, permitted := allowed[model]; permitted {
-			intersection[model] = struct{}{}
-		}
-	}
-	return intersection
+	return candidates.IntersectAllowed(allowed, stateModels)
 }
 
 func modelPermittedByAllowlist(ctx context.Context, model string) bool {
@@ -520,14 +497,7 @@ func modelPermittedByAllowlist(ctx context.Context, model string) bool {
 }
 
 func (s *Service) routableUniverse() map[string]struct{} {
-	if s.availableModels != nil {
-		return s.availableModels
-	}
-	out := make(map[string]struct{}, len(catalog.Models))
-	for _, m := range catalog.Models {
-		out[m.ID] = struct{}{}
-	}
-	return out
+	return candidates.RoutableUniverse(s.availableModels)
 }
 
 func subscriptionRoutingDisabledForRequest(ctx context.Context) bool {
@@ -570,33 +540,14 @@ func (s *Service) policyExcludedModels(ctx context.Context) map[string]struct{} 
 }
 
 func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]struct{}) map[string]struct{} {
-	ineligible := s.productIneligibleModels(ctx)
-	if override := s.routing.ExcludedModelsOverride(); override != nil {
-		return candidates.MergeExcludedModels(override, ineligible)
-	}
-	excluded := installationExcludedModelsFromContext(ctx)
-	out := make(map[string]struct{}, len(excluded))
-	for _, m := range excluded {
-		out[m] = struct{}{}
-	}
-	for m := range ineligible {
-		out[m] = struct{}{}
-	}
-
-	if allowed != nil {
-		for model := range s.routableUniverse() {
-			if _, ok := allowed[model]; !ok {
-				out[model] = struct{}{}
-			}
-		}
-	}
-	for model := range s.gatewayUnservedModelsForRequest(ctx) {
-		out[model] = struct{}{}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return candidates.ExcludedModels(candidates.ExclusionSources{
+		Override:             s.routing.ExcludedModelsOverride(),
+		ProductIneligible:    s.productIneligibleModels(ctx),
+		InstallationExcluded: installationExcludedModelsFromContext(ctx),
+		Allowed:              allowed,
+		Available:            s.availableModels,
+		GatewayUnserved:      func() map[string]struct{} { return s.gatewayUnservedModelsForRequest(ctx) },
+	})
 }
 
 func (s *Service) productIneligibleModels(ctx context.Context) map[string]struct{} {
@@ -677,20 +628,15 @@ func installationFastModeModelsFromContext(ctx context.Context) []string {
 	return out
 }
 
-func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
-	var preferred []string
+func preferredModelsForRequest(ctx context.Context) []string {
+	var subscriptionModels, installationPreferred []string
 	if subscriptionStateModelsEnabled(ctx) {
-		preferred = slices.Clone(installationSubscriptionModelsWhenActiveFromContext(ctx))
+		subscriptionModels = installationSubscriptionModelsWhenActiveFromContext(ctx)
 	}
-	if planHasDedicatedServingPolicy(ctx) {
-		return preferred
+	if !planHasDedicatedServingPolicy(ctx) {
+		installationPreferred = installationPreferredModelsFromContext(ctx)
 	}
-	for _, model := range installationPreferredModelsFromContext(ctx) {
-		if !slices.Contains(preferred, model) {
-			preferred = append(preferred, model)
-		}
-	}
-	return preferred
+	return candidates.PreferredModels(subscriptionModels, installationPreferred)
 }
 
 func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
@@ -729,39 +675,6 @@ const extendedContextTriggerTokens = 140_000
 
 func shouldEnableExtendedContext(est, outputReserve int) bool {
 	return est+outputReserve > extendedContextTriggerTokens
-}
-
-func (s *Service) restrictToTier(excluded map[string]struct{}, tier catalog.Tier) (map[string]struct{}, bool) {
-	if tier == catalog.TierUnknown {
-		return excluded, false
-	}
-	out := make(map[string]struct{}, len(excluded))
-	for k := range excluded {
-		out[k] = struct{}{}
-	}
-	inTierEligible := 0
-	consider := func(model string) {
-		if catalog.TierFor(model) == tier {
-			if _, alreadyExcluded := excluded[model]; !alreadyExcluded {
-				inTierEligible++
-			}
-			return
-		}
-		out[model] = struct{}{}
-	}
-	if s.availableModels != nil {
-		for model := range s.availableModels {
-			consider(model)
-		}
-	} else {
-		for _, m := range catalog.Models {
-			consider(m.ID)
-		}
-	}
-	if inTierEligible == 0 {
-		return excluded, false
-	}
-	return out, true
 }
 
 func subscriptionProvidersForRequest(ctx context.Context) map[string]struct{} {
@@ -2243,7 +2156,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		GatewayProviders:             eligibility.GatewayProviders,
 		SubscriptionProviders:        s.selectableSubscriptionProviders(ctx, r.Header),
 		Candidates:                   prefilteredCandidates(ctx, excluded, prefiltered),
-		PreferredModels:              s.preferredModelsForRequest(ctx),
+		PreferredModels:              preferredModelsForRequest(ctx),
 		RoutingKnobs:                 routingKnobsForRequest(ctx),
 		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
 		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
@@ -3395,23 +3308,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 	if !codexAvailable || (!paidFallbackForbiddenFor(ctx, providers.ProviderOpenAI) && s.openAIPaidCredentialAvailable(ctx, headers)) {
 		return excluded
 	}
-	for _, model := range catalog.Models {
-		if codexSubscriptionCanAttemptModel(model.ID) {
-			continue
-		}
-		for _, binding := range model.Providers {
-			if enabledProviders != nil {
-				if _, enabled := enabledProviders[binding.Provider]; !enabled {
-					continue
-				}
-			}
-			if binding.Provider == providers.ProviderOpenAI {
-				excluded = candidates.ExcludingModel(excluded, model.ID)
-			}
-			break
-		}
-	}
-	return excluded
+	return candidates.ExcludeCodexOAuthOnlyModels(enabledProviders, excluded, codexSubscriptionCanAttemptModel)
 }
 
 func addTimingAttrs(ctx context.Context, b *telemetry.AttrBuilder) {
@@ -3869,7 +3766,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
 		SubscriptionProviders:        s.selectableSubscriptionProviders(ctx, r.Header),
 		Candidates:                   prefilteredCandidates(ctx, excludedOAI, prefiltered),
-		PreferredModels:              s.preferredModelsForRequest(ctx),
+		PreferredModels:              preferredModelsForRequest(ctx),
 		RoutingKnobs:                 routingKnobsForRequest(ctx),
 		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
 		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),

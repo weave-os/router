@@ -917,7 +917,7 @@ func (s *Service) runTurnLoop(
 		var fresh router.Decision
 		routed := false
 		if forcedTierFloor != catalog.TierUnknown {
-			if constrained, ok := s.restrictToTier(req.Candidates.ExcludedModels, forcedTierFloor); ok {
+			if constrained, ok := candidates.RestrictToTier(req.Candidates.ExcludedModels, forcedTierFloor, s.availableModels); ok {
 				tierReq := req
 				tierReq.Candidates.ExcludedModels = constrained
 				if dec, derr := s.routeFor(ctx, strategy, tierReq); derr == nil {
