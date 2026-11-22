@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/telemetry/turnrecord"
 )

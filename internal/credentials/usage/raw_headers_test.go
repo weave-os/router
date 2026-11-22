@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/credentials/usage"
 )
 
 func TestRawAnthropicUnifiedHeaders(t *testing.T) {
