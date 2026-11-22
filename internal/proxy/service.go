@@ -24,7 +24,6 @@ import (
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandswap"
@@ -105,7 +104,6 @@ type Service struct {
 	clock                    auth.Clock
 	feedbackLinks            feedbackLinks
 	piHandoffSecret          []byte
-	usageObserver            *usage.Observer
 }
 
 type registeredStrategy struct {
@@ -2099,9 +2097,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if s.claudeSubscriptionExhausted(ctx, r.Header) {
 		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 		if s.linkedSeatCanCover(ctx, decision.Provider, decision.Model) {
-			ctx = withDeferredReconnectNudge(ctx, claudeSubscriptionReconnectNudge(ctx, r.Header, s.usageObserver))
+			ctx = withDeferredReconnectNudge(ctx, claudeSubscriptionReconnectNudge(ctx, r.Header, s.credentials.UsageObserver))
 		} else {
-			ctx = withSubscriptionReconnectNudge(ctx, claudeSubscriptionReconnectNudge(ctx, r.Header, s.usageObserver))
+			ctx = withSubscriptionReconnectNudge(ctx, claudeSubscriptionReconnectNudge(ctx, r.Header, s.credentials.UsageObserver))
 		}
 	}
 	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
@@ -2246,7 +2244,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	rescue := &messagesRescue{
 		rescueChain: &rescueChain{
-			rescuePorts: rescuePortsFor(s), markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.usageObserver}, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.usageObserver,
+			rescuePorts: rescuePortsFor(s), markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver}, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.credentials.UsageObserver,
 			r:                r,
 			log:              log,
 			env:              env,
@@ -3218,7 +3216,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	effortServed.Apply(&opts)
 
 	if s.codexSubscriptionExhausted(ctx, r.Header) {
-		nudge := codexSubscriptionReconnectNudge(ctx, r.Header, s.usageObserver)
+		nudge := codexSubscriptionReconnectNudge(ctx, r.Header, s.credentials.UsageObserver)
 		ctx = withSuppressedCodexSubscription(ctx)
 		if codexSeatsCoverOrThrottled(ctx, s.linkedSeatCanCover(ctx, decision.Provider, decision.Model), s.clock.Now()) {
 			ctx = withDeferredReconnectNudge(ctx, nudge)
@@ -3363,7 +3361,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	rescue := &chatRescue{
 		rescueChain: &rescueChain{
-			rescuePorts: rescuePortsFor(s), markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.usageObserver}, seats: seatAdmissionOf(s), clock: s.clock,
+			rescuePorts: rescuePortsFor(s), markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver}, seats: seatAdmissionOf(s), clock: s.clock,
 			r:                r,
 			log:              log,
 			env:              env,

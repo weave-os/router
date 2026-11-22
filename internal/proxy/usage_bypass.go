@@ -61,7 +61,7 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 		return "", false
 	}
 	cfg, ok := usageBypassFromContext(ctx)
-	if !ok || s.usageObserver == nil {
+	if !ok || s.credentials.UsageObserver == nil {
 		return "", false
 	}
 	provider, token, covered := subscriptionCoveredTarget(ctx, headers, req)
@@ -71,7 +71,7 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if provider == providers.ProviderAnthropic && s.credentials.SubscriptionModels.Denied([]byte(token), req.RequestedModel, s.clock.Now()) {
 		return "", false
 	}
-	snap, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
+	snap, observed := s.credentials.UsageObserver.Snapshot(s.credentials.UsageObserver.Key([]byte(token)))
 	if !observed {
 		return provider, true
 	}

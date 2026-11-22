@@ -99,13 +99,13 @@ func TestSubscriptionFundingFinalOAuthLeaseIsAllowed(t *testing.T) {
 func TestSubscriptionFundingUnknownEnrollmentAndGatewayBinding(t *testing.T) {
 	svc := newServiceWithProviders(t, nil)
 	unknownCtx := context.WithValue(context.Background(), credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
-	require.ErrorIs(t, svc.subscriptionAPIAuthorization(unknownCtx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String()), ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, svc.subscriptionAPIAuthorization(unknownCtx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String()), credentials.ErrSubscriptionPoolUnavailable)
 	// Gemini has no compatible subscription pool; unrelated uncertainty cannot block it.
 	_, known := catalog.ByID(catalog.ModelIDGemini31ProPreview.String())
 	require.True(t, known)
 	require.NoError(t, svc.subscriptionAPIAuthorization(unknownCtx, providers.ProviderGoogle, catalog.ModelIDGemini31ProPreview.String()))
 	ctx := WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), []*auth.SubscriptionAccount{{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
-	require.ErrorIs(t, svc.subscriptionAPIAuthorization(ctx, providers.ProviderAnthropicGateway, catalog.ModelIDClaudeOpus48.String()), ErrSubscriptionPoolUnavailable,
+	require.ErrorIs(t, svc.subscriptionAPIAuthorization(ctx, providers.ProviderAnthropicGateway, catalog.ModelIDClaudeOpus48.String()), credentials.ErrSubscriptionPoolUnavailable,
 		"a gateway binding must not bypass catalog-compatible pool authorization")
 }
 
@@ -118,7 +118,7 @@ func TestSubscriptionRecoveryDoesNotExpandAdmissionSnapshot(t *testing.T) {
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 	_, err := svc.dispatchWithFallback(ctx, in)
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
 	require.Zero(t, upstream.calls)
 }
 
@@ -148,8 +148,8 @@ func TestSubscriptionLeaseOutsideSnapshotBlocksPaidRecovery(t *testing.T) {
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 	_, err := svc.dispatchWithFallback(ctx, in)
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
-	require.NotErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
+	require.NotErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	require.Zero(t, upstream.calls, "an unproven unadmitted seat must not authorize paid recovery")
 }
 
@@ -234,7 +234,7 @@ func TestSubscriptionFundingObservedQuotaAndAdmissionSnapshotAreDetached(t *test
 	ctx := WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), []*auth.SubscriptionAccount{account})
 	account.State = auth.SubscriptionAccountStateExhausted
 	svc := newServiceWithProviders(t, nil)
-	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable)
 	observer := usage.NewObserver([]byte("synthetic-salt"), time.Minute, time.Now)
 	observer.Record(observer.Key([]byte("subscription-account:seat")), usage.Snapshot{Primary: usage.Window{UsedPercent: 1, WindowMinutes: 300, ResetAt: resetAt}})
 	svc.WithUsageObserver(observer)
@@ -289,7 +289,7 @@ func TestSubscriptionFundingExpiredShortWindowCannotAuthorizeAPI(t *testing.T) {
 				now = observedAt.Add(6 * time.Hour)
 				_, cached := observer.Snapshot(key)
 				require.True(t, cached, "the weekly reading intentionally keeps this snapshot cached")
-				require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, directToken, "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
+				require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, directToken, "", clientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
 					"a stale short-window cap is not current quota proof")
 			})
 		}
@@ -325,10 +325,10 @@ func TestSubscriptionFundingDirectTokenOverageIsQuotaProof(t *testing.T) {
 	svc.clock = func() time.Time { return now }
 	require.NoError(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, inference.Target{}, "", "synthetic-direct-token", clientAppRefusalFunding{}))
 	now = now.Add(2 * time.Hour)
-	require.ErrorIs(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, inference.Target{}, "", "synthetic-direct-token", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
+	require.ErrorIs(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, inference.Target{}, "", "synthetic-direct-token", clientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
 		"overage past the plan reset is not current quota proof")
 	observer.Record(observer.Key([]byte("synthetic-undated-token")), usage.Snapshot{OverageInUse: true})
-	require.ErrorIs(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, inference.Target{}, "", "synthetic-undated-token", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
+	require.ErrorIs(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, inference.Target{}, "", "synthetic-undated-token", clientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
 		"overage without a reported plan reset cannot authorize paid inference indefinitely")
 }
 
@@ -336,5 +336,5 @@ func TestEnrolledPoolWithoutQuotaSnapshotFundsCredits(t *testing.T) {
 	ctx := context.WithValue(context.Background(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 	svc := newServiceWithProviders(t, nil)
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{}))
-	require.ErrorIs(t, svc.authorizeSubscriptionAPI(billing.WithWeaveCreditsDenied(ctx), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, svc.authorizeSubscriptionAPI(billing.WithWeaveCreditsDenied(ctx), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable)
 }

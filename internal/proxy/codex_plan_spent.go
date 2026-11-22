@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
@@ -45,7 +46,7 @@ func dropFailedIncludedModels(includedModels []string, failed string, excluded m
 
 func emptyPaidPoolErr(ctx context.Context, includedFailure error, now time.Time) error {
 	if includedFailure == nil && seatsThrottled(ctx, subscriptions.ProviderCodex, now) {
-		return subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolThrottled)
+		return credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolThrottled)
 	}
 	return includedFailureOr(includedFailure, router.ErrAllowlistEmptiesPool)
 }

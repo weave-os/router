@@ -49,21 +49,21 @@ func (s *Service) openaiFallbackKeyAvailable(ctx context.Context) bool {
 }
 
 func (s *Service) codexSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
-	if s.usageObserver == nil || pickedModelOnOwnPlan(ctx) {
+	if s.credentials.UsageObserver == nil || pickedModelOnOwnPlan(ctx) {
 		return false
 	}
 	codexTok, _ := presentSubscriptionTokens(ctx, headers)
 	if codexTok == "" {
 		return false
 	}
-	key := s.usageObserver.Key([]byte(codexTok))
-	if s.usageObserver.Rejected(key) {
+	key := s.credentials.UsageObserver.Key([]byte(codexTok))
+	if s.credentials.UsageObserver.Rejected(key) {
 		return true
 	}
 	if s.codexExtraCreditsAllowed() {
 		return false
 	}
-	snap, ok := s.usageObserver.Snapshot(key)
+	snap, ok := s.credentials.UsageObserver.Snapshot(key)
 	return ok && snap.BillableOrExhausted() && !ownOverageServesFirst(ctx, snap)
 }
 
@@ -137,7 +137,7 @@ func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.H
 	if !exhausted && upstreamStatus(err) == http.StatusTooManyRequests {
 		recordCallerPlanThrottle(ctx, subscriptions.ProviderCodex, managedSubscriptionResetAt(err, s.clock.Now()))
 	}
-	if !exhausted || s.usageObserver == nil {
+	if !exhausted || s.credentials.UsageObserver == nil {
 		return
 	}
 	codexTok, _ := presentSubscriptionTokens(ctx, headers)
@@ -146,11 +146,11 @@ func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.H
 
 func (s *Service) recordCodexCredentialUnusable(ctx context.Context, creds *Credentials, err error) {
 	recordCallerCodexFailureOnLinkedSeat(ctx, creds, err, s.clock.Now())
-	if s.usageObserver == nil || creds == nil || !creds.OAuth {
+	if s.credentials.UsageObserver == nil || creds == nil || !creds.OAuth {
 		return
 	}
 	if codexOAuthCredentialRejected(err) {
-		s.usageObserver.RecordRejected(s.usageObserver.Key(creds.APIKey), s.clock.Now().Add(codexRejectedTokenHold))
+		s.credentials.UsageObserver.RecordRejected(s.credentials.UsageObserver.Key(creds.APIKey), s.clock.Now().Add(codexRejectedTokenHold))
 		observability.FromContext(ctx).Info("Codex subscription token rejected; skipping it on later turns", "hold", codexRejectedTokenHold)
 		return
 	}
@@ -165,7 +165,7 @@ func (s *Service) recordCodexPlanSpent(ctx context.Context, codexTok string, res
 	if codexTok == "" {
 		return
 	}
-	s.usageObserver.Record(s.usageObserver.Key([]byte(codexTok)), usage.Snapshot{
+	s.credentials.UsageObserver.Record(s.credentials.UsageObserver.Key([]byte(codexTok)), usage.Snapshot{
 		Primary: codexExhaustionWindow(resetAt, s.clock.Now()),
 	})
 	observability.FromContext(ctx).Info("Codex subscription reported its plan spent; suppressing it until reset",

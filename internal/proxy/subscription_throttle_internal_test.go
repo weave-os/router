@@ -37,8 +37,8 @@ func activeCodexAccount(id string) *auth.SubscriptionAccount {
 
 func requireThrottledRefusal(t *testing.T, err error) {
 	t.Helper()
-	require.ErrorIs(t, err, ErrSubscriptionPoolThrottled)
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable, "callers branching on pool-unavailable must keep treating it as a refusal")
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolThrottled)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable, "callers branching on pool-unavailable must keep treating it as a refusal")
 	class, classified := ClassifyDispatchError(err)
 	require.True(t, classified)
 	require.Equal(t, http.StatusTooManyRequests, class.Status)
@@ -57,16 +57,16 @@ func TestAuthorizeSubscriptionAPI_RateLimitedPoolRefusesAs429(t *testing.T) {
 
 	require.True(t, svc.recordManagedSubscriptionFailure(ctx, providers.ProviderOpenAI, codexCoveredModel, subscriptions.Lease{AccountID: "seat-1"}, codexRateLimitedErr()))
 	err := authorize()
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
-	require.NotErrorIs(t, err, ErrSubscriptionPoolThrottled, "an untried seat with unknown quota is not a throttle")
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
+	require.NotErrorIs(t, err, credentials.ErrSubscriptionPoolThrottled, "an untried seat with unknown quota is not a throttle")
 
 	require.True(t, svc.recordManagedSubscriptionFailure(ctx, providers.ProviderOpenAI, codexCoveredModel, subscriptions.Lease{AccountID: "seat-2"}, codexRateLimitedErr()))
 	requireThrottledRefusal(t, authorize())
 
 	now = now.Add(time.Hour)
 	err = authorize()
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
-	require.NotErrorIs(t, err, ErrSubscriptionPoolThrottled, "an expired cooldown no longer explains the refusal")
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
+	require.NotErrorIs(t, err, credentials.ErrSubscriptionPoolThrottled, "an expired cooldown no longer explains the refusal")
 }
 
 func TestAuthorizeSubscriptionAPI_PersistedCooldownCountsAsThrottle(t *testing.T) {
@@ -108,8 +108,8 @@ func TestAuthorizeSubscriptionAPI_UnknownCallerQuotaKeeps503(t *testing.T) {
 	recordManagedThrottle(ctx, "seat-1", now.Add(time.Minute))
 
 	err := svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{})
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable, "paid fallback stays blocked")
-	require.NotErrorIs(t, err, ErrSubscriptionPoolThrottled, "the caller's own plan has no rate-limit evidence")
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable, "paid fallback stays blocked")
+	require.NotErrorIs(t, err, credentials.ErrSubscriptionPoolThrottled, "the caller's own plan has no rate-limit evidence")
 }
 
 // Proven exhaustion still authorizes paid fallback, and alongside a throttled
@@ -155,7 +155,7 @@ func TestAuthorizeSubscriptionAPI_CredentialRejectedCooldownDoesNotBlockPaidFall
 	expired := now.Add(-time.Minute)
 	deadToken.CooldownUntil = &expired
 	err := svc.authorizeSubscriptionAPI(throttleTestContext(deadToken, spent, reconnect), subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{})
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable, "once the credential cooldown lapses the seat may refresh and serve again")
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable, "once the credential cooldown lapses the seat may refresh and serve again")
 }
 
 // Incident 2026-11-13: the caller's own ChatGPT plan answered a generic 429
@@ -181,8 +181,8 @@ func TestAuthorizeSubscriptionAPI_RateLimitedCallerPlanRefusesAs429(t *testing.T
 
 	now = now.Add(2 * time.Minute)
 	err := authorize(pooled)
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
-	require.NotErrorIs(t, err, ErrSubscriptionPoolThrottled, "an expired caller rate limit no longer explains the refusal")
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
+	require.NotErrorIs(t, err, credentials.ErrSubscriptionPoolThrottled, "an expired caller rate limit no longer explains the refusal")
 }
 
 func TestAuthorizeSubscriptionAPI_CallerQuotaExhaustionStillAuthorizesPaidFallback(t *testing.T) {

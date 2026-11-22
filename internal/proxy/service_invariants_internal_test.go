@@ -220,7 +220,7 @@ func TestUsageBypassEngaged_UnsetThresholdDefaultsToNinetyFivePercent(t *testing
 	}{{0.90, true}, {0.96, false}} {
 		obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 		obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: c.used, WindowMinutes: 300}})
-		svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), usageObserver: obs}
+		svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: obs}}
 		ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
 		ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 		_, ok := svc.usageBypassEngaged(ctx, http.Header{}, router.Request{

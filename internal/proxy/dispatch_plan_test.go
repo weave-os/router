@@ -262,7 +262,7 @@ func TestDispatchPlanned_LeaseFailureIsTerminal(t *testing.T) {
 	in.InitialDecision.Model = "claude-opus-4-8"
 	_, err := s.dispatchWithFallback(ctx, in)
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
 	assert.Equal(t, 0, primary.calls, "no upstream call without a lease")
 	assert.Equal(t, 0, fallback.calls, "a pool failure must not fail over to a paid binding")
 	assert.Equal(t, 0, slept, "a pool failure must not same-binding retry")

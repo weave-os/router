@@ -141,7 +141,7 @@ func (l *accountLoop) oauthTransportFallback(ctx, attemptCtx context.Context) (c
 	s, decision := l.s, l.decision
 	if current := CredentialsFromContext(attemptCtx); current != nil && current.OAuth && !s.supportsSubscriptionTransport(decision.Provider) {
 		if subscriptionAttemptOnly(ctx) || paidFallbackForbidden(ctx) || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderCodex) && decision.Provider == providers.ProviderOpenAI || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderClaude) && decision.Provider == providers.ProviderAnthropic {
-			return nil, dispatch.Abort{Err: subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)}
+			return nil, dispatch.Abort{Err: credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)}
 		}
 		attemptCtx = resolveAndInjectCredentials(credentials.WithSuppressedClaudeSubscription(withSuppressedCodexSubscription(attemptCtx)), decision.Provider, decision.Model, http.Header{})
 	}
@@ -151,7 +151,7 @@ func (l *accountLoop) oauthTransportFallback(ctx, attemptCtx context.Context) (c
 func (l *accountLoop) leaseAccount(ctx, attemptCtx context.Context, account int) (context.Context, leasedAccount, error) {
 	s, decision, rotationBudget := l.s, l.decision, l.rotationBudget
 	if !subscriptionAPIOnly(attemptCtx) && rotationBudget.remaining <= 0 {
-		return nil, leasedAccount{}, dispatch.Abort{Err: s.afterSubscriptionRotationBudget(ctx, decision, account, subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable))}
+		return nil, leasedAccount{}, dispatch.Abort{Err: s.afterSubscriptionRotationBudget(ctx, decision, account, credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable))}
 	}
 	leaseCtx, finishLease := rotationBudget.leaseContext(attemptCtx, s.clock.Now)
 	if subscriptionAPIOnly(attemptCtx) {

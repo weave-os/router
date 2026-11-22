@@ -99,7 +99,7 @@ func TestUnifiedLimitHeadersJSON(t *testing.T) {
 	})
 }
 
-// Capture must work when s.usageObserver is nil — the Phase 0 dogfooding
+// Capture must work when s.credentials.UsageObserver is nil — the Phase 0 dogfooding
 // scenario before subsidy-aware routing is enabled.
 func TestWithUsageObserver_CapturesRawHeadersEvenWithoutSubsidyObserver(t *testing.T) {
 	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()} // usageObserver is nil: subsidy feature not configured

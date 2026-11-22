@@ -99,7 +99,7 @@ func TestUsageBypassDecision_CodexSubscriptionPreservesRequestedModel(t *testing
 	obs.Record(obs.Key([]byte(codexToken)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
-	svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), usageObserver: obs}
+	svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: obs}}
 	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, codexToken)
 	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "account-1")
 	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{
@@ -136,7 +136,7 @@ func TestUsageBypassDecision_SessionDemotionBlocks_GlobalAutomaticExclusionDoesN
 	obs.Record(obs.Key([]byte(token)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
-	svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), usageObserver: obs}
+	svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: obs}}
 	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
@@ -199,7 +199,7 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}}
 
 	t.Run("installation excluded_models does not block bypass", func(t *testing.T) {
-		svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), usageObserver: newObs()}
+		svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: newObs()}}
 		provider, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{
 			RequestedModel:   model,
 			EnabledProviders: enabled,
@@ -212,7 +212,7 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 	})
 
 	t.Run("safety exclusion blocks bypass", func(t *testing.T) {
-		svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), usageObserver: newObs()}
+		svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: newObs()}}
 		_, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{
 			RequestedModel:   model,
 			EnabledProviders: enabled,
@@ -224,7 +224,7 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 	})
 
 	t.Run("both excluded: safety exclusion still blocks", func(t *testing.T) {
-		svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), usageObserver: newObs()}
+		svc := &Service{hmmServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: newObs()}}
 		_, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{
 			RequestedModel:   model,
 			EnabledProviders: enabled,
