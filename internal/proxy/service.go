@@ -1773,7 +1773,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
 	logPlannerOutcome(ctx, s.strategyPorts, routeRes)
 
-	post, err := conversation.PostRouteChecks{
+	postOutcome, err := conversation.PostRouteChecks{
 		AgentShadowMode: agentShadowMode, Route: routeRes, Env: env, Features: feats, PromptText: promptText, ToolCallCount: inboundToolCallCount,
 		ToolBearing: inboundToolCallCount > 0 || inboundLastUser.HasToolResult, ClientBudget: clientBudget, Scope: req,
 		LoopBreak:  newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, roleForTier(catalog.TierFor(feats.Model)), decision),
@@ -1787,10 +1787,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if err != nil {
 		return err
 	}
-	if post.LoopStopped {
-		return writeLoopStop(ctx, w, env, post.LoopStopMessage, feats.Tokens)
+	if postOutcome.LoopStopped {
+		return writeLoopStop(ctx, w, env, postOutcome.LoopStopMessage, feats.Tokens)
 	}
-	compactionHandoverOutcome := post.CompactionHandover
+	compactionHandoverOutcome := postOutcome.CompactionHandover
 
 	credentialCtx := resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
