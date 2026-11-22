@@ -114,7 +114,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		if candidate.Provider != auth.SubscriptionProvider(pool) || !candidate.Enabled || candidate.State == auth.SubscriptionAccountStateDisabled || candidate.State == auth.SubscriptionAccountStateReconnectRequired {
 			continue
 		}
-		if s.managedAccountQuotaExhausted(ctx, candidate, now) || credentials.ManagedAccountCredentialCooling(candidate, now) {
+		if s.managedAccountQuotaExhausted(ctx, candidate, now) || (candidate.State == auth.SubscriptionAccountStateCooldown && candidate.ResetAt.After(now) && candidate.CredentialRejected) {
 			continue
 		}
 		if s.credentials.SubscriptionModels.ManagedDenied("account:"+candidate.AccountID, candidate.AccountID, target.Provider, target.CatalogID, now) {
