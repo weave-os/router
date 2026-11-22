@@ -108,7 +108,7 @@ func recordGeminiUpstream(ctx context.Context, s *Service, t *geminiFinishedTurn
 	telemetry.Flush(ctx)
 
 	s.recordTurnUsage(ctx, t.routeRes, t.finalProvider, t.decision.ServedIdentity(), usage.in, usage.out, usage.cacheCreation, usage.cacheRead, t.extractor.OutputLimitReached())
-	s.clearRecoveredCooldown(ctx, t.routeRes, t.decision.Model, t.proxyErr)
+	clearRecoveredCooldown(ctx, s, t.routeRes, t.decision.Model, t.proxyErr)
 	return geminiObs
 }
 

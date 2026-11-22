@@ -41,10 +41,10 @@ func TestLoopBreaksDoNotNameModelForBlindExperimentSubjects(t *testing.T) {
 		require.NoError(t, err)
 		for name, run := range map[string]func(context.Context, http.ResponseWriter) error{
 			"no_progress": func(ctx context.Context, w http.ResponseWriter) error {
-				return loopBreakForTest(&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI).noProgress(ctx, w, env, 3, 1)
+				return loopBreakForTest(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI).noProgress(ctx, w, env, 3, 1)
 			},
 			"text_repetition": func(ctx context.Context, w http.ResponseWriter) error {
-				return loopBreakForTest(&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI).textRepetition(ctx, w, env, 3, "synthetic", 1)
+				return loopBreakForTest(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI).textRepetition(ctx, w, env, 3, "synthetic", 1)
 			},
 		} {
 			rec := httptest.NewRecorder()
