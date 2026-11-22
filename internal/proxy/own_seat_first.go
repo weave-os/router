@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/flags"
-	"weave-os/router/internal/proxy/usage"
 )
 
 func callerLoginServesFirst(ctx context.Context, model string, observer *usage.Observer, models *credentials.SubscriptionModelAccess, now time.Time) bool {
