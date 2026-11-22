@@ -61,8 +61,3 @@ func claudeSubscriptionPlan(ctx context.Context) providers.SubscriptionPlan {
 	plan, _ := ctx.Value(claudeSubscriptionPlanKey{}).(providers.SubscriptionPlan)
 	return plan
 }
-
-func resolveBypassCredentialsForTelemetry(s *Service, ctx context.Context, provider, model string, headers http.Header) (context.Context, context.Context) {
-	ctx = s.resolveCredentials(ctx, provider, model, headers)
-	return ctx, s.withClaudeSubscriptionProfile(ctx, nil)
-}
