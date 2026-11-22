@@ -78,7 +78,6 @@ type Service struct {
 	captureMaxBytes              int
 	redactor                     Redactor
 	routing                      *routingpolicy.Policy
-	globalAutomaticExclusions    *globalAutomaticExclusionCache
 	credentials                  credentials.Brokerage
 	continuityConfig             continuity.Config
 	hmmServing
@@ -1206,11 +1205,7 @@ func (s *Service) HasExcludedModelsOverride() bool {
 }
 
 func (s *Service) WithGlobalAutomaticExclusions(store candidates.GlobalAutomaticExclusionStore) *Service {
-	if store == nil {
-		s.globalAutomaticExclusions = nil
-		return s
-	}
-	s.globalAutomaticExclusions = newGlobalAutomaticExclusionCache(store)
+	s.routing = s.routing.WithGlobalAutomaticExclusions(store)
 	return s
 }
 

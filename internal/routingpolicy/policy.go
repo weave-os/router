@@ -21,6 +21,7 @@ type Policy struct {
 	availableModels        map[string]struct{}
 	defaultBaselineModel   string
 	hardPins               overrides.HardPins
+	automaticExclusions    *GlobalAutomaticExclusionCache
 }
 
 type PolicyDeadline struct {
@@ -124,6 +125,22 @@ func (p *Policy) HardPins() overrides.HardPins {
 func (p *Policy) WithHardPins(hardPins overrides.HardPins) *Policy {
 	out := p.clone()
 	out.hardPins = hardPins
+	return out
+}
+
+func (p *Policy) GlobalAutomaticExclusions() *GlobalAutomaticExclusionCache {
+	if p == nil {
+		return nil
+	}
+	return p.automaticExclusions
+}
+
+func (p *Policy) WithGlobalAutomaticExclusions(store candidates.GlobalAutomaticExclusionStore) *Policy {
+	out := p.clone()
+	out.automaticExclusions = nil
+	if store != nil {
+		out.automaticExclusions = NewGlobalAutomaticExclusionCache(store)
+	}
 	return out
 }
 
