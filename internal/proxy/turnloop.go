@@ -518,7 +518,7 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 	}
-	if res.Strategy == router.StrategyLLMClassifier {
+	if router.ClassifiesThreads(res.Strategy) {
 		return s.runClassifierTurn(ctx, strategy, req, res, threadSessionKey)
 	}
 	log.Info("turnloop classified",
