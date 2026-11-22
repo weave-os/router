@@ -20,7 +20,6 @@ import (
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
-	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/ingress"
@@ -34,7 +33,6 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation/floor"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -56,7 +54,6 @@ import (
 )
 
 type Service struct {
-	externalKeyUsage    credentials.ExternalKeyUsageRecorder
 	recoveryProbeMu     sync.Mutex
 	recoveryProbeLeases map[string]localRecoveryProbeLease
 	nextRecoveryProbeID uint64
@@ -109,16 +106,13 @@ type Service struct {
 	bandSwap                       *bandswap.Classifier
 
 	turnSignalCaptureEnabled bool
-	summarizer               handover.Summarizer
 	webSearch                websearch.Executor
 	availableModels          map[string]struct{}
 	defaultBaselineModel     string
 	billing                  *billing.Service
 	clock                    auth.Clock
-	feedbackRepo             feedback.FeedbackRepository
-	feedbackSigner           *feedback.Signer
+	feedbackLinks            feedbackLinks
 	piHandoffSecret          []byte
-	feedbackBaseURL          string
 	usageObserver            *usage.Observer
 }
 
@@ -1222,11 +1216,6 @@ func forcedReasoningEffort(model string, escalate bool) string {
 	default:
 		return ""
 	}
-}
-
-func (s *Service) WithSummarizer(sz handover.Summarizer) *Service {
-	s.summarizer = sz
-	return s
 }
 
 func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
