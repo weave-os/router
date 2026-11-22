@@ -42,6 +42,7 @@ type StrategyPorts struct {
 	Facts     DecisionFacts
 	Upgrade   UpgradeJudge
 	CostGate  CostGate
+	History   SwitchHistory
 }
 
 func (p StrategyPorts) Validate() error {
@@ -57,6 +58,9 @@ func (p StrategyPorts) Validate() error {
 	}
 	if p.CostGate == nil {
 		missing = append(missing, "CostGate")
+	}
+	if p.History == nil {
+		missing = append(missing, "History")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("strategy ports not wired: %s", strings.Join(missing, ", "))

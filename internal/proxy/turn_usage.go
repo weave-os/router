@@ -23,7 +23,7 @@ func (s *Service) recordTurnUsage(ctx context.Context, res routingpolicy.TurnRou
 		return
 	}
 	if isHMMTurn(s.strategyPorts, res) {
-		s.recordHMMTurnHistory(ctx, res, servedProvider, servedModel, in, out, cacheCreation, cacheRead, outputLimitReached)
+		s.recordSwitchHistory(ctx, res, servedProvider, servedModel, in, out, cacheCreation, cacheRead, outputLimitReached)
 		return
 	}
 	var zeroKey [sessionpin.SessionKeyLen]byte

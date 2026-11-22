@@ -10,7 +10,7 @@ import (
 )
 
 func TestStrategyPortsValidateNamesEveryMissingPort(t *testing.T) {
-	require.EqualError(t, continuity.StrategyPorts{}.Validate(), "strategy ports not wired: Ownership, Facts, Upgrade, CostGate")
+	require.EqualError(t, continuity.StrategyPorts{}.Validate(), "strategy ports not wired: Ownership, Facts, Upgrade, CostGate, History")
 
 	partial := hmm.ServingPorts()
 	partial.Upgrade = nil

@@ -1521,16 +1521,6 @@ func isHMMTurn(ports continuity.StrategyPorts, res routingpolicy.TurnRoute) bool
 	return isHMMDecision(ports, res.Decision) || isHMMDecision(ports, res.Fresh)
 }
 
-func hmmHistoryStoredReason(ports continuity.StrategyPorts, res routingpolicy.TurnRoute) string {
-	if isHMMDecision(ports, res.Fresh) {
-		return res.Fresh.Reason
-	}
-	if isHMMDecision(ports, res.Decision) {
-		return res.Decision.Reason
-	}
-	return ports.CostGate.HistoryReason()
-}
-
 func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvider string, headers http.Header) map[string]struct{} {
 	subscriptionLanes := make(map[string]struct{}, 2)
 	if subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)) != nil ||

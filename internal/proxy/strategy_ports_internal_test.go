@@ -11,7 +11,7 @@ import (
 )
 
 func TestWithStrategyPortsFailsFastOnUnwiredPorts(t *testing.T) {
-	assert.PanicsWithError(t, "strategy ports not wired: Ownership, Facts, Upgrade, CostGate", func() {
+	assert.PanicsWithError(t, "strategy ports not wired: Ownership, Facts, Upgrade, CostGate, History", func() {
 		WithStrategyPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, "", "", nil), continuity.StrategyPorts{})
 	})
 }

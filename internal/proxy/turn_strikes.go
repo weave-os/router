@@ -60,7 +60,7 @@ func (s *Service) strikeRescuedModelsForTurn(ctx context.Context, proxyErr error
 		if model == served.Model {
 			continue
 		}
-		for _, strikeRole := range demotionRoles(role, pinRole) {
+		for _, strikeRole := range demotionRoles(s.strategyPorts.History, role, pinRole) {
 			if err := store.StrikeTurnModel(context.WithoutCancel(ctx), sessionKey, strikeRole, model); err != nil {
 				log.Error("agent-turn model strike failed", "err", err, "role", strikeRole, "model", model)
 			}
@@ -74,16 +74,16 @@ func (s *Service) clearTurnStrikes(ctx context.Context, sessionKey [sessionpin.S
 	if !ok {
 		return
 	}
-	for _, role := range demotionRoles(pinRole, pinRole) {
+	for _, role := range demotionRoles(s.strategyPorts.History, pinRole, pinRole) {
 		if err := store.ClearTurnStrikes(context.WithoutCancel(ctx), sessionKey, role); err != nil {
 			observability.FromContext(ctx).Error("agent-turn strike clear failed", "err", err, "role", role)
 		}
 	}
 }
 
-func sessionDemotedModels(ctx context.Context, s *Service, env *translate.RequestEnvelope, res *routingpolicy.TurnRoute, pin, hmmHistory sessionpin.Pin) []string {
-	demoted := candidates.MergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels)
-	turnStrikes := candidates.MergeSessionStrikes(pin.TurnStrikes, hmmHistory.TurnStrikes)
+func sessionDemotedModels(ctx context.Context, s *Service, env *translate.RequestEnvelope, res *routingpolicy.TurnRoute, pin, switchHistory sessionpin.Pin) []string {
+	demoted := candidates.MergeSessionStrikes(pin.DemotedModels, switchHistory.DemotedModels)
+	turnStrikes := candidates.MergeSessionStrikes(pin.TurnStrikes, switchHistory.TurnStrikes)
 	if len(turnStrikes) == 0 {
 		return demoted
 	}
