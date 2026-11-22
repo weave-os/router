@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
@@ -78,10 +79,10 @@ func linkedSeatsAvailability(ctx context.Context, pool subscriptions.Provider, n
 func linkedPoolExhausted(ctx context.Context, pool subscriptions.Provider, now time.Time) error {
 	switch linkedSeatsAvailability(ctx, pool, now) {
 	case linkedSeatThrottled:
-		return errors.Join(subscriptionPoolExhausted(ctx), errLinkedSeatsThrottled)
+		return errors.Join(credentials.SubscriptionPoolExhausted(ctx), errLinkedSeatsThrottled)
 	case linkedSeatUnusable:
-		return errors.Join(subscriptionPoolExhausted(ctx), errLinkedSeatsUnusable)
+		return errors.Join(credentials.SubscriptionPoolExhausted(ctx), errLinkedSeatsUnusable)
 	case linkedSeatUsable:
 	}
-	return subscriptionPoolExhausted(ctx)
+	return credentials.SubscriptionPoolExhausted(ctx)
 }

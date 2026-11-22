@@ -25,7 +25,7 @@ func TestPreDispatchFundingRefusalIsClassifiedAndOwned(t *testing.T) {
 	})
 	_, _, managed, disabledSeatErr := svc.leaseManagedSubscription(disabledSeatCtx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String())
 	require.True(t, managed)
-	require.ErrorIs(t, disabledSeatErr, ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, disabledSeatErr, credentials.ErrSubscriptionPoolExhausted)
 
 	fundingRefused := turnrecord.TurnErrorFundingRefused
 	for _, scenario := range []struct {
@@ -35,9 +35,9 @@ func TestPreDispatchFundingRefusalIsClassifiedAndOwned(t *testing.T) {
 		owner turnrecord.FailureOwner
 	}{
 		{name: "only linked seat disabled", err: disabledSeatErr, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
-		{name: "caller plan rate-limited behind the funding authorization", err: fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, errCallerPlanThrottled), class: turnrecord.TurnErrorRateLimited, owner: turnrecord.FailureOwnerClient},
-		{name: "every usable linked seat throttled", err: fmt.Errorf("%w: %w", ErrSubscriptionPoolExhausted, errLinkedSeatsThrottled), class: turnrecord.TurnErrorRateLimited, owner: turnrecord.FailureOwnerProvider},
-		{name: "subscription pool throttled", err: ErrSubscriptionPoolThrottled, class: turnrecord.TurnErrorRateLimited, owner: turnrecord.FailureOwnerProvider},
+		{name: "caller plan rate-limited behind the funding authorization", err: fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, credentials.ErrCallerPlanThrottled), class: turnrecord.TurnErrorRateLimited, owner: turnrecord.FailureOwnerClient},
+		{name: "every usable linked seat throttled", err: fmt.Errorf("%w: %w", credentials.ErrSubscriptionPoolExhausted, errLinkedSeatsThrottled), class: turnrecord.TurnErrorRateLimited, owner: turnrecord.FailureOwnerProvider},
+		{name: "subscription pool throttled", err: credentials.ErrSubscriptionPoolThrottled, class: turnrecord.TurnErrorRateLimited, owner: turnrecord.FailureOwnerProvider},
 		{name: "credits exhausted and subscription unavailable", err: credentials.ErrCreditsExhaustedSubscriptionUnavailable, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
 		{name: "spend cap reached and subscription unavailable", err: credentials.ErrSpendCapSubscriptionUnavailable, class: fundingRefused, owner: turnrecord.FailureOwnerClient},
 		{name: "Weave credits disabled", err: ErrWeaveCreditsDisabled, class: fundingRefused, owner: turnrecord.FailureOwnerClient},

@@ -97,7 +97,7 @@ func throttledPoolRefusal(ctx context.Context, pool subscriptions.Provider, call
 	if !billing.WeaveCreditsDeniedFromContext(ctx) || callerHasToken && !withinShortWait {
 		return nil
 	}
-	return subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolThrottled)
+	return credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolThrottled)
 }
 
 func anotherSeatPoolCanServe(ctx context.Context, admission seatAdmission, models []string, target router.Decision) bool {

@@ -131,7 +131,7 @@ func TestResolvedOAuthSurvivesPoolLeaseFailure(t *testing.T) {
 
 				if canceled {
 					require.ErrorIs(t, err, context.Canceled)
-					require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+					require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
 					return
 				}
 				require.NoError(t, err)

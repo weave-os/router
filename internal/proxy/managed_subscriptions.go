@@ -73,16 +73,16 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		if credentials := CredentialsFromContext(ctx); credentials != nil && credentials.OAuth && s.supportsSubscriptionTransport(provider) {
 			return ctx, subscriptions.Lease{}, false, nil
 		}
-		return ctx, subscriptions.Lease{}, true, subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)
+		return ctx, subscriptions.Lease{}, true, credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)
 	}
 	if subscriptionAPIOnly(ctx) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 	if subscriptionAttemptOnly(ctx) && (!eligible || !s.supportsSubscriptionTransport(provider) || !managedSubscriptionEnrolled(ctx, poolProvider)) && !servedOnSubscription(ctx) {
-		return ctx, subscriptions.Lease{}, true, subscriptionPoolExhausted(ctx)
+		return ctx, subscriptions.Lease{}, true, credentials.SubscriptionPoolExhausted(ctx)
 	}
 	if eligible && (credentials.ClaudeSubscriptionSuppressed(ctx) && provider == providers.ProviderAnthropic || codexSubscriptionSuppressed(ctx) && provider == providers.ProviderOpenAI) && !managedSubscriptionEnrolled(ctx, poolProvider) && !s.managedProviderFallbackAvailable(ctx, poolProvider) {
-		return ctx, subscriptions.Lease{}, true, subscriptionPoolExhausted(ctx)
+		return ctx, subscriptions.Lease{}, true, credentials.SubscriptionPoolExhausted(ctx)
 	}
 	if !eligible || s.credentials.ManagedSubscriptions == nil || !managedSubscriptionEnrolled(ctx, poolProvider) ||
 		poolProvider == subscriptions.ProviderCodex && codexChatEndpoint(ctx) {
@@ -117,7 +117,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			return ctx, subscriptions.Lease{}, false, nil
 		}
 		if unadmitted {
-			return ctx, subscriptions.Lease{}, true, subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)
+			return ctx, subscriptions.Lease{}, true, credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)
 		}
 		if modelDenial != nil {
 			return ctx, subscriptions.Lease{}, true, modelDenial
@@ -141,7 +141,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			if !unadmitted && !subscriptionAttemptOnly(ctx) && !paidFallbackForbiddenFor(ctx, provider) && s.managedProviderFallbackAvailable(ctx, poolProvider) && s.subscriptionAPIAuthorization(ctx, provider, model) == nil {
 				return ctx, subscriptions.Lease{}, false, nil
 			}
-			return ctx, subscriptions.Lease{}, present, errors.Join(subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable), err)
+			return ctx, subscriptions.Lease{}, present, errors.Join(credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable), err)
 		}
 		if err != nil || !present {
 			return poolSpent()

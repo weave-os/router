@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -63,7 +64,7 @@ func TestProxyOpenAIChatCompletion_ManagedPoolFailureIsRenderedOnce(t *testing.T
 
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, rec, req)
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted,
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted,
 		"the pool sentinel must survive for the handler to classify")
 	assert.Equal(t, 1, strings.Count(rec.Body.String(), "rate_limit_error"),
 		"the client sees the pool failure exactly once")

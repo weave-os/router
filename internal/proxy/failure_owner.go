@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -36,7 +37,7 @@ func classifyFailureOwner(in failureOwnerInput) turnrecord.FailureOwner {
 	if errors.Is(err, errResponsesPassthroughStuck) {
 		return turnrecord.FailureOwnerRouter
 	}
-	if errors.Is(err, errCallerPlanThrottled) {
+	if errors.Is(err, credentials.ErrCallerPlanThrottled) {
 		return turnrecord.FailureOwnerClient
 	}
 	if cls, ok := ClassifyDispatchError(err); ok && cls.Kind != ingress.DispatchErrorUpstreamStatus {
