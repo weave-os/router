@@ -24,7 +24,7 @@ func TestServedCredentialLogValues(t *testing.T) {
 	assert.Equal(t, credSourceBYOK, source)
 	assert.Empty(t, tier)
 
-	pooled := context.WithValue(context.Background(), credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{
+	pooled := context.WithValue(context.Background(), credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{
 		Served:                true,
 		Finished:              true,
 		CredentialSource:      credSourceCodexSubscription,

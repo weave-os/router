@@ -128,7 +128,7 @@ func canonicalTelemetryModelFamily(model string) string {
 func applySubscriptionWinnerTelemetry(ctx context.Context, telemetry *turnrecord.InsertTelemetryParams) {
 	telemetry.FinalModelFamily = canonicalTelemetryModelFamily(telemetry.DecisionModel)
 	telemetry.IntendedModelFamily = canonicalTelemetryModelFamily(telemetry.RequestedModel)
-	winningUsage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	winningUsage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 	if winningUsage == nil {
 		return
 	}

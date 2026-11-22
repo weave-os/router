@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -89,7 +90,7 @@ func TestSubscriptionOnly_OpenAI_PaidRoute_Refuses402(t *testing.T) {
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
 	require.Error(t, err)
 	require.Positive(t, fr.routeCalls, "the scorer must be consulted so the decision is the paid route under test")
-	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
+	require.ErrorIs(t, err, credentials.ErrCreditsExhaustedSubscriptionUnavailable,
 		"a Codex-covered turn that routes to a paid model must be refused, not dispatched")
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur below the floor in subscription-only mode")
 }
@@ -134,7 +135,7 @@ func TestSubscriptionOnly_OpenAI_SubFailure_NoPaidFailover(t *testing.T) {
 	var statusErr *providers.UpstreamStatusError
 	require.ErrorAs(t, err, &statusErr, "the caller's own subscription error must surface raw, not be rewritten")
 	assert.Equal(t, http.StatusTooManyRequests, statusErr.Status)
-	require.NotErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
+	require.NotErrorIs(t, err, credentials.ErrCreditsExhaustedSubscriptionUnavailable,
 		"a served-sub runtime failure is not a credits-exhausted refusal")
 	require.NotNil(t, p.proxyCreds[0], "the dispatch must carry the caller's subscription credential")
 	assert.True(t, p.proxyCreds[0].OAuth, "only the caller's own subscription may be attempted")

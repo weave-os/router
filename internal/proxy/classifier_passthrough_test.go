@@ -211,7 +211,7 @@ func TestClassifier_SubscriptionOnly_Exhausted_Refuses402(t *testing.T) {
 	err := svc.ProxyMessages(billing.WithSubscriptionOnly(classifierSubscriptionCtx(), billing.SubscriptionOnlyCreditsDepleted), []byte(classifierBody), rec, req)
 
 	require.Error(t, err)
-	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable)
+	require.ErrorIs(t, err, credentials.ErrCreditsExhaustedSubscriptionUnavailable)
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur when the subscription cannot serve the classifier")
 }
 

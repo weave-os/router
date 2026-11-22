@@ -72,12 +72,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	feats := env.RoutingFeatures()
 	ctx = withRequestImageCount(ctx, feats.ImageCount)
-	promptText := feats.PromptText
-	embedInput := "concatenated_stream"
-	if feats.OnlyUserMessageText != "" {
-		promptText = feats.OnlyUserMessageText
-		embedInput = "only_user_message"
-	}
+	promptText, embedInput := turnPromptText(feats)
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	ctx, log, sessionKey = bindRequestLogger(ctx, env, facts.APIKeyID, facts.RequestID, "gemini_generate_content")

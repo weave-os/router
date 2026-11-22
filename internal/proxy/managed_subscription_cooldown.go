@@ -31,7 +31,7 @@ func cooldownRefusedManagedSeat(ctx context.Context, leaser subscriptions.Leaser
 }
 
 func recordManagedQuotaProof(ctx context.Context, accountID string, resetAt time.Time) {
-	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil {
 		if state.QuotaExhaustedAccounts == nil {
 			state.QuotaExhaustedAccounts = make(map[string]time.Time)
 		}
@@ -40,7 +40,7 @@ func recordManagedQuotaProof(ctx context.Context, accountID string, resetAt time
 }
 
 func recordManagedThrottle(ctx context.Context, accountID string, cooldownUntil time.Time) {
-	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil {
 		if state.ThrottledAccounts == nil {
 			state.ThrottledAccounts = make(map[string]time.Time)
 		}

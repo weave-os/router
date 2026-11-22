@@ -208,21 +208,6 @@ func withSubscriptionOnlyWarningEcho(ctx context.Context, body []byte) context.C
 	return context.WithValue(ctx, subscriptionReconnectNudgesEchoedContextKey{}, nudgesEchoed)
 }
 
-var ErrCreditsExhaustedSubscriptionUnavailable = errors.New("credits exhausted and subscription unavailable for this turn")
-
-var ErrSpendCapSubscriptionUnavailable = fmt.Errorf("spend cap reached: %w", ErrCreditsExhaustedSubscriptionUnavailable)
-
-type IncludedAllowanceSpentError struct {
-	Window  entitlement.SpentWindow
-	orgGate error
-}
-
-func (e *IncludedAllowanceSpentError) Error() string {
-	return fmt.Sprintf("%s %s allowance spent: %v", e.Window.Plan, e.Window.Kind, e.orgGate)
-}
-
-func (e *IncludedAllowanceSpentError) Unwrap() error { return e.orgGate }
-
 var errBypassRetryable = errors.New("usage bypass: retryable error, fall back to routed dispatch")
 
 func (s *Service) bypassToAnthropic(
@@ -338,7 +323,7 @@ func (s *Service) bypassToAnthropic(
 		return errBypassRetryable
 	}
 	if !claudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
-		(!billing.SubscriptionOnlyFromContext(ctx) || linkedFirst(ctx)) {
+		(!billing.SubscriptionOnlyFromContext(ctx) || credentials.LinkedFirst(ctx)) {
 		return errBypassRetryable
 	}
 	if !preludeBuf.Committed() && errors.As(proxyErr, &upstreamErr) {

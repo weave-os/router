@@ -155,7 +155,7 @@ func TestSubscriptionModelAccessFollowsTheWinningCredentialOfAFinishedManagedTur
 	requested := &Credentials{APIKey: []byte("sk-ant-oat01-requested"), OAuth: true}
 	winning := &Credentials{APIKey: []byte("sk-ant-oat01-winning"), OAuth: true}
 	ctx := context.WithValue(context.Background(), CredentialsContextKey{}, requested)
-	ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{Finished: true, WinningCredentials: winning})
+	ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{Finished: true, WinningCredentials: winning})
 
 	recordSubscriptionModelOutcome(svc, ctx, providers.ProviderAnthropic, "claude-sonnet-4-5", nil)
 
@@ -167,7 +167,7 @@ func finishedManagedTurnOnAnotherCredential() (ctx context.Context, requested, w
 	requested = &Credentials{APIKey: []byte("sk-ant-oat01-requested"), OAuth: true}
 	winning = &Credentials{APIKey: []byte("sk-ant-oat01-winning"), OAuth: true}
 	ctx = context.WithValue(context.Background(), CredentialsContextKey{}, requested)
-	ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{Finished: true, WinningCredentials: winning})
+	ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{Finished: true, WinningCredentials: winning})
 	return ctx, requested, winning
 }
 
