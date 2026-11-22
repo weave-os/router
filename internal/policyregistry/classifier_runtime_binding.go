@@ -2,7 +2,6 @@ package policyregistry
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,7 +23,7 @@ const (
 )
 
 var (
-	classifierWorkerProjects = map[Environment]string{
+	ClassifierWorkerProjects = map[Environment]string{
 		EnvironmentStaging: "workweave-staging-01",
 		EnvironmentProd:    "workweave-prod-01",
 	}
@@ -50,10 +49,10 @@ type ResolvedClassifierRuntimeBinding struct {
 }
 
 func ClassifierRuntimeBindingURI(root string, environment Environment, releaseSHA256 string) string {
-	return strings.TrimSuffix(root, "/") + "/" + classifierRuntimeBindingRelativeName(environment, releaseSHA256)
+	return strings.TrimSuffix(root, "/") + "/" + ClassifierRuntimeBindingRelativeName(environment, releaseSHA256)
 }
 
-func classifierRuntimeBindingRelativeName(environment Environment, releaseSHA256 string) string {
+func ClassifierRuntimeBindingRelativeName(environment Environment, releaseSHA256 string) string {
 	return fmt.Sprintf("%s%s/classifier_releases/%s.json", classifierRuntimeBindingsNamespace, environment, releaseSHA256)
 }
 
@@ -91,13 +90,13 @@ func (b ClassifierRuntimeBinding) validateIdentity(environment Environment, rele
 	if b.Environment != environment {
 		return errors.New("classifier runtime binding names another environment or project")
 	}
-	if !validDigest(releaseSHA256) || b.ReleaseSHA256 != releaseSHA256 {
+	if !ValidDigest(releaseSHA256) || b.ReleaseSHA256 != releaseSHA256 {
 		return errors.New("classifier runtime binding names another release")
 	}
 	if b.WorkerRevision == "" || len(b.WorkerRevision) > 256 || strings.ContainsFunc(b.WorkerRevision, unicode.IsSpace) {
 		return errors.New("classifier runtime binding worker revision is not canonical")
 	}
-	if !imageDigestPattern.MatchString(b.ImageDigest) || !validDigest(b.ConfigurationSHA256) {
+	if !imageDigestPattern.MatchString(b.ImageDigest) || !ValidDigest(b.ConfigurationSHA256) {
 		return errors.New("classifier runtime binding image or configuration digest is invalid")
 	}
 	var variants map[string]json.RawMessage
@@ -108,7 +107,7 @@ func (b ClassifierRuntimeBinding) validateIdentity(environment Environment, rele
 }
 
 func (b ClassifierRuntimeBinding) validateManagedWorker(environment Environment) error {
-	project, supported := classifierWorkerProjects[environment]
+	project, supported := ClassifierWorkerProjects[environment]
 	if !supported || b.ProjectID != project {
 		return errors.New("classifier runtime binding names another environment or project")
 	}
@@ -131,29 +130,3 @@ func canonicalClassifierWorkerOrigin(raw string) bool {
 }
 
 var classifierWorkerHostPattern = regexp.MustCompile(`^(?:[a-z0-9]+(?:-[a-z0-9]+)*---)?` + regexp.QuoteMeta(classifierWorkerService) + `-[a-z0-9]+-[a-z]{2,4}` + regexp.QuoteMeta(cloudRunHostSuffix) + `$`)
-
-func (r *Registry) ReadClassifierRuntimeBinding(ctx context.Context, environment Environment, releaseSHA256 string) (ResolvedClassifierRuntimeBinding, error) {
-	if !validDigest(releaseSHA256) {
-		return ResolvedClassifierRuntimeBinding{}, errors.New("classifier runtime binding requires a release digest")
-	}
-	if _, supported := classifierWorkerProjects[environment]; !supported {
-		return ResolvedClassifierRuntimeBinding{}, fmt.Errorf("unsupported classifier runtime environment %q", environment)
-	}
-	name := r.prefix + "/" + classifierRuntimeBindingRelativeName(environment, releaseSHA256)
-	attrs, err := r.bucket.Object(name).Attrs(ctx)
-	if err != nil {
-		return ResolvedClassifierRuntimeBinding{}, classifyStorageError("read classifier runtime binding attributes", err)
-	}
-	payload, err := r.readObject(ctx, name, attrs.Generation)
-	if err != nil {
-		return ResolvedClassifierRuntimeBinding{}, err
-	}
-	binding, err := DecodeClassifierRuntimeBinding(payload, environment, releaseSHA256)
-	if err != nil {
-		return ResolvedClassifierRuntimeBinding{}, err
-	}
-	return ResolvedClassifierRuntimeBinding{
-		Ref:     ObjectRef{URI: ClassifierRuntimeBindingURI(r.rootURI, environment, releaseSHA256), SHA256: Digest(payload), Generation: attrs.Generation},
-		Binding: binding,
-	}, nil
-}

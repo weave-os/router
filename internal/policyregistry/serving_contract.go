@@ -161,28 +161,28 @@ type DeploymentProposal struct {
 }
 
 func (r ServingRequirements) validate() error {
-	if r.RuntimeContract != ManagedRuntimeContractV1 || r.PolicySchema != rosterdata.SchemaVersionPolicyV1 || r.ClassifierWireSchema != ClassifierWireSchemaV4 || !validDigest(r.TaxonomySHA256) {
+	if r.RuntimeContract != ManagedRuntimeContractV1 || r.PolicySchema != rosterdata.SchemaVersionPolicyV1 || r.ClassifierWireSchema != ClassifierWireSchemaV4 || !ValidDigest(r.TaxonomySHA256) {
 		return errors.New("unsupported managed runtime, policy, classifier or taxonomy requirement")
 	}
 	return nil
 }
 
 func validateServingPolicy(policy PolicyObject, root string) error {
-	if policy.SchemaVersion != rosterdata.SchemaVersionPolicyV1 || !validDigest(policy.SHA256) || policy.Generation <= 0 || !withinRegistry(policy.URI, root, "router_policy/v1/policies/sha256/"+policy.SHA256+".json") {
+	if policy.SchemaVersion != rosterdata.SchemaVersionPolicyV1 || !ValidDigest(policy.SHA256) || policy.Generation <= 0 || !withinRegistry(policy.URI, root, "router_policy/v1/policies/sha256/"+policy.SHA256+".json") {
 		return errors.New("invalid exact compiled policy reference")
 	}
 	return nil
 }
 
-func validateArtifactRef(ref ObjectRef) error {
-	if !validDigest(ref.SHA256) || ref.Generation <= 0 {
+func ValidateArtifactRef(ref ObjectRef) error {
+	if !ValidDigest(ref.SHA256) || ref.Generation <= 0 {
 		return errors.New("artifact reference requires a digest and positive storage generation")
 	}
 	parsed, err := url.Parse(ref.URI)
 	if err != nil || parsed.Scheme != "gs" || parsed.Host == "" || parsed.Path == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return errors.New("artifact reference must be a credential-free GCS object URI")
 	}
-	_, _, err = parseGCSObjectURI(ref.URI)
+	_, _, err = ParseGCSObjectURI(ref.URI)
 	return err
 }
 
@@ -190,34 +190,34 @@ func servingLegacyNamespace(kind ServingKind) string {
 	return "router_serving/v1/" + string(kind) + "/sha256/"
 }
 
-func servingNamespaces(kind ServingKind) ([]string, error) {
+func ServingNamespaces(kind ServingKind) ([]string, error) {
 	switch kind {
 	case ServingReleases, ServingClassifiers, ServingBindings, ServingProfiles, ServingSelectionSets, ServingProposals:
 		return []string{servingLegacyNamespace(kind)}, nil
 	case ServingClassifierReleases:
-		return []string{servingArtifactsNamespace}, nil
+		return []string{ServingArtifactsNamespace}, nil
 	case ServingCandidate:
-		return []string{servingArtifactsNamespace, servingLegacyNamespace(ServingReleases)}, nil
+		return []string{ServingArtifactsNamespace, servingLegacyNamespace(ServingReleases)}, nil
 	case ServingSelectionSet:
-		return []string{servingArtifactsNamespace, servingLegacyNamespace(ServingSelectionSets)}, nil
+		return []string{ServingArtifactsNamespace, servingLegacyNamespace(ServingSelectionSets)}, nil
 	case ServingProposal:
-		return []string{servingArtifactsNamespace, servingLegacyNamespace(ServingProposals)}, nil
+		return []string{ServingArtifactsNamespace, servingLegacyNamespace(ServingProposals)}, nil
 	default:
 		return nil, fmt.Errorf("unsupported serving object kind %q", kind)
 	}
 }
 
 func ValidateServingRef(ref ObjectRef, root string, kind ServingKind) error {
-	_, err := servingRefNamespace(ref, root, kind)
+	_, err := ServingRefNamespace(ref, root, kind)
 	return err
 }
 
-func servingRefNamespace(ref ObjectRef, root string, kind ServingKind) (string, error) {
-	namespaces, err := servingNamespaces(kind)
+func ServingRefNamespace(ref ObjectRef, root string, kind ServingKind) (string, error) {
+	namespaces, err := ServingNamespaces(kind)
 	if err != nil {
 		return "", err
 	}
-	if err := validateArtifactRef(ref); err != nil {
+	if err := ValidateArtifactRef(ref); err != nil {
 		return "", err
 	}
 	for _, namespace := range namespaces {
@@ -229,7 +229,7 @@ func servingRefNamespace(ref ObjectRef, root string, kind ServingKind) (string, 
 }
 
 func validImageDigest(digest string) bool {
-	return strings.HasPrefix(digest, "sha256:") && validDigest(strings.TrimPrefix(digest, "sha256:"))
+	return strings.HasPrefix(digest, "sha256:") && ValidDigest(strings.TrimPrefix(digest, "sha256:"))
 }
 
 func (b ClassifierBundle) Validate(string) error {
@@ -287,11 +287,11 @@ func (r RevisionBinding) validate() error {
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil || strings.TrimSpace(r.Name) == "" || !validImageDigest(r.ImageDigest) {
 		return errors.New("binding requires a named immutable HTTPS revision and image digest")
 	}
-	return validateArtifactRef(r.Configuration)
+	return ValidateArtifactRef(r.Configuration)
 }
 
 func (b DeploymentBinding) Validate(root string) error {
-	if b.SchemaVersion != ServingBindingV1 || strings.TrimSpace(b.Project) == "" || strings.TrimSpace(b.Region) == "" || !validDigest(b.ClassifierBundleSHA256) {
+	if b.SchemaVersion != ServingBindingV1 || strings.TrimSpace(b.Project) == "" || strings.TrimSpace(b.Region) == "" || !ValidDigest(b.ClassifierBundleSHA256) {
 		return errors.New("invalid deployment binding schema, location or classifier bundle")
 	}
 	if _, err := b.Target.Environment(); err != nil {
@@ -306,7 +306,7 @@ func (b DeploymentBinding) Validate(root string) error {
 	if err := b.Classifier.validate(); err != nil {
 		return err
 	}
-	return validateArtifactRef(b.Attestation)
+	return ValidateArtifactRef(b.Attestation)
 }
 
 func (s ServingSelection) validate(root string, profile bool) error {
@@ -417,7 +417,7 @@ func validateProposalEvidence(evidence []ObjectRef) error {
 		return errors.New("proposal requires compatibility and target-local validation evidence")
 	}
 	for _, ref := range evidence {
-		if err := validateArtifactRef(ref); err != nil {
+		if err := ValidateArtifactRef(ref); err != nil {
 			return err
 		}
 	}
@@ -486,7 +486,7 @@ func DecodeServingManifest(payload []byte, root string, kind ServingKind) (Servi
 	default:
 		return nil, fmt.Errorf("unsupported serving kind %q", kind)
 	}
-	if err := strictDecode(payload, manifest); err != nil {
+	if err := StrictDecode(payload, manifest); err != nil {
 		return nil, err
 	}
 	if err := manifest.Validate(root); err != nil {
