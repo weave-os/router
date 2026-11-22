@@ -51,7 +51,7 @@ func (s *Service) recordSubscriptionModelRejection(ctx context.Context, provider
 	switch provider {
 	case providers.ProviderAnthropic:
 		if anthropicSubscriptionModelRejected(err) {
-			s.credentials.SubscriptionModels.Deny(creds.APIKey, model, until)
+			s.credentials.SubscriptionModels.DenyForProvider(creds.APIKey, "", model, until)
 		}
 	case providers.ProviderOpenAI:
 		if len(creds.AccountID) > 0 && codexSubscriptionModelRejected(err) {

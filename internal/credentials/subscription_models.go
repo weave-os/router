@@ -18,11 +18,11 @@ const SubscriptionModelDenialTTL = 15 * time.Minute
 const SubscriptionModelServedTTL = 6 * time.Hour
 
 type subscriptionModelKey struct {
-	token    uint64
-	owner    string
-	account  string
-	provider string
-	model    string
+	tokenHash uint64
+	owner     string
+	account   string
+	provider  string
+	model     string
 }
 
 type SubscriptionModelAccess struct {
@@ -49,7 +49,7 @@ func (a *SubscriptionModelAccess) key(token []byte, model string) subscriptionMo
 
 func (a *SubscriptionModelAccess) keyForProvider(token []byte, provider, model string) subscriptionModelKey {
 	a.cache()
-	return subscriptionModelKey{token: maphash.Bytes(a.seed, token), provider: provider, model: router.StripDateSuffix(model)}
+	return subscriptionModelKey{tokenHash: maphash.Bytes(a.seed, token), provider: provider, model: router.StripDateSuffix(model)}
 }
 
 func (a *SubscriptionModelAccess) managedKey(owner, account, provider, model string) subscriptionModelKey {
@@ -127,10 +127,6 @@ func (a *SubscriptionModelAccess) DenyManagedClientApp(account, provider, client
 
 func (a *SubscriptionModelAccess) ManagedClientAppDenied(account, provider, clientApp string, now time.Time) bool {
 	return a.ManagedDenied("account:"+account, account, provider, thirdPartyDenialModel(clientApp), now)
-}
-
-func (a *SubscriptionModelAccess) Deny(token []byte, model string, until time.Time) {
-	a.cache().Add(a.key(token, model), until)
 }
 
 func (a *SubscriptionModelAccess) DenyForProvider(token []byte, provider, model string, until time.Time) {
