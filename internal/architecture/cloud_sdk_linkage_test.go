@@ -31,6 +31,7 @@ func cloudSDKLinks(t *testing.T, root string, patterns ...string) []string {
 	t.Helper()
 	loaded, err := packages.Load(&packages.Config{Dir: root, Mode: packages.NeedName | packages.NeedImports | packages.NeedDeps}, patterns...)
 	require.NoError(t, err)
+	require.Zero(t, packages.PrintErrors(loaded), "load packages %v", patterns)
 	require.NotEmpty(t, loaded)
 	var findings []string
 	for _, pkg := range loaded {
