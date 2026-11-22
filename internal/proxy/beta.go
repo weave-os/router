@@ -150,7 +150,7 @@ func (b betaCommands) Invalidate(
 	for _, role := range roles {
 		for _, stateRole := range []string{
 			role,
-			hmmHistoryRole(role),
+			b.s.strategyPorts.History.HistoryRole(role),
 			conversation.CommandContinuationRole(role),
 		} {
 			if _, duplicate := seen[stateRole]; duplicate {

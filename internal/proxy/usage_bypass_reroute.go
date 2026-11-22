@@ -19,7 +19,7 @@ func reloadUsageBypassSession(ctx context.Context, s *Service, strategy router.S
 	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy)
 	pin, _ := sessionPins.Load(ctx, sessionKey, role)
 	routeRes.SessionKey = sessionKey
-	applySwitchHistory(routeRes, pin, sessionPins.LoadHMMHistory(ctx, sessionKey, role), routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).LoadHistory(ctx, sessionKey, role))
+	applySwitchHistory(routeRes, pin, loadSwitchHistory(ctx, s.strategyPorts, sessionPins, sessionKey, role), routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).LoadHistory(ctx, sessionKey, role))
 }
 
 func rerouteAfterUsageBypass(ctx context.Context, s *Service, log *slog.Logger, strategy router.Strategy, req router.Request, routeRes *routingpolicy.TurnRoute) error {
