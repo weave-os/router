@@ -80,17 +80,6 @@ func (s *Service) plannerTokensFor(ctx context.Context, env *translate.RequestEn
 
 const policyPinTier = "policy_pin"
 
-type pinTier string
-
-const (
-	pinTierAuthoritativeSlidingThresholdUpgrade pinTier = "authoritative_sliding_threshold_upgrade"
-	pinTierAuthoritativeUpgradeConfidenceLow    pinTier = "authoritative_hmm_upgrade_confidence_low"
-	pinTierAuthoritativeDowngradeConfidenceLow  pinTier = "authoritative_hmm_downgrade_confidence_low"
-	pinTierAuthoritativeDowngradeHysteresis     pinTier = "authoritative_hmm_downgrade_hysteresis"
-	pinTierAuthoritativeExcludedPin             pinTier = "authoritative_excluded_pin"
-	pinTierAuthoritativeExcludedReroute         pinTier = "authoritative_excluded_reroute"
-)
-
 func downgradeShadowLogFields(res routingpolicy.TurnRoute) []any {
 	return []any{
 		"authoritative_downgrade_served", res.DowngradeShadow.Served,
@@ -877,77 +866,6 @@ func modelExcludedForRecoveryProbe(req router.Request, model string) bool {
 	}
 	return req.HasImages && (!catalog.AcceptsImages(model) ||
 		req.ImageCount > 0 && !catalog.AcceptsImageCount(model, req.ImageCount, req.EnabledProviders))
-}
-
-func (s *Service) authorityCacheShadowFor(
-	ctx context.Context,
-	req router.Request,
-	activePin sessionpin.Pin,
-	hmmHistory sessionpin.Pin,
-	fresh router.Decision,
-	estimatedInputTokens int,
-	prefixBroken bool,
-) routingpolicy.AuthorityCacheShadow {
-	if !s.ResolveAuthorityCacheShadow(ctx) {
-		return routingpolicy.AuthorityCacheShadow{}
-	}
-	if !isHMMDecision(s.strategyPorts, fresh) {
-		return routingpolicy.AuthorityCacheShadow{}
-	}
-	_, plannerDecision, sticky, stayModel := hmmCostGatedDecision(ctx, s, continuity.CostGateInput{
-		Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
-		EstimatedInputTokens: estimatedInputTokens, PrefixBroken: prefixBroken,
-	})
-	stayProvider := activePin.Provider
-	stayIdentity := stayModel
-	stayPin, stayPinOK := hmmStayPin(s, req, activePin, hmmHistory)
-	if stayPinOK && stayPin.Model == stayModel {
-		stayProvider = stayPin.Provider
-		stayIdentity = stayPin.Decision().ServedIdentity()
-	}
-	freshRosterArmID := ""
-	if fresh.Metadata != nil {
-		freshRosterArmID = fresh.Metadata.SelectedRosterArmID
-	}
-	shadow := routingpolicy.AuthorityCacheShadow{
-		Computed:   true,
-		Decision:   plannerDecision,
-		StayModel:  stayModel,
-		Sticky:     sticky,
-		StayScore:  candidateScoreForWithProvider(s.strategyPorts, fresh, stayIdentity, stayProvider),
-		FreshScore: candidateScoreForWithArm(s.strategyPorts, fresh, fresh.ServedIdentity(), fresh.Provider, freshRosterArmID),
-	}
-	if stayPinOK && stayPin.Model == stayModel {
-		shadow.StayProvider = stayPin.Provider
-	}
-	return shadow
-}
-
-func (s *Service) logAuthorityCacheShadow(ctx context.Context, res routingpolicy.TurnRoute) {
-	if !res.AuthorityShadow.Computed {
-		return
-	}
-	shadow := res.AuthorityShadow
-	log := observability.FromContext(ctx)
-	log.Info("authoritative turn cache-gate shadow",
-		"turn_type", string(res.TurnType),
-		"fresh_model", res.Fresh.Model,
-		"shadow_outcome", plannerOutcome(shadow.Decision.Outcome),
-		"shadow_reason", shadow.Decision.Reason,
-		"shadow_stay_model", shadow.StayModel,
-		"shadow_would_diverge", shadow.Sticky,
-		"shadow_ev_ran", shadow.EVRan(),
-	)
-	if !shadow.EVRan() {
-		return
-	}
-	log.Info("authoritative turn cache-gate shadow EV",
-		"shadow_expected_savings_usd", shadow.Decision.ExpectedSavingsUSD,
-		"shadow_eviction_cost_usd", shadow.Decision.EvictionCostUSD,
-		"shadow_pin_cache_cold", shadow.Decision.PinCacheCold,
-		"shadow_corrected_outcome", plannerOutcome(shadow.Decision.ShadowOutcome),
-		"shadow_corrected_savings_usd", shadow.Decision.ShadowExpectedSavingsUSD,
-	)
 }
 
 func roleForTier(t catalog.Tier) string {
