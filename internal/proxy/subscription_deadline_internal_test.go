@@ -44,7 +44,7 @@ func TestLinkedClaudeSubscriptionSurvivesSlowFirstOutput(t *testing.T) {
 		svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic}}).
 			WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 		linked := &Credentials{APIKey: []byte("sk-ant-oat01-synthetic"), OAuth: true, Source: credSourceSubscription}
-		ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), CredentialsContextKey{}, linked)
+		ctx := context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), CredentialsContextKey{}, linked)
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
@@ -92,7 +92,7 @@ func TestManagedSubscriptionSurvivesSlowFirstOutput(t *testing.T) {
 				require.Len(t, seen, 1)
 				require.Equal(t, "seat-a", seen[0].SubscriptionAccountID)
 				require.Empty(t, leaser.cooldownIDs, "a slow success must not cool down the account")
-				require.True(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served)
+				require.True(t, mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served)
 			})
 		})
 	}
@@ -163,7 +163,7 @@ func TestCallerCancellationDuringSubscriptionAttemptIsTerminal(t *testing.T) {
 		svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic}}).
 			WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 		linked := &Credentials{APIKey: []byte("sk-ant-oat01-synthetic"), OAuth: true, Source: credSourceSubscription}
-		parent, cancel := context.WithCancel(WithManagedSubscriptionUsage(context.Background()))
+		parent, cancel := context.WithCancel(credentials.WithManagedSubscriptionUsage(context.Background()))
 		ctx := context.WithValue(parent, CredentialsContextKey{}, linked)
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)

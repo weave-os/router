@@ -96,7 +96,7 @@ func managedSubscriptionContext(provider auth.SubscriptionProvider) context.Cont
 		provider: {},
 	})
 	// Pool recovery tests opt into metered fallback; default-only cases use raw enrollment.
-	return withClaudeCreditFallback(WithManagedSubscriptionUsage(ctx))
+	return withClaudeCreditFallback(credentials.WithManagedSubscriptionUsage(ctx))
 }
 
 func exhaustedManagedSubscriptionContext() context.Context {

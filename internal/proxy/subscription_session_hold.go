@@ -34,7 +34,7 @@ func (s *Service) holdSessionOffSubscriptionPool(ctx context.Context, provider, 
 
 func withUnservedHoldsReleased(ctx context.Context, holds *credentials.SubscriptionSessionHolds, enabledProviders map[string]struct{}) context.Context {
 	owner := sessionHoldOwner(ctx)
-	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
 	if owner == "" || state == nil {
 		return ctx
 	}

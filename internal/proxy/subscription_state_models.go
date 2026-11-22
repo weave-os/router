@@ -125,7 +125,7 @@ func readmitSessionStrikes(ctx context.Context, request *router.Request) bool {
 }
 
 func beginSubscriptionStateLane(ctx context.Context, initial router.Decision) context.Context {
-	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
 		usage.IntendedModel = initial.Model
 	}
 	return withClientAppRefusalPaidFallback(ctx, initial)

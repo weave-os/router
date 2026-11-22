@@ -128,7 +128,7 @@ func TestVerificationSafeSubscriptionIngressConformance(t *testing.T) {
 				}
 				require.Contains(t, rec.Body.String(), "read_file")
 				require.Contains(t, rec.Body.String(), "fixture.go")
-				winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
+				winner := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 				require.True(t, winner.Served)
 				require.Equal(t, "10000000-0000-4000-8000-000000000001", winner.SubscriptionAccountID)
 				require.Equal(t, "10000000-0000-4000-8000-000000000002", winner.SubscriptionOwnerID)
