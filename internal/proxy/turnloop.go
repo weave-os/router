@@ -842,7 +842,7 @@ func (s *Service) runTurnLoop(
 		if !routed {
 			dec, err := s.routeFor(ctx, strategy, req)
 			if err != nil {
-				if s.policyDeadlineFallback && isPolicyDeadlineErr(err) && servePolicyDeadlineFallback(ctx, s, &res, err, req, sessionPins, pinIfFound(pin, pinFound)) {
+				if s.routing.Deadline().Fallback && isPolicyDeadlineErr(err) && servePolicyDeadlineFallback(ctx, s, &res, err, req, sessionPins, pinIfFound(pin, pinFound)) {
 					return res, nil
 				}
 				log.Error("turnloop scorer failed", "err", err, "requested_model", req.RequestedModel)
