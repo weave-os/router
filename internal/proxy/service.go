@@ -113,8 +113,6 @@ type nativeResponsesReasoningHashContextKey struct{}
 
 type nativeResponsesToolHashContextKey struct{}
 
-type codexSkillContextKey struct{}
-
 type responsesFooterEchoedContextKey struct{}
 
 type codexTitleGenerationContextKey struct{}

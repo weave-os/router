@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 
@@ -67,7 +68,7 @@ func (s *Service) maybeStrikeArmAfterRescuedFailure(
 		RescuedPrimaryFailure: isRescuedPrimaryFailure(primaryErr),
 		RateLimit:             s.throttling.RateLimit,
 		Now:                   s.clock.Now,
-		RecordTurnFailure:     recordTurnFailure,
+		RecordTurnFailure:     requestcontext.RecordTurnFailure,
 	})
 }
 
