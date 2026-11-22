@@ -3269,8 +3269,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if isResponsesWriter {
 		surfacePurpose = inference.PurposeOpenAIResponses
 	}
-	rescue := &chatRescue{
-		svc: s, RescueChain: &dispatch.RescueChain{
+	rescue := &dispatch.ChatRescue{
+		RescueChain: &dispatch.RescueChain{
 			RescuePorts: rescuePortsFor(s), Markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver},
 			HTTPRequest:      r,
 			Log:              log,
@@ -3292,30 +3292,30 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			ProxyErr:         proxyErr,
 			EffortServed:     effortServed,
 		},
-		isResponses:          isResponses,
-		responsesPreludeBuf:  responsesPreludeBuf,
-		cyberRefusalSeen:     &cyberRefusalSeen,
-		cyberRetryArmed:      &cyberRetryArmed,
-		preOutputRescueArmed: &preOutputRescueArmed,
+		IsResponses:          isResponses,
+		ResponsesPreludeBuf:  responsesPreludeBuf,
+		CyberRefusalSeen:     &cyberRefusalSeen,
+		CyberRetryArmed:      &cyberRetryArmed,
+		PreOutputRescueArmed: &preOutputRescueArmed,
 	}
-	rescue.FlushErr = rescue.flushErrAsOpenAI
-	rescue.armCyberRetry(ctx, strategy)
-	rescue.armSubscriptionRetries(ctx)
-	ctx = rescue.armRescues(ctx)
+	rescue.FlushErr = rescue.FlushErrAsOpenAI
+	rescue.ArmCyberRetry(ctx, strategy)
+	rescue.ArmSubscriptionRetries(ctx)
+	ctx = rescue.ArmRescues(ctx)
 	rescue.HoldPrimary()
-	rescue.dispatchPrimary(ctx)
+	rescue.DispatchPrimary(ctx)
 	rescue.NotePrimaryFailure(ctx)
-	rescue.codexRetry(ctx)
-	rescue.claudeRetry(ctx)
-	rescue.cyberRetry(ctx)
+	rescue.CodexRetry(ctx)
+	rescue.ClaudeRetry(ctx)
+	rescue.CyberRetry(ctx)
 	rescue.SiblingRescue(ctx)
-	rescue.finish(ctx)
+	rescue.Finish(ctx)
 	decision, marker, proxyErr, effortServed = rescue.Decision, rescue.Marker, rescue.ProxyErr, rescue.EffortServed
 	winnerIdx, finalProvider := rescue.WinnerIdx, rescue.FinalProvider
 
-	if rescue.codexFailoverUsed {
+	if rescue.CodexFailoverUsed {
 		ctx = withSuppressedCodexSubscription(ctx)
-	} else if rescue.claudeFailoverUsed {
+	} else if rescue.ClaudeFailoverUsed {
 		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 	}
 	ctx = s.resolveCredentials(ctx, finalProvider, decision.Model, r.Header)

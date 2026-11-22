@@ -26,6 +26,17 @@ type RescueCredentials interface {
 	ServedOnSubscription(ctx context.Context) bool
 	RescueCredentialContext(ctx context.Context, rescueProvider string) context.Context
 	IsSubscriptionPoolError(err error) bool
+	ResolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context
+	SuppressCodexSubscription(ctx context.Context) context.Context
+	ServedOnCodexSubscription(ctx context.Context) bool
+	SubscriptionCredentialFallbackUsed(ctx context.Context) bool
+	SubscriptionStateModelsEnabled(ctx context.Context) bool
+	AnthropicOAuthRejected(err error) bool
+	AnthropicSubscriptionModelRejected(err error) bool
+	AnthropicThirdPartyRefused(err error) bool
+	CodexOAuthRejected(err error) bool
+	CodexSubscriptionModelRejected(err error) bool
+	CredentialRejectionStands(subscriptionErr, retryErr error, credentialRejected func(error) bool) bool
 }
 type RescueRouting interface {
 	ResolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding
@@ -49,6 +60,9 @@ type RescueFunding interface {
 	WithSiblingFunding(ctx context.Context, decision router.Decision) context.Context
 	PaidRescueDecisions(ctx context.Context, candidates []router.Decision) []router.Decision
 	PaidRescueContext(ctx context.Context, model string) context.Context
+	PaidFallbackForbidden(ctx context.Context, model string) bool
+	PaidFallbackForbiddenOnProvider(ctx context.Context, provider, model string) bool
+	PaidCapacityUnfunded(ctx context.Context) bool
 }
 
 type RescueAttempts interface {
@@ -59,6 +73,12 @@ type RescueAttempts interface {
 type RescueOverflow interface {
 	IsContextOverflow(err error) bool
 	RescuesCompactionOverflow(turnType turntype.TurnType, err error) bool
+	AsCompactionUnservable(turnType turntype.TurnType, decision router.Decision, err error) error
+}
+
+type RescueRender interface {
+	FlushOpenAIError(w http.ResponseWriter, err error)
+	EmitOpenAISSEError(w http.ResponseWriter, err error) error
 }
 
 type RescuePorts struct {
@@ -67,6 +87,7 @@ type RescuePorts struct {
 	Funding     RescueFunding
 	Attempts    RescueAttempts
 	Overflow    RescueOverflow
+	Render      RescueRender
 	Dispatch    func(ctx context.Context, in FailoverInputs) (winnerIdx int, err error)
 }
 
