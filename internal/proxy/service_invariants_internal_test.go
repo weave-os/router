@@ -138,7 +138,7 @@ func TestClearRecoveredCooldown_LandsAfterRequestCancellation(t *testing.T) {
 	cancel()
 	observedUntil := time.Now().Add(-time.Second)
 
-	s.clearRecoveredCooldown(ctx, turnLoopResult{
+	clearRecoveredCooldown(ctx, s, turnLoopResult{
 		SessionKey:     [sessionpin.SessionKeyLen]byte{1},
 		CooldownProbes: map[string]time.Time{"recovered-model": observedUntil},
 	}, "recovered-model", nil)

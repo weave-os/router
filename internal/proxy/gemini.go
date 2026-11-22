@@ -295,7 +295,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	telemetry.Flush(ctx)
 
 	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
-	s.clearRecoveredCooldown(ctx, routeRes, decision.Model, proxyErr)
+	clearRecoveredCooldown(ctx, s, routeRes, decision.Model, proxyErr)
 
 	var subscriberTelemetry *turnrecord.InsertTelemetryParams
 	if facts.InstallationID != uuid.Nil {
