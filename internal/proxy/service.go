@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"net/http"
 	"slices"
 	"sort"
@@ -2096,161 +2095,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	})
 }
 
-func applyPlannerAttrs(b *telemetry.AttrBuilder, res routingpolicy.TurnRoute) {
-	if res.PlannerDecision.Evaluated() {
-		b.String("planner.outcome", plannerOutcomeAttr(res)).
-			String("planner.reason", res.PlannerDecision.Reason).
-			Float64("planner.expected_savings_usd", res.PlannerDecision.ExpectedSavingsUSD).
-			Float64("planner.eviction_cost_usd", res.PlannerDecision.EvictionCostUSD).
-			Float64("planner.threshold_usd", res.PlannerDecision.ThresholdUSD).
-			String("planner.pin_model", res.PinModel).
-			String("planner.fresh_model", res.Fresh.Model).
-			String("planner.chosen_model", res.Decision.Model).
-			Bool("planner.pin_cache_warm", !res.PlannerDecision.PinCacheCold).
-			String("cache.pin_provider", res.PinProvider).
-			Bool("cache.prefix_stable", !res.PrefixBroken).
-			Bool("planner.pin_price_fallback", res.PlannerDecision.PinPriceFallback).
-			Bool("planner.fresh_price_fallback", res.PlannerDecision.FreshPriceFallback)
-		if res.PriorTurnGapMS != nil {
-			b.Int64("cache.prior_turn_gap_ms", *res.PriorTurnGapMS)
-		}
-		if res.PlannerDecision.ShadowComputed {
-			b.String("planner.shadow_outcome", plannerOutcome(res.PlannerDecision.ShadowOutcome)).
-				Float64("planner.shadow_expected_savings_usd", res.PlannerDecision.ShadowExpectedSavingsUSD).
-				Float64("planner.shadow_stay_cost_usd", res.PlannerDecision.ShadowStayCostUSD).
-				Float64("planner.shadow_switch_cost_usd", res.PlannerDecision.ShadowSwitchCostUSD)
-		}
-	}
-	b.Bool("handover.invoked", res.Handover.Invoked).
-		Int64("handover.latency_ms", res.Handover.LatencyMS).
-		Int64("handover.summary_tokens", int64(res.Handover.SummaryTokens)).
-		Bool("handover.fallback_to_full_history", res.Handover.FallbackToFullHistory)
-}
-
-func applySidecarAttrs(b *telemetry.AttrBuilder, res routingpolicy.TurnRoute) {
-	if res.Fresh.Metadata == nil {
-		return
-	}
-	if st := res.Fresh.Metadata.SidecarTimings; st != nil {
-		if st.EmbedMs != nil {
-			b.Int64("latency.embed_ms", int64(math.Round(*st.EmbedMs)))
-		}
-		if st.SelectMs != nil {
-			b.Int64("latency.sidecar_select_ms", int64(math.Round(*st.SelectMs)))
-		}
-		if st.OtherMs != nil {
-			b.Int64("latency.sidecar_other_ms", int64(math.Round(*st.OtherMs)))
-		}
-	}
-	if ss := res.Fresh.Metadata.SidecarStats; ss != nil {
-		if ss.EmbedCacheHits != nil {
-			b.Int64("routing.embed_cache_hits", *ss.EmbedCacheHits)
-		}
-		if ss.EmbedCacheMisses != nil {
-			b.Int64("routing.embed_cache_misses", *ss.EmbedCacheMisses)
-		}
-		if ss.EmbedCacheEvictions != nil {
-			b.Int64("routing.embed_cache_evictions", *ss.EmbedCacheEvictions)
-		}
-		if ss.RoutesInflight != nil {
-			b.Int64("routing.sidecar_inflight", *ss.RoutesInflight)
-		}
-		if ss.OverrunsLive != nil {
-			b.Int64("routing.sidecar_overruns_live", *ss.OverrunsLive)
-		}
-	}
-}
-
-func applyRoutingStateAttrs(
-	b *telemetry.AttrBuilder,
-	res routingpolicy.TurnRoute,
-	servedIdentity string,
-	sessionKey [sessionpin.SessionKeyLen]byte,
-) {
-	b.String("routing.session_key", sessionKeyHex(sessionKey)).
-		String("routing.pin_role", res.PinRole).
-		String("routing.prior_served_model", res.PriorServedModel).
-		Bool("routing.model_changed", res.PriorServedModel != "" && res.PriorServedModel != servedIdentity).
-		Bool("routing.llm_escalation_applied", res.Escalation().LLMApplied())
-}
-
-func plannerOutcomeAttr(res routingpolicy.TurnRoute) string {
-	if !res.PlannerDecision.Evaluated() {
-		return "skipped"
-	}
-	switch res.PlannerDecision.Outcome {
-	case planner.OutcomeStay:
-		return "stay"
-	case planner.OutcomeSwitch:
-		return "switch"
-	default:
-		return "skipped"
-	}
-}
-
-func plannerLogFields(res routingpolicy.TurnRoute) []any {
-	var pinCacheWarm any
-	if res.PlannerDecision.Evaluated() {
-		pinCacheWarm = !res.PlannerDecision.PinCacheCold
-	}
-	return []any{
-		"planner_outcome", plannerOutcomeAttr(res),
-		"planner_reason", res.PlannerDecision.Reason,
-		"planner_expected_savings_usd", res.PlannerDecision.ExpectedSavingsUSD,
-		"planner_eviction_cost_usd", res.PlannerDecision.EvictionCostUSD,
-		"planner_threshold_usd", res.PlannerDecision.ThresholdUSD,
-		"planner_pin_model", res.PinModel,
-		"planner_fresh_model", res.Fresh.Model,
-		"planner_chosen_model", res.Decision.Model,
-		"planner_pin_cache_warm", pinCacheWarm,
-		"cache_pin_provider", res.PinProvider,
-		"cache_prefix_stable", !res.PrefixBroken,
-		"cache_prior_turn_gap_ms", res.PriorTurnGapMS,
-		"planner_pin_price_fallback", res.PlannerDecision.PinPriceFallback,
-		"planner_fresh_price_fallback", res.PlannerDecision.FreshPriceFallback,
-	}
-}
-
 func stickyStateRole(res routingpolicy.TurnRoute) string {
 	if res.StickyHit && res.StickyRole != "" {
 		return res.StickyRole
 	}
 	return res.PinRole
-}
-
-func logPlannerOutcome(ctx context.Context, ports continuity.StrategyPorts, res routingpolicy.TurnRoute) {
-	if !res.PlannerDecision.Evaluated() {
-		return
-	}
-	log := observability.FromContext(ctx)
-	if res.PlannerDecision.Outcome == planner.OutcomeSwitch {
-		log.Info("router switched models",
-			"from", res.PinModel,
-			"to", res.Decision.Model,
-			"reason", res.PlannerDecision.Reason,
-			"expected_savings_usd", res.PlannerDecision.ExpectedSavingsUSD,
-			"eviction_cost_usd", res.PlannerDecision.EvictionCostUSD,
-			"threshold_usd", res.PlannerDecision.ThresholdUSD,
-			"pin_cache_warm", !res.PlannerDecision.PinCacheCold,
-			"handover_invoked", res.Handover.Invoked,
-			"handover_fallback_to_full_history", res.Handover.FallbackToFullHistory,
-			"handover_latency_ms", res.Handover.LatencyMS,
-		)
-		return
-	}
-	message := "router stayed on pinned model"
-	if isHMMDecision(ports, res.Fresh) {
-		message = "router stayed on previous HMM model"
-	}
-	log.Info(message,
-		"model", res.Decision.Model,
-		"pin_model", res.PinModel,
-		"reason", res.PlannerDecision.Reason,
-		"expected_savings_usd", res.PlannerDecision.ExpectedSavingsUSD,
-		"eviction_cost_usd", res.PlannerDecision.EvictionCostUSD,
-		"threshold_usd", res.PlannerDecision.ThresholdUSD,
-		"pin_cache_warm", !res.PlannerDecision.PinCacheCold,
-	)
 }
 
 func isHMMTurn(ports continuity.StrategyPorts, res routingpolicy.TurnRoute) bool {
@@ -2295,32 +2144,6 @@ func hmmHistoryStoredReason(ports continuity.StrategyPorts, res routingpolicy.Tu
 	return ports.CostGate.HistoryReason()
 }
 
-func (s *Service) policyOutcomeRoute(res routingpolicy.TurnRoute, decision router.Decision) (router.Decision, *router.RoutingMetadata, policy.OutcomeReporter, bool) {
-	for _, routeDecision := range []router.Decision{decision, res.Fresh} {
-		routeMetadata := routeDecision.Metadata
-		if routeMetadata == nil || routeMetadata.Strategy == "" || routeMetadata.RouteID == "" {
-			continue
-		}
-		registered, ok := s.strategies[router.Strategy(routeMetadata.Strategy)]
-		if !ok || registered.outcomes == nil {
-			continue
-		}
-		return routeDecision, routeMetadata, registered.outcomes, true
-	}
-	return router.Decision{}, nil, nil, false
-}
-
-func (s *Service) capturePolicyOutcomeResponse(ctx context.Context, w http.ResponseWriter, res routingpolicy.TurnRoute, decision router.Decision) (http.ResponseWriter, *captureWriter) {
-	if !policyTrainingAllowedForRequest(ctx) {
-		return w, nil
-	}
-	if _, _, _, ok := s.policyOutcomeRoute(res, decision); !ok {
-		return w, nil
-	}
-	capture := newCaptureWriter(w, policyOutcomeResponseMaxBytes)
-	return capture, capture
-}
-
 func isAuthoritativePinHoldMismatch(res routingpolicy.TurnRoute, served router.Decision) bool {
 	if served.Metadata != nil {
 		return false
@@ -2334,83 +2157,6 @@ func isAuthoritativePinHoldMismatch(res routingpolicy.TurnRoute, served router.D
 	default:
 		return false
 	}
-}
-
-func (s *Service) reportPolicyOutcome(ctx context.Context, res routingpolicy.TurnRoute, decision router.Decision, effort dispatch.EffortResolution, finalProvider string, servedFast bool, estimatedInputTokens, inputTokens, outputTokens, cacheCreation, cacheRead int, usageMods catalog.UsageModifiers, routeMs, proxyMs int64, proxyErr error, response *policyOutcomeResponse) {
-	routeDecision, routeMetadata, reporter, ok := s.policyOutcomeRoute(res, decision)
-	if !ok {
-		return
-	}
-	organizationID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
-	installationID, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
-	classifier := s.strategyPorts.Facts.ClassifierTelemetryOf(routeMetadata)
-	outcome := routingpolicy.PolicyOutcome{
-		Route: routeMetadata, Selected: routeDecision, ServedModel: decision.Model, ServedProvider: finalProvider,
-		OrganizationID: organizationID, InstallationID: installationID,
-		ClientApp: ClientIdentityFrom(ctx).TelemetryClientApp(), RolloutID: policyRolloutIDFromContext(ctx),
-		CaptureMode: s.effectiveCaptureMode(ctx).String(), RequestTrainingAllowed: policyTrainingAllowedForRequest(ctx),
-		ClassifierArtifactID: classifier.ArtifactID, ClassifierArtifactSHA256: classifier.ArtifactSHA256,
-		Effort: routingpolicy.PolicyOutcomeEffort{Arm: effort.Arm, Selected: effort.Selected, Sent: effort.Sent, Source: effort.Source, Mismatch: effort.Mismatch()},
-		Status: upstreamStatus(proxyErr), Err: proxyErr,
-		EstimatedInputTokens: estimatedInputTokens, InputTokens: inputTokens, OutputTokens: outputTokens,
-		CacheCreationTokens: cacheCreation, CacheReadTokens: cacheRead,
-		RouteLatencyMs: routeMs, UpstreamLatencyMs: proxyMs, TurnType: string(res.TurnType), StickyHit: res.StickyHit,
-	}
-	if outcome.AuthoritativeModelMismatch() {
-		log := observability.FromContext(ctx)
-		if isAuthoritativePinHoldMismatch(res, decision) {
-			log.Info(
-				"Authoritative policy model did not match served model",
-				"route_id", routeMetadata.RouteID,
-				"selected_model", routeDecision.Model,
-				"served_model", decision.Model,
-				"pin_tier", res.PinTier,
-			)
-		} else {
-			log.Error(
-				"Authoritative policy model did not match served model",
-				"route_id", routeMetadata.RouteID,
-				"selected_model", routeDecision.Model,
-				"served_model", decision.Model,
-			)
-		}
-	}
-	if outcome.Effort.Mismatch {
-		observability.FromContext(ctx).Warn(
-			"Selected effort did not match the effort sent upstream",
-			"route_id", routeMetadata.RouteID,
-			"served_model", decision.Model,
-			"arm_effort", effort.Arm,
-			"selected_effort", effort.Selected,
-			"sent_effort", effort.Sent,
-			"effort_source", effort.Source,
-		)
-	}
-	payload := outcome.Payload()
-	if outcome.TrainingAllowed() && response != nil {
-		payload["response_body_truncated"] = response.Truncated
-		if !response.Truncated {
-			payload["response_text"] = translate.AnthropicClientResponseText(response.Body)
-		}
-	}
-	if price, ok := servedPricing(finalProvider, decision.Model, servedFast); ok {
-		inputCost := catalog.EffectiveInputCost(inputTokens, cacheCreation, cacheRead, price, finalProvider, usageMods)
-		outputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(inputTokens, cacheCreation, cacheRead, finalProvider), outputTokens, price, usageMods)
-		payload["cost_usd"] = inputCost + outputCost
-	}
-	log := observability.FromContext(ctx).With("route_id", routeMetadata.RouteID)
-	if err := ctx.Err(); err != nil {
-		log.Debug("Skipping policy outcome report for canceled request", "err", err)
-		return
-	}
-	if identity, managed := requestcontext.ServingIdentityFromContext(ctx); managed {
-		payload["serving_identity"] = identity
-	}
-	observability.SafeGoContext(ctx, log, policyOutcomeReportTimeout, "reportPolicyOutcome", func(reportCtx context.Context) {
-		if err := reporter.ReportOutcome(reportCtx, payload); err != nil {
-			log.Error("Policy outcome report failed", "strategy", routeMetadata.Strategy, "err", err)
-		}
-	})
 }
 
 func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, hasImages bool, imageCount int, enabledProviders, excludedModels map[string]struct{}) router.Decision {
