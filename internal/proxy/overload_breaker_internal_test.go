@@ -477,7 +477,7 @@ func TestOverloadBreaker_GatewayTwoModelRosterStillServes(t *testing.T) {
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
 		WithProviderOverloaded(true, registry)
 	ctx := twoModelGatewayContext()
-	registry.RecordOverload(installationIDFromContext(ctx).String(), recoveryOpusModel, true)
+	registry.RecordOverload(requestcontext.InstallationIDFromContext(ctx).String(), recoveryOpusModel, true)
 	require.Contains(t, svc.overloadOpenModels(ctx), recoveryOpusModel)
 
 	rec := httptest.NewRecorder()
@@ -496,7 +496,7 @@ func TestOverloadBreaker_GatewayOrganizationProbesItsOwnCircuit(t *testing.T) {
 	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, recoveryOpusModel, nil)).
 		WithProviderOverloaded(true, registry)
 	ctx := twoModelGatewayContext()
-	registry.RecordOverload(installationIDFromContext(ctx).String(), recoveryOpusModel, true)
+	registry.RecordOverload(requestcontext.InstallationIDFromContext(ctx).String(), recoveryOpusModel, true)
 	now = now.Add(30 * time.Second)
 
 	probe, release, claimed := svc.claimOverloadProbe(ctx, router.Request{TranslationRequirements: router.TranslationRequirements{Endpoint: router.EndpointAnthropicMessages}})

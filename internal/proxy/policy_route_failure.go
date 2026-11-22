@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -24,7 +25,7 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, request route
 	if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
 		return
 	}
-	installationID := installationIDFromContext(ctx)
+	installationID := requestcontext.InstallationIDFromContext(ctx)
 	if installationID == uuid.Nil {
 		return
 	}

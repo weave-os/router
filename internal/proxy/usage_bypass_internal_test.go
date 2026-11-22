@@ -487,13 +487,13 @@ func TestSubscriptionFailover_EligibilityAndSuppression(t *testing.T) {
 
 	t.Run("no fallback key: not eligible", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()} // no deployment Anthropic key, no BYOK
-		assert.False(t, s.anthropicFallbackKeyAvailable(ctx),
+		assert.False(t, s.credentials.AnthropicFallbackKeyAvailable(ctx),
 			"without a Weave/BYOK Anthropic key there is nothing to fail over to")
 	})
 
 	t.Run("deployment Anthropic key present: eligible", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}}
-		assert.True(t, s.anthropicFallbackKeyAvailable(ctx),
+		assert.True(t, s.credentials.AnthropicFallbackKeyAvailable(ctx),
 			"a deployment Anthropic key is a valid failover target for a throttled subscription")
 	})
 

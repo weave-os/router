@@ -54,7 +54,7 @@ func (p rescueCredentialPort) SubscriptionSiblingAllowed(ctx context.Context) bo
 }
 
 func (p rescueCredentialPort) AnthropicFallbackKeyAvailable(ctx context.Context) bool {
-	return p.s.anthropicFallbackKeyAvailable(ctx)
+	return p.s.credentials.AnthropicFallbackKeyAvailable(ctx)
 }
 
 func (p rescueCredentialPort) ClaudeSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
