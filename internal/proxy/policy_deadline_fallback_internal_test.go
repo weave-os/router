@@ -338,3 +338,14 @@ func TestWithRoutingPolicyKeepsDeadlineSettingsInEitherOrder(t *testing.T) {
 		WithPolicyDeadlineFallback(true).WithPolicyDeadlineDefaultModel("model-a")
 	assert.Equal(t, want, after.routing.Deadline())
 }
+
+func TestWithRoutingPolicyKeepsModelUniverseAndHardPins(t *testing.T) {
+	svc := (&Service{}).WithAvailableModels(map[string]struct{}{"model-a": {}}).
+		WithDefaultBaselineModel("model-b").WithSubAgentOverride("provider-c", "model-c").
+		WithRoutingPolicy(routingpolicy.New(nil))
+
+	assert.Equal(t, map[string]struct{}{"model-a": {}}, svc.routing.AvailableModels())
+	assert.Equal(t, "model-b", svc.routing.DefaultBaselineModel())
+	assert.Equal(t, "provider-c", svc.routing.HardPins().SubAgentProvider)
+	assert.Equal(t, "model-c", svc.routing.HardPins().SubAgentModel)
+}

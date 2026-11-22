@@ -158,7 +158,7 @@ func (t *hardPinnedTurnServing) serveForcedPin(ctx context.Context) bool {
 }
 
 func (t *hardPinnedTurnServing) serveProbe(ctx context.Context) (bool, error) {
-	if t.res.TurnType != turntype.Probe || t.s.hardPins.ExplicitUtility {
+	if t.res.TurnType != turntype.Probe || t.s.routing.HardPins().ExplicitUtility {
 		return false, nil
 	}
 	t.res.SessionKey = [sessionpin.SessionKeyLen]byte{}
@@ -178,7 +178,7 @@ func (t *hardPinnedTurnServing) serveProbe(ctx context.Context) (bool, error) {
 }
 
 func (t *hardPinnedTurnServing) serveDeploymentHardPin(ctx context.Context) (bool, error) {
-	resolver, provider, model := t.s.hardPins.Target(t.res.TurnType)
+	resolver, provider, model := t.s.routing.HardPins().Target(t.res.TurnType)
 	provider, model, err := utilityHardPinTarget(ctx, t.req, t.res.TurnType, resolver, provider, model)
 	if err != nil {
 		return true, err
