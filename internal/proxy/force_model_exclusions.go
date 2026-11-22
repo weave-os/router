@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/router/catalog"
 )
 
@@ -22,7 +23,7 @@ func (e *ForcedModelExcludedError) Error() string { return e.Reason }
 
 func (e *ForcedModelExcludedError) Unwrap() []error {
 	if e.CreditsDisabled {
-		return []error{ErrForcedModelExcluded, ErrWeaveCreditsDisabled}
+		return []error{ErrForcedModelExcluded, credentials.ErrWeaveCreditsDisabled}
 	}
 	return []error{ErrForcedModelExcluded}
 }

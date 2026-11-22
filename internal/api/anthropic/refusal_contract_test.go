@@ -24,7 +24,7 @@ func TestRefusalContract_AnthropicType(t *testing.T) {
 		{err: proxy.ErrSubscriptionClientAppRefused, want: "permission_error"},
 		{err: credentials.ErrSpendCapSubscriptionUnavailable, want: "billing_error"},
 		{err: credentials.ErrCreditsExhaustedSubscriptionUnavailable, want: "billing_error"},
-		{err: proxy.ErrWeaveCreditsDisabled, want: "billing_error"},
+		{err: credentials.ErrWeaveCreditsDisabled, want: "billing_error"},
 		{err: proxy.ErrClaudeEnterpriseSubscriptionUnavailable, want: "billing_error"},
 		{err: credentials.ErrSubscriptionPoolExhausted, want: "rate_limit_error"},
 		{err: credentials.ErrSubscriptionPoolThrottled, want: "rate_limit_error"},
