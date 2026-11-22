@@ -43,3 +43,7 @@ func ManagedAccountThrottled(ctx context.Context, candidate ManagedSubscriptionC
 	}
 	return candidate.State == auth.SubscriptionAccountStateCooldown && candidate.ResetAt.After(now) && !candidate.CredentialRejected
 }
+
+func ManagedAccountCredentialCooling(candidate ManagedSubscriptionCandidate, now time.Time) bool {
+	return candidate.State == auth.SubscriptionAccountStateCooldown && candidate.ResetAt.After(now) && candidate.CredentialRejected
+}
