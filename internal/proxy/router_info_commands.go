@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/translate"
 )
 
@@ -22,7 +23,10 @@ func (c routerInfoCommands) session(
 	ack := newCommandAcknowledgment(translate.CommandRouterSession)
 	ack.sessionID, ack.clientApp = identity.SessionID, identity.ClientApp
 
-	conversation.LogRouterSession(ctx, identity.SessionID, identity.ClientApp)
+	observability.FromContext(ctx).Debug("/router-session: answered from request identity",
+		"has_session_id", identity.SessionID != "",
+		"client_app", identity.ClientApp,
+	)
 
 	return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 }
@@ -33,10 +37,19 @@ func (c routerInfoCommands) models(
 	env *translate.RequestEnvelope,
 	inputTokens int,
 ) error {
-	view := conversation.ReadRouterModels(ctx, c)
+	log := observability.FromContext(ctx)
+	routable := c.s.RoutableModels()
+	excluded := c.s.excludedModelsForRequest(ctx)
+	automaticExcluded := c.s.globalAutomaticExcludedModels(ctx)
+
+	log.Debug("/router-models: answered from the request's own routing view",
+		"routable", len(routable),
+		"excluded", len(excluded),
+		"automatic_excluded", len(automaticExcluded),
+	)
 
 	ack := newCommandAcknowledgment(translate.CommandRouterModels)
-	ack.routable, ack.excluded, ack.automaticExcluded = view.Routable, view.Excluded, view.AutomaticExcluded
+	ack.routable, ack.excluded, ack.automaticExcluded = routable, excluded, automaticExcluded
 	ack.clientApp = ClientIdentityFrom(ctx).ClientApp
 	return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 }
@@ -52,14 +65,4 @@ func (c routerInfoCommands) listModels(
 	ack.forceable = models
 	ack.clientApp = ClientIdentityFrom(ctx).ClientApp
 	return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
-}
-
-func (c routerInfoCommands) RoutableModels() map[string]struct{} { return c.s.RoutableModels() }
-
-func (c routerInfoCommands) ExcludedModels(ctx context.Context) map[string]struct{} {
-	return c.s.excludedModelsForRequest(ctx)
-}
-
-func (c routerInfoCommands) AutomaticExcludedModels(ctx context.Context) map[string]struct{} {
-	return c.s.globalAutomaticExcludedModels(ctx)
 }

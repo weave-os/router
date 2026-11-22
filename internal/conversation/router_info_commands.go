@@ -13,37 +13,6 @@ import (
 
 const routingMarkerPrefix = "✦ **Weave Router** → "
 
-type RouterModelsView interface {
-	RoutableModels() map[string]struct{}
-	ExcludedModels(ctx context.Context) map[string]struct{}
-	AutomaticExcludedModels(ctx context.Context) map[string]struct{}
-}
-
-type RouterModels struct {
-	Routable, Excluded, AutomaticExcluded map[string]struct{}
-}
-
-func LogRouterSession(ctx context.Context, sessionID, clientApp string) {
-	observability.FromContext(ctx).Debug("/router-session: answered from request identity",
-		"has_session_id", sessionID != "",
-		"client_app", clientApp,
-	)
-}
-
-func ReadRouterModels(ctx context.Context, view RouterModelsView) RouterModels {
-	log := observability.FromContext(ctx)
-	routable := view.RoutableModels()
-	excluded := view.ExcludedModels(ctx)
-	automaticExcluded := view.AutomaticExcludedModels(ctx)
-
-	log.Debug("/router-models: answered from the request's own routing view",
-		"routable", len(routable),
-		"excluded", len(excluded),
-		"automatic_excluded", len(automaticExcluded),
-	)
-	return RouterModels{Routable: routable, Excluded: excluded, AutomaticExcluded: automaticExcluded}
-}
-
 type ForceableModel struct {
 	ID, Provider  string
 	Refused       bool
@@ -52,14 +21,6 @@ type ForceableModel struct {
 }
 
 func ListForceableModels(ctx context.Context, names map[string]string, binder ForceModelBinder) []ForceableModel {
-	models := forceableModels(ctx, names, binder)
-	observability.FromContext(ctx).Debug("/list-models: answered from the force-model catalog",
-		"models", len(models),
-	)
-	return models
-}
-
-func forceableModels(ctx context.Context, names map[string]string, binder ForceModelBinder) []ForceableModel {
 	shorthands := make(map[string][]string)
 	for name, id := range names {
 		if name != id {
@@ -86,6 +47,9 @@ func forceableModels(ctx context.Context, names map[string]string, binder ForceM
 		}
 		return out[i].ID < out[j].ID
 	})
+	observability.FromContext(ctx).Debug("/list-models: answered from the force-model catalog",
+		"models", len(out),
+	)
 	return out
 }
 
