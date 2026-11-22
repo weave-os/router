@@ -6,11 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/billing"
 	"weave-os/router/internal/conversation"
-	"weave-os/router/internal/credentials"
-	"weave-os/router/internal/dispatch"
-	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -19,7 +15,6 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
-	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 )
 
@@ -279,185 +274,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		ctx = resolvedCtx
 	}
 	opts.FastMode = fastModeForAttempt(ctx, decision.Model, decision.Provider)
-	fastServed := false
-
-	bindings := s.resolveBindingsForDispatch(ctx, decision)
-
-	if billing.SubscriptionOnlyFromContext(ctx) && !subscriptionStateModelsEnabled(ctx) {
-		if subscriptionOnlyUnservable(ctx, decision.Provider, decision.Model) {
-			released, ok := releaseUnservableLinkedFirst(ctx, decision)
-			if !ok {
-				log.Info("Subscription-only request cannot be served on the subscription; refusing",
-					"requested_model", feats.Model, "external_id", facts.ExternalID, "decision_provider", decision.Provider)
-				return credentials.SubscriptionOnlyUnavailable(ctx)
-			}
-			ctx = released
-		} else {
-			bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
-		}
-	}
-	clientSink := w
-	if _, isResponses := w.(*translate.ResponsesWriter); env.Stream() && !isResponses {
-		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoed); footer != "" {
-			clientSink = translate.NewOpenAIRoutingFooterWriter(w, footer)
-		}
-	}
-	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
-	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
-
-	announcementTurn := announcementTurnFor(routeRes, replayedModel)
-	if announcedModel, ok := ctx.Value(responsesLastAnnouncedModelContextKey{}).(string); ok {
-		announcementTurn.PriorServedModel = announcedModel
-	}
-	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(s.strategyPorts, ctx, announcementTurn, routingMarkerFor(announcementTurn), decision.Model, ""))
-	muteSlowStartFor(ctx, routeRes)
-	fundingCtx := ctx
-	if CredentialsFromContext(fundingCtx) == nil {
-		fundingCtx = credentialCtx
-	}
-	notice := routerNoticeForDecision(ctx, r.Header, decision, marker)
-	notice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), decision.Provider, decision.Model, notice)
-	marker = notice.Text
-
-	prelude, err := prepareChatResponsesPrelude(ctx, chatResponsesPreludeDeps{
-		svc: s, responseWriter: w, contentSink: contentSink, responsesBody: responsesBody, openAIResponsesEndpoint: openAIResponsesEndpoint,
-		handoverInvoked: routeRes.Handover.Invoked, turnType: routeRes.TurnType, decision: decision, facts: facts, footerEchoed: footerEchoed,
-		bindingCount: len(bindings), marker: marker, notice: notice, stream: env.Stream(), log: log,
-	})
-	if err != nil {
-		return err
-	}
-	responsesBody, responsesWriter, isResponses, responseSwitch := prelude.responsesBody, prelude.responsesWriter, prelude.isResponses, prelude.responseSwitch
-	responsesNotices, responsesPreludeBuf, preludeBuf, sink, makeMarkerSink := prelude.responsesNotices, prelude.responsesPreludeBuf, prelude.preludeBuf, prelude.sink, prelude.makeMarkerSink
-
-	toolValidator := env.ToolValidator()
-
-	proxyStart := s.clock.Now()
-	inferenceParentCtx := ctx
-	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
-	defer inferenceSpan.End()
-	var proxyErr error
-	crossFormat := false
-	var extractor *telemetry.UsageExtractor
-
-	var respSummary translate.ResponseSummary
-	nativeRespSummary := false
-	cyberRetryArmed := false
-	preOutputRescueArmed := false
-	cyberRefusalSeen := false
-	attemptDeps := chatAttemptDeps{
-		request:              r,
-		svc:                  s,
-		isResponses:          isResponses,
-		responseSwitch:       responseSwitch,
-		facts:                facts,
-		responsesNotices:     responsesNotices,
-		responsesPreludeBuf:  responsesPreludeBuf,
-		env:                  env,
-		responseWriter:       w,
-		responsesBody:        responsesBody,
-		log:                  log,
-		fastServed:           &fastServed,
-		routeRes:             &routeRes,
-		makeMarkerSink:       makeMarkerSink,
-		cyberRetryArmed:      &cyberRetryArmed,
-		preOutputRescueArmed: &preOutputRescueArmed,
-		extractor:            &extractor,
-		toolValidator:        toolValidator,
-		responsesWriter:      responsesWriter,
-		preludeBuf:           preludeBuf,
-		sink:                 sink,
-		respSummary:          &respSummary,
-		nativeRespSummary:    &nativeRespSummary,
-		cyberRefusalSeen:     &cyberRefusalSeen,
-		responsesEndpointKey: responsesEndpointKey,
-		crossFormat:          &crossFormat,
-	}
-	buildProviderAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
-		return buildChatAttempt(ctx, attemptDeps, target, targetOpts, targetMarker, fundingCtx)
-	}
-
-	buildAttempt := responseSwitch.wrapBuilder(buildProviderAttempt)
-	attempt, attemptBuildErr := buildAttempt(decision, opts, marker, fundingCtx)
-	if attemptBuildErr != nil {
-		finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, attemptBuildErr)
-		return attemptBuildErr
-	}
-
-	surfacePurpose := inference.PurposeOpenAIChatCompletions
-	if isResponsesWriter {
-		surfacePurpose = inference.PurposeOpenAIResponses
-	}
-	rescue := &dispatch.ChatRescue{
-		RescueChain: &dispatch.RescueChain{
-			RescuePorts: rescuePortsFor(s), Markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver},
-			HTTPRequest:      r,
-			Log:              log,
-			Env:              env,
-			RouteRes:         rescueTurnOf(routeRes),
-			Request:          &routeRequest,
-			Opts:             opts,
-			ContentSink:      contentSink,
-			PreludeBuf:       preludeBuf,
-			Attempt:          attempt,
-			BuildAttempt:     buildAttempt,
-			Surface:          surfacePurpose,
-			OverflowEstimate: overflowEstimateOAI,
-			OutputReserve:    outputReserveOAI,
-			RespSummary:      &respSummary,
-			Decision:         decision,
-			Bindings:         bindings,
-			Marker:           marker,
-			ProxyErr:         proxyErr,
-			EffortServed:     effortServed,
-		},
-		IsResponses:          isResponses,
-		ResponsesPreludeBuf:  responsesPreludeBuf,
-		CyberRefusalSeen:     &cyberRefusalSeen,
-		CyberRetryArmed:      &cyberRetryArmed,
-		PreOutputRescueArmed: &preOutputRescueArmed,
-	}
-	rescue.FlushErr = rescue.FlushErrAsOpenAI
-	rescue.ArmCyberRetry(ctx, strategy)
-	rescue.ArmSubscriptionRetries(ctx)
-	ctx = rescue.ArmRescues(ctx)
-	rescue.HoldPrimary()
-	rescue.DispatchPrimary(ctx)
-	rescue.NotePrimaryFailure(ctx)
-	rescue.CodexRetry(ctx)
-	rescue.ClaudeRetry(ctx)
-	rescue.CyberRetry(ctx)
-	rescue.SiblingRescue(ctx)
-	rescue.Finish(ctx)
-	decision, marker, proxyErr, effortServed = rescue.Decision, rescue.Marker, rescue.ProxyErr, rescue.EffortServed
-	winnerIdx, finalProvider := rescue.WinnerIdx, rescue.FinalProvider
-
-	if rescue.CodexFailoverUsed {
-		ctx = withSuppressedCodexSubscription(ctx)
-	} else if rescue.ClaudeFailoverUsed {
-		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
-	}
-	ctx = s.resolveCredentials(ctx, finalProvider, decision.Model, r.Header)
-
-	if extractor.Speed() == catalog.SpeedFast {
-		fastServed = true
-	}
-	if actBindingPricing, ok := servedPricing(finalProvider, decision.Model, fastServed); ok {
-		actPricing = actBindingPricing
-	}
-
-	proxyMs := s.clock.Now().Sub(proxyStart).Milliseconds()
-	finishInferenceSpan(inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
-	ctx = restoreParentSpan(ctx, inferenceParentCtx)
-
-	return finishChatTurn(ctx, s, &chatFinishedTurn{
-		w: w, body: body, requestStart: requestStart, facts: facts, rateLimit: rateLimit, log: log, env: env, sessionKey: sessionKey, feats: feats,
-		promptText: promptText, embedInput: embedInput, strategy: strategy, taskArm: taskArm, inboundLastUser: inboundLastUser,
-		inboundUserPromptOpenAI: inboundUserPromptOpenAI, routeRequest: routeRequest, routeRes: routeRes, routeMs: routeMs, decision: decision,
-		tt: tt, stickyHit: stickyHit, pinTier: pinTier, pinAgeSec: pinAgeSec, reqPricing: reqPricing, actPricing: actPricing,
-		effortServed: effortServed, fastServed: fastServed, contentCap: contentCap, marker: marker, responsesPreludeBuf: responsesPreludeBuf,
-		preludeBuf: preludeBuf, proxyStart: proxyStart, proxyErr: proxyErr, crossFormat: crossFormat, extractor: extractor,
-		respSummary: respSummary, nativeRespSummary: nativeRespSummary, cyberRefusalSeen: cyberRefusalSeen, rescue: rescue, winnerIdx: winnerIdx,
-		finalProvider: finalProvider, proxyMs: proxyMs,
+	return dispatchChatTurn(ctx, credentialCtx, &chatTurnDispatch{
+		s: s, w: w, r: r, body: body, requestStart: requestStart, facts: facts, rateLimit: rateLimit, log: log, env: env, sessionKey: sessionKey,
+		feats: feats, promptText: promptText, embedInput: embedInput, strategy: strategy, taskArm: taskArm, inboundLastUser: inboundLastUser,
+		inboundUserPromptOpenAI: inboundUserPromptOpenAI, routeRequest: routeRequest, routeRes: routeRes, routeMs: routeMs, decision: decision, tt: tt,
+		stickyHit: stickyHit, pinTier: pinTier, pinAgeSec: pinAgeSec, reqPricing: reqPricing, actPricing: actPricing, effortServed: effortServed,
+		opts: opts, replayedModel: replayedModel, footerEchoed: footerEchoed, responsesBody: responsesBody,
+		openAIResponsesEndpoint: openAIResponsesEndpoint, isResponsesWriter: isResponsesWriter, overflowEstimateOAI: overflowEstimateOAI,
+		outputReserveOAI: outputReserveOAI, responsesEndpointKey: responsesEndpointKey, escalationCapture: &escalationCapture,
 	})
 }
