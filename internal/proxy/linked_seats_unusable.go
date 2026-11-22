@@ -27,18 +27,18 @@ const (
 	linkedSeatUnusable
 )
 
-func linkedSeatAvailabilityOf(ctx context.Context, pool subscriptions.Provider, candidate managedSubscriptionCandidate, now time.Time) linkedSeatAvailability {
-	resetPending := candidate.resetAt.IsZero() || candidate.resetAt.After(now)
+func linkedSeatAvailabilityOf(ctx context.Context, pool subscriptions.Provider, candidate credentials.ManagedSubscriptionCandidate, now time.Time) linkedSeatAvailability {
+	resetPending := candidate.ResetAt.IsZero() || candidate.ResetAt.After(now)
 	switch {
-	case !candidate.enabled || candidate.state == auth.SubscriptionAccountStateDisabled || candidate.state == auth.SubscriptionAccountStateReconnectRequired:
+	case !candidate.Enabled || candidate.State == auth.SubscriptionAccountStateDisabled || candidate.State == auth.SubscriptionAccountStateReconnectRequired:
 		return linkedSeatUnusable
-	case candidate.state == auth.SubscriptionAccountStateExhausted && pool == subscriptions.ProviderClaude && requestcontext.SubscriptionExtraUsageFrom(ctx):
+	case candidate.State == auth.SubscriptionAccountStateExhausted && pool == subscriptions.ProviderClaude && requestcontext.SubscriptionExtraUsageFrom(ctx):
 		return linkedSeatUsable
-	case candidate.state == auth.SubscriptionAccountStateExhausted && resetPending:
+	case candidate.State == auth.SubscriptionAccountStateExhausted && resetPending:
 		return linkedSeatUnusable
-	case candidate.state == auth.SubscriptionAccountStateCooldown && resetPending && !candidate.credentialRejected && !candidate.resetAt.IsZero() && !candidate.resetAt.After(now.Add(longestProviderThrottleCooldown)):
+	case candidate.State == auth.SubscriptionAccountStateCooldown && resetPending && !candidate.CredentialRejected && !candidate.ResetAt.IsZero() && !candidate.ResetAt.After(now.Add(longestProviderThrottleCooldown)):
 		return linkedSeatThrottled
-	case candidate.state == auth.SubscriptionAccountStateCooldown && resetPending:
+	case candidate.State == auth.SubscriptionAccountStateCooldown && resetPending:
 		return linkedSeatUnusable
 	}
 	return linkedSeatUsable
@@ -48,18 +48,18 @@ func linkedClaudeSeatConnected(ctx context.Context) bool {
 	if !managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
 		return false
 	}
-	candidates, snapshotPresent := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
-	return !snapshotPresent || slices.ContainsFunc(candidates, func(candidate managedSubscriptionCandidate) bool {
-		return candidate.provider == auth.SubscriptionProviderClaude && candidate.enabled &&
-			candidate.state != auth.SubscriptionAccountStateDisabled && candidate.state != auth.SubscriptionAccountStateReconnectRequired
+	candidates, snapshotPresent := ctx.Value(credentials.ManagedSubscriptionCandidatesContextKey{}).([]credentials.ManagedSubscriptionCandidate)
+	return !snapshotPresent || slices.ContainsFunc(candidates, func(candidate credentials.ManagedSubscriptionCandidate) bool {
+		return candidate.Provider == auth.SubscriptionProviderClaude && candidate.Enabled &&
+			candidate.State != auth.SubscriptionAccountStateDisabled && candidate.State != auth.SubscriptionAccountStateReconnectRequired
 	})
 }
 
 func linkedSeatsAvailability(ctx context.Context, pool subscriptions.Provider, now time.Time) linkedSeatAvailability {
-	candidates, _ := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
+	candidates, _ := ctx.Value(credentials.ManagedSubscriptionCandidatesContextKey{}).([]credentials.ManagedSubscriptionCandidate)
 	availability := linkedSeatUsable
 	for _, candidate := range candidates {
-		if candidate.provider != auth.SubscriptionProvider(pool) {
+		if candidate.Provider != auth.SubscriptionProvider(pool) {
 			continue
 		}
 		switch linkedSeatAvailabilityOf(ctx, pool, candidate, now) {

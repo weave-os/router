@@ -54,7 +54,7 @@ func TestSubscriptionAdmissionReportsSkipGateAndPreservesRotation(t *testing.T) 
 			return ctx
 		}},
 		{name: "admission snapshot", reason: subscriptionSkipOutsideAdmission, configure: func(_ *Service, ctx context.Context, _ *scriptedSubscriptionLeaser) context.Context {
-			return WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "winner", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
+			return credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "winner", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 		}},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {

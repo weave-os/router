@@ -20,7 +20,7 @@ func TestPreDispatchFundingRefusalIsClassifiedAndOwned(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
 	svc.clock = func() time.Time { return now }
-	disabledSeatCtx := WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), []*auth.SubscriptionAccount{
+	disabledSeatCtx := credentials.WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), []*auth.SubscriptionAccount{
 		{ID: "disabled", Provider: auth.SubscriptionProviderClaude, Enabled: false, State: auth.SubscriptionAccountStateDisabled},
 	})
 	_, _, managed, disabledSeatErr := svc.leaseManagedSubscription(disabledSeatCtx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String())

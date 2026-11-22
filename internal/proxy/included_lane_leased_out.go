@@ -58,7 +58,7 @@ func recordCallerCodexFailureOnLinkedSeat(ctx context.Context, creds *Credential
 		return
 	}
 	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
-	candidates, _ := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
+	candidates, _ := ctx.Value(credentials.ManagedSubscriptionCandidatesContextKey{}).([]credentials.ManagedSubscriptionCandidate)
 	callerUserID := subscriptions.CodexUserIDFromJWT(string(creds.APIKey))
 	if state == nil || state.IntendedModel == "" || callerUserID == "" {
 		return
@@ -68,17 +68,17 @@ func recordCallerCodexFailureOnLinkedSeat(ctx context.Context, creds *Credential
 		resetAt = managedSubscriptionResetAt(attemptErr, now)
 	}
 	for _, candidate := range candidates {
-		if candidate.provider != auth.SubscriptionProviderCodex || candidate.externalAccountID != string(creds.AccountID) || candidate.providerUserID != callerUserID {
+		if candidate.Provider != auth.SubscriptionProviderCodex || candidate.ExternalAccountID != string(creds.AccountID) || candidate.ProviderUserID != callerUserID {
 			continue
 		}
 		if spent {
-			recordManagedQuotaProof(ctx, candidate.accountID, resetAt)
+			recordManagedQuotaProof(ctx, candidate.AccountID, resetAt)
 		} else {
-			recordManagedThrottle(ctx, candidate.accountID, resetAt)
+			recordManagedThrottle(ctx, candidate.AccountID, resetAt)
 		}
 		if state.AttemptedAccounts == nil {
 			state.AttemptedAccounts = make(map[string]struct{})
 		}
-		state.AttemptedAccounts[candidate.accountID+"\x00"+state.IntendedModel] = struct{}{}
+		state.AttemptedAccounts[candidate.AccountID+"\x00"+state.IntendedModel] = struct{}{}
 	}
 }

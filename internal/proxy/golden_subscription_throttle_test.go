@@ -27,7 +27,7 @@ func withThrottledCodexPool(svc *proxy.Service, h *goldenHarness) *proxy.Service
 
 func goldenThrottledCodexCreditsDeniedCtx(ctx context.Context) context.Context {
 	ctx = goldenCreditsDeniedCtx(ctx)
-	ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
+	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
 		{ID: "codex-seat-a", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive},
 		{ID: "codex-seat-b", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive},
 	})

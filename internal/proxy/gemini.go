@@ -103,7 +103,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	prefiltered := candidates.Prefilter(candidates.PrefilterRequest{
 		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserve, Eligibility: eligibility,
-		Excluded: excluded, Available: s.availableModels,
+		Excluded: excluded, Available: s.routing.AvailableModels(),
 		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()),
 	})
 	logPrefilter(log, env, feats.ImageCount, outputReserve, prefiltered)

@@ -34,7 +34,6 @@ import (
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/routingpolicy/overrides"
@@ -64,16 +63,13 @@ type Service struct {
 	translationMetrics           telemetry.TranslationMetrics
 	pinStore                     sessionpin.Store
 	escalation                   *floor.Helper
-	sessionStrategyStore         sessionstrategy.Store
 	lifecycle                    *conversation.Lifecycle
 	prefixTrimFreeSwitch         bool
 	escapeNormalize              bool
-	hardPins                     overrides.HardPins
 	captureMode                  ContentCaptureMode
 	captureMaxBytes              int
 	redactor                     Redactor
 	routing                      *routingpolicy.Policy
-	globalAutomaticExclusions    *globalAutomaticExclusionCache
 	credentials                  credentials.Brokerage
 	strategyServing
 
@@ -92,8 +88,6 @@ type Service struct {
 
 	turnSignalCaptureEnabled bool
 	webSearch                websearch.Executor
-	availableModels          map[string]struct{}
-	defaultBaselineModel     string
 	billing                  *billing.Service
 	clock                    auth.Clock
 	feedbackLinks            feedbackLinks
@@ -468,7 +462,7 @@ func modelPermittedByAllowlist(ctx context.Context, model string) bool {
 }
 
 func (s *Service) routableUniverse() map[string]struct{} {
-	return candidates.RoutableUniverse(s.availableModels)
+	return candidates.RoutableUniverse(s.routing.AvailableModels())
 }
 
 func subscriptionRoutingDisabledForRequest(ctx context.Context) bool {
@@ -516,7 +510,7 @@ func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]stru
 		ProductIneligible:    s.productIneligibleModels(ctx),
 		InstallationExcluded: installationExcludedModelsFromContext(ctx),
 		Allowed:              allowed,
-		Available:            s.availableModels,
+		Available:            s.routing.AvailableModels(),
 		GatewayUnserved:      func() map[string]struct{} { return s.gatewayUnservedModelsForRequest(ctx) },
 	})
 }
@@ -796,7 +790,6 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 		prefixTrimFreeSwitch:         true,
 		turnSignalCaptureEnabled:     true,
 		ccOrchToolsCrossVendor:       true,
-		hardPins:                     overrides.HardPins{Explore: hardPinExplore, Provider: hardPinProvider, Model: hardPinModel},
 		strategyServing:              strategyServing{continuityConfig: continuity.DefaultConfig(), hmmConfig: continuity.DefaultAuthoritativeConfig()},
 		rescueConfig: dispatch.RescueConfig{
 			SiblingFailover:             true,
@@ -809,7 +802,7 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 		nativeAnthropicResponseSignals: true,
 		nativeOpenAIResponseSignals:    true,
 	}
-	s.routing = routingpolicy.New(nil)
+	s.routing = routingpolicy.New(nil).WithHardPins(overrides.HardPins{Explore: hardPinExplore, Provider: hardPinProvider, Model: hardPinModel})
 	s.escalationHelper()
 	if r == nil {
 		return s
@@ -1011,15 +1004,7 @@ func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
 }
 
 func (s *Service) WithAvailableModels(models map[string]struct{}) *Service {
-	if models == nil {
-		s.availableModels = nil
-		return s
-	}
-	copied := make(map[string]struct{}, len(models))
-	for m := range models {
-		copied[m] = struct{}{}
-	}
-	s.availableModels = copied
+	s.routing = s.routing.WithAvailableModels(models)
 	return s
 }
 
@@ -1028,22 +1013,28 @@ type HardPinRequest = overrides.HardPinRequest
 type HardPinResolver = overrides.HardPinResolver
 
 func (s *Service) WithExplicitUtilityHardPin(enabled bool) *Service {
-	s.hardPins.ExplicitUtility = enabled
+	hardPins := s.routing.HardPins()
+	hardPins.ExplicitUtility = enabled
+	s.routing = s.routing.WithHardPins(hardPins)
 	return s
 }
 
 func (s *Service) WithHardPinResolver(resolver HardPinResolver) *Service {
-	s.hardPins.Resolver = resolver
+	hardPins := s.routing.HardPins()
+	hardPins.Resolver = resolver
+	s.routing = s.routing.WithHardPins(hardPins)
 	return s
 }
 
 func (s *Service) WithDefaultBaselineModel(model string) *Service {
-	s.defaultBaselineModel = model
+	s.routing = s.routing.WithDefaultBaselineModel(model)
 	return s
 }
 
 func (s *Service) WithSubAgentOverride(provider, model string) *Service {
-	s.hardPins.SubAgentProvider, s.hardPins.SubAgentModel = provider, model
+	hardPins := s.routing.HardPins()
+	hardPins.SubAgentProvider, hardPins.SubAgentModel = provider, model
+	s.routing = s.routing.WithHardPins(hardPins)
 	return s
 }
 
@@ -1074,7 +1065,7 @@ func (s *Service) baselineFor(ctx context.Context, requested string) string {
 			return requested
 		}
 	}
-	return s.defaultBaselineModel
+	return s.routing.DefaultBaselineModel()
 }
 
 func (s *Service) WithInferenceExecutor(executor *dispatch.Executor) *Service {
@@ -1097,7 +1088,7 @@ func (s *Service) WithExcludedModelsOverride(models []string) *Service {
 }
 
 func (s *Service) WithRoutingPolicy(p *routingpolicy.Policy) *Service {
-	s.routing = p.WithExcludedModelsOverride(s.ExcludedModelsOverride()).WithDeadline(s.routing.Deadline())
+	s.routing = s.routing.WithPlansFrom(p)
 	return s
 }
 
@@ -1106,11 +1097,7 @@ func (s *Service) HasExcludedModelsOverride() bool {
 }
 
 func (s *Service) WithGlobalAutomaticExclusions(store candidates.GlobalAutomaticExclusionStore) *Service {
-	if store == nil {
-		s.globalAutomaticExclusions = nil
-		return s
-	}
-	s.globalAutomaticExclusions = newGlobalAutomaticExclusionCache(store)
+	s.routing = s.routing.WithGlobalAutomaticExclusions(store)
 	return s
 }
 
@@ -1796,7 +1783,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		betaSessionKey := deriveBetaSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 		if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
 			log.Info("ProxyMessages beta command")
-			return s.handleBetaCommand(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
+			return (betaCommands{s}).handle(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
 		}
 		ctx, strategy, err = s.applySessionStrategy(ctx, strategy, facts.InstallationID, betaSessionKey)
 		if err != nil {
@@ -2603,7 +2590,7 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 	}
 	served := candidates.BandSwapTarget(pin, band)
 	if served.Model != pin.Model {
-		eligibility := candidates.BandSwapEligibility{Available: s.availableModels, Excluded: excludedModels, EnabledProviders: enabledProviders, HasImages: hasImages, ImageCount: imageCount}
+		eligibility := candidates.BandSwapEligibility{Available: s.routing.AvailableModels(), Excluded: excludedModels, EnabledProviders: enabledProviders, HasImages: hasImages, ImageCount: imageCount}
 		if !eligibility.Admits(served) {
 			return anchor
 		}
@@ -2954,7 +2941,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	betaSessionKey := deriveBetaSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 	if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
 		log.Info("ProxyOpenAIChatCompletion beta command")
-		return s.handleBetaCommand(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
+		return (betaCommands{s}).handle(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
 	}
 	ctx, strategy, err = s.applySessionStrategy(ctx, strategy, facts.InstallationID, betaSessionKey)
 	if err != nil {
@@ -3262,8 +3249,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if isResponsesWriter {
 		surfacePurpose = inference.PurposeOpenAIResponses
 	}
-	rescue := &chatRescue{
-		svc: s, RescueChain: &dispatch.RescueChain{
+	rescue := &dispatch.ChatRescue{
+		RescueChain: &dispatch.RescueChain{
 			RescuePorts: rescuePortsFor(s), Markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver},
 			HTTPRequest:      r,
 			Log:              log,
@@ -3285,30 +3272,30 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			ProxyErr:         proxyErr,
 			EffortServed:     effortServed,
 		},
-		isResponses:          isResponses,
-		responsesPreludeBuf:  responsesPreludeBuf,
-		cyberRefusalSeen:     &cyberRefusalSeen,
-		cyberRetryArmed:      &cyberRetryArmed,
-		preOutputRescueArmed: &preOutputRescueArmed,
+		IsResponses:          isResponses,
+		ResponsesPreludeBuf:  responsesPreludeBuf,
+		CyberRefusalSeen:     &cyberRefusalSeen,
+		CyberRetryArmed:      &cyberRetryArmed,
+		PreOutputRescueArmed: &preOutputRescueArmed,
 	}
-	rescue.FlushErr = rescue.flushErrAsOpenAI
-	rescue.armCyberRetry(ctx, strategy)
-	rescue.armSubscriptionRetries(ctx)
-	ctx = rescue.armRescues(ctx)
+	rescue.FlushErr = rescue.FlushErrAsOpenAI
+	rescue.ArmCyberRetry(ctx, strategy)
+	rescue.ArmSubscriptionRetries(ctx)
+	ctx = rescue.ArmRescues(ctx)
 	rescue.HoldPrimary()
-	rescue.dispatchPrimary(ctx)
+	rescue.DispatchPrimary(ctx)
 	rescue.NotePrimaryFailure(ctx)
-	rescue.codexRetry(ctx)
-	rescue.claudeRetry(ctx)
-	rescue.cyberRetry(ctx)
+	rescue.CodexRetry(ctx)
+	rescue.ClaudeRetry(ctx)
+	rescue.CyberRetry(ctx)
 	rescue.SiblingRescue(ctx)
-	rescue.finish(ctx)
+	rescue.Finish(ctx)
 	decision, marker, proxyErr, effortServed = rescue.Decision, rescue.Marker, rescue.ProxyErr, rescue.EffortServed
 	winnerIdx, finalProvider := rescue.WinnerIdx, rescue.FinalProvider
 
-	if rescue.codexFailoverUsed {
+	if rescue.CodexFailoverUsed {
 		ctx = withSuppressedCodexSubscription(ctx)
-	} else if rescue.claudeFailoverUsed {
+	} else if rescue.ClaudeFailoverUsed {
 		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 	}
 	ctx = s.resolveCredentials(ctx, finalProvider, decision.Model, r.Header)
