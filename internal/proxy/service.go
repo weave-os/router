@@ -1704,38 +1704,24 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
 	logPlannerOutcome(ctx, s.strategyPorts, routeRes)
 
-	toolBearingTurn := inboundToolCallCount > 0 || inboundLastUser.HasToolResult
-	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && toolBearingTurn && s.lifecycle.NoProgress() != nil {
-		fp := conversation.ComputeNoProgressFingerprint(decision, promptText, feats.MessageCount, conversation.ToolProgressMarker(env))
-		role := roleForTier(catalog.TierFor(feats.Model))
-		if looped, count := s.lifecycle.NoProgress().RecordAndDetect(routeRes.SessionKey, facts.InstallationID, role, fp, s.clock.Now()); looped {
-			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, role, decision).NoProgress(ctx, env, count, routeRes.Decision.Reason), feats.Tokens)
-		}
+	postOutcome, err := conversation.PostRouteChecks{
+		AgentShadowMode: agentShadowMode, Route: routeRes, Env: env, Features: feats, PromptText: promptText, ToolCallCount: inboundToolCallCount,
+		ToolBearing: inboundToolCallCount > 0 || inboundLastUser.HasToolResult, ClientBudget: clientBudget, Scope: req,
+		LoopBreak:  newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, roleForTier(catalog.TierFor(feats.Model)), decision),
+		NoProgress: s.lifecycle.NoProgress(), Now: s.clock.Now, TextRepetitionEnabled: s.ResolveTextRepetitionBreakEnabled(ctx),
+		RecoverClientCompaction: !callerModelPassthroughActive(ctx), SummaryMaxTokens: DefaultCompactionMaxTokens, ClientDefaultWindow: claudeCodeDefaultWindow,
+		HandoverEligible: !subscriptionStateModelsEnabled(ctx) && decision.Provider != providers.ProviderAnthropic,
+		RunCompactionHandover: func(ctx context.Context) handover.Outcome {
+			return s.runCompactionHandover(ctx, env, r.Header, decision.Model, req)
+		},
+	}.Run(ctx)
+	if err != nil {
+		return err
 	}
-
-	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
-		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
-			role := roleForTier(catalog.TierFor(feats.Model))
-			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, role, decision).TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
-		}
+	if postOutcome.LoopStopped {
+		return writeLoopStop(ctx, w, env, postOutcome.LoopStopMessage, feats.Tokens)
 	}
-
-	if !agentShadowMode && !callerModelPassthroughActive(ctx) {
-		if _, recoveryErr := conversation.ApplyClientCompactionRecovery(ctx, env, clientBudget, tt, req.ConversationMessages, DefaultCompactionMaxTokens, claudeCodeDefaultWindow); recoveryErr != nil {
-			return recoveryErr
-		}
-	}
-
-	var compactionHandoverOutcome handover.Outcome
-	if !agentShadowMode && !subscriptionStateModelsEnabled(ctx) && !routeRes.AuthoritativePerTurn && decision.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.Handover.Invoked && routeRes.PrefixTrimmed {
-		log.Info("Context trimming detected on non-Anthropic route; rewriting context with handover summary",
-			"message_count", feats.MessageCount,
-			"tool_call_count", inboundToolCallCount,
-			"decision_model", decision.Model,
-			"decision_provider", decision.Provider,
-		)
-		compactionHandoverOutcome = s.runCompactionHandover(ctx, env, r.Header, decision.Model, req)
-	}
+	compactionHandoverOutcome := postOutcome.CompactionHandover
 
 	credentialCtx := resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
