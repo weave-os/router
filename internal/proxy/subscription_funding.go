@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -14,7 +13,6 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
-	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
@@ -51,41 +49,30 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 	ctx = s.withClaudeSubscriptionProfile(ctx, headers)
 	admissionCtx := ctx
 	return dispatch.WithAuthorization(ctx, func(callCtx context.Context, target inference.Target) error {
-		if billing.WeaveCreditsDeniedFromContext(callCtx) && !credentials.CustomerFunded(CredentialsFromContext(callCtx)) {
-			return credentials.ErrWeaveCreditsDisabled
-		}
-		if claudeEnterpriseTarget(callCtx, target) || claudeEnterpriseTurn(callCtx) {
-			return claudeEnterpriseFunding(callCtx, target, s.supportsSubscriptionTransport(target.Provider))
-		}
-		if credentials.QuotaProofExempt(callCtx, CredentialsFromContext(callCtx)) {
-			return nil
-		}
-		if byokFirst(callCtx, target.Provider) {
-			return nil
-		}
 		pool, compatible := subscriptionPoolForModel(target)
-		claudeTurn, _ := callCtx.Value(claudeSubscriptionTurnKey{}).(bool)
-		presentedPlan, _ := callCtx.Value(claudeSubscriptionPlanKey{}).(providers.SubscriptionPlan)
-		unverified := claudeSubscriptionPlan(callCtx) == providers.SubscriptionPlanUnknown && (claudeTurn || compatible && pool == subscriptions.ProviderClaude) || claudeTurn && presentedPlan == providers.SubscriptionPlanUnknown
-		if state, _ := callCtx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil {
-			unverified = unverified || state.ClaudePlanUnverified
-		}
-		if claudeEnterpriseEnabled(callCtx) && unverified && !triedSubscriptionFallsBackToCredits(callCtx) {
-			observability.FromContext(callCtx).Warn("Blocked paid recovery while Claude subscription identity is unverified", "provider", target.Provider, "model", target.CatalogID)
-			return fmt.Errorf("%w: Claude subscription plan could not be verified before paid fallback", credentials.ErrSubscriptionPoolUnavailable)
-		}
-		if !compatible {
-			return nil
-		}
-		if pickedModelOnOwnPlan(callCtx) {
-			return credentials.SubscriptionPoolUnavailableBecause(callCtx, "picked model runs on the caller's own plan")
-		}
-		refusal := clientAppRefusalFunding{counts: clientAppRefusalPaidFallback(callCtx), poolRefused: claudePoolRefusesClientApp(callCtx), clientApp: ClientIdentityFrom(callCtx).ClientApp}
-		if err := s.authorizeSubscriptionAPI(admissionCtx, pool, target, codexToken, claudeToken, refusal); err != nil {
-			observability.FromContext(callCtx).Warn("Blocked API inference without subscription quota-exhaustion evidence", "model", target.CatalogID, "provider", target.Provider, "subscription_provider", pool, "err", err)
-			return err
-		}
-		return nil
+		return credentials.AuthorizeFunding(callCtx, CredentialsFromContext(callCtx), target.Provider, target.CatalogID, pool, compatible, credentials.FundingChecks{
+			ClaudeEnterprise: func(ctx context.Context) (bool, error) {
+				if !claudeEnterpriseTarget(ctx, target) && !claudeEnterpriseTurn(ctx) {
+					return false, nil
+				}
+				return true, claudeEnterpriseFunding(ctx, target, s.supportsSubscriptionTransport(target.Provider))
+			},
+			ByokFirst: func(ctx context.Context) bool { return byokFirst(ctx, target.Provider) },
+			PlanUnverified: func(ctx context.Context) bool {
+				claudeTurn, _ := ctx.Value(claudeSubscriptionTurnKey{}).(bool)
+				presentedPlan, _ := ctx.Value(claudeSubscriptionPlanKey{}).(providers.SubscriptionPlan)
+				unverified := claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanUnknown && (claudeTurn || compatible && pool == subscriptions.ProviderClaude) || claudeTurn && presentedPlan == providers.SubscriptionPlanUnknown
+				if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil {
+					unverified = unverified || state.ClaudePlanUnverified
+				}
+				return claudeEnterpriseEnabled(ctx) && unverified && !triedSubscriptionFallsBackToCredits(ctx)
+			},
+			PickedModelOnOwnPlan: pickedModelOnOwnPlan,
+			AuthorizeSubscriptionAPI: func(ctx context.Context) error {
+				refusal := clientAppRefusalFunding{counts: clientAppRefusalPaidFallback(ctx), poolRefused: claudePoolRefusesClientApp(ctx), clientApp: ClientIdentityFrom(ctx).ClientApp}
+				return s.authorizeSubscriptionAPI(admissionCtx, pool, target, codexToken, claudeToken, refusal)
+			},
+		})
 	})
 }
 
