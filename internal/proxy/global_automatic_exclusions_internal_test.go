@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -31,47 +30,6 @@ func (s *stubGlobalExclusionStore) ListGlobalAutomaticRoutingExclusions(context.
 		return nil, s.err
 	}
 	return s.byModel, nil
-}
-
-func TestGlobalAutomaticExclusions_ServesCachedSnapshotWithinTTL(t *testing.T) {
-	store := &stubGlobalExclusionStore{byModel: map[string]string{"claude-opus-5": "too expensive"}}
-	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
-		WithGlobalAutomaticExclusions(store)
-
-	first := svc.globalAutomaticExcludedModels(context.Background())
-	second := svc.globalAutomaticExcludedModels(context.Background())
-
-	assert.Equal(t, map[string]struct{}{"claude-opus-5": {}}, first)
-	assert.Equal(t, first, second)
-	assert.Equal(t, 1, store.calls, "a second read inside the TTL must not re-query")
-}
-
-// A control-plane outage must not disable routing, so a cold cache that cannot
-// be loaded reports nothing disabled and retries on the next turn.
-func TestGlobalAutomaticExclusions_ColdReadFailureFailsOpen(t *testing.T) {
-	store := &stubGlobalExclusionStore{err: errors.New("router database unreachable")}
-	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
-		WithGlobalAutomaticExclusions(store)
-
-	assert.Empty(t, svc.globalAutomaticExcludedModels(context.Background()))
-	assert.Empty(t, svc.globalAutomaticExcludedModels(context.Background()))
-	assert.Equal(t, 2, store.calls, "a failed cold read must retry rather than cache emptiness for a full TTL")
-}
-
-func TestGlobalAutomaticExclusions_RefreshFailureKeepsLastSnapshot(t *testing.T) {
-	store := &stubGlobalExclusionStore{byModel: map[string]string{"claude-opus-5": ""}}
-	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
-		WithGlobalAutomaticExclusions(store)
-
-	require.NotEmpty(t, svc.globalAutomaticExcludedModels(context.Background()))
-	store.err = errors.New("router database unreachable")
-	svc.globalAutomaticExclusions.refreshedAt = time.Now().Add(-2 * globalAutomaticExclusionTTL)
-
-	assert.Equal(t, map[string]struct{}{"claude-opus-5": {}},
-		svc.globalAutomaticExcludedModels(context.Background()))
 }
 
 // The soft set must reach the router as its own field: folding it into

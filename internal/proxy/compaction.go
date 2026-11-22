@@ -45,7 +45,7 @@ func (s *Service) routeCompaction(
 	session := compactionSession{
 		pins:           s.pinStore,
 		providers:      s.engine.Clients().NameSet(),
-		available:      s.availableModels,
+		available:      s.routing.AvailableModels(),
 		cortexGateways: cortexGatewayProvidersForRequest(ctx),
 		now:            s.clock.Now(),
 	}
@@ -167,8 +167,8 @@ func (s *Service) crossGatewayRescuers(ctx context.Context, primary compactionSu
 		if _, excluded := req.Candidates.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
 			continue
 		}
-		if s.availableModels != nil {
-			if _, available := s.availableModels[model]; !available {
+		if s.routing.AvailableModels() != nil {
+			if _, available := s.routing.AvailableModels()[model]; !available {
 				continue
 			}
 		}

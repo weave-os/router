@@ -150,8 +150,8 @@ func dispatchOrigin(r routingpolicy.TurnRoute, decision router.Decision) policy.
 }
 
 func isHardPinnedTurn(ctx context.Context, s *Service, strategy router.Strategy, tt turntype.TurnType) bool {
-	return s.hardPins.PinsTurn(tt, func() bool {
-		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.hardPins.Explore) && !s.strategyPorts.Ownership.Owns(strategy)
+	return s.routing.HardPins().PinsTurn(tt, func() bool {
+		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.routing.HardPins().Explore) && !s.strategyPorts.Ownership.Owns(strategy)
 	})
 }
 
@@ -394,7 +394,7 @@ func (s *Service) runTurnLoop(
 		"sub_agent_hint", subAgentHint,
 	)
 
-	automaticProbe := res.TurnType == turntype.Probe && !s.hardPins.ExplicitUtility &&
+	automaticProbe := res.TurnType == turntype.Probe && !s.routing.HardPins().ExplicitUtility &&
 		(req.RequestedModel == "" || req.RequestedModel == automaticProbeModel || router.IsRoutingModel(req.RequestedModel))
 	if _, pinned := router.HonouredPolicyPin(ctx); pinned && (!isHardPinnedTurn(ctx, s, strategy, res.TurnType) || automaticProbe) {
 		if s.pinStore != nil && !isUnpinnedScoredTurn(res.TurnType) && !automaticProbe {
@@ -702,7 +702,7 @@ func (s *Service) runTurnLoop(
 		var fresh router.Decision
 		routed := false
 		if forcedTierFloor != catalog.TierUnknown {
-			if constrained, ok := candidates.RestrictToTier(req.Candidates.ExcludedModels, forcedTierFloor, s.availableModels); ok {
+			if constrained, ok := candidates.RestrictToTier(req.Candidates.ExcludedModels, forcedTierFloor, s.routing.AvailableModels()); ok {
 				tierReq := req
 				tierReq.Candidates.ExcludedModels = constrained
 				if dec, derr := s.routeFor(ctx, strategy, tierReq); derr == nil {
@@ -790,7 +790,7 @@ func (s *Service) runTurnLoop(
 		}
 
 		if !pinFound && pin.Model != "" && !prefixBroken {
-			switch continuity.JudgeReanchor(pin, fresh, req, s.availableModels) {
+			switch continuity.JudgeReanchor(pin, fresh, req, s.routing.AvailableModels()) {
 			case continuity.ReanchorNone:
 			case continuity.ReanchorSkipMaxedOut:
 				log.Info("Expired session pin maxed out on previous turn; skipping re-anchor", "pin_model", pin.Model, "pin_provider", pin.Provider, "last_output_tokens", pin.LastOutputTokens)
@@ -820,7 +820,7 @@ func (s *Service) runTurnLoop(
 			CacheablePrefixTokens: prefixTokens,
 			CachePrefixKnown:      prefixKnown,
 			PinCacheCold:          pinCacheCold(pin, prefixBroken, s.clock.Now()),
-			AvailableModels:       s.availableModels,
+			AvailableModels:       s.routing.AvailableModels(),
 		}, plannerConfigFor(ctx, s.continuityConfig.Planner))
 		res.PlannerDecision = decision
 

@@ -870,7 +870,7 @@ func TestSubscriptionStateModelsSkipSpentSeatPoolsBeforeDispatch(t *testing.T) {
 	svc := withHMMPorts(NewService(stateModelRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}), nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(leaser)
 	resetAt := time.Now().Add(48 * time.Hour)
-	ctx := WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), []*auth.SubscriptionAccount{
+	ctx := credentials.WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), []*auth.SubscriptionAccount{
 		{ID: "synthetic-spent-claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt},
 		{ID: "synthetic-spent-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt},
 		{ID: "synthetic-reconnect-codex", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateReconnectRequired},
@@ -944,7 +944,7 @@ func TestSubscriptionStateModelAvailableFollowsLeaseAdmission(t *testing.T) {
 				WithManagedSubscriptions(&scriptedSubscriptionLeaser{}).
 				WithCodexExtraCredits(scenario.extraCredits).
 				WithUsageObserver(spentObserver)
-			ctx := WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), []*auth.SubscriptionAccount{scenario.account})
+			ctx := credentials.WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), []*auth.SubscriptionAccount{scenario.account})
 			if scenario.decorate != nil {
 				ctx = scenario.decorate(ctx)
 			}
