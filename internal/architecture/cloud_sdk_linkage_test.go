@@ -42,10 +42,10 @@ func cloudSDKLinks(t *testing.T, root string, patterns ...string) []string {
 	return findings
 }
 
-func linkedCloudSDKs(root *packages.Package) []string {
+func linkedCloudSDKs(start *packages.Package) []string {
 	seen := map[string]bool{}
 	linked := map[string]bool{}
-	stack := []*packages.Package{root}
+	stack := []*packages.Package{start}
 	for len(stack) > 0 {
 		pkg := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
