@@ -133,7 +133,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		CustomBindings:               eligibility.CustomBindings,
 		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
 		Candidates:                   prefilteredCandidates(ctx, excluded, prefiltered),
-		PreferredModels:              s.preferredModelsForRequest(ctx),
+		PreferredModels:              preferredModelsForRequest(ctx),
 		RoutingKnobs:                 router.RoutingKnobsFromContext(ctx),
 		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
 		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
@@ -164,7 +164,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	stickyHit := routeRes.StickyHit
 	pinTier := routeRes.PinTier
 	pinAgeSec := routeRes.PinAgeSec
-	s.logPlannerOutcome(ctx, routeRes)
+	logPlannerOutcome(ctx, s.strategyPorts, routeRes)
 
 	w.Header().Set(requestcontext.HeaderRouterDecision, decision.Reason)
 	w.Header().Set(requestcontext.HeaderRouterProvider, decision.Provider)
