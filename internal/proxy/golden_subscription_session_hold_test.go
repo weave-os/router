@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -37,7 +38,7 @@ func goldenOverloadedCodexCtx(ctx context.Context) context.Context {
 		{ID: "codex-seat", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive},
 		{ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &goldenClaudeSeatReset},
 	})
-	return proxy.WithManagedSubscriptionUsage(ctx)
+	return credentials.WithManagedSubscriptionUsage(ctx)
 }
 
 var goldenCodexSessionHeaders = map[string]string{"User-Agent": goldenCodexUserAgent, "Session-Id": "00000000-0000-4000-8000-00000000c0de"}

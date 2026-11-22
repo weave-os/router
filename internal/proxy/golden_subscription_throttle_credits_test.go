@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -40,7 +41,7 @@ func goldenNoLoginLongThrottledClaudeSeatsCtx(ctx context.Context) context.Conte
 		{ID: "claude-seat-b", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooldown},
 		{ID: "claude-own-seat", Provider: auth.SubscriptionProviderClaude, Enabled: false, State: auth.SubscriptionAccountStateDisabled},
 	})
-	return proxy.WithManagedSubscriptionUsage(ctx)
+	return credentials.WithManagedSubscriptionUsage(ctx)
 }
 
 func goldenNoLoginLongThrottledClaudeSeatsScenario(suffix string, forced bool) goldenScenario {

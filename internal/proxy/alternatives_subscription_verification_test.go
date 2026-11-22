@@ -122,7 +122,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 				require.Contains(t, rec.Body.String(), alternative)
 				require.Equal(t, "read_file", gjson.GetBytes(sent[1], "tools.0.name").String())
 				require.Equal(t, "medium", gjson.GetBytes(sent[1], "reasoning.effort").String())
-				winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
+				winner := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 				require.Equal(t, codexCoveredModel, winner.IntendedModel)
 				require.Equal(t, "alternative-account", winner.SubscriptionAccountID)
 				require.Equal(t, "synthetic-owner", winner.SubscriptionOwnerID)

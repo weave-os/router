@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -39,7 +40,7 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 	baselineCtx := subscriptionStatePaidRescueContext(ctx, m.baselineModel)
 	baselineSubExhausted := m.credentials.ClaudeSubscriptionExhausted(ctx, r.Header)
 	if baselineSubExhausted {
-		baselineCtx = withSuppressedClaudeSubscription(baselineCtx)
+		baselineCtx = credentials.WithSuppressedClaudeSubscription(baselineCtx)
 	}
 	baselineCtx = m.credentials.ResolveCredentials(baselineCtx, providers.ProviderAnthropic, m.baselineModel, r.Header)
 	baselineOpts.FastMode = fastModeForAttempt(baselineCtx, m.baselineModel, providers.ProviderAnthropic)
@@ -56,7 +57,7 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 			"baseline_model", m.baselineModel,
 			"err", m.proxyErr)
 		if baselineSubExhausted {
-			ctx = withSuppressedClaudeSubscription(ctx)
+			ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 		}
 		m.effortServed = baselineEffort
 		baselineBindings := m.routing.ResolveBindingsForDispatch(baselineCtx, baselineDecision)
@@ -102,7 +103,7 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 		(providers.IsRetryable(m.proxyErr) || anthropicOAuthCredentialRejected(m.proxyErr) || anthropicSubscriptionModelRejected(m.proxyErr) || anthropicSubscriptionThirdPartyRefused(m.proxyErr)) {
 		m.subscriptionRetryRan = true
 		recordOwnClaudeLoginRejected(ctx, r.Header, m.usageObserver, m.clock.Now(), m.proxyErr)
-		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), m.decision.Model)
+		subCtx := subscriptionStatePaidRescueContext(credentials.WithSuppressedClaudeSubscription(ctx), m.decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, m.decision.Model, r.Header)
 		subOpts := opts
 		subOpts.FastMode = fastModeForAttempt(subCtx, m.decision.Model, providers.ProviderAnthropic)
