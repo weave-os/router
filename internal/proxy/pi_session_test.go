@@ -118,7 +118,7 @@ func TestPiSessionPreservesOriginalDigestAcrossCompactionAndReplicas(t *testing.
 
 func TestPiSessionCannotBeMixedWithAnotherThreadsHandoff(t *testing.T) {
 	svc, classifier, upstream, ctx := handoffTestService()
-	svc.pinStore = newForceModelMapStore()
+	svc.sessionStores.Pins = newForceModelMapStore()
 	first := prepareTestHandoff(t, svc, ctx)
 	body, err := sjson.Set(handoffTestBody, "messages.0.content", "An independent thread with the same client identity.")
 	require.NoError(t, err)

@@ -163,8 +163,8 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.
 	if route.PinModel == previousModel {
 		previousProvider = route.PinProvider
 	}
-	if previousModel != "" && s.pinStore != nil && (s.strategyPorts.Ownership.Owns(route.Strategy) || isHMMTurn(s.strategyPorts, route)) {
-		history := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).LoadHMMHistory(ctx, route.SessionKey, route.PinRole)
+	if previousModel != "" && s.sessionStores.Pins != nil && (s.strategyPorts.Ownership.Owns(route.Strategy) || isHMMTurn(s.strategyPorts, route)) {
+		history := routingpolicy.NewSessionPins(s.sessionStores.Pins, s.clock.Now, strategy).LoadHMMHistory(ctx, route.SessionKey, route.PinRole)
 		if history.LastServedModel == route.PriorServedModel {
 			previousProvider = history.Provider
 		}
@@ -196,7 +196,7 @@ func (s *Service) resumeHandoff(ctx context.Context, strategy router.Strategy, e
 	}
 	apiKeyID, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, claims.Route.SessionKey)
-	_, forced, _ := routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).Load(ctx, forceKey, sessionKeyHex(claims.Route.SessionKey), isSubagent)
+	_, forced, _ := routingpolicy.NewForceModelPins(s.sessionStores.Pins, s.clock.Now).Load(ctx, forceKey, sessionKeyHex(claims.Route.SessionKey), isSubagent)
 	if req.ForceModel != "" || forced {
 		return turnLoopResult{}, ErrHandoffInvalid
 	}

@@ -69,7 +69,7 @@ func internalBetaSession(ctx context.Context) bool {
 }
 
 func (s *Service) WithSessionStrategyStore(store sessionstrategy.Store) *Service {
-	s.sessionStrategyStore = store
+	s.sessionStores.Strategies = store
 	return s
 }
 
@@ -88,10 +88,10 @@ func (s *Service) applySessionStrategy(
 	if _, managed := requestcontext.ServingIdentityFromContext(ctx); managed && !internalBetaSession(ctx) {
 		return ctx, strategy, nil
 	}
-	if s.sessionStrategyStore == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) {
+	if s.sessionStores.Strategies == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return ctx, strategy, nil
 	}
-	preference, found, err := s.sessionStrategyStore.Get(ctx, installationID, preferenceKey)
+	preference, found, err := s.sessionStores.Strategies.Get(ctx, installationID, preferenceKey)
 	if err != nil {
 		return ctx, strategy, fmt.Errorf("load session routing strategy: %w", err)
 	}
@@ -134,12 +134,12 @@ func (s *Service) handleBetaCommand(
 	if cmd.Invalid {
 		return writeBetaCommandResponse(w, env, usageMessage, inputTokens)
 	}
-	if s.sessionStrategyStore == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) || clientSessionIDForRequest(ctx, env) == "" {
+	if s.sessionStores.Strategies == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) || clientSessionIDForRequest(ctx, env) == "" {
 		return writeBetaCommandResponse(w, env, unavailableMessage, inputTokens)
 	}
 	currentStrategy := router.StrategyFromContext(ctx)
 	previousStrategy := currentStrategy
-	previous, found, err := s.sessionStrategyStore.Get(ctx, installationID, preferenceKey)
+	previous, found, err := s.sessionStores.Strategies.Get(ctx, installationID, preferenceKey)
 	if err != nil {
 		return fmt.Errorf("read session routing strategy before beta toggle: %w", err)
 	}
@@ -156,7 +156,7 @@ func (s *Service) handleBetaCommand(
 		available = snapshot.Routers[strategy] != nil
 	}
 	if available {
-		enabled, err := s.sessionStrategyStore.Toggle(context.WithoutCancel(ctx), sessionstrategy.Preference{
+		enabled, err := s.sessionStores.Strategies.Toggle(context.WithoutCancel(ctx), sessionstrategy.Preference{
 			InstallationID: installationID,
 			SessionKey:     preferenceKey,
 			Strategy:       strategy,
@@ -166,7 +166,7 @@ func (s *Service) handleBetaCommand(
 		}
 		nowEnabled = enabled
 	} else {
-		wasEnabled, err := s.sessionStrategyStore.Disable(context.WithoutCancel(ctx), installationID, preferenceKey, strategy)
+		wasEnabled, err := s.sessionStores.Strategies.Disable(context.WithoutCancel(ctx), installationID, preferenceKey, strategy)
 		if err != nil {
 			return fmt.Errorf("disable beta routing: %w", err)
 		}
@@ -204,7 +204,7 @@ func (s *Service) invalidateSessionRoutingState(
 	strategy router.Strategy,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 ) error {
-	if s.pinStore == nil {
+	if s.sessionStores.Pins == nil {
 		return nil
 	}
 	roles := []string{
@@ -225,7 +225,7 @@ func (s *Service) invalidateSessionRoutingState(
 				continue
 			}
 			seen[stateRole] = struct{}{}
-			if _, _, err := s.pinStore.Consume(context.WithoutCancel(ctx), sessionKey, stateRole, strategy); err != nil && firstErr == nil {
+			if _, _, err := s.sessionStores.Pins.Consume(context.WithoutCancel(ctx), sessionKey, stateRole, strategy); err != nil && firstErr == nil {
 				firstErr = err
 			}
 		}

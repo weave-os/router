@@ -107,8 +107,8 @@ func (s *Service) runClassifierTurn(ctx context.Context, strategy router.Strateg
 		return turn, err
 	}
 	turn.Decision, turn.Fresh, turn.PinTier = decision, decision, string(strategy)
-	if s.pinStore != nil && !unpinned {
-		routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).WriteNew(ctx, turn.InstallationID, sessionKey, turn.PinRole, decision)
+	if s.sessionStores.Pins != nil && !unpinned {
+		routingpolicy.NewSessionPins(s.sessionStores.Pins, s.clock.Now, strategy).WriteNew(ctx, turn.InstallationID, sessionKey, turn.PinRole, decision)
 	}
 	return turn, nil
 }

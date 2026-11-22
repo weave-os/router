@@ -11,15 +11,15 @@ import (
 )
 
 func reloadUsageBypassSession(ctx context.Context, s *Service, strategy router.Strategy, env *translate.RequestEnvelope, apiKeyID, model string, routeRes *turnLoopResult) {
-	if s.pinStore == nil || isUnpinnedScoredTurn(routeRes.TurnType) {
+	if s.sessionStores.Pins == nil || isUnpinnedScoredTurn(routeRes.TurnType) {
 		return
 	}
 	sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	role := roleForTier(catalog.TierFor(model))
-	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy)
+	sessionPins := routingpolicy.NewSessionPins(s.sessionStores.Pins, s.clock.Now, strategy)
 	pin, _ := sessionPins.Load(ctx, sessionKey, role)
 	routeRes.SessionKey = sessionKey
-	routeRes.applySwitchHistory(pin, sessionPins.LoadHMMHistory(ctx, sessionKey, role), routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).LoadHistory(ctx, sessionKey, role))
+	routeRes.applySwitchHistory(pin, sessionPins.LoadHMMHistory(ctx, sessionKey, role), routingpolicy.NewForceModelPins(s.sessionStores.Pins, s.clock.Now).LoadHistory(ctx, sessionKey, role))
 }
 
 func rerouteAfterUsageBypass(ctx context.Context, s *Service, log *slog.Logger, strategy router.Strategy, req router.Request, routeRes *turnLoopResult) error {

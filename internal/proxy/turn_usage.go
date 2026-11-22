@@ -18,7 +18,7 @@ func withRoutingTranslationRequirements(ctx context.Context, env *translate.Requ
 	return req
 }
 func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
-	if s.pinStore == nil || res.HardPinned || res.CallerModelPassthrough {
+	if s.sessionStores.Pins == nil || res.HardPinned || res.CallerModelPassthrough {
 		return
 	}
 	if isHMMTurn(s.strategyPorts, res) {
@@ -52,7 +52,7 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 	if role == "" {
 		role = sessionpin.DefaultRole
 	}
-	if err := s.pinStore.UpdateUsage(context.WithoutCancel(ctx), res.SessionKey, role, usage); err != nil {
+	if err := s.sessionStores.Pins.UpdateUsage(context.WithoutCancel(ctx), res.SessionKey, role, usage); err != nil {
 		observability.Get().Error("session pin usage writeback failed", "err", err)
 	}
 	s.recordTokenizerObservation(ctx, res, role, servedProvider, in, cacheCreation, cacheRead)

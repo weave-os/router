@@ -28,9 +28,9 @@ func (p continuationPins) Consume(ctx context.Context, sessionKey [sessionpin.Se
 
 func postCommandContinuation(s *Service, strategy router.Strategy) conversation.PostCommandContinuation {
 	continuation := conversation.PostCommandContinuation{Strategy: strategy}
-	if s.pinStore != nil {
+	if s.sessionStores.Pins != nil {
 		continuation.Now = s.clock.Now
-		continuation.Pins = continuationPins{store: s.pinStore, sessionPins: routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy)}
+		continuation.Pins = continuationPins{store: s.sessionStores.Pins, sessionPins: routingpolicy.NewSessionPins(s.sessionStores.Pins, s.clock.Now, strategy)}
 	}
 	return continuation
 }

@@ -35,7 +35,6 @@ import (
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/routingpolicy/overrides"
@@ -66,10 +65,9 @@ type Service struct {
 	searchUse                    *searchUseTracker
 	turnTelemetry                turnTelemetry
 	translationMetrics           telemetry.TranslationMetrics
-	pinStore                     sessionpin.Store
+	sessionStores                routingpolicy.SessionStores
 	escalation                   *floor.Helper
 	llmEscalationAdmin           llmEscalationAdmin
-	sessionStrategyStore         sessionstrategy.Store
 	classifierSessions           *classifierSessions
 	lifecycle                    *conversation.Lifecycle
 	prefixTrimFreeSwitch         bool
@@ -799,7 +797,7 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 		translationCompatibilityMode: TranslationCompatibilityShadow,
 		turnTelemetry:                turnTelemetry{emitter: emitter, repo: telemetryRepo},
 		ingress:                      ingress.New(0),
-		pinStore:                     pinStore,
+		sessionStores:                routingpolicy.SessionStores{Pins: pinStore},
 		lifecycle:                    conversation.NewLifecycle(),
 		searchUse:                    newSearchUseTracker(),
 		searchRequirementDecayTurns:  DefaultSearchRequirementDecayTurns,
@@ -911,7 +909,7 @@ func (s *Service) acquireRecoveryProbe(ctx context.Context, sessionKey [sessionp
 		return func() {}, true
 	}
 	leaseFor := s.recoveryProbeLeaseFor(ctx)
-	if store, ok := s.pinStore.(sessionpin.RecoveryProbeStore); ok {
+	if store, ok := s.sessionStores.Pins.(sessionpin.RecoveryProbeStore); ok {
 		token := uuid.New()
 		acquired, err := store.AcquireRecoveryProbe(ctx, sessionKey, model, token, leaseFor)
 		if err != nil {
@@ -964,7 +962,7 @@ func (s *Service) clearRecoveredCooldown(ctx context.Context, res turnLoopResult
 	if !probed || proxyErr != nil {
 		return
 	}
-	store, ok := s.pinStore.(sessionpin.RecoveryProbeStore)
+	store, ok := s.sessionStores.Pins.(sessionpin.RecoveryProbeStore)
 	if !ok {
 		return
 	}
@@ -1275,7 +1273,7 @@ func (s *Service) ExcludedProvidersOverride() []string {
 }
 
 func (s *Service) usageRequired() bool {
-	return s.pinStore != nil || s.turnTelemetry.emitter != nil || s.turnTelemetry.repo != nil || s.billing != nil
+	return s.sessionStores.Pins != nil || s.turnTelemetry.emitter != nil || s.turnTelemetry.repo != nil || s.billing != nil
 }
 
 func gatewayResponsesKey(ctx context.Context, provider string) string {
@@ -1784,7 +1782,7 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, strategy router.Strat
 }
 
 func (s *Service) repinOffRefusingModel(ctx context.Context, strategy router.Strategy, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision, category, avoidProvider string) {
-	if s.pinStore == nil {
+	if s.sessionStores.Pins == nil {
 		return
 	}
 	if !s.ResolveCyberRefusalRepin(ctx) {
@@ -1807,7 +1805,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, strategy router.Str
 			"from_model", served.Model, "fallback_model", fbModel, "refusal_category", category)
 		return
 	}
-	if err := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).WriteRepin(ctx, installationID, sessionKey, role, fbProvider, fbModel, reasonCyberRefusalRepin); err != nil {
+	if err := routingpolicy.NewSessionPins(s.sessionStores.Pins, s.clock.Now, strategy).WriteRepin(ctx, installationID, sessionKey, role, fbProvider, fbModel, reasonCyberRefusalRepin); err != nil {
 		log.Error("cyber-refusal re-pin: pin upsert failed", "err", err, "from_model", served.Model, "to_model", fbModel)
 		return
 	}
@@ -1922,7 +1920,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			Source:                  env,
 			Handlers:                turnCommands{s: s, w: w, env: env, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
 			Protocol:                "ProxyMessages",
-			ForceModelEnabled:       s.pinStore != nil,
+			ForceModelEnabled:       s.sessionStores.Pins != nil,
 			ForceModelContinuesTurn: func(cmd translate.ForceModelResult) bool { return cmd.FromToolResult },
 			SyntheticFeedback:       func(cmd translate.RouterFeedbackResult) bool { return !cmd.FromToolResult },
 		}.Run(ctx)
@@ -2592,7 +2590,7 @@ func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, 
 		return
 	}
 	strategy := strategyForTurnLoopResult(res)
-	role, usageRecorded := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).RecordHMMTurn(strategyContext(ctx, strategy), routingpolicy.HMMTurnRecord{
+	role, usageRecorded := routingpolicy.NewSessionPins(s.sessionStores.Pins, s.clock.Now, strategy).RecordHMMTurn(strategyContext(ctx, strategy), routingpolicy.HMMTurnRecord{
 		SessionKey:     res.SessionKey,
 		InstallationID: res.InstallationID,
 		PinRole:        res.PinRole,
@@ -3121,7 +3119,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Source:                  chatCommandSource{RequestEnvelope: env, routing: routingEnvelopeForRequest(ctx, env)},
 		Handlers:                turnCommands{s: s, w: w, env: env, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
 		Protocol:                "ProxyOpenAIChatCompletion",
-		ForceModelEnabled:       s.pinStore != nil,
+		ForceModelEnabled:       s.sessionStores.Pins != nil,
 		ForceModelContinuesTurn: func(cmd translate.ForceModelResult) bool { return agentForceModelContinuesTurn(ctx, cmd) },
 		SyntheticFeedback: func(cmd translate.RouterFeedbackResult) bool {
 			return !cmd.FromToolResult || codexSkillTurnFrom(ctx) == translate.CodexSkillTurnFeedback

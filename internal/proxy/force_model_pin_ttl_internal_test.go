@@ -85,7 +85,7 @@ func TestSetForceModelSessionPin_WritesNeverExpiresSentinel(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	var key [sessionpin.SessionKeyLen]byte
-	require.NoError(t, routingpolicy.NewForceModelPins(svc.pinStore, svc.clock.Now).Set(
+	require.NoError(t, routingpolicy.NewForceModelPins(svc.sessionStores.Pins, svc.clock.Now).Set(
 		context.Background(), key, uuid.New(),
 		"claude-opus-4-8", providers.ProviderAnthropic, "", ""))
 
@@ -102,7 +102,7 @@ func TestSetForceModelSessionPin_IsStrategyIndependent(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
-	require.NoError(t, routingpolicy.NewForceModelPins(svc.pinStore, svc.clock.Now).Set(
+	require.NoError(t, routingpolicy.NewForceModelPins(svc.sessionStores.Pins, svc.clock.Now).Set(
 		ctx, [sessionpin.SessionKeyLen]byte{}, uuid.New(),
 		"claude-opus-4-8", providers.ProviderAnthropic, "", ""))
 

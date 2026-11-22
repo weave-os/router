@@ -298,7 +298,7 @@ func (s *Service) loadForceModelHistory(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) sessionpin.Pin {
-	return routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).LoadHistory(ctx, sessionKey, role)
+	return routingpolicy.NewForceModelPins(s.sessionStores.Pins, s.clock.Now).LoadHistory(ctx, sessionKey, role)
 }
 
 func forceModelClearRoles() []string {
@@ -315,11 +315,11 @@ func (s *Service) clearLegacyForceModelPins(
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 ) error {
-	if s.pinStore == nil || installationID == uuid.Nil {
+	if s.sessionStores.Pins == nil || installationID == uuid.Nil {
 		return nil
 	}
 	for _, role := range forceModelClearRoles() {
-		pin, found, err := s.pinStore.Get(ctx, sessionKey, role)
+		pin, found, err := s.sessionStores.Pins.Get(ctx, sessionKey, role)
 		if err != nil {
 			return fmt.Errorf("load legacy force-model pin for role %q: %w", role, err)
 		}
@@ -380,7 +380,7 @@ func (s *Service) applyForceModelHeader(
 	if effortLevel != "" {
 		forcedModel += ":" + effortLevel
 	}
-	if err := routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).Set(ctx, forceModelSessionKey, installationID, canonicalModel, provider, effortLevel, ""); err != nil {
+	if err := routingpolicy.NewForceModelPins(s.sessionStores.Pins, s.clock.Now).Set(ctx, forceModelSessionKey, installationID, canonicalModel, provider, effortLevel, ""); err != nil {
 		log.Error("x-weave-force-model: session pin upsert failed", "err", err)
 		return ctx, forcedModel, nil
 	}
@@ -424,7 +424,7 @@ func (f forceModelCommands) apply(
 	ack := newCommandAcknowledgment(translate.CommandForceModel)
 	applied, err := conversation.ForceModelCommand{
 		Resolver: forceModelResolver(f),
-		Pins:     routingpolicy.NewForceModelPins(f.s.pinStore, f.s.clock.Now),
+		Pins:     routingpolicy.NewForceModelPins(f.s.sessionStores.Pins, f.s.clock.Now),
 		Controls: forceModelControls{s: f.s, strategy: strategy},
 	}.Apply(ctx, conversation.ForceModelRequest{
 		Command:              cmd,

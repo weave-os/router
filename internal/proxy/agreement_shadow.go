@@ -166,7 +166,7 @@ func agreementShadowTransportFailed(p turnrecord.InsertTelemetryParams) bool {
 }
 
 func (s *Service) recordAgreementShadowCommandBoundary(ctx context.Context, installationID uuid.UUID, threadKey [sessionpin.SessionKeyLen]byte, commandID string) {
-	if !agreementShadowEnabled(ctx) || installationID == uuid.Nil || s.pinStore == nil {
+	if !agreementShadowEnabled(ctx) || installationID == uuid.Nil || s.sessionStores.Pins == nil {
 		return
 	}
 	boundaryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)

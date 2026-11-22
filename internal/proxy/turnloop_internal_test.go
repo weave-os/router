@@ -1001,7 +1001,7 @@ func TestLoadPin_DoesNotServeExpiredPostgresPinButKeepsEmitHistory(t *testing.T)
 		"anthropic", "claude-haiku-4-5",
 		nil))
 
-	require.NotNil(t, svc.pinStore)
+	require.NotNil(t, svc.sessionStores.Pins)
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	for i := range sessionKey {
@@ -1021,7 +1021,7 @@ func TestLoadPin_DoesNotServeExpiredPostgresPinButKeepsEmitHistory(t *testing.T)
 	}
 	store.getFound = true
 
-	pin, found := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(context.Background())).Load(context.Background(), sessionKey, sessionpin.DefaultRole)
+	pin, found := routingpolicy.NewSessionPins(svc.sessionStores.Pins, svc.clock.Now, router.StrategyFromContext(context.Background())).Load(context.Background(), sessionKey, sessionpin.DefaultRole)
 	assert.False(t, found, "expired Postgres row must not be served")
 	assert.Equal(t, "claude-opus-4-7", pin.LastServedModel, "expired row history must be available for emit")
 	assert.True(t, pin.HasEverSwitched, "expired row latch must be available for emit")
@@ -1063,7 +1063,7 @@ func TestLoadPin_ServesFreshPostgresPin(t *testing.T) {
 	}
 	store.getFound = true
 
-	pin, found := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(context.Background())).Load(context.Background(), sessionKey, sessionpin.DefaultRole)
+	pin, found := routingpolicy.NewSessionPins(svc.sessionStores.Pins, svc.clock.Now, router.StrategyFromContext(context.Background())).Load(context.Background(), sessionKey, sessionpin.DefaultRole)
 	require.True(t, found, "non-expired Postgres row must be returned")
 	assert.Equal(t, "claude-opus-4-7", pin.Model)
 	assert.Equal(t, "anthropic", pin.Provider)
@@ -1099,7 +1099,7 @@ func TestLoadPin_RequiresBetaStrategyMatch(t *testing.T) {
 
 			ctx := router.WithStrategy(context.Background(), tt.request)
 
-			pin, found := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(ctx)).Load(ctx, [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole)
+			pin, found := routingpolicy.NewSessionPins(svc.sessionStores.Pins, svc.clock.Now, router.StrategyFromContext(ctx)).Load(ctx, [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole)
 			assert.Equal(t, tt.found, found)
 			if !tt.found {
 				assert.Equal(t, sessionpin.Pin{}, pin, "a mismatched pin must not leak reuse or history evidence")

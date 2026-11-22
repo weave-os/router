@@ -165,7 +165,7 @@ func TestPiHandoffSummaryUsesPreviousModelWithoutReclassifyingOrWritingUsageToIt
 		Reason: "hmm_policy", PolicyGroup: "low", PinnedUntil: time.Now().Add(time.Hour),
 		LastServedModel: "claude-sonnet-4-6:high", LastTurnEndedAt: time.Now().Add(-time.Minute),
 	}
-	svc.pinStore = store
+	svc.sessionStores.Pins = store
 	prepared := prepareTestHandoff(t, svc, ctx)
 	require.NotEmpty(t, prepared.SummaryToken)
 	pinWrites := len(store.upserts)
@@ -214,7 +214,7 @@ func TestPiHandoffRejectsConcurrentForceAndCrossSessionCommandsBeforeMutation(t 
 	store := newStubPinStore()
 	store.getFound = true
 	store.getPin = sessionpin.Pin{Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic, Reason: translate.ReasonUserForceModel, PinnedUntil: time.Now().Add(time.Hour)}
-	svc.pinStore = store
+	svc.sessionStores.Pins = store
 	err = svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil))
 	require.ErrorIs(t, err, ErrHandoffInvalid)
 	for _, prompt := range []string{"/beta", "/force-model claude-opus-4-7", "/unforce-model"} {
@@ -229,7 +229,7 @@ func TestPiHandoffRejectsConcurrentForceAndCrossSessionCommandsBeforeMutation(t 
 
 func TestForceParentDoesNotRejectChildHandoff(t *testing.T) {
 	svc, _, _, ctx := handoffTestService()
-	svc.pinStore = newForceModelMapStore()
+	svc.sessionStores.Pins = newForceModelMapStore()
 	prepared := prepareTestHandoff(t, svc, ctx)
 	body, err := sjson.Set(handoffTestBody, piHandoffField, prepared.Token)
 	require.NoError(t, err)

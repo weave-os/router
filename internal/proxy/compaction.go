@@ -35,7 +35,7 @@ func (s *Service) routeCompaction(
 	forceModelFound bool,
 	forceModelPin sessionpin.Pin,
 ) (turnLoopResult, error) {
-	if s.pinStore == nil {
+	if s.sessionStores.Pins == nil {
 		return s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 	res.SessionKey = target.sessionKey
@@ -43,7 +43,7 @@ func (s *Service) routeCompaction(
 		return s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 	session := compactionSession{
-		pins:           s.pinStore,
+		pins:           s.sessionStores.Pins,
 		providers:      s.engine.Clients().NameSet(),
 		available:      s.availableModels,
 		cortexGateways: cortexGatewayProvidersForRequest(ctx),
@@ -68,7 +68,7 @@ func (s *Service) routeCompaction(
 	if err != nil || res.UsageBypass || res.CallerModelPassthrough {
 		return res, err
 	}
-	routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, target.strategy).WriteNew(ctx, target.installationID, target.sessionKey, res.PinRole, res.Decision)
+	routingpolicy.NewSessionPins(s.sessionStores.Pins, s.clock.Now, target.strategy).WriteNew(ctx, target.installationID, target.sessionKey, res.PinRole, res.Decision)
 	return res, nil
 }
 

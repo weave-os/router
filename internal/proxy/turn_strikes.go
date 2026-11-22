@@ -46,7 +46,7 @@ func recordTurnFailure(ctx context.Context, model string) {
 
 func (s *Service) strikeRescuedModelsForTurn(ctx context.Context, proxyErr error, served router.Decision, hardPinned bool, sessionKey [sessionpin.SessionKeyLen]byte, role, pinRole string) {
 	failures := turnFailuresFromContext(ctx)
-	store, ok := s.pinStore.(sessionpin.TurnStrikeStore)
+	store, ok := s.sessionStores.Pins.(sessionpin.TurnStrikeStore)
 	if !ok || proxyErr != nil || hardPinned || sessionKey == ([sessionpin.SessionKeyLen]byte{}) ||
 		strings.HasPrefix(served.Reason, translate.ReasonUserForceModel) {
 		return
@@ -69,7 +69,7 @@ func (s *Service) strikeRescuedModelsForTurn(ctx context.Context, proxyErr error
 }
 
 func (s *Service) clearTurnStrikes(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, pinRole string) {
-	store, ok := s.pinStore.(sessionpin.TurnStrikeStore)
+	store, ok := s.sessionStores.Pins.(sessionpin.TurnStrikeStore)
 	if !ok {
 		return
 	}

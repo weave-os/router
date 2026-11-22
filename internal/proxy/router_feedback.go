@@ -43,7 +43,7 @@ func (p routerFeedbackPorts) TurnBySequence(ctx context.Context, installationID 
 
 func (p routerFeedbackPorts) ServedModel(ctx context.Context, strategy router.Strategy, sessionKey [sessionpin.SessionKeyLen]byte, role string) string {
 	pin := sessionpin.Pin{}
-	if storedPin, found, err := p.s.pinStore.Get(ctx, sessionKey, role); err != nil {
+	if storedPin, found, err := p.s.sessionStores.Pins.Get(ctx, sessionKey, role); err != nil {
 		observability.FromContext(ctx).Error("/router-feedback: pin lookup failed", "err", err)
 	} else if found && pinMatchesEffectiveStrategy(strategy, storedPin) {
 		pin = storedPin
@@ -88,7 +88,7 @@ func newRouterFeedback(s *Service) conversation.RouterFeedback {
 	if s.turnTelemetry.repo != nil {
 		recorder.Turns = ports
 	}
-	if s.pinStore != nil {
+	if s.sessionStores.Pins != nil {
 		recorder.ServedModels = ports
 	}
 	if s.feedbackLinks.repo != nil {

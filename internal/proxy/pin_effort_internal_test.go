@@ -153,7 +153,7 @@ func TestRefreshPin_CarriesEffortForward(t *testing.T) {
 		Effort:   "xhigh",
 		Reason:   translate.ReasonUserForceModel,
 	}
-	sessionPins := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyHMMEmbedding)
+	sessionPins := routingpolicy.NewSessionPins(svc.sessionStores.Pins, svc.clock.Now, router.StrategyHMMEmbedding)
 	sessionPins.Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{},
 		existing, "default", router.Decision{
 			Provider: existing.Provider, Model: existing.Model, Reason: existing.Reason,

@@ -50,7 +50,7 @@ func (s *Service) recordTokenizerObservation(ctx context.Context, res turnLoopRe
 	if res.TurnType != turntype.MainLoop && res.TurnType != turntype.ToolResult {
 		return
 	}
-	store, ok := s.pinStore.(sessionpin.TokenizerCalibrationStore)
+	store, ok := s.sessionStores.Pins.(sessionpin.TokenizerCalibrationStore)
 	if !ok {
 		return
 	}

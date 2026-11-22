@@ -38,14 +38,14 @@ func newLoopBreak(
 }
 
 func newLoopBreakPins(s *Service, strategy router.Strategy) conversation.LoopBreakPins {
-	if s.pinStore == nil {
+	if s.sessionStores.Pins == nil {
 		return nil
 	}
 	return loopBreakPins{s: s, strategy: strategy}
 }
 
 func (p loopBreakPins) Load(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool) {
-	return routingpolicy.NewSessionPins(p.s.pinStore, p.s.clock.Now, p.strategy).Load(ctx, sessionKey, role)
+	return routingpolicy.NewSessionPins(p.s.sessionStores.Pins, p.s.clock.Now, p.strategy).Load(ctx, sessionKey, role)
 }
 
 func (p loopBreakPins) ExpireWithHistory(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, role, reason string) error {

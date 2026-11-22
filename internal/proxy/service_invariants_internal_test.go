@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 
@@ -94,7 +95,7 @@ func (f *cancellationCheckingPinStore) Upsert(ctx context.Context, p sessionpin.
 
 func TestMaybeRepinOnRefusal_WritesAfterRequestCancellation(t *testing.T) {
 	store := &cancellationCheckingPinStore{repinFakeStore: &repinFakeStore{}}
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store, rescueConfig: dispatch.RescueConfig{CyberRefusalRepin: true, CyberRefusalFallbackModel: "claude-sonnet-5"}}
+	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), sessionStores: routingpolicy.SessionStores{Pins: store}, rescueConfig: dispatch.RescueConfig{CyberRefusalRepin: true, CyberRefusalFallbackModel: "claude-sonnet-5"}}
 	ctx, cancel := context.WithCancel(repinCtx())
 	cancel()
 
@@ -133,7 +134,7 @@ func (s *cancellationCheckingRecoveryStore) ClearDemotionCooldown(ctx context.Co
 
 func TestClearRecoveredCooldown_LandsAfterRequestCancellation(t *testing.T) {
 	store := &cancellationCheckingRecoveryStore{}
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store}
+	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), sessionStores: routingpolicy.SessionStores{Pins: store}}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	observedUntil := time.Now().Add(-time.Second)

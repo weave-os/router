@@ -76,7 +76,7 @@ func TestCommittedStreamStrikeLandsAfterClientCancel(t *testing.T) {
 func TestPinEvictionSecondStrikeLandsAfterClientCancel(t *testing.T) {
 	stub := &evictionStubPinStore{incrementNext: []int{2}}
 	svc := newEvictionTestService(stub)
-	svc.pinStore = cancelRejectingEvictionStore{stub}
+	svc.sessionStores.Pins = cancelRejectingEvictionStore{stub}
 
 	svc.maybeEvictPinAfterUpstreamErr(
 		canceledContext(),

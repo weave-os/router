@@ -173,9 +173,9 @@ func TestBoostServingKeepsLegacyForceModelPinActive(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: pinNeverExpires,
 	}
-	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), sessionStores: routingpolicy.SessionStores{Pins: store}}
 
-	pin, active, noStoredState := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(boostDefaultRoutingContext())).LoadWithStoreState(boostDefaultRoutingContext(), sessionKey, role)
+	pin, active, noStoredState := routingpolicy.NewSessionPins(svc.sessionStores.Pins, svc.clock.Now, router.StrategyFromContext(boostDefaultRoutingContext())).LoadWithStoreState(boostDefaultRoutingContext(), sessionKey, role)
 
 	assert.Equal(t, "claude-opus-5", pin.Model)
 	assert.True(t, active)
@@ -184,7 +184,7 @@ func TestBoostServingKeepsLegacyForceModelPinActive(t *testing.T) {
 
 func TestBoostServingAppliesForceModelCommand(t *testing.T) {
 	store := newForceModelMapStore()
-	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), sessionStores: routingpolicy.SessionStores{Pins: store}}
 	env := forceCommandEnv(t)
 	threadKey := [sessionpin.SessionKeyLen]byte{2}
 	forceKey := [sessionpin.SessionKeyLen]byte{3}
@@ -222,7 +222,7 @@ func TestBoostServingRoutesExplicitForceModel(t *testing.T) {
 
 func TestMaxServingStillRejectsClosedSourceForceModel(t *testing.T) {
 	store := newForceModelMapStore()
-	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), sessionStores: routingpolicy.SessionStores{Pins: store}}
 	env := forceCommandEnv(t)
 	_, message, err := (forceModelCommands{svc}).apply(
 		planOwnedContext(), router.StrategyFromContext(planOwnedContext()), translate.ForceModelResult{Model: "opus"}, uuid.New(),

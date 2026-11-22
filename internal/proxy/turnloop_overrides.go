@@ -128,7 +128,7 @@ func (t *hardPinnedTurnServing) serveForcedPin(ctx context.Context) bool {
 	if candidates.ForcedPinEligible(forceModelPin, t.req) {
 		res.Purpose = utilityPurposes[res.TurnType]
 		threadPin, hmmHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
-		if s.pinStore != nil {
+		if s.sessionStores.Pins != nil {
 			threadPin, _ = t.sessionPins.Load(ctx, t.threadSessionKey, res.PinRole)
 			hmmHistory = t.sessionPins.LoadHMMHistory(ctx, t.threadSessionKey, res.PinRole)
 			forceHistory = s.loadForceModelHistory(ctx, t.threadSessionKey, res.PinRole)

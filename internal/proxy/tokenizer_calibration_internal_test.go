@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
@@ -52,7 +53,7 @@ func TestRecordTokenizerObservation_OnlyConversationTurnsCalibrate(t *testing.T)
 	} {
 		t.Run(string(tt.turnType), func(t *testing.T) {
 			store := &calibrationRecordingPinStore{}
-			svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), pinStore: store}
+			svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), sessionStores: routingpolicy.SessionStores{Pins: store}}
 			svc.recordTokenizerObservation(context.Background(), turnLoopResult{TurnType: tt.turnType}, "default", providers.ProviderOpenAI, 500_000, 0, 0)
 			assert.Equal(t, tt.want, store.writes)
 		})

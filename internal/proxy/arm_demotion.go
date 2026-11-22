@@ -27,7 +27,7 @@ func (d sessionArmDemoter) DemoteArm(ctx context.Context, model string, reason s
 }
 
 func sessionArmDemoterFor(s *Service, target sessionTarget, role, pinRole string) dispatch.SessionArmDemoter {
-	if s.pinStore == nil || target.installationID == uuid.Nil || target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+	if s.sessionStores.Pins == nil || target.installationID == uuid.Nil || target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return nil
 	}
 	return sessionArmDemoter{s: s, target: target, role: role, pinRole: pinRole}
@@ -125,7 +125,7 @@ func (s *Service) demoteArmForSession(
 	if role == "" {
 		role = sessionpin.DefaultRole
 	}
-	cooldownStore, hasCooldownStore := s.pinStore.(sessionpin.CooldownStore)
+	cooldownStore, hasCooldownStore := s.sessionStores.Pins.(sessionpin.CooldownStore)
 	if !cooldownUntil.IsZero() && !hasCooldownStore {
 		log.Warn("session pin store cannot persist a cooldown, demoting for the session", "model", model, "reason", string(reason))
 		cooldownUntil = time.Time{}
@@ -134,7 +134,7 @@ func (s *Service) demoteArmForSession(
 		expired := expiredSessionPin(target.installationID, target.sessionKey, strikeRole, string(reason), target.strategy, s.clock.Now())
 		var err error
 		if cooldownUntil.IsZero() {
-			err = s.pinStore.ExpireAndDemoteModel(context.WithoutCancel(ctx), expired, model, reason)
+			err = s.sessionStores.Pins.ExpireAndDemoteModel(context.WithoutCancel(ctx), expired, model, reason)
 		} else {
 			err = cooldownStore.ExpireAndCoolDownModel(context.WithoutCancel(ctx), expired, model, cooldownUntil, reason)
 		}

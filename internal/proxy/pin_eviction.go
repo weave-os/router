@@ -40,7 +40,7 @@ func (s *Service) expireSessionPinRow(
 	invalidateContinuation bool,
 ) error {
 	expired := expiredSessionPin(installationID, sessionKey, role, reason, strategy, s.clock.Now())
-	if err := s.pinStore.Upsert(context.WithoutCancel(ctx), expired); err != nil {
+	if err := s.sessionStores.Pins.Upsert(context.WithoutCancel(ctx), expired); err != nil {
 		return err
 	}
 	if !invalidateContinuation {
@@ -95,7 +95,7 @@ func (s *Service) evictPinAfterDegenerateResponse(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) {
-	if !stickyHit || s.pinStore == nil || installationID == uuid.Nil {
+	if !stickyHit || s.sessionStores.Pins == nil || installationID == uuid.Nil {
 		return
 	}
 	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
@@ -124,7 +124,7 @@ func (s *Service) maybeExpireDeadArmPin(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) {
-	if !deadArmRejected || s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) || strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
+	if !deadArmRejected || s.sessionStores.Pins == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) || strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
 		return
 	}
 	log := observability.FromContext(ctx)
@@ -142,7 +142,7 @@ func (s *Service) maybeExpireSubscriptionArmPin(
 	role string,
 ) {
 	reason := subscriptionArmPinEvictionReason(failure)
-	if reason == "" || s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) || strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
+	if reason == "" || s.sessionStores.Pins == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) || strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
 		return
 	}
 	log := observability.FromContext(ctx)
@@ -175,7 +175,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 	target sessionTarget,
 	role string,
 ) {
-	if !stickyHit || s.pinStore == nil || target.installationID == uuid.Nil {
+	if !stickyHit || s.sessionStores.Pins == nil || target.installationID == uuid.Nil {
 		return
 	}
 	if target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
@@ -188,7 +188,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 	log := observability.FromContext(ctx)
 
 	if proxyErr == nil {
-		if err := s.pinStore.ResetUpstreamErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy); err != nil {
+		if err := s.sessionStores.Pins.ResetUpstreamErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy); err != nil {
 			log.Error("pin error-counter reset failed", "err", err, "role", role)
 		}
 		return
@@ -202,7 +202,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 		return
 	}
 
-	count, err := s.pinStore.IncrementUpstreamErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy)
+	count, err := s.sessionStores.Pins.IncrementUpstreamErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy)
 	if err != nil {
 		log.Error("pin error-counter increment failed", "err", err, "role", role, "upstream_status", status)
 		return

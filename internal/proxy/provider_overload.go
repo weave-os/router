@@ -26,7 +26,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 	role string,
 	pinRole string,
 ) {
-	if !stickyHit || s.pinStore == nil || target.installationID == uuid.Nil {
+	if !stickyHit || s.sessionStores.Pins == nil || target.installationID == uuid.Nil {
 		return
 	}
 	if target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
@@ -39,7 +39,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 	log := observability.FromContext(ctx)
 
 	if proxyErr == nil {
-		if err := s.pinStore.ResetOverloadErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy); err != nil {
+		if err := s.sessionStores.Pins.ResetOverloadErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy); err != nil {
 			log.Error("pin overload-counter reset failed", "err", err, "role", role)
 		}
 		return
@@ -49,7 +49,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 		return
 	}
 
-	count, err := s.pinStore.IncrementOverloadErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy)
+	count, err := s.sessionStores.Pins.IncrementOverloadErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy)
 	if err != nil {
 		log.Error("pin overload-counter increment failed", "err", err, "role", role, "provider", finalProvider)
 		return
@@ -64,7 +64,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 		return
 	}
 
-	if err := s.pinStore.DisableProvider(context.WithoutCancel(ctx), target.sessionKey, role, finalProvider, target.strategy); err != nil {
+	if err := s.sessionStores.Pins.DisableProvider(context.WithoutCancel(ctx), target.sessionKey, role, finalProvider, target.strategy); err != nil {
 		log.Error("pin provider-disable upsert failed", "err", err, "role", role, "provider", finalProvider)
 		return
 	}
