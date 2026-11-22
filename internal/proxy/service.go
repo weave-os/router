@@ -34,9 +34,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation/floor"
-	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/handover"
-	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -73,9 +71,7 @@ type Service struct {
 	translationMetrics           telemetry.TranslationMetrics
 	pinStore                     sessionpin.Store
 	escalation                   *floor.Helper
-	escalationDashboardStore     escalationdashboard.Store
-	llmEscalationConfiguration   llmescalation.ConfigurationStore
-	llmEscalationInvalidate      func(string)
+	llmEscalationAdmin           llmEscalationAdmin
 	sessionStrategyStore         sessionstrategy.Store
 	classifierSessions           *classifierSessions
 	lifecycle                    *conversation.Lifecycle
@@ -96,8 +92,6 @@ type Service struct {
 	credentials                  credentials.Brokerage
 	continuityConfig             continuity.Config
 	hmmServing
-	policyDeadlineFallback     bool
-	policyDeadlineDefaultModel string
 
 	rescueConfig                   dispatch.RescueConfig
 	openAIResponsesBroad           bool
@@ -1131,12 +1125,16 @@ func (s *Service) WithHMMConfig(cfg continuity.AuthoritativeConfig) *Service {
 }
 
 func (s *Service) WithPolicyDeadlineFallback(enabled bool) *Service {
-	s.policyDeadlineFallback = enabled
+	deadline := s.routing.Deadline()
+	deadline.Fallback = enabled
+	s.routing = s.routing.WithDeadline(deadline)
 	return s
 }
 
 func (s *Service) WithPolicyDeadlineDefaultModel(model string) *Service {
-	s.policyDeadlineDefaultModel = model
+	deadline := s.routing.Deadline()
+	deadline.DefaultModel = model
+	s.routing = s.routing.WithDeadline(deadline)
 	return s
 }
 
@@ -1329,7 +1327,7 @@ func (s *Service) WithExcludedModelsOverride(models []string) *Service {
 }
 
 func (s *Service) WithRoutingPolicy(p *routingpolicy.Policy) *Service {
-	s.routing = p.WithExcludedModelsOverride(s.ExcludedModelsOverride())
+	s.routing = p.WithExcludedModelsOverride(s.ExcludedModelsOverride()).WithDeadline(s.routing.Deadline())
 	return s
 }
 

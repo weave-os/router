@@ -16,6 +16,12 @@ type Planner interface {
 type Policy struct {
 	plans                  *policy.PlanResolver
 	excludedModelsOverride map[string]struct{}
+	deadline               PolicyDeadline
+}
+
+type PolicyDeadline struct {
+	Fallback     bool
+	DefaultModel string
 }
 
 var _ Planner = (*Policy)(nil)
@@ -45,4 +51,20 @@ func (p *Policy) ExcludedModelsOverride() map[string]struct{} {
 		return nil
 	}
 	return p.excludedModelsOverride
+}
+
+func (p *Policy) Deadline() PolicyDeadline {
+	if p == nil {
+		return PolicyDeadline{}
+	}
+	return p.deadline
+}
+
+func (p *Policy) WithDeadline(deadline PolicyDeadline) *Policy {
+	out := &Policy{}
+	if p != nil {
+		*out = *p
+	}
+	out.deadline = deadline
+	return out
 }
