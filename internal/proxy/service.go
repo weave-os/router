@@ -18,7 +18,6 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
-	"weave-os/router/internal/inference"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -42,7 +41,6 @@ import (
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/timing"
 	"weave-os/router/internal/translate"
-	providerusage "weave-os/router/internal/usage"
 	"weave-os/router/internal/websearch"
 
 	"github.com/google/uuid"
@@ -733,18 +731,6 @@ func servedOnBYOK(ctx context.Context) bool {
 	return creds != nil && creds.Source == credSourceBYOK
 }
 
-func byokServedForProvider(ctx context.Context, provider string) bool {
-	if provider == "" {
-		return false
-	}
-	for _, key := range credentials.ExternalKeysFromContext(ctx) {
-		if key.Provider == provider && len(key.Plaintext) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 func openaiSubscriptionFromContext(ctx context.Context) string {
 	if byokFirst(ctx, providers.ProviderOpenAI) {
 		return ""
@@ -1391,7 +1377,7 @@ func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Reque
 	req.Candidates.ExcludedModels = candidates.MergeExcludedModels(req.Candidates.ExcludedModels, s.productIneligibleModels(ctx))
 	req.OrganizationID, _ = ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 	req.InstallationID = ""
-	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
+	if installationID := requestcontext.InstallationIDFromContext(ctx); installationID != uuid.Nil {
 		req.InstallationID = installationID.String()
 	}
 	clientIdentity := ClientIdentityFrom(ctx)
@@ -1426,18 +1412,6 @@ func (s *Service) RouteAnthropicRequest(ctx context.Context, body []byte, header
 		return decision, err
 	}
 	return s.Route(ctx, req)
-}
-
-func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http.Header) bool {
-	if s.anthropicFallbackKeyAvailable(ctx) {
-		return true
-	}
-	if s.credentials.KeyedProviders == nil && !s.credentials.BYOKOnly {
-		if s.engine.Clients().Has(providers.ProviderAnthropic) {
-			return true
-		}
-	}
-	return ExtractClientCredentials(providers.ProviderAnthropic, headers) != nil
 }
 
 func logUpstreamBody(log *slog.Logger, sessionKey [sessionpin.SessionKeyLen]byte, decision router.Decision, feats translate.RoutingFeatures, body []byte) {
@@ -1508,7 +1482,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, strategy router.Str
 	if !s.ResolveCyberRefusalRepin(ctx) {
 		return
 	}
-	installationID := installationIDFromContext(ctx)
+	installationID := requestcontext.InstallationIDFromContext(ctx)
 	if installationID == uuid.Nil {
 		return
 	}
@@ -1866,219 +1840,17 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
 	opts.FastMode = fastModeForAttempt(ctx, decision.Model, decision.Provider)
 
-	bindings := s.resolveBindingsForDispatch(ctx, decision)
-
-	if billing.SubscriptionOnlyFromContext(ctx) && !routeRes.UsageBypass && !subscriptionStateModelsEnabled(ctx) {
-		switch {
-		case subscriptionOnlyUnservable(ctx, decision.Provider, decision.Model):
-			released, ok := releaseUnservableLinkedFirst(ctx, decision)
-			if !ok {
-				log.Info("Subscription-only request cannot be served on the subscription; refusing",
-					"requested_model", feats.Model, "external_id", facts.ExternalID, "decision_provider", decision.Provider)
-				return credentials.SubscriptionOnlyUnavailable(ctx)
-			}
-			ctx = released
-		case !servedOnCustomerKey(ctx) && s.anthropicSubscriptionObservedExhausted(ctx, r.Header) && !credentials.ClaudeSubscriptionSuppressed(ctx):
-			log.Info("Subscription-only request cannot be served on the subscription; refusing",
-				"requested_model", feats.Model, "external_id", facts.ExternalID, "decision_provider", decision.Provider)
-			return credentials.SubscriptionOnlyUnavailable(ctx)
-		default:
-			bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
-		}
-	}
-	clientSink := w
-	var streamCost *streamCostWriter
-	if env.Stream() && !agentShadowMode {
-		var closeKeepalive func()
-		clientSink, streamCost, closeKeepalive = anthropicStreamSink(w, s.ingress.Keepalive, func() string {
-			return s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoed)
-		})
-		defer closeKeepalive()
-	}
-	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
-	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
-	var policyOutcomeCap *captureWriter
-	if !agentShadowMode {
-		contentSink, policyOutcomeCap = s.capturePolicyOutcomeResponse(ctx, contentSink, routeRes, decision)
-	}
-	preludeBuf := newPreludeBuffer(contentSink)
-	var rootSink http.ResponseWriter = preludeBuf
-	var sink = rootSink
-	refusalObs := newRefusalObserver(sink)
-	sink = refusalObs
-	toolUseObs := newToolUseObserver(sink)
-	sink = toolUseObs
-	earlyStop := dispatch.NewEarlyStopGate(sink, log)
-	sink = earlyStop
-	preludeBuf.OnDiscard = earlyStop.ResetAttempt
-	streamCut := newStreamCutObserver(s.clock.Now)
-	streamCut.describeRequest(len(body), env)
-
-	proxyStart := s.clock.Now()
-	inferenceParentCtx := ctx
-	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
-	defer inferenceSpan.End()
-	var proxyErr error
-	crossFormat := false
-	var extractor *telemetry.UsageExtractor
-	var respSummary translate.ResponseSummary
-	var reqStats providers.RequestMutationStats
-
-	announcementTurn := announcementTurnFor(routeRes, replayedModel)
-	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(s.strategyPorts, ctx, announcementTurn, routingMarkerFor(announcementTurn), decision.Model, ""))
-	muteSlowStartFor(ctx, routeRes)
-	fundingCtx := ctx
-	if CredentialsFromContext(fundingCtx) == nil {
-		fundingCtx = credentialCtx
-	}
-	notice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, decision.Model, marker)
-	notice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), decision.Provider, decision.Model, notice)
-	marker = notice.Text
-	toolValidator := env.ToolValidator()
-	setExtractor := func(e *telemetry.UsageExtractor) { extractor = e }
-	anthropicPrelude := &requestNoticeStream{now: s.clock.Now}
-	fastServed := false
-	setStreamCost := func(d router.Decision, inputIncludesCache bool, requestCacheTTL1h func() bool) {
-		if streamCost != nil {
-			streamCost.SetCostCalculator(routerCostCalculatorFor(d.Model, d.Provider, fastServed), inputIncludesCache, requestCacheTTL1h)
-			streamCost.source = func() providerusage.Facts { return extractor.UsageFacts() }
-		}
-	}
-	anthropicTierAttemptFor := func(targetOpts translate.EmitOptions, prep providers.PreparedRequest, targetNotice translate.RouterNotice) *anthropicTierAttempt {
-		return &anthropicTierAttempt{
-			s:             s,
-			log:           log,
-			env:           env,
-			r:             r,
-			opts:          targetOpts,
-			native:        s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, anthropicPrelude, streamCut, targetNotice, setExtractor, setStreamCost),
-			sink:          sink,
-			preludeBuf:    preludeBuf,
-			preludeState:  anthropicPrelude,
-			streamCut:     streamCut,
-			notice:        targetNotice,
-			setExtractor:  setExtractor,
-			setStreamCost: setStreamCost,
-			logBody: func(d router.Decision, body []byte) {
-				logUpstreamBody(log, routeRes.SessionKey, d, feats, body)
-			},
-		}
-	}
-	recordFastServed := func(fast bool) { fastServed = fast }
-
-	attemptDeps := messagesAttemptDeps{
-		request:                 r,
-		svc:                     s,
-		env:                     env,
-		routeRes:                &routeRes,
-		log:                     log,
-		crossFormat:             &crossFormat,
-		feats:                   feats,
-		anthropicTierAttemptFor: anthropicTierAttemptFor,
-		recordFastServed:        recordFastServed,
-		preludeBuf:              preludeBuf,
-		sink:                    sink,
-		anthropicPrelude:        anthropicPrelude,
-		streamCut:               streamCut,
-		setExtractor:            setExtractor,
-		setStreamCost:           setStreamCost,
-		fastServed:              &fastServed,
-		respSummary:             &respSummary,
-		reqStats:                &reqStats,
-		streamCost:              streamCost,
-		extractor:               &extractor,
-		toolValidator:           toolValidator,
-	}
-	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
-		return buildMessagesAttempt(ctx, attemptDeps, target, targetOpts, targetMarker, fundingCtx)
-	}
-	attempt, attemptBuildErr := buildAttempt(decision, opts, marker, fundingCtx)
-	if attemptBuildErr != nil && !translate.IsIntrinsicallyIncompatible(attemptBuildErr) {
-		finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, attemptBuildErr)
-		return attemptBuildErr
-	}
-
-	rescue := &dispatch.MessagesRescue{
-		RescueChain: &dispatch.RescueChain{
-			RescuePorts: rescuePortsFor(s), Markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver},
-			HTTPRequest:      r,
-			Log:              log,
-			Env:              env,
-			RouteRes:         rescueTurnOf(routeRes),
-			Request:          &req,
-			Opts:             opts,
-			ContentSink:      contentSink,
-			PreludeBuf:       preludeBuf,
-			Attempt:          attempt,
-			BuildAttempt:     buildAttempt,
-			Surface:          inference.PurposeAnthropicMessages,
-			RespSummary:      &respSummary,
-			ReqStats:         &reqStats,
-			Decision:         decision,
-			Bindings:         bindings,
-			Marker:           marker,
-			ProxyErr:         proxyErr,
-			EffortServed:     effortServed,
-			OverflowEstimate: overflowEstimate,
-			OutputReserve:    outputReserve,
-		},
-		Feats:           feats,
-		AgentShadowMode: agentShadowMode,
-
-		EarlyStop:                 earlyStop,
-		NoteStreamCut:             streamCut.noteCut,
-		AttemptBuildErr:           attemptBuildErr,
-		AnthropicTierAttempt:      boundTierAttempt(anthropicTierAttemptFor, recordFastServed),
-		Extractor:                 &extractor,
-		FastServed:                &fastServed,
-		CrossFormat:               &crossFormat,
-		CompactionHandoverOutcome: compactionHandoverOutcome,
-	}
-	rescue.FlushErr = rescue.FlushErrAsAnthropic
-	rescue.ArmBaseline(ctx)
-	rescue.ArmSubscriptionRetry(ctx)
-	ctx = rescue.ArmRescues(ctx)
-	rescue.ArmEarlyStop(ctx)
-	rescue.HoldPrimary()
-	rescue.DispatchPrimary(ctx)
-	rescue.RedoIfStoppedEarly(ctx)
-	rescue.NotePrimaryFailure(ctx)
-	rescue.ClassifyPrimaryFailure()
-	ctx = rescue.BaselineRescue(ctx)
-	rescue.SubscriptionRetry(ctx)
-	rescue.SiblingRescue(ctx)
-	rescue.Finish(ctx)
-	decision, marker, proxyErr, effortServed = rescue.Decision, rescue.Marker, rescue.ProxyErr, rescue.EffortServed
-	compactionHandoverOutcome = rescue.CompactionHandoverOutcome
-	winnerIdx, finalProvider := rescue.WinnerIdx, rescue.FinalProvider
-
-	if rescue.SubscriptionFailoverUsed {
-		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
-	}
-	ctx = resolveAndInjectCredentials(ctx, finalProvider, decision.Model, r.Header)
-
-	if extractor.Speed() == catalog.SpeedFast {
-		fastServed = true
-	}
-	if actBindingPricing, ok := servedPricing(finalProvider, decision.Model, fastServed); ok {
-		actPricing = actBindingPricing
-	}
-
-	proxyMs := s.clock.Now().Sub(proxyStart).Milliseconds()
-	finishInferenceSpan(inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
-	ctx = restoreParentSpan(ctx, inferenceParentCtx)
-
-	return finishMessagesTurn(ctx, s, &messagesFinishedTurn{
-		w: w, body: body, facts: facts, requestStart: requestStart, rateLimit: rateLimit, log: log,
-		env: env, responseBuffer: responseBuffer, agentShadowMode: agentShadowMode, sessionKey: sessionKey, feats: feats, promptText: promptText,
-		embedInput: embedInput, strategy: strategy, taskArm: taskArm, inboundSpiralSignals: inboundSpiralSignals, inboundSpiralReasons: inboundSpiralReasons, inboundSpiralComputed: inboundSpiralComputed,
-		inboundLastUser: inboundLastUser, inboundUserPrompt: inboundUserPrompt, inboundLatestToolCalls: inboundLatestToolCalls, overflowEstimate: overflowEstimate, req: req, routeRes: routeRes,
-		decision: decision, tt: tt, stickyHit: stickyHit, pinAgeSec: pinAgeSec, routeMs: routeMs, compactionHandoverOutcome: compactionHandoverOutcome,
-		reqPricing: reqPricing, actPricing: actPricing, opts: opts, effortServed: effortServed, contentCap: contentCap, policyOutcomeCap: policyOutcomeCap,
-		preludeBuf: preludeBuf, refusalObs: refusalObs, toolUseObs: toolUseObs, streamCut: streamCut, proxyStart: proxyStart, proxyErr: proxyErr,
-		crossFormat: crossFormat, extractor: extractor, respSummary: respSummary, reqStats: reqStats, marker: marker, fastServed: fastServed,
-		rescue: rescue, winnerIdx: winnerIdx, finalProvider: finalProvider, proxyMs: proxyMs,
+	ctx, err = dispatchMessagesTurn(ctx, credentialCtx, &messagesTurnDispatch{
+		s: s, w: w, r: r, body: body, requestStart: requestStart, facts: facts, rateLimit: rateLimit, log: log, env: env, sessionKey: sessionKey,
+		feats: feats, promptText: promptText, embedInput: embedInput, strategy: strategy, taskArm: taskArm, inboundLastUser: inboundLastUser,
+		inboundUserPrompt: inboundUserPrompt, inboundLatestToolCalls: inboundLatestToolCalls, inboundSpiralSignals: inboundSpiralSignals,
+		inboundSpiralReasons: inboundSpiralReasons, inboundSpiralComputed: inboundSpiralComputed, req: req, routeRes: routeRes, routeMs: routeMs,
+		decision: decision, tt: tt, stickyHit: stickyHit, pinAgeSec: pinAgeSec, reqPricing: reqPricing, actPricing: actPricing, effortServed: effortServed,
+		opts: opts, replayedModel: replayedModel, footerEchoed: footerEchoed, agentShadowMode: agentShadowMode, responseBuffer: responseBuffer,
+		overflowEstimate: overflowEstimate, outputReserve: outputReserve, compactionHandoverOutcome: compactionHandoverOutcome,
+		escalationCapture: &escalationCapture,
 	})
+	return err
 }
 
 func stickyStateRole(res routingpolicy.TurnRoute) string {
@@ -2117,39 +1889,18 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 		SurfaceProvider:               surfaceProvider,
 		Headers:                       headers,
 		ExternalKeys:                  credentials.ExternalKeysFromContext(ctx),
-		RouterKeyAuthed:               installationIDFromContext(ctx) != (uuid.UUID{}),
+		RouterKeyAuthed:               requestcontext.InstallationIDFromContext(ctx) != (uuid.UUID{}),
 		SubscriptionLanes:             subscriptionLanes,
 		InstallationExcludedProviders: installationExcludedProvidersFromContext(ctx),
 		SessionDisabledProviders:      sessionDisabledProvidersFromContext(ctx),
 	})
 }
 
-func (s *Service) hasOpenAIInfrastructureCredential(ctx context.Context, headers http.Header) bool {
-	if byokServedForProvider(ctx, providers.ProviderOpenAI) {
-		return true
-	}
-	if !s.credentials.BYOKOnly {
-		if s.credentials.KeyedProviders == nil {
-			if s.engine.Clients().Has(providers.ProviderOpenAI) {
-				return true
-			}
-		} else if _, keyed := s.credentials.KeyedProviders[providers.ProviderOpenAI]; keyed {
-			return true
-		}
-	}
-	if installationIDFromContext(ctx) == uuid.Nil {
-		if client := ExtractClientCredentials(providers.ProviderOpenAI, headers); client != nil && !client.OAuth {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *Service) openAIPaidCredentialAvailable(ctx context.Context, headers http.Header) bool {
 	if billing.WeaveCreditsDeniedFromContext(ctx) {
 		return usableBYOK(ctx, providers.ProviderOpenAI) != nil
 	}
-	return s.hasOpenAIInfrastructureCredential(ctx, headers)
+	return s.credentials.HasOpenAIInfrastructureCredential(ctx, headers, s.engine.Clients().Has)
 }
 
 func (s *Service) excludeCodexOAuthOnlyModels(

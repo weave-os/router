@@ -5,6 +5,8 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/llmescalation"
@@ -34,7 +36,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 	apiKeyID := apiKeyIDFromContext(ctx)
 	auxRequestID := requestID + requestIDSuffix
 
-	byokServed := byokServedForProvider(ctx, usage.Provider)
+	byokServed := credentials.ByokServedForProvider(ctx, usage.Provider)
 
 	s.fireBilling(ctx, billing.DebitInferenceParams{
 		OrganizationID:  externalID,
@@ -53,7 +55,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		RouterUserID:    auth.UserIDFrom(ctx),
 	})
 
-	installationID := installationIDFromContext(ctx)
+	installationID := requestcontext.InstallationIDFromContext(ctx)
 	if installationID == uuid.Nil {
 		return
 	}

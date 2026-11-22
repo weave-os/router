@@ -143,7 +143,7 @@ func codexImagePlanLacksImageAccess(attemptErr error) bool {
 }
 
 func recordCodexImageUsage(ctx context.Context, svc *Service, model string, started time.Time, attemptErr error) {
-	installationID := installationIDFromContext(ctx)
+	installationID := requestcontext.InstallationIDFromContext(ctx)
 	if installationID == uuid.Nil {
 		return
 	}

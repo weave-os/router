@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
@@ -22,7 +23,7 @@ func (s *Service) overloadOpenModels(ctx context.Context) map[string]struct{} {
 }
 
 func overloadOrg(ctx context.Context) string {
-	if id := installationIDFromContext(ctx); id != uuid.Nil {
+	if id := requestcontext.InstallationIDFromContext(ctx); id != uuid.Nil {
 		return id.String()
 	}
 	return ""
