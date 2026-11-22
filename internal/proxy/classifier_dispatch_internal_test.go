@@ -244,7 +244,7 @@ func TestClassifierInputRejectsControlBypasses(t *testing.T) {
 		`{"messages":[{"role":"user","content":"first"}],"weave_handoff":"ticket"}`,
 		`{"messages":[{"role":"user","content":"first"}],"weave_session":"ticket"}`,
 	} {
-		_, err := svc.withClassifierInput(ctx, []byte(body), router.EndpointAnthropicMessages)
+		_, err := svc.withClassifierInput(ctx, router.StrategyFromContext(ctx), []byte(body), router.EndpointAnthropicMessages)
 		require.Error(t, err, gjson.Get(body, "messages.0.content").String())
 	}
 	for _, command := range []string{"/beta", "/force-model example", "/router-session", "/router-models"} {
@@ -256,7 +256,7 @@ func TestClassifierInputRejectsControlBypasses(t *testing.T) {
 		context.WithValue(ctx, requestcontext.AgentShadowEvalContextKey{}, requestcontext.AgentShadowEvaluation{Model: catalog.ModelIDGPT55.String(), RolloutID: "fixture", StateID: "fixture"}),
 		router.WithPolicyPinRequest(ctx, router.PolicyPinRequest{Authorized: true, Pin: router.PolicyPin{ArtifactSHA256: strings.Repeat("a", 64), RosterSHA256: strings.Repeat("b", 64)}}),
 	} {
-		_, err := svc.withClassifierInput(override, []byte(`{"messages":[{"role":"user","content":"first"}]}`), router.EndpointAnthropicMessages)
+		_, err := svc.withClassifierInput(override, router.StrategyFromContext(override), []byte(`{"messages":[{"role":"user","content":"first"}]}`), router.EndpointAnthropicMessages)
 		require.ErrorIs(t, err, router.ErrClassifierThreadInvalid)
 	}
 }

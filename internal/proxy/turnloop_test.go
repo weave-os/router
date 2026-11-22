@@ -689,7 +689,7 @@ func TestTurnLoop_HandoverPreservesFullHistoryWhenSummarizerNotWired(t *testing.
 		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
 	}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
-	// No WithSummarizer call — Service.summarizer stays nil.
+	// No WithSummarizer call — the lifecycle summarizer stays nil.
 	svc, provider := newPinSvcCapturing(fr, store)
 
 	ctx := authedCtx(uuid.New().String())
