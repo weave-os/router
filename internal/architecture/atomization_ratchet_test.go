@@ -9,6 +9,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -41,6 +42,7 @@ const (
 	ratchetProxyEscalation        = "proxy_escalation_internal_references"
 	ratchetServingStrategyNames   = "serving_strategy_constant_references"
 	ratchetProxyRouterLayerCalls  = "proxy_router_layer_helper_calls"
+	ratchetHMMHistoryNames        = "hmm_history_identifier_references"
 )
 
 var atomizationRatchetFixes = map[string]string{
@@ -52,6 +54,7 @@ var atomizationRatchetFixes = map[string]string{
 	ratchetProxyEscalation:        "internal/proxy must not drive escalation scoring, judging or state (escalation.Store/Observer, llmescalation.Judge, internal/escalationjudge); call the helper in internal/router/escalation/floor and pass it turn facts",
 	ratchetServingStrategyNames:   "serving-layer packages must not branch on named strategies (router.StrategyHMM*, StrategyLLMClassifier, ...); move the strategy-specific behavior into the strategy package or behind a router capability and pass the serving layer a strategy-neutral fact",
 	ratchetProxyRouterLayerCalls:  "internal/proxy must not sequence router-layer helpers (continuity/planner/escalation-floor functions, the UpgradeJudge and CostGate decision ports, escalation floor Begin/Apply/Settle); call them from the strategy in internal/router/hmm or the session turn in internal/routingpolicy and hand proxy the result",
+	ratchetHMMHistoryNames:        "internal/proxy and internal/routingpolicy must not name HMM switch history (LoadHMMHistory, HMMTurnRecord, hmmHistory, \"_hmm_history\" roles); reach it through continuity.StrategyPorts.History, implemented in internal/router/hmm",
 	ratchetHMMPinFields:           "HMM-only session pin fields (sessionpin.Pin.PolicyGroup, ConsecutiveDowngradeVotes, ConsecutiveUpgradeVotes) are read and written only by the accessor in internal/router/hmm",
 }
 
@@ -71,6 +74,8 @@ var (
 		floorPackagePath + ".Helper":            {"Begin", "Settle", "SettleLLM", "ApplyLLM"},
 		floorPackagePath + ".Turn":              {"Apply"},
 	}
+	hmmHistoryNamePattern = regexp.MustCompile(`(?i)hmm_?(turn_?)?history|hmm_?turn_?record|record_?hmm_?turn`)
+	hmmHistoryBannedRoots = []string{proxyPackagePath, modulePath + "/internal/routingpolicy"}
 )
 
 type atomizationBaseline struct {
@@ -121,6 +126,9 @@ func TestAtomizationRatchetsDetectSyntheticViolations(t *testing.T) {
 		}},
 		{fixture: "proxy_router_layer", want: atomizationCounts{
 			ratchetProxyRouterLayerCalls: {"internal/architecture/testdata/atomization/proxy_router_layer": 9},
+		}},
+		{fixture: "proxy_hmm_history", want: atomizationCounts{
+			ratchetHMMHistoryNames: {"internal/architecture/testdata/atomization/proxy_hmm_history": 8},
 		}},
 		{fixture: "pin_fields", want: atomizationCounts{
 			ratchetHMMPinFields: {"internal/architecture/testdata/atomization/pin_fields": 4},
@@ -175,6 +183,7 @@ func measureAtomization(t *testing.T, root string, patterns ...string) atomizati
 			strategy:   isStrategyPackage(path),
 			serving:    isServingLayerPackage(path),
 			pinAllowed: hasPathPrefix(path, hmmPackagePath),
+			hmmHistory: slices.ContainsFunc(hmmHistoryBannedRoots, func(root string) bool { return hasPathPrefix(path, root) }),
 		})
 	}
 	return counts
@@ -184,13 +193,13 @@ func measureAtomizationFixture(t *testing.T, root, pattern string) atomizationCo
 	t.Helper()
 	counts := atomizationCounts{}
 	for _, pkg := range loadTypedPackages(t, root, pattern) {
-		measurePackage(counts, pkg, atomizationScope{proxy: true, strategy: true, serving: true})
+		measurePackage(counts, pkg, atomizationScope{proxy: true, strategy: true, serving: true, hmmHistory: true})
 	}
 	return counts
 }
 
 type atomizationScope struct {
-	proxy, strategy, serving, pinAllowed bool
+	proxy, strategy, serving, pinAllowed, hmmHistory bool
 }
 
 func loadTypedPackages(t *testing.T, root string, patterns ...string) []*packages.Package {
@@ -227,9 +236,30 @@ func measurePackage(counts atomizationCounts, pkg *packages.Package, scope atomi
 			for _, ratchet := range nodeViolations(pkg.TypesInfo, node, scope) {
 				counts.add(ratchet, key)
 			}
+			if scope.hmmHistory && namesHMMHistory(pkg.TypesInfo, pkg.Types, node) {
+				counts.add(ratchetHMMHistoryNames, key)
+			}
 			return true
 		})
 	}
+}
+
+// namesHMMHistory reports HMM switch-history names declared by (or string
+// literals in) the scanned package itself, so fields of strategy-owned types
+// such as continuity.ActiveTurnInput.HMMHistory do not count.
+func namesHMMHistory(info *types.Info, self *types.Package, node ast.Node) bool {
+	switch n := node.(type) {
+	case *ast.Ident:
+		object := info.ObjectOf(n)
+		if object == nil || object.Pkg() == nil || !hmmHistoryNamePattern.MatchString(n.Name) {
+			return false
+		}
+		owner := object.Pkg().Path()
+		return owner == self.Path() || slices.ContainsFunc(hmmHistoryBannedRoots, func(root string) bool { return hasPathPrefix(owner, root) })
+	case *ast.BasicLit:
+		return n.Kind == token.STRING && strings.Contains(strings.ToLower(n.Value), "hmm_history")
+	}
+	return false
 }
 
 func nodeViolations(info *types.Info, node ast.Node, scope atomizationScope) []string {

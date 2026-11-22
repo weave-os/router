@@ -81,7 +81,7 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.
 		previousProvider = route.PinProvider
 	}
 	if previousModel != "" && s.pinStore != nil && (s.strategyPorts.Ownership.Owns(route.Strategy) || isHMMTurn(s.strategyPorts, route)) {
-		history := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).LoadHMMHistory(ctx, route.SessionKey, route.PinRole)
+		history := loadSwitchHistory(ctx, s.strategyPorts, routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy), route.SessionKey, route.PinRole)
 		if history.LastServedModel == route.PriorServedModel {
 			previousProvider = history.Provider
 		}

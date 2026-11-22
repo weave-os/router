@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/hmm/pinstate"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -53,13 +54,6 @@ func DecisionPolicyGroup(dec router.Decision) string {
 	return dec.Metadata.PolicyGroup
 }
 
-func HMMHistoryRole(role string) string {
-	if role == "" {
-		role = sessionpin.DefaultRole
-	}
-	return role + "_hmm_history"
-}
-
 func IsUserForcedReason(reason string) bool {
 	return strings.HasPrefix(reason, translate.ReasonUserForceModel)
 }
@@ -100,20 +94,8 @@ func (sp SessionPins) LoadWithStoreState(ctx context.Context, sessionKey [sessio
 	return pin, true, false
 }
 
-func (sp SessionPins) LoadHMMHistory(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) sessionpin.Pin {
-	log := observability.FromContext(ctx)
-	pin, found, err := sp.store.Get(ctx, sessionKey, HMMHistoryRole(role))
-	if err != nil {
-		log.Error("HMM switch-history store unavailable", "err", err)
-		return sessionpin.Pin{}
-	}
-	if !found {
-		return sessionpin.Pin{}
-	}
-	if !PinMatchesEffectiveStrategy(sp.strategy, pin) {
-		return sessionpin.Pin{}
-	}
-	return pin
+func (sp SessionPins) HistoryRows() continuity.HistoryRows {
+	return continuity.HistoryRows{Store: sp.store, Now: sp.now, Strategy: sp.strategy}
 }
 
 func (sp SessionPins) Refresh(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision) {
