@@ -627,39 +627,11 @@ func (s *Service) runTurnLoop(
 		escalation.Rank(escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)) >= 0 && s.ResolveAuthoritativeUpgradeSlidingThreshold(ctx) {
 		req.Session.SlidingThresholdPinGroup = escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)
 	}
-	baselineRequest := req
-	baselineTurn := res
-	escalationTurn := s.escalationHelper().Begin(ctx, s.escalationFacts(ctx, env, res, apiKeyID), req)
-	escalationTurn.Apply(&req)
-	res.SetEscalation(escalationTurn)
-	if pinFound {
-		req.Session.PreviousPolicyGroup = escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)
-	}
-
-	routeRemaining := func() (routingpolicy.TurnRoute, error) {
-		return sessionTurnFor(ctx, s, sessionTurnInput{
-			env: env, feats: feats, strategy: strategy, req: req, pin: pin, pinFound: pinFound, hmmHistory: hmmHistory,
-			prefixBroken: prefixBroken, sessionPins: sessionPins, installationID: installationID, reqHeaders: reqHeaders,
-			escalation: escalationTurn, forcedTier: forcedTierFloor,
-		}).Route(ctx, &res)
-	}
-	res, routeErr = routeRemaining()
-	if escalationTurn != nil {
-		committed, rerunBaseline, err := s.escalationHelper().Settle(ctx, escalationTurn, res.Decision, decisionPolicyGroup(res.Decision), routeErr)
-		if rerunBaseline {
-			req, res = baselineRequest, baselineTurn
-			res, routeErr = routeRemaining()
-		} else if err == nil {
-			res.EscalationShadowMarked, res.EscalationScope, res.EscalationOrdinal = committed.ShadowMarked, committed.Scope, committed.Ordinal
-		}
-	}
-	res.SetEscalation(escalationTurn)
-	if s.escalationHelper().SettleLLM(ctx, escalationTurn, res.Decision, routeErr) {
-		req, res = baselineRequest, baselineTurn
-		res, routeErr = routeRemaining()
-		res.SetEscalation(escalationTurn)
-	}
-	return res, routeErr
+	return sessionTurnFor(ctx, s, sessionTurnInput{
+		env: env, feats: feats, strategy: strategy, req: req, pin: pin, pinFound: pinFound, hmmHistory: hmmHistory,
+		prefixBroken: prefixBroken, sessionPins: sessionPins, installationID: installationID, reqHeaders: reqHeaders,
+		forcedTier: forcedTierFloor,
+	}).RouteEscalated(ctx, s.escalationHelper(), s.escalationFacts(ctx, env, res, apiKeyID), res)
 }
 
 func modelExcludedForRecoveryProbe(req router.Request, model string) bool {

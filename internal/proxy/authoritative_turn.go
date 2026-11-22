@@ -9,7 +9,6 @@ import (
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -30,7 +29,6 @@ type sessionTurnInput struct {
 	sessionPins    routingpolicy.SessionPins
 	installationID uuid.UUID
 	reqHeaders     http.Header
-	escalation     *floor.Turn
 	forcedTier     catalog.Tier
 }
 
@@ -42,7 +40,7 @@ func sessionTurnFor(ctx context.Context, s *Service, in sessionTurnInput) routin
 		PlannerTokens: s.plannerTokensFor(ctx, in.env, in.feats), Pins: in.sessionPins, InstallationID: in.installationID,
 		Ports: s.strategyPorts, Scorer: strategyScorer{s: s, strategy: in.strategy}, Settings: settings,
 		Serving: turnServing{s: s, env: in.env, headers: in.reqHeaders, pins: in.sessionPins, pin: pinIfFound(in.pin, in.pinFound)}, Now: s.clock.Now,
-		Escalation: in.escalation, ForcedTierFloor: in.forcedTier,
+		ForcedTierFloor: in.forcedTier,
 	}
 }
 
