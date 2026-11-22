@@ -10,7 +10,7 @@ import (
 
 func requestEligibility(ctx context.Context, s *Service, surface string, headers http.Header) (credentials.Eligibility, error) {
 	enabled := s.enabledProvidersForRequest(ctx, surface, headers)
-	if surface != providers.ProviderGoogle && paidCapacityUnfunded(ctx) {
+	if surface != providers.ProviderGoogle && credentials.PaidCapacityUnfunded(ctx) {
 		enabled = restrictToCustomerFundedProviders(ctx, headers, enabled)
 	}
 	enabled, err := applyWeaveCreditsPolicy(ctx, enabled)

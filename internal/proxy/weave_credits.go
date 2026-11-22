@@ -16,12 +16,8 @@ const forcedModelUnfundedReason = "Weave credits are turned off for your organiz
 
 type weaveCreditsFundedKey struct{}
 
-func weaveCreditsDenied(ctx context.Context) bool {
-	return billing.WeaveCreditsDeniedFromContext(ctx)
-}
-
 func withWeaveCreditsFunding(ctx context.Context, headers http.Header) context.Context {
-	if !weaveCreditsDenied(ctx) {
+	if !billing.WeaveCreditsDeniedFromContext(ctx) {
 		return ctx
 	}
 	return context.WithValue(ctx, weaveCreditsFundedKey{}, customerFundedProviders(ctx, headers))
@@ -76,23 +72,12 @@ func usableBYOK(ctx context.Context, provider string) *Credentials {
 	return creds
 }
 
-func customerFunded(creds *Credentials) bool {
-	if creds == nil || creds.CredentialError != nil || len(creds.APIKey) == 0 {
-		return false
-	}
-	return creds.OAuth || creds.Source == credSourceBYOK || creds.Source == credSourceClient
-}
-
-func customerKeyFunded(creds *Credentials) bool {
-	return customerFunded(creds) && creds.Source == credSourceBYOK
-}
-
 func servedOnCustomerKey(ctx context.Context) bool {
-	return customerKeyFunded(CredentialsFromContext(ctx))
+	return credentials.CustomerKeyFunded(CredentialsFromContext(ctx))
 }
 
 func withPaidFallbackCredentials(ctx context.Context, provider string) context.Context {
-	if weaveCreditsDenied(ctx) || provider == providers.ProviderAnthropic && claudeEnterpriseCapRescue(ctx) {
+	if billing.WeaveCreditsDeniedFromContext(ctx) || provider == providers.ProviderAnthropic && claudeEnterpriseCapRescue(ctx) {
 		if byok := usableBYOK(ctx, provider); byok != nil {
 			return context.WithValue(ctx, CredentialsContextKey{}, byok)
 		}

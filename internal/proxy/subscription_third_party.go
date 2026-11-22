@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -30,7 +31,7 @@ type clientAppRefusalPaidFallbackKey struct{}
 func withClientAppRefusalPaidFallback(ctx context.Context, decision router.Decision) context.Context {
 	consented, _ := ctx.Value(requestcontext.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
 	forcedConsent := consented && strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel)
-	if !forcedConsent && weaveCreditsDenied(ctx) {
+	if !forcedConsent && billing.WeaveCreditsDeniedFromContext(ctx) {
 		return ctx
 	}
 	return context.WithValue(ctx, clientAppRefusalPaidFallbackKey{}, forcedConsent)

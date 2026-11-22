@@ -33,7 +33,7 @@ func TestWeaveCreditsFunding_FailedKeyIsNotAFundingSource(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, got)
-	assert.False(t, customerFunded(credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[providers.ProviderOpenAI]))
+	assert.False(t, credentials.CustomerFunded(credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[providers.ProviderOpenAI]))
 }
 
 func TestWeaveCreditsFunding_AllowedLeavesProvidersAlone(t *testing.T) {
@@ -53,7 +53,7 @@ func TestPaidFallbackCredentials_UsesCustomerKeyWhenCreditsDenied(t *testing.T) 
 	creds := CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderAnthropic))
 
 	require.NotNil(t, creds)
-	assert.True(t, customerFunded(creds))
+	assert.True(t, credentials.CustomerFunded(creds))
 	assert.Nil(t, CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderOpenAI)))
 }
 

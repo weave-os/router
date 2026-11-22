@@ -51,13 +51,13 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 	ctx = s.withClaudeSubscriptionProfile(ctx, headers)
 	admissionCtx := ctx
 	return dispatch.WithAuthorization(ctx, func(callCtx context.Context, target inference.Target) error {
-		if weaveCreditsDenied(callCtx) && !customerFunded(CredentialsFromContext(callCtx)) {
+		if billing.WeaveCreditsDeniedFromContext(callCtx) && !credentials.CustomerFunded(CredentialsFromContext(callCtx)) {
 			return ErrWeaveCreditsDisabled
 		}
 		if claudeEnterpriseTarget(callCtx, target) || claudeEnterpriseTurn(callCtx) {
 			return claudeEnterpriseFunding(callCtx, target, s.supportsSubscriptionTransport(target.Provider))
 		}
-		if quotaProofExempt(callCtx, CredentialsFromContext(callCtx)) {
+		if credentials.QuotaProofExempt(callCtx, CredentialsFromContext(callCtx)) {
 			return nil
 		}
 		if byokFirst(callCtx, target.Provider) {
@@ -318,8 +318,4 @@ func recordedQuotaExhausted(ctx context.Context, candidate credentials.ManagedSu
 
 func credentialRejectionStands(subscriptionErr, retryErr error, credentialRejected func(error) bool) bool {
 	return errors.Is(retryErr, dispatch.ErrAuthorizationDenied) && credentialRejected(subscriptionErr)
-}
-
-func quotaProofExempt(ctx context.Context, creds *Credentials) bool {
-	return creds != nil && creds.OAuth || paidCapacityUnfunded(ctx) && unfundedKeyFunds(ctx, creds)
 }

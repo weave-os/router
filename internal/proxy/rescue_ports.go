@@ -234,7 +234,7 @@ func (rescueFundingPort) PaidFallbackForbiddenOnProvider(ctx context.Context, pr
 }
 
 func (rescueFundingPort) PaidCapacityUnfunded(ctx context.Context) bool {
-	return paidCapacityUnfunded(ctx)
+	return credentials.PaidCapacityUnfunded(ctx)
 }
 
 func (rescueOverflowPort) AsCompactionUnservable(turnType turntype.TurnType, decision router.Decision, err error) error {

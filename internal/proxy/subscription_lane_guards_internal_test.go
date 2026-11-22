@@ -45,11 +45,11 @@ func TestForcedClaudeClientAppRefusalIgnoresTurnsOnTheCallersOwnCredential(t *te
 
 func TestCustomerFundingCountsOnlyTheCustomersOwnCredentials(t *testing.T) {
 	key := []byte("synthetic-key")
-	assert.True(t, customerFunded(&Credentials{APIKey: key, Source: credSourceBYOK}))
-	assert.True(t, customerFunded(&Credentials{APIKey: key, Source: credSourceClient}), "a key the client sent with the request is the customer's own")
-	assert.True(t, customerFunded(&Credentials{APIKey: key, OAuth: true}))
-	assert.False(t, customerFunded(&Credentials{APIKey: key}), "a deployment key is Weave-funded")
-	assert.False(t, customerFunded(&Credentials{Source: credSourceBYOK}), "a credential without key material funds nothing")
+	assert.True(t, credentials.CustomerFunded(&Credentials{APIKey: key, Source: credSourceBYOK}))
+	assert.True(t, credentials.CustomerFunded(&Credentials{APIKey: key, Source: credSourceClient}), "a key the client sent with the request is the customer's own")
+	assert.True(t, credentials.CustomerFunded(&Credentials{APIKey: key, OAuth: true}))
+	assert.False(t, credentials.CustomerFunded(&Credentials{APIKey: key}), "a deployment key is Weave-funded")
+	assert.False(t, credentials.CustomerFunded(&Credentials{Source: credSourceBYOK}), "a credential without key material funds nothing")
 }
 
 func TestRejectedOwnCodexLoginOutranksALaterRateLimit(t *testing.T) {

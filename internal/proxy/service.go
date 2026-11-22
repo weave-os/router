@@ -2667,7 +2667,7 @@ func (s *Service) hasOpenAIInfrastructureCredential(ctx context.Context, headers
 }
 
 func (s *Service) openAIPaidCredentialAvailable(ctx context.Context, headers http.Header) bool {
-	if weaveCreditsDenied(ctx) {
+	if billing.WeaveCreditsDeniedFromContext(ctx) {
 		return usableBYOK(ctx, providers.ProviderOpenAI) != nil
 	}
 	return s.hasOpenAIInfrastructureCredential(ctx, headers)
