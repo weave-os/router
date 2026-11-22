@@ -30,6 +30,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation/floor"
+	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -1986,7 +1987,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
-	var compactionHandoverOutcome dispatch.HandoverOutcome
+	var compactionHandoverOutcome handover.Outcome
 	if !agentShadowMode && !subscriptionStateModelsEnabled(ctx) && !routeRes.AuthoritativePerTurn && decision.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.Handover.Invoked && routeRes.PrefixTrimmed {
 		log.Info("Context trimming detected on non-Anthropic route; rewriting context with handover summary",
 			"message_count", feats.MessageCount,
@@ -2290,13 +2291,6 @@ func applyPlannerAttrs(b *telemetry.AttrBuilder, res turnLoopResult) {
 		Int64("handover.latency_ms", res.Handover.LatencyMS).
 		Int64("handover.summary_tokens", int64(res.Handover.SummaryTokens)).
 		Bool("handover.fallback_to_full_history", res.Handover.FallbackToFullHistory)
-}
-
-func plannerOutcome(outcome planner.Outcome) string {
-	if outcome == planner.OutcomeSwitch {
-		return "switch"
-	}
-	return "stay"
 }
 
 func applySidecarAttrs(b *telemetry.AttrBuilder, res turnLoopResult) {

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"sort"
 
 	"github.com/google/uuid"
 
@@ -189,4 +190,16 @@ func (t *hardPinnedTurnServing) serveDeploymentHardPin(ctx context.Context) (boo
 	t.res.Origin = policy.OverrideSourceDeployment
 	t.res.PinTier = candidates.HardPinReason(t.res.TurnType)
 	return true, nil
+}
+
+func sortedEnabledKeys(m map[string]struct{}) []string {
+	if len(m) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

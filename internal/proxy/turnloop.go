@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -23,6 +22,7 @@ import (
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalation/floor"
+	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -137,7 +137,7 @@ type turnLoopResult struct {
 	TokenizerCalibration        sessionpin.TokenizerCalibration
 	ContextEstimate             int
 	StripThinkingBlocks         bool
-	Handover                    dispatch.HandoverOutcome
+	Handover                    handover.Outcome
 	SuggestionMode              bool
 	PrefixTrimmed               bool
 	EscalateEffort              bool
@@ -1177,18 +1177,6 @@ func buildPolicyTurnContext(
 		SessionEverSwitched: res.SessionEverSwitched,
 		HistoryTruncated:    req.HistoryTruncated || res.PrefixTrimmed,
 	}
-}
-
-func sortedEnabledKeys(m map[string]struct{}) []string {
-	if len(m) == 0 {
-		return []string{}
-	}
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func forcePinBindsNonClassifierTurn(found bool, tt turntype.TurnType) bool {

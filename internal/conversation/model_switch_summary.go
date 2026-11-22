@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/handover"
@@ -17,9 +16,9 @@ type ModelSwitchSummary struct {
 	Now        func() time.Time
 }
 
-func (m ModelSwitchSummary) Run(ctx context.Context, env *translate.RequestEnvelope, scope router.Request, pinModel, freshModel string) (dispatch.HandoverOutcome, bool) {
+func (m ModelSwitchSummary) Run(ctx context.Context, env *translate.RequestEnvelope, scope router.Request, pinModel, freshModel string) (handover.Outcome, bool) {
 	log := observability.FromContext(ctx)
-	out := dispatch.HandoverOutcome{Invoked: true}
+	out := handover.Outcome{Invoked: true}
 	if m.Summarizer == nil {
 		out.FallbackToFullHistory = true
 		log.Info("Handover summarizer not wired; preserved full history instead", "pin_model", pinModel, "fresh_model", freshModel)
