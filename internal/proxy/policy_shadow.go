@@ -14,6 +14,5 @@ func (s *Service) firePolicyShadowForServingDecision(ctx context.Context, strate
 	shadowStrategy, _ := ctx.Value(requestcontext.PolicyShadowStrategyContextKey{}).(router.Strategy)
 	installationID, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
 	store, _ := s.turnTelemetry.repo.(telemetry.PolicyShadowStore)
-	recorder := policyshadow.Recorder{Store: store, Now: s.clock.Now, Route: s.routeWithStrategy}
-	recorder.Fire(ctx, installationID, strategy, shadowStrategy, serving, req)
+	policyshadow.Recorder{Store: store, Now: s.clock.Now, Route: s.routeWithStrategy}.Fire(ctx, installationID, strategy, shadowStrategy, serving, req)
 }

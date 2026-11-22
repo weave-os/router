@@ -73,16 +73,16 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		if credentials := CredentialsFromContext(ctx); credentials != nil && credentials.OAuth && s.supportsSubscriptionTransport(provider) {
 			return ctx, subscriptions.Lease{}, false, nil
 		}
-		return ctx, subscriptions.Lease{}, true, subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)
+		return ctx, subscriptions.Lease{}, true, credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)
 	}
 	if subscriptionAPIOnly(ctx) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 	if subscriptionAttemptOnly(ctx) && (!eligible || !s.supportsSubscriptionTransport(provider) || !managedSubscriptionEnrolled(ctx, poolProvider)) && !servedOnSubscription(ctx) {
-		return ctx, subscriptions.Lease{}, true, subscriptionPoolExhausted(ctx)
+		return ctx, subscriptions.Lease{}, true, credentials.SubscriptionPoolExhausted(ctx)
 	}
 	if eligible && (credentials.ClaudeSubscriptionSuppressed(ctx) && provider == providers.ProviderAnthropic || codexSubscriptionSuppressed(ctx) && provider == providers.ProviderOpenAI) && !managedSubscriptionEnrolled(ctx, poolProvider) && !s.managedProviderFallbackAvailable(ctx, poolProvider) {
-		return ctx, subscriptions.Lease{}, true, subscriptionPoolExhausted(ctx)
+		return ctx, subscriptions.Lease{}, true, credentials.SubscriptionPoolExhausted(ctx)
 	}
 	if !eligible || s.credentials.ManagedSubscriptions == nil || !managedSubscriptionEnrolled(ctx, poolProvider) ||
 		poolProvider == subscriptions.ProviderCodex && codexChatEndpoint(ctx) {
@@ -91,7 +91,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	if !s.supportsSubscriptionTransport(provider) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
-	if callerLoginServesFirst(ctx, model, s.usageObserver, &s.credentials.SubscriptionModels, s.clock.Now()) {
+	if callerLoginServesFirst(ctx, model, s.credentials.UsageObserver, &s.credentials.SubscriptionModels, s.clock.Now()) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 
@@ -117,7 +117,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			return ctx, subscriptions.Lease{}, false, nil
 		}
 		if unadmitted {
-			return ctx, subscriptions.Lease{}, true, subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)
+			return ctx, subscriptions.Lease{}, true, credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)
 		}
 		if modelDenial != nil {
 			return ctx, subscriptions.Lease{}, true, modelDenial
@@ -141,7 +141,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			if !unadmitted && !subscriptionAttemptOnly(ctx) && !paidFallbackForbiddenFor(ctx, provider) && s.managedProviderFallbackAvailable(ctx, poolProvider) && s.subscriptionAPIAuthorization(ctx, provider, model) == nil {
 				return ctx, subscriptions.Lease{}, false, nil
 			}
-			return ctx, subscriptions.Lease{}, present, errors.Join(subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable), err)
+			return ctx, subscriptions.Lease{}, present, errors.Join(credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable), err)
 		}
 		if err != nil || !present {
 			return poolSpent()
@@ -245,15 +245,15 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 }
 
 func (s *Service) managedSubscriptionUsageSnapshot(accountID, accessToken string) (usage.Snapshot, bool) {
-	if s.usageObserver == nil || accessToken == "" {
+	if s.credentials.UsageObserver == nil || accessToken == "" {
 		return usage.Snapshot{}, false
 	}
 	if accountID != "" {
-		if snapshot, found := s.usageObserver.Snapshot(s.usageObserver.Key([]byte("subscription-account:" + accountID))); found {
+		if snapshot, found := s.credentials.UsageObserver.Snapshot(s.credentials.UsageObserver.Key([]byte("subscription-account:" + accountID))); found {
 			return snapshot, true
 		}
 	}
-	return s.usageObserver.Snapshot(s.usageObserver.Key([]byte(accessToken)))
+	return s.credentials.UsageObserver.Snapshot(s.credentials.UsageObserver.Key([]byte(accessToken)))
 }
 
 func (s *Service) managedProviderFallbackAvailable(ctx context.Context, provider subscriptions.Provider) bool {

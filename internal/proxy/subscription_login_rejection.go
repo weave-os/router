@@ -56,7 +56,7 @@ func includedFailureAfter(prev, err error, ownLoginRejected bool) error {
 
 func includedLaneVerdict(ctx context.Context) error {
 	if billing.SubscriptionOnlyFromContext(ctx) && !credentials.LinkedFirst(ctx) {
-		return subscriptionPoolExhausted(ctx)
+		return credentials.SubscriptionPoolExhausted(ctx)
 	}
 	return nil
 }

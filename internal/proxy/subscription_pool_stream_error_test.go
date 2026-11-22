@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -50,7 +51,7 @@ func TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler(t *te
 
 	err := svc.ProxyMessages(ctx, body, rec, req)
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted,
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted,
 		"the pool sentinel must survive for the handler to classify and log")
 	var upstreamErr *providers.UpstreamErrorResponse
 	require.ErrorAs(t, err, &upstreamErr)
@@ -91,7 +92,7 @@ func TestProxyMessages_ManagedPoolFailureBeforeAnyBytesLeavesRenderingToHandler(
 
 	err := svc.ProxyMessages(ctx, body, rec, req)
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	var upstreamErr *providers.UpstreamErrorResponse
 	require.ErrorAs(t, err, &upstreamErr)
 	require.Equal(t, http.StatusTooManyRequests, upstreamErr.Status)

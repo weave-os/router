@@ -31,7 +31,7 @@ func codexSubscriptionCoversModel(model string) bool {
 }
 
 func (s *Service) WithUsageObserver(obs *usage.Observer) *Service {
-	s.usageObserver = obs
+	s.credentials.UsageObserver = obs
 	return s
 }
 
@@ -130,7 +130,7 @@ func RequestHasCustomerFunding(ctx context.Context, headers http.Header, routePa
 func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) context.Context {
 	ctx = s.withClaudeSubscriptionProfile(ctx, headers)
 	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
-	if s.usageObserver == nil && anthroTok == "" && codexTok == "" && !managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
+	if s.credentials.UsageObserver == nil && anthroTok == "" && codexTok == "" && !managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
 		return ctx
 	}
 	ctx = withUnifiedLimitCapture(ctx)
@@ -144,7 +144,7 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) co
 			captureUnifiedLimitHeaders(callCtx, h)
 		}()
 
-		if s.usageObserver == nil {
+		if s.credentials.UsageObserver == nil {
 			return
 		}
 		creds := CredentialsFromContext(callCtx)
@@ -154,13 +154,13 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) co
 		switch creds.Source {
 		case credSourceCodexSubscription:
 			if snap, ok := usage.ParseCodexHeaders(h); ok {
-				s.usageObserver.Record(s.subscriptionUsageKey(creds), snap)
-				recordCallerUsage(callCtx, s.usageObserver, creds, auth.SubscriptionProviderCodex, snap)
+				s.credentials.UsageObserver.Record(s.subscriptionUsageKey(creds), snap)
+				recordCallerUsage(callCtx, s.credentials.UsageObserver, creds, auth.SubscriptionProviderCodex, snap)
 			}
 		case credSourceSubscription:
 			if snap, ok := usage.ParseAnthropicUnifiedHeaders(h); ok {
-				s.usageObserver.Record(s.subscriptionUsageKey(creds), snap)
-				recordCallerUsage(callCtx, s.usageObserver, creds, auth.SubscriptionProviderClaude, snap)
+				s.credentials.UsageObserver.Record(s.subscriptionUsageKey(creds), snap)
+				recordCallerUsage(callCtx, s.credentials.UsageObserver, creds, auth.SubscriptionProviderClaude, snap)
 			}
 		}
 	}
@@ -169,9 +169,9 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) co
 
 func (s *Service) subscriptionUsageKey(creds *Credentials) usage.CredentialKey {
 	if creds.SubscriptionAccountID != "" {
-		return s.usageObserver.Key([]byte("subscription-account:" + creds.SubscriptionAccountID))
+		return s.credentials.UsageObserver.Key([]byte("subscription-account:" + creds.SubscriptionAccountID))
 	}
-	return s.usageObserver.Key(creds.APIKey)
+	return s.credentials.UsageObserver.Key(creds.APIKey)
 }
 
 func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers http.Header) map[string]struct{} {
@@ -180,10 +180,10 @@ func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers h
 		return available
 	}
 	codexToken, claudeToken := presentSubscriptionTokens(ctx, headers)
-	if claudeToken != "" && !credentials.ClaudeSubscriptionSuppressed(ctx) && !claudeLoginSpent(ctx, s.usageObserver, claudeToken) {
+	if claudeToken != "" && !credentials.ClaudeSubscriptionSuppressed(ctx) && !claudeLoginSpent(ctx, s.credentials.UsageObserver, claudeToken) {
 		available[providers.ProviderAnthropic] = struct{}{}
 	}
-	if codexToken != "" && !codexSubscriptionSuppressed(ctx) && !codexLoginSpent(ctx, s.usageObserver, codexToken, s.codexExtraCreditsAllowed()) {
+	if codexToken != "" && !codexSubscriptionSuppressed(ctx) && !codexLoginSpent(ctx, s.credentials.UsageObserver, codexToken, s.codexExtraCreditsAllowed()) {
 		available[providers.ProviderOpenAI] = struct{}{}
 	}
 	for provider, creds := range credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)) {

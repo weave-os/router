@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/ingress"
@@ -187,13 +188,13 @@ func TestTerminalErrorMessage_RouterAndClientOwners(t *testing.T) {
 }
 
 func TestRouterOwnedFailureWording(t *testing.T) {
-	pool := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: ErrSubscriptionPoolExhausted,
+	pool := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: credentials.ErrSubscriptionPoolExhausted,
 		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(turnrecord.TurnErrorOther), FailureOwner: string(turnrecord.FailureOwnerRouter)}}
 	assert.Equal(t, "↳ switched: Anthropic had no subscription capacity (router issue)\n\n", rescueDetailLine(pool))
 	assert.Equal(t, "Router error: Anthropic subscription capacity exhausted.", terminalMessageFor(pool))
 
 	rejected := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderOpenAI},
-		Err:       errors.Join(ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}),
+		Err:       errors.Join(credentials.ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}),
 		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(turnrecord.TurnErrorOther), FailureOwner: string(turnrecord.FailureOwnerRouter)}}
 	assert.Equal(t, "↳ switched: OpenAI rejected the subscription login (router issue)\n\n", rescueDetailLine(rejected))
 

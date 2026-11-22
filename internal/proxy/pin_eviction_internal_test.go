@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -401,7 +402,7 @@ func TestMaybeEvictPin_SubscriptionPoolExhaustedLeavesStrikeCounter(t *testing.T
 	svc.maybeEvictPinAfterUpstreamErr(
 		context.Background(),
 		true,
-		ErrSubscriptionPoolExhausted,
+		credentials.ErrSubscriptionPoolExhausted,
 		"hmm_policy", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: installationID, sessionKey: sessionKey},
 
 		sessionpin.DefaultRole)
@@ -420,7 +421,7 @@ func TestMaybeExpireSubscriptionArmPin(t *testing.T) {
 		decisionReason string
 		wantReason     string
 	}{
-		{"pool exhaustion evicts the pin", ErrSubscriptionPoolExhausted, "hmm_policy", pinEvictionReasonSubscriptionPool},
+		{"pool exhaustion evicts the pin", credentials.ErrSubscriptionPoolExhausted, "hmm_policy", pinEvictionReasonSubscriptionPool},
 		{"model denial evicts the pin", modelAccessError(), "hmm_policy", pinEvictionReasonSubscriptionModel},
 		{"healthy arm leaves the pin", nil, "hmm_policy", ""},
 		{"force-model pin is never evicted", modelAccessError(), translate.ReasonUserForceModel, ""},

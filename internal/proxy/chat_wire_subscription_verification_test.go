@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
@@ -39,7 +40,7 @@ func TestVerificationUnrepresentableChatRefusesAPIWithoutQuotaProof(t *testing.T
 	ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "unsafe-wire-account", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 	body := `{"model":"auto","n":2,"logprobs":true,"stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 	rec := httptest.NewRecorder()
-	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body))), ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body))), credentials.ErrSubscriptionPoolUnavailable)
 	require.Empty(t, bearers)
 	require.Empty(t, paths)
 	require.NotContains(t, rec.Body.String(), "chat answer")

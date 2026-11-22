@@ -55,7 +55,7 @@ func TestPlanOwnedServingIgnoresCustomerRoutingControls(t *testing.T) {
 	assert.Nil(t, installationExcludedProvidersFromContext(ctx))
 	assert.Nil(t, installationFastModeModelsFromContext(ctx))
 	assert.Nil(t, routingKnobsForRequest(ctx))
-	assert.Nil(t, (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).preferredModelsForRequest(ctx))
+	assert.Nil(t, preferredModelsForRequest(ctx))
 	assert.Nil(t, clusterArmOverridesForRequest(ctx))
 }
 
@@ -102,7 +102,7 @@ func TestBoostServingUsesDefaultRoutingControls(t *testing.T) {
 	assert.Equal(t, []string{"customer-provider"}, installationExcludedProvidersFromContext(ctx))
 	assert.Equal(t, []string{"customer-fast"}, installationFastModeModelsFromContext(ctx))
 	assert.Equal(t, *router.RoutingKnobsFromContext(ctx), *routingKnobsForRequest(ctx))
-	assert.Equal(t, []string{"customer-preferred"}, (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).preferredModelsForRequest(ctx))
+	assert.Equal(t, []string{"customer-preferred"}, preferredModelsForRequest(ctx))
 	assert.Equal(t, map[string][]string{"cluster": {"customer-arm"}}, clusterArmOverridesForRequest(ctx))
 	assert.False(t, planHasDedicatedServingPolicy(ctx))
 }

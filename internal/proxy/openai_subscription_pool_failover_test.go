@@ -14,6 +14,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -96,7 +97,7 @@ func TestProxyOpenAIChatCompletion_SubscriptionOnlyKeepsPoolUnavailability(t *te
 
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	assert.Empty(t, rescue.endpoints, "subscription-only must not spend a paid sibling")
 }
 
@@ -134,7 +135,7 @@ func TestMaybeExpireSubscriptionArmPin_StickyRouterPin(t *testing.T) {
 	installationID := uuid.New()
 	sessionKey := nonZeroSessionKey()
 
-	svc.maybeExpireSubscriptionArmPin(context.Background(), router.StrategyFromContext(context.Background()), ErrSubscriptionPoolExhausted, "hmm_policy", installationID, sessionKey, sessionpin.DefaultRole)
+	svc.maybeExpireSubscriptionArmPin(context.Background(), router.StrategyFromContext(context.Background()), credentials.ErrSubscriptionPoolExhausted, "hmm_policy", installationID, sessionKey, sessionpin.DefaultRole)
 
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, pinEvictionReasonSubscriptionPool, store.upserts[0].Reason)

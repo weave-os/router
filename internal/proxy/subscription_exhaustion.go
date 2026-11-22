@@ -11,15 +11,15 @@ import (
 )
 
 func (s *Service) claudeSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
-	return ownClaudeLoginRejected(ctx, headers, s.usageObserver) && !pickedModelOnOwnPlan(ctx) || s.anthropicSubscriptionObservedExhausted(ctx, headers)
+	return ownClaudeLoginRejected(ctx, headers, s.credentials.UsageObserver) && !pickedModelOnOwnPlan(ctx) || s.anthropicSubscriptionObservedExhausted(ctx, headers)
 }
 
 func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, headers http.Header) bool {
-	if s.usageObserver == nil {
+	if s.credentials.UsageObserver == nil {
 		return false
 	}
 	_, anthroTok := presentSubscriptionTokens(ctx, headers)
-	return credentials.ClaudeSubscriptionObservedExhausted(s.usageObserver, anthroTok, claudeSubscriptionFacts(ctx))
+	return credentials.ClaudeSubscriptionObservedExhausted(s.credentials.UsageObserver, anthroTok, claudeSubscriptionFacts(ctx))
 }
 
 func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {

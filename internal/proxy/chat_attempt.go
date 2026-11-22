@@ -50,7 +50,7 @@ type chatAttemptDeps struct {
 }
 
 func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
-	targetNotice := routerNoticeForDecision(withOwnCodexRejectionNudge(ctx, deps.request.Header, deps.svc.usageObserver), deps.request.Header, target, targetMarker)
+	targetNotice := routerNoticeForDecision(withOwnCodexRejectionNudge(ctx, deps.request.Header, deps.svc.credentials.UsageObserver), deps.request.Header, target, targetMarker)
 	targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(deps.svc), target.Provider, target.Model, targetNotice)
 	if deps.isResponses {
 		if targetMarker != "" && (!deps.responseSwitch.passthrough() || supportsResponsesTerminalSurfaces(deps.facts.Client.ClientApp)) {

@@ -318,9 +318,8 @@ func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 
 func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
 	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
-		usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
-		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
-		clock:         func() time.Time { return time.Unix(1_000_000, 0) },
+		credentials: credentials.Brokerage{UsageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()), KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
+		clock:       func() time.Time { return time.Unix(1_000_000, 0) },
 	}
 	routed := withClaudeCreditFallback(context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken))
 	picked := withPickedModelFunding(auth.WithClientModelPassthrough(routed), true, providers.ProviderAnthropic)
@@ -329,7 +328,7 @@ func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
 	assert.True(t, svc.claudeSubscriptionExhausted(routed, http.Header{}), "routed traffic leaves a spent plan")
 	assert.False(t, svc.claudeSubscriptionExhausted(picked, http.Header{}), "a pick stays on its own plan and lets the provider decide")
 	require.NoError(t, svc.subscriptionAPIAuthorization(routed, providers.ProviderAnthropic, model))
-	assert.ErrorIs(t, svc.subscriptionAPIAuthorization(picked, providers.ProviderAnthropic, model), ErrSubscriptionPoolUnavailable)
+	assert.ErrorIs(t, svc.subscriptionAPIAuthorization(picked, providers.ProviderAnthropic, model), credentials.ErrSubscriptionPoolUnavailable)
 }
 
 func TestPickedCodexModelMaySpendOwnCredits(t *testing.T) {
