@@ -1933,18 +1933,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, strategy router.Str
 			"from_model", served.Model, "fallback_model", fbModel, "refusal_category", category)
 		return
 	}
-	pin := sessionpin.Pin{
-		SessionKey:     sessionKey,
-		Role:           role,
-		InstallationID: installationID,
-		Provider:       fbProvider,
-		Model:          fbModel,
-		Reason:         reasonCyberRefusalRepin,
-		Strategy:       strategy,
-		TurnCount:      1,
-		PinnedUntil:    pinExpiry(reasonCyberRefusalRepin, s.clock.Now()),
-	}
-	if err := s.pinStore.Upsert(context.WithoutCancel(ctx), pin); err != nil {
+	if err := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).WriteRepin(ctx, installationID, sessionKey, role, fbProvider, fbModel, reasonCyberRefusalRepin); err != nil {
 		log.Error("cyber-refusal re-pin: pin upsert failed", "err", err, "from_model", served.Model, "to_model", fbModel)
 		return
 	}
@@ -3286,19 +3275,10 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 	if !ok {
 		return anchor
 	}
-	large, small := pin.OrderedBandPair()
-	served := large
-	if band == bandswap.Small {
-		served = small
-	}
+	served := candidates.BandSwapTarget(pin, band)
 	if served.Model != pin.Model {
-		if _, available := s.availableModels[served.Model]; !available {
-			return anchor
-		}
-		if hasImages && (!catalog.AcceptsImages(served.Model) || imageCount > 0 && !catalog.AcceptsImageCount(served.Model, imageCount, enabledProviders)) {
-			return anchor
-		}
-		if _, excluded := excludedModels[served.Model]; excluded {
+		eligibility := candidates.BandSwapEligibility{Available: s.availableModels, Excluded: excludedModels, EnabledProviders: enabledProviders, HasImages: hasImages, ImageCount: imageCount}
+		if !eligibility.Admits(served) {
 			return anchor
 		}
 		if _, disabled := s.globalAutomaticExcludedModels(ctx)[served.Model]; disabled {
@@ -3306,11 +3286,6 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 		}
 		if !s.engine.Clients().Has(served.Provider) {
 			return anchor
-		}
-		if enabledProviders != nil {
-			if _, ok := enabledProviders[served.Provider]; !ok {
-				return anchor
-			}
 		}
 	}
 	observability.FromContext(ctx).Info("band swap served",
