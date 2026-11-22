@@ -19,7 +19,6 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/telemetry/turnrecord"
 
@@ -42,14 +41,7 @@ func addToSet(set map[string]struct{}, model string) map[string]struct{} {
 }
 
 func applyPinEvidence(ports continuity.StrategyPorts, res *routingpolicy.TurnRoute, pin sessionpin.Pin, now time.Time) {
-	res.PinModel = pin.Model
-	res.PinProvider = pin.Provider
-	res.PinPolicyGroup = ports.Facts.PinStateOf(pin).PolicyGroup
-	res.PinAgeSec = pinAge(pin, now)
-	if !pin.LastTurnEndedAt.IsZero() {
-		gapMS := now.Sub(pin.LastTurnEndedAt).Milliseconds()
-		res.PriorTurnGapMS = &gapMS
-	}
+	routingpolicy.ApplyPinEvidence(ports, res, pin, now)
 }
 
 func clearPinEvidence(res *routingpolicy.TurnRoute) {
@@ -111,7 +103,7 @@ func isHMMDecision(ports continuity.StrategyPorts, dec router.Decision) bool {
 
 const policyDeadlineFallbackReason = "policy_deadline_last_known_good"
 
-const unscorableHMMStickyReason = "hmm_no_user_boundary_sticky"
+const unscorableHMMStickyReason = routingpolicy.UnscorableHMMStickyReason
 
 func isPolicyDeadlineErr(err error) bool {
 	if err == nil {
@@ -645,127 +637,11 @@ func (s *Service) runTurnLoop(
 	}
 
 	routeRemaining := func() (routingpolicy.TurnRoute, error) {
-		req.Session.Pin = router.SessionPin{Found: pinFound, Provider: pin.Provider, Model: pin.Model, LastTurnEndedAt: pin.LastTurnEndedAt, LastOutputTokens: pin.LastOutputTokens}
-		holdToolResult := res.AuthoritativePerTurn && req.Escalation == nil &&
-			res.TurnType == turntype.ToolResult && s.ResolveHMMToolResultHold(ctx, strategy)
-		if holdToolResult {
-			res.AuthoritativePerTurn = false
-		}
-		if req.Escalation == nil && pinFound && candidates.AutomaticPinEligible(pin, req) && req.ConversationMessages != nil &&
-			s.strategyPorts.Ownership.Owns(strategy) &&
-			!hasTextUserBoundary(req.ConversationMessages) {
-			if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
-				decision := pin.Decision()
-				decision.Reason = unscorableHMMStickyReason
-				res.Decision = decision
-				res.StickyHit = true
-				res.PinTier = unscorableHMMStickyReason
-				log.Info("HMM turn has no user text; preserving eligible session pin",
-					"pin_model", pin.Model, "pin_provider", pin.Provider)
-				sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pin.Decision())
-				return res, nil
-			}
-		}
-		turn := continuity.Turn{IsToolResult: res.TurnType == turntype.ToolResult, Escalated: req.Escalation != nil, AuthoritativePerTurn: res.AuthoritativePerTurn}
-		continuityCfg := continuity.Config{PlannerEnabled: s.ResolvePlannerEnabled(ctx), ScoreToolResultTurns: s.ResolveScoreToolResultTurns(ctx), HoldToolResult: holdToolResult, Planner: s.continuityConfig.Planner}
-		if continuity.ToolResultSticky(req.Session, turn, continuityCfg) {
-			decision := pin.Decision()
-			res.Decision = decision
-			res.StickyHit = true
-			res.PinTier = "postgres_tool_result_sc"
-			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
-			return res, nil
-		}
-
-		if continuity.CanReusePin(req.Session, turn, continuityCfg) {
-			decision := pin.Decision()
-			res.Decision = decision
-			res.StickyHit = true
-			res.PinTier = "postgres"
-			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
-			return res, nil
-		}
-
-		var fresh router.Decision
-		routed := false
-		if forcedTierFloor != catalog.TierUnknown {
-			if constrained, ok := candidates.RestrictToTier(req.Candidates.ExcludedModels, forcedTierFloor, s.routing.AvailableModels()); ok {
-				tierReq := req
-				tierReq.Candidates.ExcludedModels = constrained
-				if dec, derr := s.routeFor(ctx, strategy, tierReq); derr == nil {
-					fresh, routed = dec, true
-					log.Info("user-forced model evicted; rerouted to next-best in same tier",
-						"forced_tier", forcedTierFloor.String(),
-						"fresh_model", dec.Model,
-						"fresh_provider", dec.Provider,
-					)
-				} else if res.AuthoritativePerTurn {
-					return res, derr
-				} else {
-					log.Info("tier-constrained reroute found no candidate; using unconstrained scorer",
-						"forced_tier", forcedTierFloor.String(), "err", derr)
-				}
-			}
-		}
-		if !routed {
-			dec, err := s.routeFor(ctx, strategy, req)
-			if err != nil {
-				if s.routing.Deadline().Fallback && isPolicyDeadlineErr(err) && servePolicyDeadlineFallback(ctx, s, &res, err, req, sessionPins, pinIfFound(pin, pinFound)) {
-					return res, nil
-				}
-				log.Error("turnloop scorer failed", "err", err, "requested_model", req.RequestedModel)
-				return res, err
-			}
-			fresh = dec
-		}
-		log.Info("turnloop scorer decision",
-			"fresh_model", fresh.Model,
-			"fresh_provider", fresh.Provider,
-			"fresh_reason", fresh.Reason,
-		)
-		res.Fresh = fresh
-		if floor.RoutingApplied(fresh) {
-			res.Decision = fresh
-			res.PinTier = escalationTurn.PinTier()
-			return res, nil
-		}
-		if res.AuthoritativePerTurn {
-			return serveAuthoritativeTurn(ctx, s, &res, sessionTurnInput{env: env, feats: feats, strategy: strategy, req: req, pin: pin, pinFound: pinFound, hmmHistory: hmmHistory, fresh: fresh, prefixBroken: prefixBroken, sessionPins: sessionPins, installationID: installationID})
-		}
-		if isHMMDecision(s.strategyPorts, fresh) {
-			activePin := sessionpin.Pin{}
-			if pinFound {
-				activePin = pin
-			}
-			hmmGateInput := continuity.CostGateInput{
-				Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
-				EstimatedInputTokens: s.plannerTokensFor(ctx, env, feats), PrefixBroken: prefixBroken,
-			}
-			served := hmmCostGateServe(ctx, s, hmmGateInput, res.PriorServedModel)
-			res.Decision, res.PlannerDecision, res.PinTier = served.Decision, served.Planner, served.PinTier
-			if served.HeldEffort != "" {
-				log.Info("HMM effort hysteresis held incumbent",
-					"incumbent", res.PriorServedModel,
-					"challenger_effort", served.ChallengerEffort,
-					"serving_effort", served.HeldEffort,
-				)
-			}
-			if served.StayModel != "" {
-				res.PinModel = served.StayModel
-				if hmmPin, ok := hmmStayPin(s, req, activePin, hmmHistory); ok && hmmPin.Model == served.StayModel {
-					applyPinEvidence(s.strategyPorts, &res, hmmPin, s.clock.Now())
-				}
-			}
-			if served.Sticky {
-				res.StickyHit = true
-				res.StickyRole = hmmHistoryRole(res.PinRole)
-			}
-			hmmShadowStayPin, _ := hmmStayPin(s, req, activePin, hmmHistory)
-			logSwitchShadow(ctx, hmmShadowStayPin, hmmGateInput, s.clock.Now(), res)
-			return res, nil
-		}
-
-		return settleFreshTurn(ctx, s, &res, sessionTurnInput{env: env, feats: feats, strategy: strategy, req: req, pin: pin, pinFound: pinFound, hmmHistory: hmmHistory, fresh: fresh, prefixBroken: prefixBroken, sessionPins: sessionPins, installationID: installationID, reqHeaders: reqHeaders})
+		return sessionTurnFor(ctx, s, sessionTurnInput{
+			env: env, feats: feats, strategy: strategy, req: req, pin: pin, pinFound: pinFound, hmmHistory: hmmHistory,
+			prefixBroken: prefixBroken, sessionPins: sessionPins, installationID: installationID, reqHeaders: reqHeaders,
+			escalation: escalationTurn, forcedTier: forcedTierFloor,
+		}).Route(ctx, &res)
 	}
 	res, routeErr = routeRemaining()
 	if escalationTurn != nil {

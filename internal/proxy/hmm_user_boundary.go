@@ -1,16 +1,10 @@
 package proxy
 
 import (
-	"strings"
-
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/routingpolicy"
 )
 
 func hasTextUserBoundary(messages []router.ConversationMessage) bool {
-	for _, message := range messages {
-		if strings.EqualFold(message.Role, "user") && strings.TrimSpace(message.Text) != "" {
-			return true
-		}
-	}
-	return false
+	return routingpolicy.HasTextUserBoundary(messages)
 }
