@@ -130,13 +130,6 @@ func (r TurnRoute) DispatchPurpose(surface inference.Purpose) inference.Purpose 
 	return surface
 }
 
-func (r TurnRoute) RescueOrigin() policy.OverrideSource {
-	if len(r.Purpose) > 0 {
-		return policy.OverrideSourceDeployment
-	}
-	return ""
-}
-
 type AuthoritativeUpgradeDecision struct {
 	Mode             flags.AuthoritativeUpgradePolicy
 	Evidence         continuity.UpgradeEvidence
