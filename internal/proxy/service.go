@@ -34,7 +34,6 @@ import (
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/routingpolicy/overrides"
@@ -64,7 +63,6 @@ type Service struct {
 	translationMetrics           telemetry.TranslationMetrics
 	pinStore                     sessionpin.Store
 	escalation                   *floor.Helper
-	sessionStrategyStore         sessionstrategy.Store
 	lifecycle                    *conversation.Lifecycle
 	prefixTrimFreeSwitch         bool
 	escapeNormalize              bool
@@ -1786,7 +1784,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		betaSessionKey := deriveBetaSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 		if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
 			log.Info("ProxyMessages beta command")
-			return s.handleBetaCommand(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
+			return (betaCommands{s}).handle(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
 		}
 		ctx, strategy, err = s.applySessionStrategy(ctx, strategy, facts.InstallationID, betaSessionKey)
 		if err != nil {
@@ -2944,7 +2942,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	betaSessionKey := deriveBetaSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 	if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
 		log.Info("ProxyOpenAIChatCompletion beta command")
-		return s.handleBetaCommand(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
+		return (betaCommands{s}).handle(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
 	}
 	ctx, strategy, err = s.applySessionStrategy(ctx, strategy, facts.InstallationID, betaSessionKey)
 	if err != nil {
@@ -3252,8 +3250,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if isResponsesWriter {
 		surfacePurpose = inference.PurposeOpenAIResponses
 	}
-	rescue := &chatRescue{
-		svc: s, RescueChain: &dispatch.RescueChain{
+	rescue := &dispatch.ChatRescue{
+		RescueChain: &dispatch.RescueChain{
 			RescuePorts: rescuePortsFor(s), Markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.credentials.UsageObserver},
 			HTTPRequest:      r,
 			Log:              log,
@@ -3275,30 +3273,30 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			ProxyErr:         proxyErr,
 			EffortServed:     effortServed,
 		},
-		isResponses:          isResponses,
-		responsesPreludeBuf:  responsesPreludeBuf,
-		cyberRefusalSeen:     &cyberRefusalSeen,
-		cyberRetryArmed:      &cyberRetryArmed,
-		preOutputRescueArmed: &preOutputRescueArmed,
+		IsResponses:          isResponses,
+		ResponsesPreludeBuf:  responsesPreludeBuf,
+		CyberRefusalSeen:     &cyberRefusalSeen,
+		CyberRetryArmed:      &cyberRetryArmed,
+		PreOutputRescueArmed: &preOutputRescueArmed,
 	}
-	rescue.FlushErr = rescue.flushErrAsOpenAI
-	rescue.armCyberRetry(ctx, strategy)
-	rescue.armSubscriptionRetries(ctx)
-	ctx = rescue.armRescues(ctx)
+	rescue.FlushErr = rescue.FlushErrAsOpenAI
+	rescue.ArmCyberRetry(ctx, strategy)
+	rescue.ArmSubscriptionRetries(ctx)
+	ctx = rescue.ArmRescues(ctx)
 	rescue.HoldPrimary()
-	rescue.dispatchPrimary(ctx)
+	rescue.DispatchPrimary(ctx)
 	rescue.NotePrimaryFailure(ctx)
-	rescue.codexRetry(ctx)
-	rescue.claudeRetry(ctx)
-	rescue.cyberRetry(ctx)
+	rescue.CodexRetry(ctx)
+	rescue.ClaudeRetry(ctx)
+	rescue.CyberRetry(ctx)
 	rescue.SiblingRescue(ctx)
-	rescue.finish(ctx)
+	rescue.Finish(ctx)
 	decision, marker, proxyErr, effortServed = rescue.Decision, rescue.Marker, rescue.ProxyErr, rescue.EffortServed
 	winnerIdx, finalProvider := rescue.WinnerIdx, rescue.FinalProvider
 
-	if rescue.codexFailoverUsed {
+	if rescue.CodexFailoverUsed {
 		ctx = withSuppressedCodexSubscription(ctx)
-	} else if rescue.claudeFailoverUsed {
+	} else if rescue.ClaudeFailoverUsed {
 		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 	}
 	ctx = s.resolveCredentials(ctx, finalProvider, decision.Model, r.Header)
