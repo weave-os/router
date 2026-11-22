@@ -2098,7 +2098,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	if !agentShadowMode && env.ExtractRouterSessionCommand() {
 		log.Info("ProxyMessages router-session command")
-		if err := s.handleRouterSessionCommand(ctx, w, env, feats.Tokens); err != nil {
+		if err := (routerInfoCommands{s}).session(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
 		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
@@ -2106,7 +2106,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	if !agentShadowMode && env.ExtractRouterModelsCommand() {
 		log.Info("ProxyMessages router-models command")
-		if err := s.handleRouterModelsCommand(ctx, w, env, feats.Tokens); err != nil {
+		if err := (routerInfoCommands{s}).models(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
 		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
@@ -2114,7 +2114,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	if !agentShadowMode && env.ExtractListModelsCommand() {
 		log.Info("ProxyMessages list-models command")
-		if err := s.handleListModelsCommand(ctx, w, env, feats.Tokens); err != nil {
+		if err := (routerInfoCommands{s}).listModels(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
 		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
@@ -3731,7 +3731,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	if env.ExtractRouterSessionCommand() {
 		log.Info("ProxyOpenAIChatCompletion router-session command")
-		if err := s.handleRouterSessionCommand(ctx, w, env, feats.Tokens); err != nil {
+		if err := (routerInfoCommands{s}).session(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
 		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
@@ -3739,7 +3739,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	if env.ExtractRouterModelsCommand() {
 		log.Info("ProxyOpenAIChatCompletion router-models command")
-		if err := s.handleRouterModelsCommand(ctx, w, env, feats.Tokens); err != nil {
+		if err := (routerInfoCommands{s}).models(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
 		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
@@ -3747,7 +3747,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	if env.ExtractListModelsCommand() {
 		log.Info("ProxyOpenAIChatCompletion list-models command")
-		if err := s.handleListModelsCommand(ctx, w, env, feats.Tokens); err != nil {
+		if err := (routerInfoCommands{s}).listModels(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
 		postCommandContinuation(s, strategy).Grant(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
