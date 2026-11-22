@@ -518,7 +518,7 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 	}
-	if res.Strategy == router.StrategyLLMClassifier {
+	if router.ClassifiesThreads(res.Strategy) {
 		return s.runClassifierTurn(ctx, strategy, req, res, threadSessionKey)
 	}
 	log.Info("turnloop classified",
@@ -1056,7 +1056,7 @@ func (s *Service) runTurnLoop(
 		if outcome.Handover == continuity.HandoverSummarize {
 			var rewritten bool
 			res.Handover, rewritten = conversation.ModelSwitchSummary{
-				Summarizer: s.summarizer,
+				Summarizer: s.lifecycle.Summarizer(),
 				Access:     summarizerAccess{s: s, headers: reqHeaders},
 				Now:        s.clock.Now,
 			}.Run(ctx, env, req, pin.Model, fresh.Model)
