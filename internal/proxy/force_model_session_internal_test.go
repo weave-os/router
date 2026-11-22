@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
@@ -433,7 +434,7 @@ func TestRecordTurnUsage_ForcedDecisionWritesThreadHistoryOnly(t *testing.T) {
 		Role:       forceModelHistoryRole(role),
 	}
 
-	svc.recordTurnUsage(context.Background(), turnLoopResult{
+	svc.recordTurnUsage(context.Background(), routingpolicy.TurnRoute{
 		SessionKey: threadKey,
 		PinRole:    role,
 		Decision: router.Decision{

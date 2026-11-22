@@ -83,7 +83,7 @@ func (s *Service) withClassifierInput(ctx context.Context, strategy router.Strat
 	return context.WithValue(ctx, classifierInputContextKey{}, input), nil
 }
 
-func (s *Service) runClassifierTurn(ctx context.Context, strategy router.Strategy, request router.Request, turn turnLoopResult, sessionKey [sessionpin.SessionKeyLen]byte) (turnLoopResult, error) {
+func (s *Service) runClassifierTurn(ctx context.Context, strategy router.Strategy, request router.Request, turn routingpolicy.TurnRoute, sessionKey [sessionpin.SessionKeyLen]byte) (routingpolicy.TurnRoute, error) {
 	input, captured := ctx.Value(classifierInputContextKey{}).(router.ClassifierContext)
 	if err := routingpolicy.AdmitClassifierTurn(turn.TurnType, captured, request); err != nil {
 		if errors.Is(err, router.ErrClassifierHistoryUnavailable) {

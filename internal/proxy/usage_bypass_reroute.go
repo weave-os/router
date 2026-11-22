@@ -10,7 +10,7 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-func reloadUsageBypassSession(ctx context.Context, s *Service, strategy router.Strategy, env *translate.RequestEnvelope, apiKeyID, model string, routeRes *turnLoopResult) {
+func reloadUsageBypassSession(ctx context.Context, s *Service, strategy router.Strategy, env *translate.RequestEnvelope, apiKeyID, model string, routeRes *routingpolicy.TurnRoute) {
 	if s.pinStore == nil || isUnpinnedScoredTurn(routeRes.TurnType) {
 		return
 	}
@@ -19,10 +19,10 @@ func reloadUsageBypassSession(ctx context.Context, s *Service, strategy router.S
 	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy)
 	pin, _ := sessionPins.Load(ctx, sessionKey, role)
 	routeRes.SessionKey = sessionKey
-	routeRes.applySwitchHistory(pin, sessionPins.LoadHMMHistory(ctx, sessionKey, role), routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).LoadHistory(ctx, sessionKey, role))
+	applySwitchHistory(routeRes, pin, sessionPins.LoadHMMHistory(ctx, sessionKey, role), routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).LoadHistory(ctx, sessionKey, role))
 }
 
-func rerouteAfterUsageBypass(ctx context.Context, s *Service, log *slog.Logger, strategy router.Strategy, req router.Request, routeRes *turnLoopResult) error {
+func rerouteAfterUsageBypass(ctx context.Context, s *Service, log *slog.Logger, strategy router.Strategy, req router.Request, routeRes *routingpolicy.TurnRoute) error {
 	rerouteCtx, rerouteSpan := startRoutingSpan(ctx, strategy, req)
 	decision, err := s.routeFor(rerouteCtx, strategy, req)
 	finishRoutingSpan(rerouteSpan, decision, err)

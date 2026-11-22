@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -303,10 +304,10 @@ func TestRunTurnLoop_HonouredPinNeverServes200WithHonouredFalse(t *testing.T) {
 }
 
 func TestPolicyPinServedGuard(t *testing.T) {
-	served := turnLoopResult{Decision: router.Decision{Model: "m", Metadata: &router.RoutingMetadata{PolicyPinHonoured: true}}}
-	sticky := turnLoopResult{Decision: router.Decision{Model: "m"}, StickyHit: true, PinTier: "sticky"}
-	bypass := turnLoopResult{Decision: router.Decision{Model: "m"}, UsageBypass: true}
-	utility := turnLoopResult{Decision: router.Decision{Model: "m"}, HardPinned: true, Purpose: inference.Purpose("title_generation")}
+	served := routingpolicy.TurnRoute{Decision: router.Decision{Model: "m", Metadata: &router.RoutingMetadata{PolicyPinHonoured: true}}}
+	sticky := routingpolicy.TurnRoute{Decision: router.Decision{Model: "m"}, StickyHit: true, PinTier: "sticky"}
+	bypass := routingpolicy.TurnRoute{Decision: router.Decision{Model: "m"}, UsageBypass: true}
+	utility := routingpolicy.TurnRoute{Decision: router.Decision{Model: "m"}, HardPinned: true, Purpose: inference.Purpose("title_generation")}
 
 	require.NoError(t, policyPinServed(pinnedContext(true), served))
 	require.ErrorIs(t, policyPinServed(pinnedContext(true), sticky), router.ErrPolicyPinUnavailable)

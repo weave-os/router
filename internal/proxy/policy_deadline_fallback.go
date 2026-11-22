@@ -10,7 +10,7 @@ import (
 	"weave-os/router/internal/routingpolicy"
 )
 
-func servePolicyDeadlineFallback(ctx context.Context, s *Service, res *turnLoopResult, err error, req router.Request, sessionPins routingpolicy.SessionPins, pin *sessionpin.Pin) bool {
+func servePolicyDeadlineFallback(ctx context.Context, s *Service, res *routingpolicy.TurnRoute, err error, req router.Request, sessionPins routingpolicy.SessionPins, pin *sessionpin.Pin) bool {
 	log := observability.FromContext(ctx)
 	if pin != nil && pin.Model != "" {
 		decision := pin.Decision()

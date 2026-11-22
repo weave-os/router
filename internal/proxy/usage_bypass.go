@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -426,10 +427,10 @@ func (s *Service) bypassToAnthropic(
 			UnifiedLimitHeaders:    unifiedLimitHeadersJSON(ctx),
 			CodexLimitHeaders:      codexLimitHeadersJSON(ctx),
 		}
-		applyBlindExperimentTelemetry(ctx, &telemetryParams, &turnLoopResult{Decision: decision, UsageBypass: true})
+		applyBlindExperimentTelemetry(ctx, &telemetryParams, &routingpolicy.TurnRoute{Decision: decision, UsageBypass: true})
 		applyPolicyPinTelemetry(ctx, &telemetryParams, nil)
 		applySubscriberTelemetry(ctx, &telemetryParams)
-		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &telemetryParams, turnLoopResult{UsageBypass: true})
+		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &telemetryParams, routingpolicy.TurnRoute{UsageBypass: true})
 		s.fireTelemetry(ctx, telemetryParams)
 	}
 

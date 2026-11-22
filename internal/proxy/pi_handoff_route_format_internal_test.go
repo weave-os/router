@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/routingpolicy"
 )
 
 var updatePiHandoffFixture = flag.Bool("update-pi-handoff", false, "rewrite the signed Pi handoff route fixture from current code")
@@ -59,9 +60,9 @@ func TestPiHandoffRouteTokenFormatIsStable(t *testing.T) {
 	assert.Equal(t, token, minted, "current code must mint the fixture token byte for byte")
 }
 
-func populatedHandoffRoute(t *testing.T) turnLoopResult {
+func populatedHandoffRoute(t *testing.T) routingpolicy.TurnRoute {
 	t.Helper()
-	var route turnLoopResult
+	var route routingpolicy.TurnRoute
 	unfilled := fillExported(reflect.ValueOf(&route).Elem(), "route", map[reflect.Type]bool{})
 	require.Empty(t, unfilled, "every exported route field must carry a value so the fixture pins its name and position")
 	return route

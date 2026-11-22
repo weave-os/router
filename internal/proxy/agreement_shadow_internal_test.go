@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 
@@ -33,12 +34,12 @@ import (
 
 const agreementSol = "gpt-6.1-sol"
 
-func agreementFixture() (turnrecord.InsertTelemetryParams, turnLoopResult) {
+func agreementFixture() (turnrecord.InsertTelemetryParams, routingpolicy.TurnRoute) {
 	luna := catalog.ModelGPT6Luna
 	solArm := "openai/" + agreementSol
 	return turnrecord.InsertTelemetryParams{InstallationID: uuid.NewString(), RequestID: "synthetic-request", Timestamp: time.Date(2026, 1, 1, 0, 0, 1, 0, time.UTC),
 			SessionKey: []byte("synthetic-thread"), Role: sessionpin.DefaultRole, TurnType: string(turntype.ToolResult), UpstreamStatusCode: http.StatusOK,
-			DecisionModel: luna, DecisionProvider: providers.ProviderOpenAI}, turnLoopResult{
+			DecisionModel: luna, DecisionProvider: providers.ProviderOpenAI}, routingpolicy.TurnRoute{
 			AuthoritativePerTurn: true, PinModel: luna, PinProvider: providers.ProviderOpenAI, PinPolicyGroup: string(escalation.Low),
 			Decision: router.Decision{Model: luna, Provider: providers.ProviderOpenAI},
 			Fresh: router.Decision{Model: agreementSol, Provider: providers.ProviderOpenAI, Metadata: &router.RoutingMetadata{
@@ -130,18 +131,20 @@ func TestAgreementShadowResumptionUsesNewEpochNamespace(t *testing.T) {
 func TestAgreementShadowUnsupportedAndMissingInputsBreakSegments(t *testing.T) {
 	for _, test := range []struct {
 		name  string
-		alter func(*turnLoopResult)
+		alter func(*routingpolicy.TurnRoute)
 		gap   switchpolicy.ShadowGap
 	}{
-		{"manual pin", func(r *turnLoopResult) { r.HardPinned = true }, switchpolicy.ShadowGapUnsupported},
-		{"unavailable manual pin", func(r *turnLoopResult) { r.ForcedPinDropped = true }, switchpolicy.ShadowGapUnsupported},
-		{"deadline fallback", func(r *turnLoopResult) { r.PolicyFallback = true }, switchpolicy.ShadowGapUnsupported},
-		{"no fresh classifier", func(r *turnLoopResult) { r.Fresh = router.Decision{} }, switchpolicy.ShadowGapUnsupported},
-		{"missing trace", func(r *turnLoopResult) { r.Fresh.Metadata.SelectionTrace = nil }, switchpolicy.ShadowGapMissing},
-		{"missing artifact", func(r *turnLoopResult) { r.Fresh.Metadata.ClassifierArtifactSHA256 = "" }, switchpolicy.ShadowGapMissing},
-		{"explicit floor", func(r *turnLoopResult) { r.Fresh.Metadata.SelectionTrace.ForcedGroup = string(escalation.Maximum) }, switchpolicy.ShadowGapUnsupported},
-		{"unchanged cluster allowlist", func(r *turnLoopResult) { r.Fresh.Metadata.SelectionTrace.ClusterOverridesPresent = true }, switchpolicy.ShadowGapUnsupported},
-		{"unreconstructable selection", func(r *turnLoopResult) { r.Fresh.Model = catalog.ModelGPT6Luna }, switchpolicy.ShadowGapMissing},
+		{"manual pin", func(r *routingpolicy.TurnRoute) { r.HardPinned = true }, switchpolicy.ShadowGapUnsupported},
+		{"unavailable manual pin", func(r *routingpolicy.TurnRoute) { r.ForcedPinDropped = true }, switchpolicy.ShadowGapUnsupported},
+		{"deadline fallback", func(r *routingpolicy.TurnRoute) { r.PolicyFallback = true }, switchpolicy.ShadowGapUnsupported},
+		{"no fresh classifier", func(r *routingpolicy.TurnRoute) { r.Fresh = router.Decision{} }, switchpolicy.ShadowGapUnsupported},
+		{"missing trace", func(r *routingpolicy.TurnRoute) { r.Fresh.Metadata.SelectionTrace = nil }, switchpolicy.ShadowGapMissing},
+		{"missing artifact", func(r *routingpolicy.TurnRoute) { r.Fresh.Metadata.ClassifierArtifactSHA256 = "" }, switchpolicy.ShadowGapMissing},
+		{"explicit floor", func(r *routingpolicy.TurnRoute) {
+			r.Fresh.Metadata.SelectionTrace.ForcedGroup = string(escalation.Maximum)
+		}, switchpolicy.ShadowGapUnsupported},
+		{"unchanged cluster allowlist", func(r *routingpolicy.TurnRoute) { r.Fresh.Metadata.SelectionTrace.ClusterOverridesPresent = true }, switchpolicy.ShadowGapUnsupported},
+		{"unreconstructable selection", func(r *routingpolicy.TurnRoute) { r.Fresh.Model = catalog.ModelGPT6Luna }, switchpolicy.ShadowGapMissing},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			p, res := agreementFixture()

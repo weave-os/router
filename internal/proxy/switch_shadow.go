@@ -13,7 +13,7 @@ import (
 
 const switchDecideShadowDefault = true
 
-func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate continuity.CostGateInput, now time.Time, res turnLoopResult) {
+func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate continuity.CostGateInput, now time.Time, res routingpolicy.TurnRoute) {
 	if !flags.BoolOr(ctx, flags.KeySwitchDecideShadow, switchDecideShadowDefault) {
 		return
 	}

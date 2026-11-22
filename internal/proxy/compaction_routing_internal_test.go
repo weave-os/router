@@ -62,7 +62,7 @@ func newCompactionRoutingFixture(t *testing.T, scored router.Decision) compactio
 	return compactionRoutingFixture{svc: svc, store: store, scorerCalls: calls, installationID: uuid.New()}
 }
 
-func (f compactionRoutingFixture) run(t *testing.T, ctx context.Context, env *translate.RequestEnvelope, req router.Request) (turnLoopResult, error) {
+func (f compactionRoutingFixture) run(t *testing.T, ctx context.Context, env *translate.RequestEnvelope, req router.Request) (routingpolicy.TurnRoute, error) {
 	t.Helper()
 	features := env.RoutingFeatures()
 	req.RequestedModel = features.Model

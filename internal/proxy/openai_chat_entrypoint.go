@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 )
@@ -180,10 +181,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Failure:        routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy},
 		FailureMessage: "Routing failed for OpenAI request",
 		IsUserPrompt:   inboundUserPromptOpenAI,
-	}, func(routeCtx context.Context) (turnLoopResult, error) {
+	}, func(routeCtx context.Context) (routingpolicy.TurnRoute, error) {
 		return taskArm.route(routeCtx, s.runTurnLoop)(env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
 	})
-	defer routeRes.releaseCooldownProbes()
+	defer routeRes.ReleaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
 		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseChat)
@@ -237,7 +238,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		IncludeStreamUsage:       s.usageRequired(),
 		SessionAffinity:          sessionAffinityHint(routeRes.SessionKey),
 		EnableServerSideFallback: s.ResolveAnthropicServerSideFallback(ctx),
-		ModelSwitched:            routeRes.modelSwitched(),
+		ModelSwitched:            routeRes.ModelSwitched(),
 		EnableExtendedContext:    shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)

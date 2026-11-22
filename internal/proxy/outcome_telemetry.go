@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
@@ -23,7 +24,7 @@ func latestToolCallCountsJSON(env *translate.RequestEnvelope) []byte {
 	return counts
 }
 
-func applyServedGroupTelemetry(ports continuity.StrategyPorts, ctx context.Context, params *turnrecord.InsertTelemetryParams, routed turnLoopResult, served router.Decision) {
+func applyServedGroupTelemetry(ports continuity.StrategyPorts, ctx context.Context, params *turnrecord.InsertTelemetryParams, routed routingpolicy.TurnRoute, served router.Decision) {
 	group := ""
 	if served.Model == routed.Decision.Model && !isUserForcedReason(routed.Decision.Reason) {
 		group = decisionPolicyGroup(routed.Decision)

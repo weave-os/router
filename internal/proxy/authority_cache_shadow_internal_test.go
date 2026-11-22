@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -66,7 +67,7 @@ func authorityShadowBasePin() sessionpin.Pin {
 
 // runAuthorityShadowTurn drives one authoritative-per-turn main-loop turn and
 // returns the turn loop's result.
-func runAuthorityShadowTurn(t *testing.T, enabled bool, fresh router.Decision) turnLoopResult {
+func runAuthorityShadowTurn(t *testing.T, enabled bool, fresh router.Decision) routingpolicy.TurnRoute {
 	t.Helper()
 	return runAuthorityShadowTurnWithPin(t, enabled, fresh, authorityShadowPin())
 }
@@ -76,7 +77,7 @@ func runAuthorityShadowTurnWithPin(
 	enabled bool,
 	fresh router.Decision,
 	pin sessionpin.Pin,
-) turnLoopResult {
+) routingpolicy.TurnRoute {
 	t.Helper()
 	strategy := router.Strategy("authority-cache-shadow-test")
 	store := newStubPinStore()
@@ -268,7 +269,7 @@ func TestAuthorityCacheShadowCandidateScoreCoverage(t *testing.T) {
 // expected savings, and clamping it to zero destroys the measurement.
 func TestApplyAuthorityShadowTelemetryPreservesSignedEV(t *testing.T) {
 	stay := 0.71
-	res := turnLoopResult{AuthorityShadow: authorityCacheShadow{
+	res := routingpolicy.TurnRoute{AuthorityShadow: routingpolicy.AuthorityCacheShadow{
 		Computed:     true,
 		StayModel:    shadowPinnedModel,
 		StayProvider: providers.ProviderAnthropic,
