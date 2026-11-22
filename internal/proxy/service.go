@@ -3157,13 +3157,20 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 	}
 	organizationID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 	installationID, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
-	trainingAllowed := policyTrainingAllowedForRequest(ctx)
-	clientIdentity := ClientIdentityFrom(ctx)
-	selectedServedModelMatch := routeDecision.Model == decision.Model
-	authoritativeModelMismatch := routeMetadata.AuthoritativePerTurnSelection &&
-		!selectedServedModelMatch
-	if authoritativeModelMismatch {
-		trainingAllowed = false
+	classifier := s.strategyPorts.Facts.ClassifierTelemetryOf(routeMetadata)
+	outcome := routingpolicy.PolicyOutcome{
+		Route: routeMetadata, Selected: routeDecision, ServedModel: decision.Model, ServedProvider: finalProvider,
+		OrganizationID: organizationID, InstallationID: installationID,
+		ClientApp: ClientIdentityFrom(ctx).TelemetryClientApp(), RolloutID: policyRolloutIDFromContext(ctx),
+		CaptureMode: s.effectiveCaptureMode(ctx).String(), RequestTrainingAllowed: policyTrainingAllowedForRequest(ctx),
+		ClassifierArtifactID: classifier.ArtifactID, ClassifierArtifactSHA256: classifier.ArtifactSHA256,
+		Effort: routingpolicy.PolicyOutcomeEffort{Arm: effort.Arm, Selected: effort.Selected, Sent: effort.Sent, Source: effort.Source, Mismatch: effort.Mismatch()},
+		Status: upstreamStatus(proxyErr), Err: proxyErr,
+		EstimatedInputTokens: estimatedInputTokens, InputTokens: inputTokens, OutputTokens: outputTokens,
+		CacheCreationTokens: cacheCreation, CacheReadTokens: cacheRead,
+		RouteLatencyMs: routeMs, UpstreamLatencyMs: proxyMs, TurnType: string(res.TurnType), StickyHit: res.StickyHit,
+	}
+	if outcome.AuthoritativeModelMismatch() {
 		log := observability.FromContext(ctx)
 		if isAuthoritativePinHoldMismatch(res, decision) {
 			log.Info(
@@ -3182,9 +3189,7 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 			)
 		}
 	}
-	effortMismatch := effort.Mismatch()
-	if effortMismatch {
-		trainingAllowed = false
+	if outcome.Effort.Mismatch {
 		observability.FromContext(ctx).Warn(
 			"Selected effort did not match the effort sent upstream",
 			"route_id", routeMetadata.RouteID,
@@ -3195,64 +3200,12 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 			"effort_source", effort.Source,
 		)
 	}
-	payload := map[string]interface{}{
-		"route_id":                         routeMetadata.RouteID,
-		"strategy":                         routeMetadata.Strategy,
-		"organization_id":                  organizationID,
-		"installation_id":                  installationID,
-		"client_app":                       clientIdentity.TelemetryClientApp(),
-		"rollout_id":                       policyRolloutIDFromContext(ctx),
-		"training_allowed":                 trainingAllowed,
-		"capture_mode":                     s.effectiveCaptureMode(ctx).String(),
-		"policy_route_key":                 routeMetadata.PolicyRouteKey,
-		"policy_artifact_id":               routeMetadata.PolicyArtifactID,
-		"policy_artifact_sha256":           routeMetadata.PolicyArtifactSHA256,
-		"roster_version":                   routeMetadata.RosterVersion,
-		"classifier_artifact_id":           s.strategyPorts.Facts.ClassifierTelemetryOf(routeMetadata).ArtifactID,
-		"classifier_artifact_sha256":       s.strategyPorts.Facts.ClassifierTelemetryOf(routeMetadata).ArtifactSHA256,
-		"selection_policy_release_id":      routeMetadata.SelectionPolicyReleaseID,
-		"selection_policy_sha256":          routeMetadata.SelectionPolicySHA256,
-		"selection_head_generation":        routeMetadata.SelectionHeadGeneration,
-		"sidecar_schema_version":           routeMetadata.SidecarSchemaVersion,
-		"selected_model":                   routeDecision.Model,
-		"selected_provider":                routeDecision.Provider,
-		"served_model":                     decision.Model,
-		"served_provider":                  finalProvider,
-		"decision_model":                   routeDecision.Model,
-		"decision_provider":                routeDecision.Provider,
-		"selected_served_model_match":      selectedServedModelMatch,
-		"arm_effort":                       effort.Arm,
-		"selected_effort":                  effort.Selected,
-		"sent_effort":                      effort.Sent,
-		"effort_source":                    effort.Source,
-		"selected_sent_effort_match":       !effortMismatch,
-		"authoritative_per_turn_selection": routeMetadata.AuthoritativePerTurnSelection,
-		"status":                           upstreamStatus(proxyErr),
-		"error":                            "",
-		"estimated_input_tokens":           estimatedInputTokens,
-		"input_tokens":                     inputTokens,
-		"output_tokens":                    outputTokens,
-		"cache_creation_tokens":            cacheCreation,
-		"cache_read_tokens":                cacheRead,
-		"route_latency_ms":                 routeMs,
-		"upstream_latency_ms":              proxyMs,
-		"turn_type":                        string(res.TurnType),
-		"sticky_hit":                       res.StickyHit,
-	}
-	switch {
-	case authoritativeModelMismatch:
-		payload["training_exclusion_reason"] = "selected_served_model_mismatch"
-	case effortMismatch:
-		payload["training_exclusion_reason"] = "selected_sent_effort_mismatch"
-	}
-	if trainingAllowed && response != nil {
+	payload := outcome.Payload()
+	if outcome.TrainingAllowed() && response != nil {
 		payload["response_body_truncated"] = response.Truncated
 		if !response.Truncated {
 			payload["response_text"] = translate.AnthropicClientResponseText(response.Body)
 		}
-	}
-	if proxyErr != nil {
-		payload["error"] = proxyErr.Error()
 	}
 	if price, ok := servedPricing(finalProvider, decision.Model, servedFast); ok {
 		inputCost := catalog.EffectiveInputCost(inputTokens, cacheCreation, cacheRead, price, finalProvider, usageMods)
