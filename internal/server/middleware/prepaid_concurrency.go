@@ -10,11 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// OrganizationPrepaidMaxInFlight bounds paid work per org and process.
 const OrganizationPrepaidMaxInFlight = 100
 
-// OrganizationPrepaidMaxInFlightPerKey bounds paid organization-credit work
-// per routing key and process. The SQL floor remains the cross-replica backstop.
 const OrganizationPrepaidMaxInFlightPerKey = 10
 
 type organizationPrepaidLimiter struct {
@@ -51,8 +48,6 @@ func (l *organizationPrepaidLimiter) release(organizationID string) {
 	l.active[organizationID] = remaining
 }
 
-// WithOrganizationPrepaidConcurrencyLimit bounds paid work per org and process.
-// A lower per-key cap keeps one credential from consuming the org allowance.
 func WithOrganizationPrepaidConcurrencyLimit(organizationLimit, keyLimit int) gin.HandlerFunc {
 	organizationLimiter := newOrganizationPrepaidLimiter(organizationLimit)
 	keyLimiter := newOrganizationPrepaidLimiter(keyLimit)

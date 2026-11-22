@@ -50,9 +50,7 @@ func (r *BillingRepo) DebitInference(ctx context.Context, p billing.DebitParams)
 		feeEntryType = p.EntryType
 	}
 	row, err := q.DebitOrgCredits(ctx, sqlc.DebitOrgCreditsParams{
-		OrganizationID: p.OrganizationID,
-		// The balance moves by the combined amount; the SET expression takes a
-		// single param (see the query's comment on charged_usd_micros).
+		OrganizationID:        p.OrganizationID,
 		ChargedUsdMicros:      p.DeltaUsdMicros + p.FeeUsdMicros,
 		UnfundedEntryType:     billing.EntryTypeUnfunded,
 		BalanceFloorUsdMicros: billing.OrganizationBalanceFloorMicros,
