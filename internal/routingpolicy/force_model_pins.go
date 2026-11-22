@@ -119,3 +119,18 @@ func (fp ForceModelPins) Clear(
 	}
 	return fp.store.Upsert(context.WithoutCancel(ctx), cleared)
 }
+
+func (fp ForceModelPins) LoadHistory(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) sessionpin.Pin {
+	if fp.store == nil {
+		return sessionpin.Pin{}
+	}
+	pin, found, err := fp.store.Get(ctx, sessionKey, ForceModelHistoryRole(role))
+	if err != nil {
+		observability.FromContext(ctx).Error("force-model history lookup failed", "err", err)
+		return sessionpin.Pin{}
+	}
+	if !found || !pin.PinnedUntil.After(fp.now()) {
+		return sessionpin.Pin{}
+	}
+	return pin
+}
