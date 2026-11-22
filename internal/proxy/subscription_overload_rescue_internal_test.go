@@ -300,7 +300,7 @@ func TestAuthorizeSubscriptionAPI_ProviderOverloadAuthorizesPaidRescue(t *testin
 	now := time.Now()
 	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
 	ctx := credentials.WithManagedSubscriptionUsage(context.Background())
-	ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "acct-1", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
+	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "acct-1", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 
 	denied := svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{})
 	require.ErrorIs(t, denied, credentials.ErrSubscriptionPoolUnavailable, "healthy included quota must still block paid inference")

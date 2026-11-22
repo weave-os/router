@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -23,6 +22,7 @@ import (
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalation/floor"
+	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -137,7 +137,7 @@ type turnLoopResult struct {
 	TokenizerCalibration        sessionpin.TokenizerCalibration
 	ContextEstimate             int
 	StripThinkingBlocks         bool
-	Handover                    dispatch.HandoverOutcome
+	Handover                    handover.Outcome
 	SuggestionMode              bool
 	PrefixTrimmed               bool
 	EscalateEffort              bool
@@ -269,8 +269,8 @@ func (r turnLoopResult) rescueOrigin() policy.OverrideSource {
 }
 
 func isHardPinnedTurn(ctx context.Context, s *Service, strategy router.Strategy, tt turntype.TurnType) bool {
-	return s.hardPins.PinsTurn(tt, func() bool {
-		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.hardPins.Explore) && !s.strategyPorts.Ownership.Owns(strategy)
+	return s.routing.HardPins().PinsTurn(tt, func() bool {
+		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.routing.HardPins().Explore) && !s.strategyPorts.Ownership.Owns(strategy)
 	})
 }
 
@@ -513,7 +513,7 @@ func (s *Service) runTurnLoop(
 		"sub_agent_hint", subAgentHint,
 	)
 
-	automaticProbe := res.TurnType == turntype.Probe && !s.hardPins.ExplicitUtility &&
+	automaticProbe := res.TurnType == turntype.Probe && !s.routing.HardPins().ExplicitUtility &&
 		(req.RequestedModel == "" || req.RequestedModel == automaticProbeModel || router.IsRoutingModel(req.RequestedModel))
 	if _, pinned := router.HonouredPolicyPin(ctx); pinned && (!isHardPinnedTurn(ctx, s, strategy, res.TurnType) || automaticProbe) {
 		if s.pinStore != nil && !isUnpinnedScoredTurn(res.TurnType) && !automaticProbe {
@@ -821,7 +821,7 @@ func (s *Service) runTurnLoop(
 		var fresh router.Decision
 		routed := false
 		if forcedTierFloor != catalog.TierUnknown {
-			if constrained, ok := candidates.RestrictToTier(req.Candidates.ExcludedModels, forcedTierFloor, s.availableModels); ok {
+			if constrained, ok := candidates.RestrictToTier(req.Candidates.ExcludedModels, forcedTierFloor, s.routing.AvailableModels()); ok {
 				tierReq := req
 				tierReq.Candidates.ExcludedModels = constrained
 				if dec, derr := s.routeFor(ctx, strategy, tierReq); derr == nil {
@@ -909,7 +909,7 @@ func (s *Service) runTurnLoop(
 		}
 
 		if !pinFound && pin.Model != "" && !prefixBroken {
-			switch continuity.JudgeReanchor(pin, fresh, req, s.availableModels) {
+			switch continuity.JudgeReanchor(pin, fresh, req, s.routing.AvailableModels()) {
 			case continuity.ReanchorNone:
 			case continuity.ReanchorSkipMaxedOut:
 				log.Info("Expired session pin maxed out on previous turn; skipping re-anchor", "pin_model", pin.Model, "pin_provider", pin.Provider, "last_output_tokens", pin.LastOutputTokens)
@@ -939,7 +939,7 @@ func (s *Service) runTurnLoop(
 			CacheablePrefixTokens: prefixTokens,
 			CachePrefixKnown:      prefixKnown,
 			PinCacheCold:          pinCacheCold(pin, prefixBroken, s.clock.Now()),
-			AvailableModels:       s.availableModels,
+			AvailableModels:       s.routing.AvailableModels(),
 		}, plannerConfigFor(ctx, s.continuityConfig.Planner))
 		res.PlannerDecision = decision
 
@@ -1177,18 +1177,6 @@ func buildPolicyTurnContext(
 		SessionEverSwitched: res.SessionEverSwitched,
 		HistoryTruncated:    req.HistoryTruncated || res.PrefixTrimmed,
 	}
-}
-
-func sortedEnabledKeys(m map[string]struct{}) []string {
-	if len(m) == 0 {
-		return []string{}
-	}
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func forcePinBindsNonClassifierTurn(found bool, tt turntype.TurnType) bool {

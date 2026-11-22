@@ -152,10 +152,10 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			return poolSpent()
 		}
 		seen[lease.AccountID] = true
-		if candidates, snapshotPresent := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate); snapshotPresent {
+		if candidates, snapshotPresent := ctx.Value(credentials.ManagedSubscriptionCandidatesContextKey{}).([]credentials.ManagedSubscriptionCandidate); snapshotPresent {
 			admitted := false
 			for _, candidate := range candidates {
-				if candidate.accountID == lease.AccountID && candidate.provider == auth.SubscriptionProvider(poolProvider) {
+				if candidate.AccountID == lease.AccountID && candidate.Provider == auth.SubscriptionProvider(poolProvider) {
 					admitted = true
 					break
 				}

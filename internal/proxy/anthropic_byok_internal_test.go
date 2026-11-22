@@ -64,7 +64,7 @@ func TestAnthropicBYOKDispatchIgnoresSubscriptionState(t *testing.T) {
 				ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, oauthToken)
 			}
 			if tc.managed {
-				ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "synthetic-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}})
+				ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "synthetic-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}})
 			}
 			if tc.enrollmentUnknown {
 				ctx = context.WithValue(ctx, credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
@@ -140,7 +140,7 @@ func TestAnthropicBYOKHTTPNeverProbesOAuth(t *testing.T) {
 			}), nil, nil, false, "", "", nil)).
 				WithManagedSubscriptions(leaser)
 			ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
-			ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "synthetic-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}})
+			ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "synthetic-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}})
 			ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 			body := `{"model":"` + model + `","max_tokens":32,"messages":[{"role":"user","content":"synthetic task"}]}`
 			for _, token := range []string{"sk-ant-oat01-original", "sk-ant-oat01-refreshed"} {
@@ -167,7 +167,7 @@ func TestAnthropicBYOKHTTPNeverProbesOAuth(t *testing.T) {
 
 func TestAnthropicBYOKDoesNotAuthorizeGatewayBindings(t *testing.T) {
 	svc := newServiceWithProviders(t, nil)
-	ctx := WithManagedSubscriptionCandidates(context.Background(), []*auth.SubscriptionAccount{{ID: "synthetic-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}})
+	ctx := credentials.WithManagedSubscriptionCandidates(context.Background(), []*auth.SubscriptionAccount{{ID: "synthetic-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}})
 	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
 	model := catalog.ModelIDClaudeOpus48.String()
 	require.NoError(t, svc.subscriptionAPIAuthorization(ctx, providers.ProviderAnthropic, model))

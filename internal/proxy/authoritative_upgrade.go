@@ -61,8 +61,8 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		PrefixBroken:   res.PrefixTrimmed || req.HistoryTruncated,
 		RequiredVotes:  s.ResolveAuthoritativeUpgradeVotes(ctx),
 	}
-	if s.availableModels != nil {
-		_, available := s.availableModels[fresh.Model]
+	if s.routing.AvailableModels() != nil {
+		_, available := s.routing.AvailableModels()[fresh.Model]
 		decision.Evidence.FreshEligible = decision.Evidence.FreshEligible && available
 	}
 	if fresh.Metadata != nil {

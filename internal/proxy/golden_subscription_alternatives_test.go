@@ -84,7 +84,7 @@ func goldenCodexPoolRequest(body string, accounts ...string) goldenRequest {
 		})
 	}
 	return goldenRequest{body: body, decorateContext: func(ctx context.Context) context.Context {
-		return credentials.WithManagedSubscriptionUsage(proxy.WithManagedSubscriptionCandidates(ctx, enrolled))
+		return credentials.WithManagedSubscriptionUsage(credentials.WithManagedSubscriptionCandidates(ctx, enrolled))
 	}}
 }
 
