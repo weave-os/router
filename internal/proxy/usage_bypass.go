@@ -225,11 +225,10 @@ func (s *Service) bypassToAnthropic(
 		return provErr
 	}
 
-	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
+	ctx, telemetryCtx := resolveBypassCredentialsForTelemetry(s, ctx, decision.Provider, decision.Model, r.Header)
 	if claudeEnterpriseOnly(ctx) && !servedOnSubscription(ctx) {
 		return claudeEnterpriseRefusal(ctx)
 	}
-
 	outputReserve := max(contextWindowOutputReserve, feats.MaxTokens)
 	opts := translate.EmitOptions{
 		TargetModel:              decision.Model,
@@ -352,7 +351,7 @@ func (s *Service) bypassToAnthropic(
 		Float64("cost.requested_output_usd", outputCost).
 		Float64("cost.actual_input_usd", inputCost).
 		Float64("cost.actual_output_usd", outputCost).Int64("upstream.status_code", int64(upstreamStatus(outcomeErr)))
-	s.applySubscriptionSpanTelemetry(ctx, bypassBuilder, feats.Model, decision.Model)
+	s.applySubscriptionSpanTelemetry(telemetryCtx, bypassBuilder, feats.Model, decision.Model)
 	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.usage_bypass",
 		Start: requestStart,

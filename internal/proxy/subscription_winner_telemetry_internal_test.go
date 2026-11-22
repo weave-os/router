@@ -7,12 +7,57 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestEnterpriseSeatTelemetryUsesTheServingCredential(t *testing.T) {
+	enterprise := &Credentials{APIKey: []byte("synthetic-enterprise"), OAuth: true, Source: credSourceSubscription, SubscriptionPlan: providers.SubscriptionPlanEnterprise}
+	team := &Credentials{APIKey: []byte("synthetic-team"), OAuth: true, Source: credSourceSubscription, SubscriptionPlan: providers.SubscriptionPlanTeam}
+	unknown := &Credentials{APIKey: []byte("synthetic-unknown"), OAuth: true, Source: credSourceSubscription}
+	codex := &Credentials{APIKey: []byte("synthetic-codex"), OAuth: true, Source: credSourceCodexSubscription}
+	apiKey := &Credentials{APIKey: []byte("synthetic-key"), Source: credSourceBYOK}
+
+	for _, tc := range []struct {
+		name    string
+		winner  *Credentials
+		overage bool
+		source  string
+	}{
+		{name: "included Enterprise", winner: enterprise, source: credSourceSubscription},
+		{name: "Enterprise overage", winner: enterprise, overage: true, source: credSourceSubscriptionOverage},
+		{name: "Team fallback", winner: team, source: credSourceSubscription},
+		{name: "Unverified fallback", winner: unknown, source: credSourceSubscription},
+		{name: "Codex fallback", winner: codex, source: credSourceCodexSubscription},
+		{name: "API fallback", winner: apiKey, source: credSourceBYOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), CredentialsContextKey{}, enterprise)
+			ctx = context.WithValue(ctx, claudeSubscriptionPlanKey{}, providers.SubscriptionPlanEnterprise)
+			winnerCtx := context.WithValue(ctx, CredentialsContextKey{}, tc.winner)
+			recordWinningCredentials(ctx, winnerCtx)
+			if tc.overage {
+				usage := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
+				usage.Served = true
+				usage.OverageInUse = true
+				usage.CredentialSource = tc.winner.Source
+			}
+
+			attrs := telemetry.NewAttrBuilder(4)
+			(&Service{}).applySubscriptionSpanTelemetry(ctx, attrs, "auto", "claude-sonnet-5")
+			values := make(map[string]telemetry.AttrValue)
+			for _, attr := range attrs.Build() {
+				values[attr.Key] = attr.Value
+			}
+			assert.Equal(t, tc.source, values["credential.source"].GetStringValue())
+			assert.Equal(t, tc.winner == enterprise, values["subscription.claude_enterprise"].GetBoolValue())
+		})
+	}
+}
 
 func TestSubscriptionWinnerTelemetryPreservesOwnerAndAlternative(t *testing.T) {
 	ctx := credentials.WithManagedSubscriptionUsage(context.Background())
