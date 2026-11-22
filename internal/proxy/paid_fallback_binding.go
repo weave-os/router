@@ -52,7 +52,7 @@ func servingEvent(creds *Credentials) subscriptionlane.Event {
 	switch {
 	case creds != nil && creds.OAuth:
 		return subscriptionlane.SubscriptionServed
-	case customerKeyFunded(creds):
+	case credentials.CustomerKeyFunded(creds):
 		return subscriptionlane.CustomerKeyServed
 	default:
 		return subscriptionlane.OrganizationCreditsServed

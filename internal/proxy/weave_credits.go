@@ -76,19 +76,8 @@ func usableBYOK(ctx context.Context, provider string) *Credentials {
 	return creds
 }
 
-func customerFunded(creds *Credentials) bool {
-	if creds == nil || creds.CredentialError != nil || len(creds.APIKey) == 0 {
-		return false
-	}
-	return creds.OAuth || creds.Source == credSourceBYOK || creds.Source == credSourceClient
-}
-
-func customerKeyFunded(creds *Credentials) bool {
-	return customerFunded(creds) && creds.Source == credSourceBYOK
-}
-
 func servedOnCustomerKey(ctx context.Context) bool {
-	return customerKeyFunded(CredentialsFromContext(ctx))
+	return credentials.CustomerKeyFunded(CredentialsFromContext(ctx))
 }
 
 func withPaidFallbackCredentials(ctx context.Context, provider string) context.Context {

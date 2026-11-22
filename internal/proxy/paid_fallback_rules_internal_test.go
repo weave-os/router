@@ -121,7 +121,7 @@ func paidFallbackHandover(ctx context.Context, provider string) string {
 	switch {
 	case creds == nil:
 		return "deployment"
-	case creds.Source == credSourceBYOK && customerKeyFunded(creds):
+	case creds.Source == credSourceBYOK && credentials.CustomerKeyFunded(creds):
 		return "customer-key"
 	default:
 		return string(creds.Source)

@@ -67,7 +67,7 @@ func TestSubscriptionLaneRefusalsPerMark(t *testing.T) {
 			assert.Equal(t, tc.unavailable.Contract(), classifiedRefusal(t, credentials.SubscriptionOnlyUnavailable(tc.ctx)))
 			assert.Equal(t, tc.poolExhausted.Contract(), classifiedRefusal(t, credentials.SubscriptionPoolExhausted(tc.ctx)))
 			require.ErrorIs(t, credentials.SubscriptionPoolExhausted(tc.ctx), credentials.ErrSubscriptionPoolExhausted)
-			assert.Equal(t, tc.paidUnfunded, paidCapacityUnfunded(tc.ctx))
+			assert.Equal(t, tc.paidUnfunded, credentials.PaidCapacityUnfunded(tc.ctx))
 			assert.Equal(t, tc.linkedFirstStill, credentials.LinkedFirst(tc.ctx))
 		})
 	}

@@ -36,7 +36,7 @@ func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
 
 func paidFallbackForbiddenForModelOnProvider(ctx context.Context, provider, model string) bool {
 	event := subscriptionlane.OrganizationCreditsServed
-	if provider != "" && paidCapacityUnfunded(ctx) {
+	if provider != "" && credentials.PaidCapacityUnfunded(ctx) {
 		event = payableServingEvent(ctx, paidFallbackEvent(usableBYOK(ctx, provider)))
 	}
 	return !servingCommitted(ctx, paidFallbackBindingForModel(ctx, model), event)
@@ -78,10 +78,6 @@ func payableServingEvent(ctx context.Context, event subscriptionlane.Event) subs
 	return event
 }
 
-func unfundedKeyFunds(ctx context.Context, creds *Credentials) bool {
-	return customerKeyFunded(creds) && !billing.ByokFeeUnpayable(ctx)
-}
-
 func servedOnUnfundedKey(ctx context.Context) bool {
-	return paidCapacityUnfunded(ctx) && unfundedKeyFunds(ctx, CredentialsFromContext(ctx))
+	return credentials.PaidCapacityUnfunded(ctx) && credentials.UnfundedKeyFunds(ctx, CredentialsFromContext(ctx))
 }
