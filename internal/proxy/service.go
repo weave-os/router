@@ -2158,7 +2158,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	stickyHit := routeRes.StickyHit
 	pinAgeSec := routeRes.PinAgeSec
 	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
-	s.logPlannerOutcome(ctx, routeRes)
+	logPlannerOutcome(ctx, s.strategyPorts, routeRes)
 
 	toolBearingTurn := inboundToolCallCount > 0 || inboundLastUser.HasToolResult
 	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && toolBearingTurn && s.lifecycle.NoProgress() != nil {
@@ -2594,7 +2594,7 @@ func stickyStateRole(res turnLoopResult) string {
 	return res.PinRole
 }
 
-func (s *Service) logPlannerOutcome(ctx context.Context, res turnLoopResult) {
+func logPlannerOutcome(ctx context.Context, ports continuity.StrategyPorts, res turnLoopResult) {
 	if !res.PlannerDecision.Evaluated() {
 		return
 	}
@@ -2615,7 +2615,7 @@ func (s *Service) logPlannerOutcome(ctx context.Context, res turnLoopResult) {
 		return
 	}
 	message := "router stayed on pinned model"
-	if isHMMDecision(s.strategyPorts, res.Fresh) {
+	if isHMMDecision(ports, res.Fresh) {
 		message = "router stayed on previous HMM model"
 	}
 	log.Info(message,
@@ -2634,53 +2634,31 @@ func isHMMTurn(ports continuity.StrategyPorts, res turnLoopResult) bool {
 }
 
 func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
-	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategyForTurnLoopResult(res))
-	if servedModel == "" || res.InstallationID == uuid.Nil {
+	if servedModel == "" || res.InstallationID == uuid.Nil || res.SessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return
 	}
-	var zeroKey [sessionpin.SessionKeyLen]byte
-	if res.SessionKey == zeroKey {
-		return
-	}
-	hasUsage := in != 0 || out != 0 || cacheCreation != 0 || cacheRead != 0
-	strategyCtx := strategyContext(ctx, strategyForTurnLoopResult(res))
-	historyProvider := servedProvider
-	if !hasUsage {
-		if prior := sessionPins.LoadHMMHistory(strategyCtx, res.SessionKey, res.PinRole); prior.Provider != "" {
-			historyProvider = prior.Provider
-		}
-	}
-	role := hmmHistoryRole(res.PinRole)
-	sessionPins.Upsert(strategyCtx, sessionpin.Pin{
+	strategy := strategyForTurnLoopResult(res)
+	role, usageRecorded := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).RecordHMMTurn(strategyContext(ctx, strategy), routingpolicy.HMMTurnRecord{
 		SessionKey:     res.SessionKey,
-		Role:           role,
 		InstallationID: res.InstallationID,
-		Provider:       historyProvider,
+		PinRole:        res.PinRole,
 		Reason:         hmmHistoryStoredReason(s.strategyPorts, res),
-		Strategy:       strategyForTurnLoopResult(res),
-		TurnCount:      1,
-		PinnedUntil:    pinExpiry(s.strategyPorts.CostGate.HistoryReason(), s.clock.Now()),
+		HistoryReason:  s.strategyPorts.CostGate.HistoryReason(),
+		Usage: sessionpin.Usage{
+			InputTokens:         in,
+			CachedReadTokens:    cacheRead,
+			CachedWriteTokens:   cacheCreation,
+			OutputTokens:        out,
+			OutputLimitReached:  outputLimitReached,
+			ServedModel:         servedModel,
+			ServedProvider:      servedProvider,
+			PriorServedModel:    res.PriorServedModel,
+			SessionEverSwitched: res.SessionEverSwitched,
+		},
 	})
-	if !hasUsage {
-		return
+	if usageRecorded {
+		s.recordTokenizerObservation(ctx, res, role, servedProvider, in, cacheCreation, cacheRead)
 	}
-	now := s.clock.Now()
-	if err := s.pinStore.UpdateUsage(strategyCtx, res.SessionKey, role, sessionpin.Usage{
-		Strategy:            strategyForTurnLoopResult(res),
-		InputTokens:         in,
-		CachedReadTokens:    cacheRead,
-		CachedWriteTokens:   cacheCreation,
-		OutputTokens:        out,
-		OutputLimitReached:  outputLimitReached,
-		EndedAt:             now,
-		ServedModel:         servedModel,
-		ServedProvider:      servedProvider,
-		PriorServedModel:    res.PriorServedModel,
-		SessionEverSwitched: res.SessionEverSwitched,
-	}); err != nil {
-		observability.Get().Error("HMM switch-history writeback failed", "err", err)
-	}
-	s.recordTokenizerObservation(ctx, res, role, servedProvider, in, cacheCreation, cacheRead)
 }
 
 func hmmHistoryStoredReason(ports continuity.StrategyPorts, res turnLoopResult) string {
@@ -3383,7 +3361,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	stickyHit := routeRes.StickyHit
 	pinTier := routeRes.PinTier
 	pinAgeSec := routeRes.PinAgeSec
-	s.logPlannerOutcome(ctx, routeRes)
+	logPlannerOutcome(ctx, s.strategyPorts, routeRes)
 
 	if facts.Client.ClientApp == requestcontext.ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {

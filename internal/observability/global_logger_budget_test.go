@@ -38,7 +38,7 @@ var globalLoggerBudget = map[string]int{
 	"internal/pubsub": 4,
 
 	// Fire-and-forget writebacks (SafeGo) + a pure predicate.
-	"internal/proxy": 4,
+	"internal/proxy": 3,
 	"internal/auth":  2,
 
 	// Allocation failures inside LRU construction and a row-parse fallback:
