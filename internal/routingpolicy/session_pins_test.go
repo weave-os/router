@@ -124,16 +124,6 @@ func TestSessionPinsForcedPinsNeverExpire(t *testing.T) {
 	assert.Equal(t, routingpolicy.PinNeverExpires, history.PinnedUntil)
 }
 
-func TestSessionPinsLoadHMMHistory(t *testing.T) {
-	ctx := strategyCtx()
-	store := newMemPinStore()
-	pins := routingpolicy.NewSessionPins(store, time.Now, router.StrategyFromContext(ctx))
-	store.pins[pinKey{sessionKey, routingpolicy.HMMHistoryRole("")}] = sessionpin.Pin{Model: "prior", Strategy: "hmm", PinnedUntil: time.Now().Add(-time.Hour)}
-
-	assert.Equal(t, "prior", pins.LoadHMMHistory(ctx, sessionKey, "").Model, "history survives pin expiry")
-	assert.Empty(t, pins.LoadHMMHistory(ctx, sessionKey, "other").Model)
-}
-
 func TestSessionPinsWriteRepinStoresAFreshPinForTheTarget(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	store := newMemPinStore()

@@ -170,5 +170,5 @@ func clearRecoveredCooldown(ctx context.Context, s *Service, res routingpolicy.T
 	if pinRole == "" {
 		pinRole = sessionpin.DefaultRole
 	}
-	routingpolicy.ClearRecoveredCooldown(ctx, s.pinStore, res.SessionKey, demotionRoles(pinRole, pinRole), servedModel, observedUntil)
+	routingpolicy.ClearRecoveredCooldown(ctx, s.pinStore, res.SessionKey, demotionRoles(s.strategyPorts.History, pinRole, pinRole), servedModel, observedUntil)
 }

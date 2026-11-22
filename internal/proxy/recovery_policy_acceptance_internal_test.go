@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 )
 
@@ -151,7 +152,7 @@ func TestRecoveryAcceptanceCooldownExpiryAdmitsOneConcurrentProbe(t *testing.T) 
 	provider := &blockingRecoveryClient{entered: make(chan struct{}, callers), release: make(chan struct{})}
 	scorer := &recoveryObservedRouter{requests: make(chan router.Request, callers+1)}
 	store := &recoveryObservedStore{rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{catalog.ModelGPT6Luna: rateLimitTestNow}},
+		hmm.HistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{catalog.ModelGPT6Luna: rateLimitTestNow}},
 	}}, reads: make(chan recoveryBucketRead, 128)}
 	sibling := &recoveryAlternativeClient{}
 	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAIGateway: provider, providers.ProviderAnthropicGateway: sibling}),
@@ -214,14 +215,14 @@ observe:
 	var bucket [sessionpin.SessionKeyLen]byte
 	historyReads := 0
 	for read := range store.reads {
-		if read.role != hmmHistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))) {
+		if read.role != hmm.HistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))) {
 			continue
 		}
 		if bucket == ([sessionpin.SessionKeyLen]byte{}) {
 			bucket = read.key
 		}
 		require.Equal(t, bucket, read.key, "all callers must address the same full session key")
-		if read.role == hmmHistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))) {
+		if read.role == hmm.HistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))) {
 			historyReads++
 		}
 	}
