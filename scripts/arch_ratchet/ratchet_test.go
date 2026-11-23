@@ -603,6 +603,12 @@ func TestRunKeepsCheckingAllowlistsThatMoveOrChangeSpelling(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, result.violations, "moving the list or splitting a key literal is not growth")
 
+	write("internal/architecture/env_paths_test.go", "package architecture_test\n\nconst (\n\tinternalRoot = \"internal\"\n\tpackageA     = internalRoot + \"/a\"\n)\n")
+	write("internal/architecture/env_reads_test.go", "package architecture_test\n\nvar envReadAllowlist = map[string]int{packageA: 1}\n")
+	result, err = run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	assert.Empty(t, result.violations, "spelling a key with a package constant from another file is not growth")
+
 	write("internal/architecture/env_reads_test.go", "package architecture_test\n\nvar envReadAllowlist = map[string]int{\"internal/\" + \"a\": 1 + 1}\n")
 	write(exceptionsPath, `{"exceptions":[{"subject":"internal/architecture#envReadAllowlist/internal/a","metric":"baseline_growth","max":1,"reason":"cap below the new count"}]}`)
 	result, err = run(t.Context(), repo{root: root}, "main")

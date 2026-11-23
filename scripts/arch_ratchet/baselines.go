@@ -115,13 +115,42 @@ func goFilesIn(paths []string) []string {
 }
 
 func parseGoAllowlists(sources map[string][]byte) (baselineCounts, error) {
+	fset := token.NewFileSet()
+	files := map[string]*ast.File{}
+	for name, payload := range sources {
+		file, err := parser.ParseFile(fset, name, payload, parser.SkipObjectResolution)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", name, err)
+		}
+		files[name] = file
+	}
+	scope := packageConstants(fset, files)
 	counts := baselineCounts{}
-	for _, name := range sortedKeys(sources) {
-		if err := collectGoAllowlists(counts, sources[name]); err != nil {
+	for _, name := range sortedKeys(files) {
+		if err := collectGoAllowlists(counts, scope, files[name]); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", name, err)
 		}
 	}
 	return counts, nil
+}
+
+func packageConstants(fset *token.FileSet, files map[string]*ast.File) *constantScope {
+	var decls []ast.Decl
+	for _, name := range sortedKeys(files) {
+		for _, decl := range files[name].Decls {
+			if gen, ok := decl.(*ast.GenDecl); ok && gen.Tok == token.CONST {
+				decls = append(decls, gen)
+			}
+		}
+	}
+	config := types.Config{Error: func(error) {}}
+	pkg, _ := config.Check("constants", fset, []*ast.File{{Name: ast.NewIdent("constants"), Decls: decls}}, nil)
+	return &constantScope{fset: fset, pkg: pkg}
+}
+
+type constantScope struct {
+	fset *token.FileSet
+	pkg  *types.Package
 }
 
 func baselineGrowth(path string, base, head baselineCounts, allowed exceptionSet) []violation {
@@ -169,18 +198,14 @@ func parseInferenceBaseline(payload []byte) (baselineCounts, error) {
 	return baselineCounts{"kind": kinds}, nil
 }
 
-func collectGoAllowlists(counts baselineCounts, payload []byte) error {
-	file, err := parser.ParseFile(token.NewFileSet(), "", payload, parser.SkipObjectResolution)
-	if err != nil {
-		return err
-	}
+func collectGoAllowlists(counts baselineCounts, scope *constantScope, file *ast.File) error {
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
 		if !ok || gen.Tok != token.VAR {
 			continue
 		}
 		for _, spec := range gen.Specs {
-			if err := collectAllowlist(counts, spec, goAllowlistNames); err != nil {
+			if err := collectAllowlist(counts, scope, spec, goAllowlistNames); err != nil {
 				return err
 			}
 		}
@@ -188,7 +213,7 @@ func collectGoAllowlists(counts baselineCounts, payload []byte) error {
 	return nil
 }
 
-func collectAllowlist(counts baselineCounts, spec ast.Spec, names []string) error {
+func collectAllowlist(counts baselineCounts, scope *constantScope, spec ast.Spec, names []string) error {
 	value, ok := spec.(*ast.ValueSpec)
 	if !ok {
 		return nil
@@ -209,7 +234,7 @@ func collectAllowlist(counts baselineCounts, spec ast.Spec, names []string) erro
 			entries = map[string]int{}
 		}
 		for _, element := range literal.Elts {
-			key, count, err := allowlistEntry(element)
+			key, count, err := scope.allowlistEntry(element)
 			if err != nil {
 				return fmt.Errorf("%s: %w", name.Name, err)
 			}
@@ -220,17 +245,17 @@ func collectAllowlist(counts baselineCounts, spec ast.Spec, names []string) erro
 	return nil
 }
 
-func allowlistEntry(element ast.Expr) (string, int, error) {
+func (scope *constantScope) allowlistEntry(element ast.Expr) (string, int, error) {
 	pair, ok := element.(*ast.KeyValueExpr)
 	if !ok {
-		key, err := constantString(element)
+		key, err := scope.constantString(element)
 		return key, 1, err
 	}
-	key, err := constantString(pair.Key)
+	key, err := scope.constantString(pair.Key)
 	if err != nil {
 		return "", 0, err
 	}
-	value, err := constantOf(pair.Value)
+	value, err := scope.constantOf(pair.Value)
 	if err != nil {
 		return "", 0, err
 	}
@@ -244,8 +269,8 @@ func allowlistEntry(element ast.Expr) (string, int, error) {
 	return key, int(count), nil
 }
 
-func constantString(expression ast.Expr) (string, error) {
-	value, err := constantOf(expression)
+func (scope *constantScope) constantString(expression ast.Expr) (string, error) {
+	value, err := scope.constantOf(expression)
 	if err != nil {
 		return "", err
 	}
@@ -255,10 +280,10 @@ func constantString(expression ast.Expr) (string, error) {
 	return constant.StringVal(value), nil
 }
 
-func constantOf(expression ast.Expr) (constant.Value, error) {
-	evaluated, err := types.Eval(token.NewFileSet(), nil, token.NoPos, types.ExprString(expression))
+func (scope *constantScope) constantOf(expression ast.Expr) (constant.Value, error) {
+	evaluated, err := types.Eval(scope.fset, scope.pkg, token.NoPos, types.ExprString(expression))
 	if err != nil {
-		return nil, fmt.Errorf("evaluate %s as a self-contained constant: %w", types.ExprString(expression), err)
+		return nil, fmt.Errorf("evaluate %s as a constant: %w", types.ExprString(expression), err)
 	}
 	if evaluated.Value == nil {
 		return nil, fmt.Errorf("%s is not a constant", types.ExprString(expression))
