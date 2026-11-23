@@ -149,6 +149,22 @@ func TestKeySetFailsClosedWhenLastGoodKeysOutliveTheGrace(t *testing.T) {
 	require.ErrorIs(t, err, oidcjwks.ErrFetch, "keys older than the grace must not be trusted while the issuer is unreachable")
 }
 
+func TestKeySetDropsLastGoodKeysWhenDiscoveryNamesAnotherIssuer(t *testing.T) {
+	issuer := newIssuerServer(t)
+	issuer.publish(t, "k1")
+	now := time.Date(2026, 5, 5, 0, 0, 0, 0, time.UTC)
+	keys := oidcjwks.New(issuer.server.Client(), func() time.Time { return now })
+	_, err := keys.VerificationKey(context.Background(), issuer.server.URL, "k1")
+	require.NoError(t, err)
+
+	issuer.issuerName = "https://someone-else.example"
+	now = now.Add(oidcjwks.DefaultTTL + time.Second)
+	_, err = keys.VerificationKey(context.Background(), issuer.server.URL, "k1")
+	require.ErrorIs(t, err, oidcjwks.ErrFetch, "a discovery document naming another issuer is not an outage")
+	_, err = keys.VerificationKey(context.Background(), issuer.server.URL, "k1")
+	require.ErrorIs(t, err, oidcjwks.ErrFetch, "the refusal holds while refreshes are backing off")
+}
+
 func TestKeySetBacksOffAfterAFailedRefresh(t *testing.T) {
 	issuer := newIssuerServer(t)
 	issuer.publish(t, "k1")
