@@ -51,16 +51,16 @@ pass=0
 fail=0
 ok() { echo "  ok   $1"; pass=$((pass + 1)); }
 no() { echo "  FAIL $1"; echo "         expected: $2"; echo "         actual:   $3"; fail=$((fail + 1)); }
-check() { # check <name> <actual> <expected>
+check() {
   if [ "$2" = "$3" ]; then ok "$1"; else no "$1" "$3" "$2"; fi
 }
-check_contains() { # check_contains <name> <haystack> <needle>
+check_contains() {
   case "$2" in *"$3"*) ok "$1" ;; *) no "$1" "contains '$3'" "$2" ;; esac
 }
-check_not_contains() { # check_not_contains <name> <haystack> <needle>
+check_not_contains() {
   case "$2" in *"$3"*) no "$1" "no '$3'" "$2" ;; *) ok "$1" ;; esac
 }
-wait_for() { # wait_for <timeout_seconds> <command...>
+wait_for() {
   local deadline=$(( $(date +%s) + $1 )); shift
   while ! "$@"; do
     [ "$(date +%s)" -ge "$deadline" ] && return 1
@@ -219,7 +219,7 @@ tool_installed() { [ "$1" = "cc" ] && echo "$home/.weave/cc-statusline.sh" || ec
 
 # self_refresh_lab <tool> <name>: install the current release, have main
 # advertise $next_tag, and stage a genuine signed release at that tag. Sets
-# installed, served (the tag's body), good (the genuine body), rd (tag dir).
+# installed, served (the tag's body), good (the genuine body), release_dir (tag dir).
 self_refresh_lab() {
   local tool="$1" file
   file="$(tool_file "$tool")"
@@ -227,15 +227,15 @@ self_refresh_lab() {
   installed="$(tool_installed "$tool")"
   mkdir -p "$(dirname "$installed")"
   cp "$(tool_keyed "$tool")" "$installed"; chmod 755 "$installed"
-  rd="$(rel_dir "$next_tag")"; mkdir -p "$rd"
+  release_dir="$(rel_dir "$next_tag")"; mkdir -p "$release_dir"
   good="$c/genuine.sh"
   cp "$(tool_keyed "$tool")" "$good"; retag "$good" "$next_tag"
   printf '# genuine %s release body\n' "$next_tag" >>"$good"
   cp "$good" "$pub/raw/weave-os/router/main/install/$file"
-  served="$rd/$file"
+  served="$release_dir/$file"
   cp "$good" "$served"
-  manifest_row "install/$file" "$good" >"$rd/MANIFEST"
-  sign "$rd/MANIFEST" "$keys/release.key" "$rd/MANIFEST.sig.b64"
+  manifest_row "install/$file" "$good" >"$release_dir/MANIFEST"
+  sign "$release_dir/MANIFEST" "$keys/release.key" "$release_dir/MANIFEST.sig.b64"
 }
 
 # tamper_served <tool>: serve a shape-valid body with a canary that the signed
@@ -244,7 +244,7 @@ tamper_served() {
   with_canary "$good" "$served" canary.txt
 }
 
-expect_refused() { # expect_refused <label> <before_sha>
+expect_refused() { # the installed copy still hashes to <before_sha>
   check "$1: installed copy unchanged" "$(sha "$installed")" "$2"
 }
 
@@ -262,30 +262,30 @@ extract_helpers "$installer_src" "$work/helpers.installer"
 check "codex-status.sh carries the same verification helpers" "$(sha "$work/helpers.codex")" "$(sha "$work/helpers.cc")"
 check "install.sh carries the same verification helpers" "$(sha "$work/helpers.installer")" "$(sha "$work/helpers.cc")"
 
-u="$work/unit"; mkdir -p "$u"
-printf 'payload\n' >"$u/body"
-manifest_row "install/cc-statusline.sh" "$u/body" >"$u/MANIFEST"
-sign "$u/MANIFEST" "$keys/release.key" "$u/MANIFEST.sig.b64"
-sign "$u/MANIFEST" "$keys/other.key" "$u/other.sig.b64"
+unit_dir="$work/unit"; mkdir -p "$unit_dir"
+printf 'payload\n' >"$unit_dir/body"
+manifest_row "install/cc-statusline.sh" "$unit_dir/body" >"$unit_dir/MANIFEST"
+sign "$unit_dir/MANIFEST" "$keys/release.key" "$unit_dir/MANIFEST.sig.b64"
+sign "$unit_dir/MANIFEST" "$keys/other.key" "$unit_dir/other.sig.b64"
 unit() { # unit <PATH> <bash snippet>: run a snippet against the helpers, print its status
-  env -i "PATH=$1" "TMPDIR=$u" bash -c "source '$work/helpers.cc'; $2" >/dev/null 2>&1
+  env -i "PATH=$1" "TMPDIR=$unit_dir" bash -c "source '$work/helpers.cc'; $2" >/dev/null 2>&1
   echo "$?"
 }
 check "a manifest signed with the embedded key verifies" \
-  "$(unit "$PATH" "weave_verify_manifest '$u/MANIFEST' '$u/MANIFEST.sig.b64' \"\$(cat '$keys/release.pub')\"")" 0
+  "$(unit "$PATH" "weave_verify_manifest '$unit_dir/MANIFEST' '$unit_dir/MANIFEST.sig.b64' \"\$(cat '$keys/release.pub')\"")" 0
 check "a manifest signed with another key is rejected" \
-  "$(unit "$PATH" "weave_verify_manifest '$u/MANIFEST' '$u/other.sig.b64' \"\$(cat '$keys/release.pub')\"")" 1
+  "$(unit "$PATH" "weave_verify_manifest '$unit_dir/MANIFEST' '$unit_dir/other.sig.b64' \"\$(cat '$keys/release.pub')\"")" 1
 check "a missing signature is rejected" \
-  "$(unit "$PATH" "weave_verify_manifest '$u/MANIFEST' '$u/absent.sig.b64' \"\$(cat '$keys/release.pub')\"")" 1
+  "$(unit "$PATH" "weave_verify_manifest '$unit_dir/MANIFEST' '$unit_dir/absent.sig.b64' \"\$(cat '$keys/release.pub')\"")" 1
 check "a matching body verifies against its row" \
-  "$(unit "$PATH" "weave_verify_file '$u/MANIFEST' install/cc-statusline.sh '$u/body'")" 0
-printf 'payload!\n' >"$u/other-body"
+  "$(unit "$PATH" "weave_verify_file '$unit_dir/MANIFEST' install/cc-statusline.sh '$unit_dir/body'")" 0
+printf 'payload!\n' >"$unit_dir/other-body"
 check "a body that does not match its row is rejected" \
-  "$(unit "$PATH" "weave_verify_file '$u/MANIFEST' install/cc-statusline.sh '$u/other-body'")" 1
+  "$(unit "$PATH" "weave_verify_file '$unit_dir/MANIFEST' install/cc-statusline.sh '$unit_dir/other-body'")" 1
 check "a body is never matched against another file's row" \
-  "$(unit "$PATH" "weave_verify_file '$u/MANIFEST' install/codex-status.sh '$u/body'")" 1
+  "$(unit "$PATH" "weave_verify_file '$unit_dir/MANIFEST' install/codex-status.sh '$unit_dir/body'")" 1
 check "missing openssl reports verification unavailable" \
-  "$(unit "$no_openssl_bin" "weave_verify_manifest '$u/MANIFEST' '$u/MANIFEST.sig.b64' \"\$(cat '$keys/release.pub')\"")" 2
+  "$(unit "$no_openssl_bin" "weave_verify_manifest '$unit_dir/MANIFEST' '$unit_dir/MANIFEST.sig.b64' \"\$(cat '$keys/release.pub')\"")" 2
 
 # ---------- self-refresh (surfaces 1 and 3) ----------
 
@@ -320,7 +320,7 @@ for tool in cc codex; do
 
   # Missing signature.
   self_refresh_lab "$tool" "$tool-nosig"
-  rm -f "$rd/MANIFEST.sig.b64"
+  rm -f "$release_dir/MANIFEST.sig.b64"
   before="$(sha "$installed")"
   run_tool "$tool" "$installed"
   settle "$installed" "$next_tag/install/MANIFEST.sig.b64"
@@ -329,8 +329,8 @@ for tool in cc codex; do
   # An attacker's own key signing an attacker's MANIFEST that lists the body.
   self_refresh_lab "$tool" "$tool-otherkey"
   tamper_served
-  manifest_row "install/$file" "$served" >"$rd/MANIFEST"
-  sign "$rd/MANIFEST" "$keys/other.key" "$rd/MANIFEST.sig.b64"
+  manifest_row "install/$file" "$served" >"$release_dir/MANIFEST"
+  sign "$release_dir/MANIFEST" "$keys/other.key" "$release_dir/MANIFEST.sig.b64"
   before="$(sha "$installed")"
   run_tool "$tool" "$installed"
   settle "$installed" "$next_tag/install/$file"
@@ -339,7 +339,7 @@ for tool in cc codex; do
   # The genuine signature, served beside a different (edited) MANIFEST.
   self_refresh_lab "$tool" "$tool-swapped-manifest"
   tamper_served
-  manifest_row "install/$file" "$served" >"$rd/MANIFEST"
+  manifest_row "install/$file" "$served" >"$release_dir/MANIFEST"
   before="$(sha "$installed")"
   run_tool "$tool" "$installed"
   settle "$installed" "$next_tag/install/$file"
@@ -349,8 +349,8 @@ for tool in cc codex; do
   # and this file's row holds a different digest.
   self_refresh_lab "$tool" "$tool-wrong-row"
   tamper_served
-  { manifest_row "install/$file" "$good"; manifest_row "install/uninstall.sh" "$served"; } >"$rd/MANIFEST"
-  sign "$rd/MANIFEST" "$keys/release.key" "$rd/MANIFEST.sig.b64"
+  { manifest_row "install/$file" "$good"; manifest_row "install/uninstall.sh" "$served"; } >"$release_dir/MANIFEST"
+  sign "$release_dir/MANIFEST" "$keys/release.key" "$release_dir/MANIFEST.sig.b64"
   before="$(sha "$installed")"
   run_tool "$tool" "$installed"
   settle "$installed" "$next_tag/install/$file"
@@ -359,8 +359,8 @@ for tool in cc codex; do
   # The shape checks remain a second line of defence behind the signature.
   self_refresh_lab "$tool" "$tool-shape"
   printf '#!/bin/sh\necho short\n' >"$served"
-  manifest_row "install/$file" "$served" >"$rd/MANIFEST"
-  sign "$rd/MANIFEST" "$keys/release.key" "$rd/MANIFEST.sig.b64"
+  manifest_row "install/$file" "$served" >"$release_dir/MANIFEST"
+  sign "$release_dir/MANIFEST" "$keys/release.key" "$release_dir/MANIFEST.sig.b64"
   before="$(sha "$installed")"
   run_tool "$tool" "$installed"
   settle "$installed" "$next_tag/install/$file"
@@ -380,7 +380,7 @@ for tool in cc codex; do
   # The opt-in is not honored for the default publisher.
   self_refresh_lab "$tool" "$tool-optin-default"
   tamper_served
-  rm -f "$rd/MANIFEST" "$rd/MANIFEST.sig.b64"
+  rm -f "$release_dir/MANIFEST" "$release_dir/MANIFEST.sig.b64"
   before="$(sha "$installed")"
   run_tool "$tool" "$installed" WEAVE_STATUSLINE_TRUST_UNSIGNED=1 \
     "$url_var=https://raw.githubusercontent.com/weave-os/router/$next_tag/install/$file"
@@ -428,7 +428,7 @@ echo "cc-statusline.sh wrapper refresh"
 # commands_lab <name>: a user-scope install of the current release with fm and
 # rf wrappers, a pre-manifest baseline (what install.sh or an older statusline
 # wrote), and a release dir for the current tag. Main advertises the current
-# tag so the self-refresh is a no-op. Sets installed, cmd_dir, baseline, rd.
+# tag so the self-refresh is a no-op. Sets installed, cmd_dir, baseline, release_dir.
 commands_lab() {
   new_lab "$1"
   installed="$home/.weave/cc-statusline.sh"
@@ -436,24 +436,24 @@ commands_lab() {
   mkdir -p "$home/.weave" "$cmd_dir"
   cp "$cc_keyed" "$installed"; chmod 755 "$installed"
   cp "$cc_keyed" "$pub/raw/weave-os/router/main/install/cc-statusline.sh"
-  rd="$(rel_dir "$current_tag")"; mkdir -p "$rd/commands"
+  release_dir="$(rel_dir "$current_tag")"; mkdir -p "$release_dir/commands"
   baseline="$c/cache/weave-router/commands$(printf '%s' "$(cd "$cmd_dir" && pwd -P)" | tr -c 'A-Za-z0-9._-' '_')"
   mkdir -p "$baseline"
   local name
   for name in fm rf; do
     cp "$script_dir/../commands/$name.md" "$cmd_dir/$name.md"
     cp "$script_dir/../commands/$name.md" "$baseline/$name.md"
-    cp "$script_dir/../commands/$name.md" "$rd/commands/$name.md"
+    cp "$script_dir/../commands/$name.md" "$release_dir/commands/$name.md"
   done
 }
 sign_commands() { # sign_commands [key]: sign a MANIFEST of the release dir's wrappers
   local f
-  : >"$rd/MANIFEST"
-  for f in "$rd/commands"/*.md; do manifest_row "install/commands/${f##*/}" "$f" >>"$rd/MANIFEST"; done
-  sign "$rd/MANIFEST" "$keys/${1:-release}.key" "$rd/MANIFEST.sig.b64"
+  : >"$release_dir/MANIFEST"
+  for f in "$release_dir/commands"/*.md; do manifest_row "install/commands/${f##*/}" "$f" >>"$release_dir/MANIFEST"; done
+  sign "$release_dir/MANIFEST" "$keys/${1:-release}.key" "$release_dir/MANIFEST.sig.b64"
 }
 upstream_wrapper() { # upstream_wrapper <name> <description>
-  printf '%s\n' '---' "description: $2" '---' '' "/$1 \$ARGUMENTS" >"$rd/commands/$1.md"
+  printf '%s\n' '---' "description: $2" '---' '' "/$1 \$ARGUMENTS" >"$release_dir/commands/$1.md"
 }
 sync_settle() { # sync_settle <fragment>: bounded wait for the wrapper cycle to finish
   wait_for 20 log_has "$log" "$1" || return 1
@@ -461,7 +461,6 @@ sync_settle() { # sync_settle <fragment>: bounded wait for the wrapper cycle to 
   wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*" || return 1
   sleep 0.3
 }
-age_commands_stamp() { rm -f "$c/cache/weave-router/"checked-at*.commands; }
 
 # One-shot re-seed: with no sentinel the pre-manifest baseline is untrusted, so
 # the first verified cycle installs the verified bodies and writes the sentinel.
@@ -477,16 +476,16 @@ else
   no "the first verified cycle writes the .manifest-seeded sentinel" "present" "absent"
 fi
 sync_settle "commands/rf.md"
-check "re-seed installs the verified wrapper body" "$(cat "$cmd_dir/fm.md")" "$(cat "$rd/commands/fm.md")"
-check "re-seed records the verified body as the baseline" "$(sha "$baseline/fm.md")" "$(sha "$rd/commands/fm.md")"
-check "re-seed resets a wrapper edited before the upgrade once" "$(cat "$cmd_dir/rf.md")" "$(cat "$rd/commands/rf.md")"
+check "re-seed installs the verified wrapper body" "$(cat "$cmd_dir/fm.md")" "$(cat "$release_dir/commands/fm.md")"
+check "re-seed records the verified body as the baseline" "$(sha "$baseline/fm.md")" "$(sha "$release_dir/commands/fm.md")"
+check "re-seed resets a wrapper edited before the upgrade once" "$(cat "$cmd_dir/rf.md")" "$(cat "$release_dir/commands/rf.md")"
 
 # After the re-seed the baseline comparison preserves local edits again.
 printf '%s\n' 'MY OWN FM' >"$cmd_dir/fm.md"
 upstream_wrapper fm "release fm, take two."
 upstream_wrapper rf "release rf, take two."
 sign_commands
-age_commands_stamp
+rm -f "$c/cache/weave-router/"checked-at*.commands
 : >"$log"
 run_tool cc "$installed"
 if wait_for 20 grep -q 'take two' "$cmd_dir/rf.md"; then
@@ -563,12 +562,12 @@ uninstall_lab() {
   cp "$installer_keyed" "$c/bin-dir/install.sh"
   cp "$cc_keyed" "$pub/raw/weave-os/router/main/install/cc-statusline.sh"
   retag "$pub/raw/weave-os/router/main/install/cc-statusline.sh" "$next_tag"
-  rd="$(rel_dir "$next_tag")"; mkdir -p "$rd"
+  release_dir="$(rel_dir "$next_tag")"; mkdir -p "$release_dir"
   # The body expands $HOME when it runs, not here.
   # shellcheck disable=SC2016
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "genuine\n" >>"$HOME/uninstall-ran"' >"$rd/uninstall.sh"
-  manifest_row "install/uninstall.sh" "$rd/uninstall.sh" >"$rd/MANIFEST"
-  sign "$rd/MANIFEST" "$keys/release.key" "$rd/MANIFEST.sig.b64"
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "genuine\n" >>"$HOME/uninstall-ran"' >"$release_dir/uninstall.sh"
+  manifest_row "install/uninstall.sh" "$release_dir/uninstall.sh" >"$release_dir/MANIFEST"
+  sign "$release_dir/MANIFEST" "$keys/release.key" "$release_dir/MANIFEST.sig.b64"
 }
 run_uninstall() { # run_uninstall [VAR=value...]: sets rc
   local env_cmd=()
@@ -583,7 +582,7 @@ check "a signed uninstaller runs" "$rc:$(cat "$home/uninstall-ran" 2>/dev/null)"
 
 uninstall_lab un-tampered
 # shellcheck disable=SC2016
-printf '%s\n' 'printf "tampered\n" >>"$HOME/canary.txt"' >>"$rd/uninstall.sh"
+printf '%s\n' 'printf "tampered\n" >>"$HOME/canary.txt"' >>"$release_dir/uninstall.sh"
 run_uninstall
 check "a tampered uninstaller is refused" "$([ "$rc" -ne 0 ] && echo refused)" refused
 check_contains "the refusal names the manifest check" "$(cat "$c/stderr")" "Refusing to run uninstall.sh"
@@ -594,17 +593,17 @@ else
 fi
 
 uninstall_lab un-nosig
-rm -f "$rd/MANIFEST.sig.b64"
+rm -f "$release_dir/MANIFEST.sig.b64"
 run_uninstall
 check "an uninstaller without MANIFEST.sig.b64 is refused" "$([ "$rc" -ne 0 ] && file_absent "$home/uninstall-ran" && echo refused)" refused
 
 uninstall_lab un-otherkey
-sign "$rd/MANIFEST" "$keys/other.key" "$rd/MANIFEST.sig.b64"
+sign "$release_dir/MANIFEST" "$keys/other.key" "$release_dir/MANIFEST.sig.b64"
 run_uninstall
 check "an uninstaller MANIFEST signed with another key is refused" "$([ "$rc" -ne 0 ] && file_absent "$home/uninstall-ran" && echo refused)" refused
 
 uninstall_lab un-optin-default
-rm -f "$rd/MANIFEST" "$rd/MANIFEST.sig.b64"
+rm -f "$release_dir/MANIFEST" "$release_dir/MANIFEST.sig.b64"
 run_uninstall WEAVE_STATUSLINE_TRUST_UNSIGNED=1 \
   "WEAVE_UNINSTALL_URL=https://raw.githubusercontent.com/weave-os/router/$next_tag/install/uninstall.sh"
 check "WEAVE_STATUSLINE_TRUST_UNSIGNED=1 is refused for the default-publisher uninstaller" \

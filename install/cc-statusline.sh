@@ -98,14 +98,13 @@ weave_sha256() {
 # SHA-256 of <candidate>. Call only after weave_verify_manifest accepted
 # <manifest>.
 weave_verify_file() {
-  local manifest="${1:-}" name="${2:-}" candidate="${3:-}" rows want got rc
-  [[ -n "$name" && -f "$manifest" && -f "$candidate" ]] || return 1
-  rows="$(awk -v n="$name" 'NF == 2 && $2 == n { print $1 }' "$manifest")" || return 1
+  local manifest="${1:-}" path_in_manifest="${2:-}" candidate="${3:-}" rows got rc
+  [[ -n "$path_in_manifest" && -f "$manifest" && -f "$candidate" ]] || return 1
+  rows="$(awk -v n="$path_in_manifest" 'NF == 2 && $2 == n { print $1 }' "$manifest")" || return 1
   [[ "$rows" =~ ^[0-9a-f]{64}$ ]] || return 1
-  want="$rows"
   got="$(weave_sha256 "$candidate")" && rc=0 || rc=$?
   [[ "$rc" -eq 0 ]] || return "$rc"
-  [[ "$got" =~ ^[0-9a-f]{64}$ && "$got" == "$want" ]]
+  [[ "$got" =~ ^[0-9a-f]{64}$ && "$got" == "$rows" ]]
 }
 
 # ---------- unsigned self-hoster opt-in ----------
@@ -166,14 +165,14 @@ WEAVE_RELEASE_REPO_URL="https://raw.githubusercontent.com/weave-os/router"
 # weave_release_tag_newer <candidate> <floor>: succeeds when both are
 # router-vX.Y.Z tags and <candidate> is strictly newer than <floor>.
 weave_release_tag_newer() {
-  local re='^router-v([0-9]{1,9})\.([0-9]{1,9})\.([0-9]{1,9})$' a b i
+  local re='^router-v([0-9]{1,9})\.([0-9]{1,9})\.([0-9]{1,9})$' cand_parts floor_parts i
   [[ "${1:-}" =~ $re ]] || return 1
-  a=("${BASH_REMATCH[@]:1}")
+  cand_parts=("${BASH_REMATCH[@]:1}")
   [[ "${2:-}" =~ $re ]] || return 1
-  b=("${BASH_REMATCH[@]:1}")
+  floor_parts=("${BASH_REMATCH[@]:1}")
   for i in 0 1 2; do
-    (( 10#${a[i]} > 10#${b[i]} )) && return 0
-    (( 10#${a[i]} < 10#${b[i]} )) && return 1
+    (( 10#${cand_parts[i]} > 10#${floor_parts[i]} )) && return 0
+    (( 10#${cand_parts[i]} < 10#${floor_parts[i]} )) && return 1
   done
   return 1
 }

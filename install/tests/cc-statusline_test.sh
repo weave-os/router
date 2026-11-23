@@ -128,7 +128,7 @@ if ! { openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$test_
     && openssl pkey -in "$test_key" -pubout -out "$work/release.pub" 2>/dev/null; }; then
   echo "FATAL: could not generate a test RSA key" >&2; exit 1
 fi
-with_test_key() { # with_test_key <src> <dest>
+with_test_key() { # copy <src> to <dest>, swapping the embedded PEM public key for the per-run key
   awk -v pub="$work/release.pub" '
     $0 == "-----BEGIN PUBLIC KEY-----" { while ((getline line < pub) > 0) print line; close(pub); skip = 1; next }
     skip && $0 == "-----END PUBLIC KEY-----" { skip = 0; next }
