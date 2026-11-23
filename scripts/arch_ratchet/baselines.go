@@ -124,28 +124,36 @@ func parseGoAllowlists(sources map[string][]byte) (baselineCounts, error) {
 		}
 		files[name] = file
 	}
-	scope := packageConstants(fset, files)
+	scopes := packageConstants(fset, files)
 	counts := baselineCounts{}
 	for _, name := range sortedKeys(files) {
-		if err := collectGoAllowlists(counts, scope, files[name]); err != nil {
+		if err := collectGoAllowlists(counts, scopes[files[name].Name.Name], files[name]); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", name, err)
 		}
 	}
 	return counts, nil
 }
 
-func packageConstants(fset *token.FileSet, files map[string]*ast.File) *constantScope {
-	var decls []ast.Decl
+func packageConstants(fset *token.FileSet, files map[string]*ast.File) map[string]*constantScope {
+	decls := map[string][]ast.Decl{}
 	for _, name := range sortedKeys(files) {
+		pkgName := files[name].Name.Name
+		if _, seen := decls[pkgName]; !seen {
+			decls[pkgName] = nil
+		}
 		for _, decl := range files[name].Decls {
-			if gen, ok := decl.(*ast.GenDecl); ok && gen.Tok == token.CONST {
-				decls = append(decls, gen)
+			if gen, ok := decl.(*ast.GenDecl); ok && (gen.Tok == token.CONST || gen.Tok == token.TYPE) {
+				decls[pkgName] = append(decls[pkgName], gen)
 			}
 		}
 	}
-	config := types.Config{Error: func(error) {}}
-	pkg, _ := config.Check("constants", fset, []*ast.File{{Name: ast.NewIdent("constants"), Decls: decls}}, nil)
-	return &constantScope{fset: fset, pkg: pkg}
+	scopes := map[string]*constantScope{}
+	for pkgName, pkgDecls := range decls {
+		config := types.Config{Error: func(error) {}}
+		pkg, _ := config.Check(pkgName, fset, []*ast.File{{Name: ast.NewIdent(pkgName), Decls: pkgDecls}}, nil)
+		scopes[pkgName] = &constantScope{fset: fset, pkg: pkg}
+	}
+	return scopes
 }
 
 type constantScope struct {
@@ -285,7 +293,7 @@ func (scope *constantScope) constantOf(expression ast.Expr) (constant.Value, err
 	if err != nil {
 		return nil, fmt.Errorf("evaluate %s as a constant: %w", types.ExprString(expression), err)
 	}
-	if evaluated.Value == nil {
+	if evaluated.Value == nil || evaluated.Value.Kind() == constant.Unknown {
 		return nil, fmt.Errorf("%s is not a constant", types.ExprString(expression))
 	}
 	return evaluated.Value, nil

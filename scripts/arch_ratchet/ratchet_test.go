@@ -609,6 +609,12 @@ func TestRunKeepsCheckingAllowlistsThatMoveOrChangeSpelling(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, result.violations, "spelling a key with a package constant from another file is not growth")
 
+	write("internal/architecture/env_shadow.go", "package architecture\n\ntype pathName string\n\nconst packageA pathName = \"internal/b\"\n")
+	write("internal/architecture/env_paths_test.go", "package architecture_test\n\ntype pathName string\n\nconst (\n\tinternalRoot pathName = \"internal\"\n\tpackageA              = internalRoot + \"/a\"\n)\n")
+	result, err = run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	assert.Empty(t, result.violations, "a key resolves in its own package, through local types")
+
 	write("internal/architecture/env_reads_test.go", "package architecture_test\n\nvar envReadAllowlist = map[string]int{\"internal/\" + \"a\": 1 + 1}\n")
 	write(exceptionsPath, `{"exceptions":[{"subject":"internal/architecture#envReadAllowlist/internal/a","metric":"baseline_growth","max":1,"reason":"cap below the new count"}]}`)
 	result, err = run(t.Context(), repo{root: root}, "main")
@@ -620,10 +626,11 @@ func TestRunKeepsCheckingAllowlistsThatMoveOrChangeSpelling(t *testing.T) {
 
 func TestRunRejectsAllowlistsItCannotCount(t *testing.T) {
 	for name, literal := range map[string]string{
-		"parenthesized literal": `(map[string]int{"internal/a": 1})`,
-		"named constant key":    `map[string]int{someKey: 1}`,
-		"named constant count":  `map[string]int{"internal/a": someCount}`,
-		"non-literal value":     `buildAllowlist()`,
+		"parenthesized literal":  `(map[string]int{"internal/a": 1})`,
+		"named constant key":     `map[string]int{someKey: 1}`,
+		"named constant count":   `map[string]int{"internal/a": someCount}`,
+		"unresolved typed count": `map[string]int{"internal/a": int(someCount)}`,
+		"non-literal value":      `buildAllowlist()`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			root, git := newTempGitRepo(t)
