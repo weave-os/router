@@ -92,7 +92,7 @@ func TestCodexQuotaExhaustion_Classification(t *testing.T) {
 			Body: []byte(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached",` +
 				`"plan_type":"team","resets_at":` + strconv.FormatInt(resetAt.Unix(), 10) + `}}`),
 		}
-		got, exhausted := codexQuotaExhaustion(err)
+		got, exhausted := credentials.CodexQuotaExhaustion(err)
 		require.True(t, exhausted, "usage_limit_reached is the ChatGPT plan-window rejection")
 		assert.Equal(t, resetAt, got, "the upstream-reported reset bounds how long the plan stays suppressed")
 	})
@@ -102,7 +102,7 @@ func TestCodexQuotaExhaustion_Classification(t *testing.T) {
 			Status: http.StatusTooManyRequests,
 			Body:   []byte(`{"error":{"type":"insufficient_quota","message":"Your workspace is out of credits."}}`),
 		}
-		got, exhausted := codexQuotaExhaustion(err)
+		got, exhausted := credentials.CodexQuotaExhaustion(err)
 		require.True(t, exhausted, "an out-of-credits workspace can't serve the turn either")
 		assert.True(t, got.IsZero(), "no resets_at means no known reset instant")
 	})
@@ -112,13 +112,13 @@ func TestCodexQuotaExhaustion_Classification(t *testing.T) {
 			Status: http.StatusTooManyRequests,
 			Body:   []byte(`{"error":{"type":"rate_limit_exceeded","message":"Slow down"}}`),
 		}
-		_, exhausted := codexQuotaExhaustion(err)
+		_, exhausted := credentials.CodexQuotaExhaustion(err)
 		assert.False(t, exhausted,
 			"a transient per-minute throttle must not mark the plan spent for the rest of the window")
 	})
 
 	t.Run("non-upstream error is not exhaustion", func(t *testing.T) {
-		_, exhausted := codexQuotaExhaustion(context.DeadlineExceeded)
+		_, exhausted := credentials.CodexQuotaExhaustion(context.DeadlineExceeded)
 		assert.False(t, exhausted, "a transport error says nothing about the plan's quota")
 	})
 }
@@ -148,7 +148,7 @@ func TestCodexSubscriptionModelRejected(t *testing.T) {
 		{name: "unstructured not found", err: &providers.UpstreamErrorResponse{Status: http.StatusNotFound, Body: []byte(`not found`)}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, codexSubscriptionModelRejected(tc.err))
+			assert.Equal(t, tc.want, credentials.CodexSubscriptionModelRejected(tc.err))
 		})
 	}
 }
@@ -157,12 +157,12 @@ func TestCodexSubscriptionModelRejected(t *testing.T) {
 // or expired ChatGPT token, which needs recovery without assuming spent quota.
 func TestCodexOAuthCredentialRejected(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
-		assert.True(t, codexOAuthCredentialRejected(&providers.UpstreamErrorResponse{Status: status}),
+		assert.True(t, credentials.CodexOAuthCredentialRejected(&providers.UpstreamErrorResponse{Status: status}),
 			"a %d from the Codex backend means the OAuth token itself was refused", status)
 	}
-	assert.False(t, codexOAuthCredentialRejected(&providers.UpstreamErrorResponse{Status: http.StatusBadRequest}),
+	assert.False(t, credentials.CodexOAuthCredentialRejected(&providers.UpstreamErrorResponse{Status: http.StatusBadRequest}),
 		"a 400 is a request-shape problem the Weave key would hit identically")
-	assert.False(t, codexOAuthCredentialRejected(context.DeadlineExceeded),
+	assert.False(t, credentials.CodexOAuthCredentialRejected(context.DeadlineExceeded),
 		"only buffered upstream envelopes classify as credential rejections")
 }
 
@@ -217,14 +217,14 @@ func TestCodexQuotaExhaustion_RecordedForLaterTurns(t *testing.T) {
 func TestCodexExhaustionWindow_OutlivesWeeklyReset(t *testing.T) {
 	now := time.Now()
 
-	weekly := codexExhaustionWindow(now.Add(6*24*time.Hour), now)
+	weekly := credentials.CodexExhaustionWindow(now.Add(6*24*time.Hour), now)
 	assert.Greater(t, time.Duration(weekly.WindowMinutes)*time.Minute, 6*24*time.Hour-time.Minute,
 		"a weekly reset must be retained until it actually resets")
 
-	rolling := codexExhaustionWindow(now.Add(2*time.Hour), now)
-	assert.Equal(t, codexQuotaWindowMinutes, rolling.WindowMinutes,
+	rolling := credentials.CodexExhaustionWindow(now.Add(2*time.Hour), now)
+	assert.Equal(t, credentials.CodexQuotaWindowMinutes, rolling.WindowMinutes,
 		"a reset inside the rolling window keeps the default length; freshFor clamps to ResetAt")
-	assert.Equal(t, codexQuotaWindowMinutes, codexExhaustionWindow(time.Time{}, now).WindowMinutes,
+	assert.Equal(t, credentials.CodexQuotaWindowMinutes, credentials.CodexExhaustionWindow(time.Time{}, now).WindowMinutes,
 		"a body naming no reset falls back to the rolling window")
 }
 

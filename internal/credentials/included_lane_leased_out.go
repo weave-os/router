@@ -1,4 +1,4 @@
-package proxy
+package credentials
 
 import (
 	"context"
@@ -8,15 +8,15 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
 
-func leaseOrMarkLeasedOut(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, pool subscriptions.Provider, model, sessionID string) (subscriptions.Lease, bool, error) {
+func LeaseOrMarkLeasedOut(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, pool subscriptions.Provider, model, sessionID string) (subscriptions.Lease, bool, error) {
 	lease, present, err := leaser.Lease(ctx, owner, pool, sessionID)
-	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
+	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if state == nil || state.ClientAppRefused || (err == nil && present) || (err != nil && !errors.Is(err, subscriptions.ErrNoAvailableAccount)) {
 		return lease, present, err
 	}
@@ -27,13 +27,13 @@ func leaseOrMarkLeasedOut(ctx context.Context, leaser subscriptions.Leaser, owne
 	return lease, present, err
 }
 
-func includedLaneCannotServe(ctx context.Context, pool subscriptions.Provider, target inference.Target, now time.Time) bool {
-	return credentials.SubscriptionProviderUnavailable(ctx, pool, now) || includedLaneLeasedOut(ctx, pool, target, now)
+func IncludedLaneCannotServe(ctx context.Context, pool subscriptions.Provider, target inference.Target, now time.Time) bool {
+	return SubscriptionProviderUnavailable(ctx, pool, now) || includedLaneLeasedOut(ctx, pool, target, now)
 }
 
 func includedLaneLeasedOut(ctx context.Context, pool subscriptions.Provider, target inference.Target, now time.Time) bool {
-	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
-	if state == nil || !callerPlanThrottled(ctx, pool, now) {
+	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	if state == nil || !CallerPlanThrottled(ctx, pool, now) {
 		return false
 	}
 	for _, model := range []string{target.CatalogID, target.UpstreamID} {
@@ -44,7 +44,7 @@ func includedLaneLeasedOut(ctx context.Context, pool subscriptions.Provider, tar
 	return false
 }
 
-func attemptedSeatsRateLimited(state *credentials.ManagedSubscriptionUsage, model string, now time.Time) bool {
+func attemptedSeatsRateLimited(state *ManagedSubscriptionUsage, model string, now time.Time) bool {
 	for pair := range state.AttemptedAccounts {
 		accountID, found := strings.CutSuffix(pair, "\x00"+model)
 		if found && !state.ThrottledAccounts[accountID].After(now) && !state.QuotaExhaustedAccounts[accountID].After(now) {
@@ -54,32 +54,37 @@ func attemptedSeatsRateLimited(state *credentials.ManagedSubscriptionUsage, mode
 	return true
 }
 
-func recordCallerCodexFailureOnLinkedSeat(ctx context.Context, creds *requestcontext.Credentials, attemptErr error, now time.Time) {
-	if creds == nil || !creds.OAuth || creds.SubscriptionAccountID != "" || len(creds.AccountID) == 0 || upstreamStatus(attemptErr) != http.StatusTooManyRequests {
+func RecordCallerCodexFailureOnLinkedSeat(ctx context.Context, creds *requestcontext.Credentials, attemptErr error, now time.Time) {
+	if creds == nil || !creds.OAuth || creds.SubscriptionAccountID != "" || len(creds.AccountID) == 0 || providers.UpstreamStatus(attemptErr) != http.StatusTooManyRequests {
 		return
 	}
-	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
-	candidates, _ := ctx.Value(credentials.ManagedSubscriptionCandidatesContextKey{}).([]credentials.ManagedSubscriptionCandidate)
+	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	candidates, _ := ctx.Value(ManagedSubscriptionCandidatesContextKey{}).([]ManagedSubscriptionCandidate)
 	callerUserID := subscriptions.CodexUserIDFromJWT(string(creds.APIKey))
 	if state == nil || state.IntendedModel == "" || callerUserID == "" {
 		return
 	}
-	resetAt, spent := codexQuotaExhaustion(attemptErr)
+	resetAt, spent := CodexQuotaExhaustion(attemptErr)
 	if resetAt.IsZero() {
-		resetAt = credentials.ManagedSubscriptionResetAt(attemptErr, now)
+		resetAt = ManagedSubscriptionResetAt(attemptErr, now)
 	}
 	for _, candidate := range candidates {
 		if candidate.Provider != auth.SubscriptionProviderCodex || candidate.ExternalAccountID != string(creds.AccountID) || candidate.ProviderUserID != callerUserID {
 			continue
 		}
 		if spent {
-			credentials.RecordManagedQuotaProof(ctx, candidate.AccountID, resetAt)
+			RecordManagedQuotaProof(ctx, candidate.AccountID, resetAt)
 		} else {
-			credentials.RecordManagedThrottle(ctx, candidate.AccountID, resetAt)
+			RecordManagedThrottle(ctx, candidate.AccountID, resetAt)
 		}
 		if state.AttemptedAccounts == nil {
 			state.AttemptedAccounts = make(map[string]struct{})
 		}
 		state.AttemptedAccounts[candidate.AccountID+"\x00"+state.IntendedModel] = struct{}{}
 	}
+}
+
+func CallerPlanThrottled(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
+	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	return state != nil && state.ThrottledProviders[pool].After(now)
 }

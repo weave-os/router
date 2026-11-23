@@ -266,7 +266,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			}
 			if err == nil || surface == surfaceChat ||
 				committed(deps.preludeBuf) || !providers.IsUpstreamResponsesUnsupported(err) ||
-				codexSubscriptionModelRejected(err) {
+				credentials.CodexSubscriptionModelRejected(err) {
 				return err
 			}
 			if deps.responseSwitch.fallbackToChat(surface) != nil {

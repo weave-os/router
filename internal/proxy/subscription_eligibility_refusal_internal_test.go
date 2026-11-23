@@ -33,7 +33,7 @@ func TestClaudeEnterpriseRefusalOutranksEveryLaneMark(t *testing.T) {
 	target := inference.Target{Provider: providers.ProviderAnthropic, CatalogID: catalog.ModelIDClaudeOpus48.String()}
 	for name, ctx := range eligibilityRefusalContexts() {
 		t.Run(name, func(t *testing.T) {
-			err := claudeEnterpriseFunding(enterpriseOnlyContext(ctx), target, false)
+			err := credentials.ClaudeEnterpriseFunding(enterpriseOnlyContext(ctx), target, false)
 
 			require.ErrorIs(t, err, credentials.ErrClaudeEnterpriseSubscriptionUnavailable)
 			assert.Equal(t, refusal.ClaudeEnterpriseOnly.Contract(), classifiedRefusal(t, err))

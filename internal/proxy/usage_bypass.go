@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -88,25 +87,6 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req router.Request) (provider, token string, covered bool) {
 	codexToken, anthropicToken := credentials.PresentSubscriptionTokens(ctx, headers)
 	return overrides.SubscriptionCoveredTarget(req, codexToken, anthropicToken)
-}
-
-func anthropicOAuthCredentialRejected(err error) bool {
-	var buffered *providers.UpstreamErrorResponse
-	if !errors.As(err, &buffered) {
-		return false
-	}
-	if buffered.Status != http.StatusUnauthorized && buffered.Status != http.StatusForbidden {
-		return false
-	}
-	var env struct {
-		Error struct {
-			Type string `json:"type"`
-		} `json:"error"`
-	}
-	if jsonErr := json.Unmarshal(buffered.Body, &env); jsonErr != nil {
-		return false
-	}
-	return env.Error.Type == "authentication_error" || env.Error.Type == "permission_error"
 }
 
 const topUpURL = "https://app.weaveos.com/organization/settings/weave-router/credits"
@@ -301,10 +281,10 @@ func (s *Service) bypassToAnthropic(
 	}
 	if env.Stream() && proxyErr != nil && preludeBuf.Committed() {
 		proxyErr = emitAnthropicSSEErrorEvent(w, proxyErr)
-	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) && bypassMayReroute(ctx, proxyErr) {
+	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) && credentials.BypassMayReroute(ctx, proxyErr) {
 		return errBypassRetryable
 	}
-	if !credentials.ClaudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || credentials.AnthropicSubscriptionThirdPartyRefused(proxyErr)) && s.credentials.AnthropicFallbackKeyAvailable(ctx) &&
+	if !credentials.ClaudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (credentials.AnthropicSubscriptionModelRejected(proxyErr) || credentials.AnthropicSubscriptionThirdPartyRefused(proxyErr)) && s.credentials.AnthropicFallbackKeyAvailable(ctx) &&
 		(!billing.SubscriptionOnlyFromContext(ctx) || credentials.LinkedFirst(ctx)) {
 		return errBypassRetryable
 	}

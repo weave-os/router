@@ -113,7 +113,7 @@ func TestModelQuotaRejectionLeavesOtherModelsOnSubscription(t *testing.T) {
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderOpenAI: client}).WithUsageObserver(usage.NewObserver([]byte("synthetic-quota-salt"), time.Minute, time.Now))
 	err := client.Proxy(credentialCtx, router.Decision{Model: "gpt-6-astra", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6-astra","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	require.Error(t, err)
-	_, accountSpent := codexQuotaExhaustion(err)
+	_, accountSpent := credentials.CodexQuotaExhaustion(err)
 	require.False(t, accountSpent)
 	svc.recordCodexQuotaExhaustion(credentialCtx, http.Header{}, err)
 	svc.recordSubscriptionModelRejection(credentialCtx, providers.ProviderOpenAI, "gpt-6-astra", err)

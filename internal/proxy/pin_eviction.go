@@ -161,7 +161,7 @@ func subscriptionArmPinEvictionReason(err error) string {
 	switch {
 	case credentials.IsSubscriptionPoolError(err):
 		return pinEvictionReasonSubscriptionPool
-	case anthropicSubscriptionModelRejected(err):
+	case credentials.AnthropicSubscriptionModelRejected(err):
 		return pinEvictionReasonSubscriptionModel
 	default:
 		return ""

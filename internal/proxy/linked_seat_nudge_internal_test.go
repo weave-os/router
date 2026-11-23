@@ -209,7 +209,7 @@ func TestSpentOwnCodexPlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.T
 			client := openai.NewClient("weave-capacity", server.URL)
 			client.SetCodexBaseURL(server.URL)
 			observer := usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)
-			observer.Record(observer.Key([]byte(codexTestToken)), usage.Snapshot{Primary: usage.Window{UsedPercent: 1, WindowMinutes: codexQuotaWindowMinutes, ResetAt: time.Now().Add(3 * time.Hour)}})
+			observer.Record(observer.Key([]byte(codexTestToken)), usage.Snapshot{Primary: usage.Window{UsedPercent: 1, WindowMinutes: credentials.CodexQuotaWindowMinutes, ResetAt: time.Now().Add(3 * time.Hour)}})
 			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
 				WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "teammate", AccessToken: "pool-seat", ProviderAccount: "teammate-provider", Tier: auth.SubscriptionTierShared}}, repeatLast: true}).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).

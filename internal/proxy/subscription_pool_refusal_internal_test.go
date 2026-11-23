@@ -138,10 +138,10 @@ func TestEveryPoolVerdictSentinelClassifiesAsItsRefusedState(t *testing.T) {
 func TestEveryPoolRefusalIsAFundingFailureThatSparesTheModel(t *testing.T) {
 	for mark, lane := range subscriptionLaneRefusalCases() {
 		for name, pin := range poolRefusalPins() {
-			assert.True(t, subscriptionFundingFailure(pin.err(lane.ctx)), "%s/%s", mark, name)
+			assert.True(t, credentials.SubscriptionFundingFailure(pin.err(lane.ctx)), "%s/%s", mark, name)
 		}
 		for on := range credentials.SubscriptionPoolVerdicts {
-			assert.True(t, subscriptionFundingFailure(credentials.SubscriptionPoolRefusal(lane.ctx, on)), "%s/%s", mark, on)
+			assert.True(t, credentials.SubscriptionFundingFailure(credentials.SubscriptionPoolRefusal(lane.ctx, on)), "%s/%s", mark, on)
 		}
 	}
 }

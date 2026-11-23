@@ -124,7 +124,7 @@ func proxyClassifierWithRefusalRescue(ctx context.Context, proxy classifierProxy
 		}
 		fallbackResp := &bufferedResponse{header: make(http.Header)}
 		fallbackErr := proxy(target.decision, fallbackPrep, fallbackResp)
-		if anthropicSubscriptionModelRejected(fallbackErr) {
+		if credentials.AnthropicSubscriptionModelRejected(fallbackErr) {
 			rescue.rejected(target.decision.Model, fallbackErr)
 			log.Info("classifier refusal fallback model unavailable on subscription; trying next",
 				"from_model", served.Model, "to_model", target.decision.Model, "refusal_category", category)

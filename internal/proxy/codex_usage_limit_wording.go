@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 )
@@ -21,14 +22,14 @@ func codexUsageLimitOf(a dispatch.TracedAttempt) (codexUsageLimit, bool) {
 		return codexUsageLimit{}, false
 	}
 	upstream := findUpstreamError(a.Err, func(candidate *providers.UpstreamErrorResponse) bool {
-		_, exhausted := codexQuotaExhaustion(candidate)
+		_, exhausted := credentials.CodexQuotaExhaustion(candidate)
 		return exhausted
 	})
 	if upstream == nil {
 		return codexUsageLimit{}, false
 	}
 	limit := codexUsageLimit{upstream: upstream}
-	if resetAt, _ := codexQuotaExhaustion(upstream); !resetAt.IsZero() && !a.At.IsZero() && resetAt.After(a.At) {
+	if resetAt, _ := credentials.CodexQuotaExhaustion(upstream); !resetAt.IsZero() && !a.At.IsZero() && resetAt.After(a.At) {
 		limit.resetIn = resetAt.Sub(a.At)
 	}
 	return limit, true
