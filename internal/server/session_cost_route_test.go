@@ -116,7 +116,7 @@ func TestSessionCostRouteAcceptsReadKeysWithoutServingAdmission(t *testing.T) {
 	engine := gin.New()
 	engine.UseRawPath = true
 	engine.UnescapePathValues = true
-	server.RegisterWithFeatures(engine, authSvc, proxySvc, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
+	server.RegisterWithFeatures(engine, authSvc, proxySvc, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}, TelemetryQueries: turnrecord.Queries{Repo: telemetry}})
 
 	serve := func(method, path, token string) *httptest.ResponseRecorder {
 		req := httptest.NewRequestWithContext(t.Context(), method, path, nil)

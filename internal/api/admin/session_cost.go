@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/telemetry/turnrecord"
 
@@ -32,7 +31,7 @@ type sessionCostResponse struct {
 	LastRecordedAt         string                      `json:"last_recorded_at"`
 }
 
-func SessionCostHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func SessionCostHandler(queries turnrecord.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation := middleware.InstallationFrom(c)
 		if installation == nil {
@@ -40,8 +39,8 @@ func SessionCostHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 
-		cost, err := proxySvc.SessionCost(c.Request.Context(), installation.ID, c.Param("session_id"))
-		if errors.Is(err, proxy.ErrInvalidSessionID) {
+		cost, err := queries.SessionCost(c.Request.Context(), installation.ID, c.Param("session_id"))
+		if errors.Is(err, turnrecord.ErrInvalidSessionID) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"message": "Invalid session id", "description": err.Error()})
 			return
 		}
@@ -49,7 +48,7 @@ func SessionCostHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"message": "No router cost found for this session. It may not exist, or its telemetry may not be recorded yet."})
 			return
 		}
-		if errors.Is(err, proxy.ErrSessionCostUnavailable) {
+		if errors.Is(err, turnrecord.ErrSessionCostUnavailable) {
 			observability.FromGin(c).Warn("Session cost requested but telemetry storage is not configured", "installation_id", installation.ID)
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"message": "WeaveRouter is not available on this deployment"})
 			return
