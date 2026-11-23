@@ -147,7 +147,7 @@ func (x *switchExperiment) apply(ctx context.Context, env *translate.RequestEnve
 	if verdict.Compact && !hasReady {
 		input.CompactedTokens = 0
 		verdict = routingpolicy.DecideSwitch(input)
-		log.Info("switch experiment summary not ready; switching with full history", "current", current, "summarizer_model", summarizer)
+		log.Info("switch experiment summary not ready; deciding without compaction", "current", current, "summarizer_model", summarizer, "serve", verdict.Serve, "reason", string(verdict.Reason))
 	}
 	served := res.Fresh
 	if verdict.Serve != res.Fresh.Model {
