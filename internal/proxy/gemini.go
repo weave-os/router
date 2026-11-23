@@ -7,6 +7,8 @@ import (
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/telemetry/iolog"
+	"weave-os/router/internal/telemetry/spans"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
@@ -84,7 +86,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	)
 
 	if s.effectiveCaptureMode(ctx) != capture.Off {
-		logInboundRequestDiagnostics(log, env)
+		iolog.LogInboundRequestDiagnostics(log, env)
 	}
 
 	subAgentHint := r.Header.Get("x-weave-subagent-type")
@@ -199,7 +201,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	proxyStart := s.clock.Now()
 	inferenceParentCtx := ctx
-	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
+	ctx, inferenceSpan := spans.StartInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
 	defer inferenceSpan.End()
 	var extractor *telemetry.UsageExtractor
 	clientSink := w
@@ -258,8 +260,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if winnerIdx >= 0 && winnerIdx < len(bindings) {
 		finalProvider = bindings[winnerIdx].Provider
 	}
-	finishInferenceSpan(inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
-	ctx = restoreParentSpan(ctx, inferenceParentCtx)
+	spans.FinishInferenceSpan(inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
+	ctx = spans.RestoreParentSpan(ctx, inferenceParentCtx)
 	decision.Provider = finalProvider
 	if actBindingPricing, ok := servedPricing(finalProvider, decision.Model, false); ok {
 		actPricing = actBindingPricing

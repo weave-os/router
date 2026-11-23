@@ -1,4 +1,4 @@
-package proxy
+package iolog
 
 import (
 	"log/slog"
@@ -8,7 +8,7 @@ import (
 	"weave-os/router/internal/translate/toolcheck"
 )
 
-func logToolCallIssues(log *slog.Logger, issues []toolcheck.Issue, model, provider string, sessionKey [sessionpin.SessionKeyLen]byte) {
+func LogToolCallIssues(log *slog.Logger, issues []toolcheck.Issue, model, provider string, sessionKey [sessionpin.SessionKeyLen]byte) {
 	for _, iss := range issues {
 		log.Info("router.tool_call_invalid",
 			"tool_name", iss.ToolName,

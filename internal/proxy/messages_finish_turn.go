@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/telemetry/iolog"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/conversation"
@@ -358,7 +359,7 @@ func strikeMessagesArms(ctx context.Context, s *Service, t *messagesFinishedTurn
 }
 
 func completeMessagesTurn(ctx context.Context, s *Service, t *messagesFinishedTurn, usage messagesTurnUsage, armStrikeFields []any) {
-	logToolCallIssues(t.log, t.respSummary.ToolCallIssues, t.decision.Model, t.finalProvider, t.routeRes.SessionKey)
+	iolog.LogToolCallIssues(t.log, t.respSummary.ToolCallIssues, t.decision.Model, t.finalProvider, t.routeRes.SessionKey)
 
 	if t.preludeBuf.Committed() {
 		t.streamCut.noteCut(t.proxyErr)

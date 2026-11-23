@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/translate"
 )
 
@@ -156,9 +157,9 @@ func (s *Service) Route(ctx context.Context, req router.Request) (router.Decisio
 }
 
 func routeWithSpan(ctx context.Context, s *Service, strategy router.Strategy, req router.Request) (router.Decision, error) {
-	routeCtx, span := startRoutingSpan(ctx, strategy, req)
+	routeCtx, span := spans.StartRoutingSpan(ctx, strategy, req)
 	decision, err := s.routeFor(routeCtx, strategy, req)
-	finishRoutingSpan(span, decision, err)
+	spans.FinishRoutingSpan(span, decision, err)
 	return decision, err
 }
 
