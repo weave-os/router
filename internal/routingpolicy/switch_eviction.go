@@ -70,7 +70,7 @@ func rewriteProbability(model string, state sessionpin.ModelCacheState, known bo
 	if state.MessageCount > 0 && turn.messageCount > 0 {
 		appended = turn.messageCount - state.MessageCount
 	}
-	if !providers.UsesBlockLookbackCache(m.PrimaryProvider()) {
+	if providers.FamilyFor(m.PrimaryProvider()) != providers.FamilyAnthropic {
 		return prefixCacheRewriteProbability(turn.now.Sub(state.ServedAt), appended)
 	}
 	if turn.now.Sub(state.ServedAt) >= recordedCacheTTL(m, state) {
@@ -124,11 +124,11 @@ func expectedTurnUSD(model string, outlook CacheOutlook, tokens, outputTokens in
 	if writeTTL <= 0 {
 		writeTTL = providers.CacheTTLFor(m.PrimaryProvider())
 	}
-	write := price.EffectiveCacheWriteMultiplier()
+	writeMultiplier := price.EffectiveCacheWriteMultiplier()
 	if writeTTL >= time.Hour {
-		write = price.EffectiveCacheWrite1hMultiplier(m.PrimaryProvider())
+		writeMultiplier = price.EffectiveCacheWrite1hMultiplier(m.PrimaryProvider())
 	}
 	return outlook.ReadTokens*in*price.EffectiveCacheReadMultiplier() +
-		outlook.WriteTokens*in*write +
+		outlook.WriteTokens*in*writeMultiplier +
 		float64(outputTokens)*price.OutputUSDPer1M/1e6, true
 }
