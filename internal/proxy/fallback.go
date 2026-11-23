@@ -49,7 +49,7 @@ func (s *Service) shouldFailover(ctx context.Context) bool {
 	if s.credentials.BYOKOnly {
 		return false
 	}
-	if CredentialsFromContext(ctx) != nil {
+	if credentials.CredentialsFromContext(ctx) != nil {
 		return false
 	}
 	if len(credentials.ExternalKeysFromContext(ctx)) > 0 {
@@ -67,7 +67,7 @@ func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision route
 	}
 	if s.shouldFailover(ctx) && s.credentials.KeyedProviders != nil {
 		req.DeploymentKeyedProviders = s.credentials.KeyedProviders
-		req.SubscriptionServes = managedSubscriptionCanServe(ctx, decision.Provider, decision.Model) && s.supportsSubscriptionTransport(decision.Provider)
+		req.SubscriptionServes = credentials.ManagedSubscriptionCanServe(ctx, decision.Provider, decision.Model) && s.supportsSubscriptionTransport(decision.Provider)
 		req.Excluded = s.excludedProvidersForRequest(ctx)
 	}
 	return dispatch.OrderedBindings(req)
@@ -204,17 +204,4 @@ func flushUpstreamErrorAsAnthropic(w http.ResponseWriter, err error) {
 
 func attemptIdxLabel(i int) string {
 	return strconv.Itoa(i)
-}
-
-type subscriptionOnlyAttemptKey struct{}
-type subscriptionAPIOnlyKey struct{}
-type subscriptionRotationBudgetKey struct{}
-
-func subscriptionAttemptOnly(ctx context.Context) bool {
-	value, _ := ctx.Value(subscriptionOnlyAttemptKey{}).(bool)
-	return value
-}
-func subscriptionAPIOnly(ctx context.Context) bool {
-	value, _ := ctx.Value(subscriptionAPIOnlyKey{}).(bool)
-	return value
 }

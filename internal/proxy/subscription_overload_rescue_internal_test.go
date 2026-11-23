@@ -224,20 +224,20 @@ func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
 // sibling the walk's decision is already Anthropic, and the next Anthropic
 // candidate must still not inherit the Codex token.
 func TestRescueCredentialContext_ClearsForeignOAuthBearer(t *testing.T) {
-	codex := &Credentials{APIKey: []byte("tok"), AccountID: []byte("acct"), Source: credSourceCodexSubscription, OAuth: true}
-	ctx := context.WithValue(context.Background(), CredentialsContextKey{}, codex)
-	assert.Nil(t, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)))
-	assert.Nil(t, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderFireworks)))
-	assert.Equal(t, codex, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderOpenAI)))
+	codex := &requestcontext.Credentials{APIKey: []byte("tok"), AccountID: []byte("acct"), Source: requestcontext.SourceCodexSubscription, OAuth: true}
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, codex)
+	assert.Nil(t, credentials.CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)))
+	assert.Nil(t, credentials.CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderFireworks)))
+	assert.Equal(t, codex, credentials.CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderOpenAI)))
 
-	claude := &Credentials{APIKey: []byte("sk-ant-oat01-tok"), Source: credSourceSubscription, OAuth: true}
-	ctx = context.WithValue(context.Background(), CredentialsContextKey{}, claude)
-	assert.Nil(t, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderOpenAI)))
-	assert.Equal(t, claude, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)))
+	claude := &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-tok"), Source: requestcontext.SourceSubscription, OAuth: true}
+	ctx = context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, claude)
+	assert.Nil(t, credentials.CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderOpenAI)))
+	assert.Equal(t, claude, credentials.CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)))
 
-	byok := &Credentials{APIKey: []byte("sk-byok"), Source: credSourceBYOK}
-	ctx = context.WithValue(context.Background(), CredentialsContextKey{}, byok)
-	assert.Equal(t, byok, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)), "only OAuth bearers are cleared")
+	byok := &requestcontext.Credentials{APIKey: []byte("sk-byok"), Source: requestcontext.SourceBYOK}
+	ctx = context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, byok)
+	assert.Equal(t, byok, credentials.CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)), "only OAuth bearers are cleared")
 }
 
 // A Responses response.failed is surfaced as a buffered 502 whatever it says;
@@ -268,27 +268,27 @@ func emptyCompletion502() error {
 }
 
 func TestSubscriptionSiblingAllowed(t *testing.T) {
-	oauth := &Credentials{APIKey: []byte("tok"), AccountID: []byte("acct"), Source: credSourceCodexSubscription, OAuth: true}
+	oauth := &requestcontext.Credentials{APIKey: []byte("tok"), AccountID: []byte("acct"), Source: requestcontext.SourceCodexSubscription, OAuth: true}
 	t.Run("subscription OAuth permits sibling rescue", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
-		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
+		ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, oauth)
 		assert.False(t, s.shouldFailover(ctx), "generic binding failover stays off for an OAuth credential")
 		assert.True(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK credential does not", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
-		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, &Credentials{APIKey: []byte("sk-byok"), Source: credSourceBYOK})
+		ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{APIKey: []byte("sk-byok"), Source: requestcontext.SourceBYOK})
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK keys on the request keep the generic rule", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
-		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
+		ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, oauth)
 		ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderMakora, Plaintext: []byte("mk")}})
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK-only deployment never rescues", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{BYOKOnly: true}}
-		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
+		ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, oauth)
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
 }

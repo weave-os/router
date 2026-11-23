@@ -228,7 +228,7 @@ func TestBypass_ClassifierPassthrough_TelemetryReason(t *testing.T) {
 	assert.Equal(t, reasonClassifierPassthrough, sink.rows[0].DecisionReason)
 	assert.Equal(t, string(turntype.Classifier), sink.rows[0].TurnType)
 	require.NotNil(t, upstream.capturedCtx)
-	creds, _ := upstream.capturedCtx.Value(CredentialsContextKey{}).(*Credentials)
+	creds, _ := upstream.capturedCtx.Value(requestcontext.CredentialsContextKey{}).(*requestcontext.Credentials)
 	require.NotNil(t, creds, "the upstream call must carry the caller's subscription credential")
 	assert.True(t, creds.OAuth)
 }

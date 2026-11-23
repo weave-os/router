@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
@@ -77,12 +79,12 @@ func addRoutingFundingSource(ctx context.Context, seats seatAdmission, provider,
 		return notice
 	}
 	credentialSource := ""
-	if credentials := CredentialsFromContext(ctx); credentials != nil {
+	if credentials := credentials.CredentialsFromContext(ctx); credentials != nil {
 		credentialSource = credentials.Source
 	}
 	seats.verifiedPlanOnly = true
 	if seats.mayAdmit(ctx, provider, model) {
-		if source, eligible := managedSubscriptionProviderFromUpstream(provider, model); eligible {
+		if source, eligible := credentials.ManagedSubscriptionProviderFromUpstream(provider, model); eligible {
 			switch source {
 			case subscriptions.ProviderClaude:
 				return setFundingSource(notice, "Claude subscription")
@@ -93,13 +95,13 @@ func addRoutingFundingSource(ctx context.Context, seats seatAdmission, provider,
 	}
 
 	switch credentialSource {
-	case credSourceSubscription:
+	case requestcontext.SourceSubscription:
 		return setFundingSource(notice, "Claude subscription")
-	case credSourceSubscriptionOverage:
+	case requestcontext.SourceSubscriptionOverage:
 		return setFundingSource(notice, "Claude subscription overage")
-	case credSourceCodexSubscription:
+	case requestcontext.SourceCodexSubscription:
 		return setFundingSource(notice, "Codex subscription")
-	case credSourceBYOK, credSourceClient:
+	case requestcontext.SourceBYOK, requestcontext.SourceClient:
 		return setFundingSource(notice, "your provider API key")
 	}
 

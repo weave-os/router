@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 )
@@ -33,8 +34,8 @@ func fundOnOwnPlan(ctx context.Context, provider string) context.Context {
 	if creditFallback, _ := ctx.Value(requestcontext.InstallationPickedModelCreditFallbackContextKey{}).(bool); creditFallback {
 		return ctx
 	}
-	if provider == providers.ProviderAnthropic && anthropicSubscriptionFromContext(ctx) == "" ||
-		provider == providers.ProviderOpenAI && openaiSubscriptionFromContext(ctx) == "" ||
+	if provider == providers.ProviderAnthropic && credentials.AnthropicSubscriptionFromContext(ctx) == "" ||
+		provider == providers.ProviderOpenAI && credentials.OpenAISubscriptionFromContext(ctx) == "" ||
 		provider != providers.ProviderAnthropic && provider != providers.ProviderOpenAI {
 		return ctx
 	}

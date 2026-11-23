@@ -71,16 +71,16 @@ func (c CodexImages) ForwardWithCallerCredential(ctx context.Context, headers ht
 	return ingress.ErrCodexImagesRequireOwnCredential
 }
 
-func codexImageCallerCredential(ctx context.Context, headers http.Header) *Credentials {
-	if byokFirst(ctx, providers.ProviderOpenAI) {
+func codexImageCallerCredential(ctx context.Context, headers http.Header) *requestcontext.Credentials {
+	if credentials.ByokFirst(ctx, providers.ProviderOpenAI) {
 		if byok := codexImageBYOK(ctx); byok != nil {
 			return byok
 		}
 	}
-	return ExtractClientCredentials(providers.ProviderOpenAI, headers)
+	return requestcontext.ExtractClientCredentials(providers.ProviderOpenAI, headers)
 }
 
-func codexImageBYOK(ctx context.Context) *Credentials {
+func codexImageBYOK(ctx context.Context) *requestcontext.Credentials {
 	if byok := usableBYOK(ctx, providers.ProviderOpenAI); byok != nil && byok.BaseURL == "" {
 		return byok
 	}
@@ -89,7 +89,7 @@ func codexImageBYOK(ctx context.Context) *Credentials {
 
 func (c CodexImages) forwardOnLinkedSubscription(ctx context.Context, forwarder codexImageForwarder, operation string, body []byte, headers http.Header, w http.ResponseWriter) (bool, error) {
 	svc := c.svc
-	if svc.credentials.ManagedSubscriptions == nil || !managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) {
+	if svc.credentials.ManagedSubscriptions == nil || !credentials.ManagedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) {
 		return false, nil
 	}
 	owner := subscriptionOwnerFromContext(ctx)
@@ -101,10 +101,10 @@ func (c CodexImages) forwardOnLinkedSubscription(ctx context.Context, forwarder 
 		return false, nil
 	}
 	defer lease.Release()
-	creds := &Credentials{
+	creds := &requestcontext.Credentials{
 		APIKey:                []byte(lease.AccessToken),
 		OAuth:                 true,
-		Source:                credSourceCodexSubscription,
+		Source:                requestcontext.SourceCodexSubscription,
 		AccountID:             []byte(lease.ProviderAccount),
 		PrincipalID:           "chatgpt-account:" + lease.ProviderAccount,
 		SubscriptionAccountID: lease.AccountID,
@@ -162,7 +162,7 @@ func recordCodexImageUsage(ctx context.Context, svc *Service, model string, star
 		UpstreamLatencyMs:  latency,
 		TotalLatencyMs:     latency,
 		UpstreamStatusCode: int32(upstreamStatus(attemptErr)),
-		CredentialSource:   credSourceCodexSubscription,
+		CredentialSource:   requestcontext.SourceCodexSubscription,
 		CapacitySource:     string(entitlement.CapacitySourceLinkedCodex),
 	}
 	applySubscriptionWinnerTelemetry(ctx, &params)

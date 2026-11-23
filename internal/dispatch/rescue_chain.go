@@ -213,7 +213,7 @@ func (c *RescueChain) DispatchSibling(ctx context.Context, siblingDecision route
 		"primary_model", c.PrimaryModel,
 		"sibling_model", siblingDecision.Model,
 		"sibling_provider", siblingDecision.Provider,
-		"upstream_status", UpstreamStatus(c.ProxyErr),
+		"upstream_status", providers.UpstreamStatus(c.ProxyErr),
 		"err", c.ProxyErr)
 	c.Routing.RecordTurnFailure(ctx, c.Decision.Model)
 	if !c.SiblingRescueRan {

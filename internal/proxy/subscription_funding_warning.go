@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
@@ -27,7 +28,7 @@ type subscriptionFundingWarning struct {
 }
 
 func routerNoticeForDecision(ctx context.Context, headers http.Header, decision router.Decision, marker string) translate.RouterNotice {
-	source, _ := managedSubscriptionProviderFromUpstream(decision.Provider, decision.Model)
+	source, _ := credentials.ManagedSubscriptionProviderFromUpstream(decision.Provider, decision.Model)
 	return routerNoticeForRequest(ctx, headers, source, decision.Model, marker)
 }
 
@@ -36,7 +37,7 @@ func fundedByCustomerKey(ctx context.Context, model string) bool {
 		return false
 	}
 	m, found := catalog.ByID(model)
-	return !found || !managedSubscriptionCanServe(ctx, m.PrimaryProvider(), model)
+	return !found || !credentials.ManagedSubscriptionCanServe(ctx, m.PrimaryProvider(), model)
 }
 
 func (w subscriptionFundingWarning) text() string {

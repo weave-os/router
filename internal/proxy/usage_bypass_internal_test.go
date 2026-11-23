@@ -482,8 +482,8 @@ func subscriptionCtx() context.Context {
 // subscription flips credential resolution onto the deployment key.
 func TestSubscriptionFailover_EligibilityAndSuppression(t *testing.T) {
 	// A request whose Anthropic credential resolves to the caller's subscription.
-	ctx := resolveAndInjectCredentials(subscriptionCtx(), providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
-	require.True(t, servedOnSubscription(ctx), "a resolved subscription token must report servedOnSubscription")
+	ctx := credentials.ResolveAndInjectCredentials(subscriptionCtx(), providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
+	require.True(t, credentials.ServedOnSubscription(ctx), "a resolved subscription token must report servedOnSubscription")
 
 	t.Run("no fallback key: not eligible", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()} // no deployment Anthropic key, no BYOK
@@ -502,8 +502,8 @@ func TestSubscriptionFailover_EligibilityAndSuppression(t *testing.T) {
 		// subscription token — so the retry dispatches on the deployment key and
 		// servedOnSubscription reports false (billed at full cost, not sub rate).
 		suppressed := credentials.WithSuppressedClaudeSubscription(subscriptionCtx())
-		suppressed = resolveAndInjectCredentials(suppressed, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
-		assert.False(t, servedOnSubscription(suppressed),
+		suppressed = credentials.ResolveAndInjectCredentials(suppressed, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
+		assert.False(t, credentials.ServedOnSubscription(suppressed),
 			"a suppressed subscription must not resolve back as the served credential")
 	})
 }
@@ -722,8 +722,8 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 	upstreamHeaders := http.Header{}
 	upstreamHeaders.Set("anthropic-ratelimit-unified-status", "allowed")
 	upstreamHeaders.Set("anthropic-ratelimit-unified-overage-status", "rejected")
-	credCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
-		APIKey: []byte("sk-ant-oat01-live"), Source: credSourceSubscription, OAuth: true,
+	credCtx := context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey: []byte("sk-ant-oat01-live"), Source: requestcontext.SourceSubscription, OAuth: true,
 	})
 	providers.ObserveUpstreamHeaders(credCtx, upstreamHeaders)
 
