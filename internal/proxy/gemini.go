@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/routingpolicy"
 
@@ -69,7 +70,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	feats := env.RoutingFeatures()
 	ctx = requestcontext.WithRequestImageCount(ctx, feats.ImageCount)
-	promptText, embedInput := turnPromptText(feats)
+	promptText, embedInput := conversation.TurnPromptText(feats)
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	ctx, log, sessionKey = bindRequestLogger(ctx, env, facts.APIKeyID, facts.RequestID, "gemini_generate_content")

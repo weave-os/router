@@ -60,7 +60,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	ctx, log, sessionKey = bindRequestLogger(ctx, env, facts.APIKeyID, facts.RequestID, "openai_chat_completions")
-	if ctx, err = stripClientHistory(ctx, log, env, "OpenAI"); err != nil {
+	if ctx, err = conversation.StripClientHistory(ctx, log, env, "OpenAI"); err != nil {
 		return err
 	}
 	codexTitleGen, _ := ctx.Value(codexTitleGenerationContextKey{}).(bool)
@@ -69,8 +69,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if codexTitleGen {
 		feats.TitleGenHint = true
 	}
-	promptText, embedInput := turnPromptText(feats)
-	logTurnStart(log, "ProxyOpenAIChatCompletion start", env.Stream(), feats, s.zdrLogField(ctx, observability.Preview(promptText, 200)))
+	promptText, embedInput := conversation.TurnPromptText(feats)
+	conversation.LogTurnStart(log, "ProxyOpenAIChatCompletion start", env.Stream(), feats, s.zdrLogField(ctx, observability.Preview(promptText, 200)))
 
 	betaSessionKey := deriveBetaSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 	if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
@@ -89,9 +89,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Handlers:                turnCommands{s: s, w: w, env: env, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
 		Protocol:                "ProxyOpenAIChatCompletion",
 		ForceModelEnabled:       s.pinStore != nil,
-		ForceModelContinuesTurn: func(cmd translate.ForceModelResult) bool { return agentForceModelContinuesTurn(ctx, cmd) },
+		ForceModelContinuesTurn: func(cmd translate.ForceModelResult) bool { return conversation.AgentForceModelContinuesTurn(ctx, cmd) },
 		SyntheticFeedback: func(cmd translate.RouterFeedbackResult) bool {
-			return !cmd.FromToolResult || codexSkillTurnFrom(ctx) == translate.CodexSkillTurnFeedback
+			return !cmd.FromToolResult || conversation.CodexSkillTurnFrom(ctx) == translate.CodexSkillTurnFeedback
 		},
 	}.Run(ctx)
 	if err != nil || outcome.Handled {
@@ -117,7 +117,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if codexTitleGen {
 			feats.TitleGenHint = true
 		}
-		promptText, embedInput = turnPromptText(feats)
+		promptText, embedInput = conversation.TurnPromptText(feats)
 	}
 
 	forceModel := agentForceModel

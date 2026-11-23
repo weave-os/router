@@ -33,7 +33,7 @@ func TestSubscriptionStateForcedModelThrottledPoolFundsCredits(t *testing.T) {
 	}
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateCodexModel})
-	ctx = withTurnFailures(ctx)
+	ctx = requestcontext.WithTurnFailures(ctx)
 	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
