@@ -87,7 +87,7 @@ func TestRouterSessionCommand_AnswersSyntheticallyFromRequestIdentity(t *testing
 // line, so a hint printed to a Codex user has to name the $ form. Every other
 // client sends "/" through.
 func TestDirectivePrefix(t *testing.T) {
-	assert.Equal(t, "$", directivePrefix(requestcontext.ClientAppCodex))
+	assert.Equal(t, "$", requestcontext.DirectivePrefix(requestcontext.ClientAppCodex))
 
 	for _, app := range []string{
 		requestcontext.ClientAppClaudeCode,
@@ -97,24 +97,24 @@ func TestDirectivePrefix(t *testing.T) {
 		"",
 		"something-unknown",
 	} {
-		assert.Equal(t, "/", directivePrefix(app), "expected slash for %q", app)
+		assert.Equal(t, "/", requestcontext.DirectivePrefix(app), "expected slash for %q", app)
 	}
 }
 
 func TestSupportsResponsesTerminalSurfaces(t *testing.T) {
-	assert.True(t, supportsResponsesTerminalSurfaces(requestcontext.ClientAppCodex))
-	assert.True(t, supportsResponsesTerminalSurfaces(requestcontext.ClientAppOpencode))
-	assert.False(t, supportsResponsesTerminalSurfaces(requestcontext.ClientAppCursor))
-	assert.False(t, supportsResponsesTerminalSurfaces(""))
+	assert.True(t, requestcontext.SupportsResponsesTerminalSurfaces(requestcontext.ClientAppCodex))
+	assert.True(t, requestcontext.SupportsResponsesTerminalSurfaces(requestcontext.ClientAppOpencode))
+	assert.False(t, requestcontext.SupportsResponsesTerminalSurfaces(requestcontext.ClientAppCursor))
+	assert.False(t, requestcontext.SupportsResponsesTerminalSurfaces(""))
 }
 
 func TestRouterSessionMessage_NamesTheIDAndTheClientsOwnSigil(t *testing.T) {
-	codex := conversation.RouterSessionMessage("01a08ca1-6f83-7233", directivePrefix(requestcontext.ClientAppCodex), translate.FormatOpenAI)
+	codex := conversation.RouterSessionMessage("01a08ca1-6f83-7233", requestcontext.DirectivePrefix(requestcontext.ClientAppCodex), translate.FormatOpenAI)
 	assert.Contains(t, codex, "01a08ca1-6f83-7233")
 	assert.Contains(t, codex, "$router-feedback")
 	assert.NotContains(t, codex, "/router-feedback")
 
-	claude := conversation.RouterSessionMessage("sess-abc", directivePrefix(requestcontext.ClientAppClaudeCode), translate.FormatAnthropic)
+	claude := conversation.RouterSessionMessage("sess-abc", requestcontext.DirectivePrefix(requestcontext.ClientAppClaudeCode), translate.FormatAnthropic)
 	assert.Contains(t, claude, "sess-abc")
 	assert.Contains(t, claude, "/router-feedback")
 	// Anthropic-format acks are formatted as routing markers so
@@ -126,7 +126,7 @@ func TestRouterSessionMessage_NamesTheIDAndTheClientsOwnSigil(t *testing.T) {
 // absent id has to read as absent.
 func TestRouterSessionMessage_MissingIDSaysSoRatherThanGuessing(t *testing.T) {
 	for _, format := range []translate.Format{translate.FormatOpenAI, translate.FormatAnthropic} {
-		msg := conversation.RouterSessionMessage("", directivePrefix(requestcontext.ClientAppCodex), format)
+		msg := conversation.RouterSessionMessage("", requestcontext.DirectivePrefix(requestcontext.ClientAppCodex), format)
 		assert.Contains(t, msg, "no session id")
 		assert.NotContains(t, msg, "session id: ")
 	}

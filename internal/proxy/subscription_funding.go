@@ -69,7 +69,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 			},
 			PickedModelOnOwnPlan: pickedModelOnOwnPlan,
 			AuthorizeSubscriptionAPI: func(ctx context.Context) error {
-				refusal := clientAppRefusalFunding{counts: clientAppRefusalPaidFallback(ctx), poolRefused: claudePoolRefusesClientApp(ctx), clientApp: ClientIdentityFrom(ctx).ClientApp}
+				refusal := clientAppRefusalFunding{counts: clientAppRefusalPaidFallback(ctx), poolRefused: claudePoolRefusesClientApp(ctx), clientApp: requestcontext.ClientIdentityFrom(ctx).ClientApp}
 				return s.authorizeSubscriptionAPI(admissionCtx, pool, target, codexToken, claudeToken, refusal)
 			},
 		})

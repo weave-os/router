@@ -432,7 +432,7 @@ func (f forceModelCommands) apply(
 		ThreadSessionKey:     threadSessionKey,
 		ForceModelSessionKey: forceModelSessionKey,
 		CommandID:            ack.outcome.ID,
-		UnforceCommand:       directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "unforce-model",
+		UnforceCommand:       requestcontext.DirectivePrefix(requestcontext.ClientIdentityFrom(ctx).ClientApp) + "unforce-model",
 	})
 	if err != nil {
 		return "", commandAcknowledgment{}, err

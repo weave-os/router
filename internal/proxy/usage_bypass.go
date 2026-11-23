@@ -322,7 +322,7 @@ func (s *Service) bypassToAnthropic(
 	inputCost := catalog.EffectiveInputCost(in, cacheCreation, cacheRead, pricing, decision.Provider, usageMods)
 	outputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, pricing, usageMods)
 
-	clientID := ClientIdentityFrom(ctx)
+	clientID := requestcontext.ClientIdentityFrom(ctx)
 	stopReason := passiveRefusal.stopReason(extractor)
 	outcomeErr := proxyErr
 	if upstreamErr != nil {
@@ -364,10 +364,10 @@ func (s *Service) bypassToAnthropic(
 		userPrompt := env.EndsWithUserPrompt()
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, outcomeErr)
-		sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyIDFromContext(ctx))
+		sessionKey := deriveSessionKeyForRequest(ctx, env, requestcontext.APIKeyIDFromContext(ctx))
 		telemetryParams := turnrecord.InsertTelemetryParams{
 			InstallationID:         installationID.String(),
-			APIKeyID:               apiKeyIDFromContext(ctx),
+			APIKeyID:               requestcontext.APIKeyIDFromContext(ctx),
 			RequestID:              requestID,
 			SpanType:               "router.upstream",
 			TraceID:                requestID,
