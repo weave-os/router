@@ -23,10 +23,8 @@ type fixtureCapability string
 type escalationEvidenceSchema string
 
 const (
-	bindingSchema             fixtureSchema     = "router_benchmark_fixture_binding.v1"
-	managedAdmissionFixture   fixtureCapability = "managed_admission_fixture"
-	prepaidEntitlementFixture fixtureCapability = "prepaid_entitlement_fixture"
-	servingRegistryState      fixtureCapability = "serving_registry_state"
+	bindingSchema        fixtureSchema     = "router_benchmark_fixture_binding.v1"
+	servingRegistryState fixtureCapability = "serving_registry_state"
 )
 
 const escalationSchema escalationEvidenceSchema = "router_benchmark_fixture_escalation.v1"
@@ -100,7 +98,15 @@ func run() error {
 		return err
 	}
 	if request.escalationEnabled {
-		if err := writeFixtureEscalation(ctx, request.database.String(), installationID, request.escalation, request.escalationPath); err != nil {
+		evidence, err := selectFixtureEscalation(ctx, request.database.String(), installationID, request.escalation)
+		if err != nil {
+			return err
+		}
+		encoded, err := json.Marshal(evidence)
+		if err != nil {
+			return err
+		}
+		if err := writeFreshFile(request.escalationPath, encoded); err != nil {
 			return err
 		}
 	}
@@ -195,18 +201,6 @@ func runCanonicalSeed(ctx context.Context, database *url.URL) (string, string, e
 		return "", "", errors.New("canonical seed output contract changed; output withheld")
 	}
 	return string(installation[1]), externalID, nil
-}
-
-func writeFixtureEscalation(ctx context.Context, databaseURL, installationID string, request escalationRequest, path string) error {
-	evidence, err := selectFixtureEscalation(ctx, databaseURL, installationID, request)
-	if err != nil {
-		return err
-	}
-	encoded, err := json.Marshal(evidence)
-	if err != nil {
-		return err
-	}
-	return writeFreshFile(path, encoded)
 }
 
 func completeFixtureBinding(fixture fixtureBinding, installationID, externalID string) fixtureBinding {

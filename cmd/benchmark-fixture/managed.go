@@ -145,27 +145,27 @@ func verifyManagedAdmission(ctx context.Context, queries *sqlc.Queries, admissio
 		return errors.New("local serving registry initialization failed")
 	}
 	defer func() { _ = registry.Close() }()
-	decision := policyregistry.ServingAdmission{Store: registry}
+	admission := policyregistry.ServingAdmission{Store: registry}
 	sessionID := uuid.NewString()
-	_, admitted, err := admissions.Admit(ctx, credential.installationID, credential.apiKeyID, sessionID, decision.Decide)
+	_, admitted, err := admissions.Admit(ctx, credential.installationID, credential.apiKeyID, sessionID, admission.Decide)
 	if err != nil {
 		return fmt.Errorf("canonical managed admission verification failed: %w", err)
 	}
 	if admitted.Target != target {
 		return errors.New("canonical admission selected unexpected target")
 	}
-	if _, _, err := admissions.Admit(ctx, uuid.NewString(), credential.apiKeyID, "", decision.Decide); err == nil {
+	if _, _, err := admissions.Admit(ctx, uuid.NewString(), credential.apiKeyID, "", admission.Decide); err == nil {
 		return errors.New("invalid installation admitted")
 	}
 	if changed, err := setFixtureInstallationAccess(ctx, queries, credential, false); err != nil || changed != 1 {
 		return errors.New("disabled-access fixture setup failed")
 	}
-	if _, _, err := admissions.Admit(ctx, credential.installationID, credential.apiKeyID, "", decision.Decide); !errors.Is(err, auth.ErrPersonalCredentialRequired) {
+	if _, _, err := admissions.Admit(ctx, credential.installationID, credential.apiKeyID, "", admission.Decide); !errors.Is(err, auth.ErrPersonalCredentialRequired) {
 		return errors.New("disabled access did not fail closed")
 	}
 	if _, err := setFixtureInstallationAccess(ctx, queries, credential, true); err != nil {
 		return err
 	}
-	_, _, err = admissions.Admit(ctx, credential.installationID, credential.apiKeyID, sessionID, decision.Decide)
+	_, _, err = admissions.Admit(ctx, credential.installationID, credential.apiKeyID, sessionID, admission.Decide)
 	return err
 }
