@@ -70,7 +70,7 @@ func (d *overflowDispatch) run(ctx context.Context, laneRequest bool) error {
 			EnabledProviders: candidates.ModelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}),
 		}
 	}
-	_, err := d.svc.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(d.svc).Dispatch(ctx, in)
 	return err
 }
 

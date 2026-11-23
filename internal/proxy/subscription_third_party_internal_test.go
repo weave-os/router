@@ -85,7 +85,7 @@ func dispatchManagedThirdPartyTurnWithReason(t *testing.T, svc *Service, ctx con
 	t.Helper()
 	recorder := httptest.NewRecorder()
 	buffer := newPreludeBuffer(recorder)
-	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 		Writer:          recorder,
 		Prelude:         buffer,
 		InitialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic, Reason: reason},
@@ -235,7 +235,7 @@ func TestRotationBudgetPaidRescueRejectsForcedThirdPartyRefusal(t *testing.T) {
 		return nil
 	}
 
-	_, err := svc.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(svc).Dispatch(ctx, in)
 
 	require.ErrorIs(t, err, credentials.ErrSubscriptionClientAppRefused)
 	assert.Zero(t, apiCalls, "the rotation-budget paid rescue must not serve a forced Claude turn the subscriptions refused")
@@ -350,7 +350,7 @@ func TestForcedThirdPartyRefusalPaysThroughSubscriptionStateModelsOnlyWhenKeyCon
 			recorder := httptest.NewRecorder()
 			buffer := newPreludeBuffer(recorder)
 
-			_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+			_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 				Writer: recorder, Prelude: buffer, SubscriptionStateRequest: &req,
 				SubscriptionStateWinnerProvider: new(string),
 				InitialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic, Reason: translate.ReasonUserForceModel},

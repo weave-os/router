@@ -760,16 +760,12 @@ func gatewayModelKey(endpoint, provider, model string) string {
 	return endpoint + "|" + model
 }
 
-func (s *Service) gatewayLacksModel(key string) bool {
-	return s.engine.GatewayLacksModel(key)
-}
-
-func (s *Service) rememberGatewayLacksModel(ctx context.Context, provider, model string) {
+func rememberGatewayLacksModel(ctx context.Context, engine *dispatch.Engine, provider, model string) {
 	key := gatewayModelKey(requestcontext.EffectiveBaseURL(ctx, ""), provider, model)
 	if key == "" {
 		return
 	}
-	s.engine.RememberGatewayLacksModel(key)
+	engine.RememberGatewayLacksModel(key)
 }
 
 func (s *Service) newTelemetryRecorder() telemetry.Recorder {

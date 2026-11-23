@@ -9,7 +9,7 @@ import (
 
 func (s *Service) globalAutomaticExcludedModels(ctx context.Context) map[string]struct{} {
 	controlPlane := s.controlPlaneExcludedModels(ctx)
-	overloaded := s.overloadOpenModels(ctx)
+	overloaded := s.throttling.Overload.OpenModels(ctx, overloadOrg(ctx))
 	if len(overloaded) == 0 {
 		return controlPlane
 	}
@@ -38,7 +38,7 @@ func (s *Service) globalAutomaticExclusionReason(ctx context.Context, model stri
 			return reason, true
 		}
 	}
-	if _, open := s.overloadOpenModels(ctx)[model]; open {
+	if _, open := s.throttling.Overload.OpenModels(ctx, overloadOrg(ctx))[model]; open {
 		return dispatch.OverloadBreakerReason, true
 	}
 	return "", false

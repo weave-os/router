@@ -36,7 +36,7 @@ func (s *Service) gatewayUnservedModelsForRequest(ctx context.Context) map[strin
 				continue
 			}
 			declared[m.ID]++
-			if s.gatewayLacksModel(gatewayModelKey(key.BaseURL, key.Provider, m.ID)) {
+			if s.engine.GatewayLacksModel(gatewayModelKey(key.BaseURL, key.Provider, m.ID)) {
 				unserved[m.ID]++
 			}
 		}

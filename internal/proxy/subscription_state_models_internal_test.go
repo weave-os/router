@@ -200,7 +200,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				},
 				OnAlternative: func(decision router.Decision) { winner = decision },
 			}
-			_, err := svc.dispatchWithFallback(ctx, failover)
+			_, err := fallbackFor(svc).Dispatch(ctx, failover)
 			if scenario.wantErr {
 				require.Error(t, err)
 				require.Zero(t, paid.calls)
@@ -269,7 +269,7 @@ func TestSubscriptionStateRateLimitedIncludedLaneKeepsUpstreamStatus(t *testing.
 		},
 	}
 
-	_, err := svc.dispatchWithFallback(ctx, inputs)
+	_, err := fallbackFor(svc).Dispatch(ctx, inputs)
 
 	require.Error(t, err)
 	require.NotErrorIs(t, err, router.ErrStrategyUnavailable, "an exhausted rate-limited pool is not a policy outage")
@@ -424,7 +424,7 @@ func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.
 	var winner router.Decision
 	var servedModels []string
 	var paidTargetSelected bool
-	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 		Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
 		InitialDecision: router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
 		Purpose:         inference.PurposeAnthropicMessages,
@@ -461,7 +461,7 @@ func TestSubscriptionStateFailedTargetReachesRecoveryCallback(t *testing.T) {
 	var recoveryDecision router.Decision
 	var attemptedModel string
 	winnerProvider := new(string)
-	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 		Writer:                          httptest.NewRecorder(),
 		SubscriptionStateRequest:        &request,
 		SubscriptionStateWinnerProvider: winnerProvider,
@@ -549,7 +549,7 @@ func TestSubscriptionStateModelsStrictDirectSubscription(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
 	var winner router.Decision
-	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 		Writer: rec, Prelude: buffer, SubscriptionStateRequest: &request, SubscriptionStateHeaders: headers,
 		InitialDecision: router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
 		Purpose:         inference.PurposeAnthropicMessages,
@@ -884,7 +884,7 @@ func TestSubscriptionStateModelsSkipSpentSeatPoolsBeforeDispatch(t *testing.T) {
 	buffer := newPreludeBuffer(rec)
 	var attempted []string
 	var winner router.Decision
-	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 		Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
 		SubscriptionStateWinnerProvider: new(string),
 		InitialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},

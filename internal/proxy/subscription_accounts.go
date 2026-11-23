@@ -117,7 +117,7 @@ func (l *accountLoop) serveAccount(ctx, attemptCtx context.Context, account int)
 	}
 	if committed(l.in.Prelude) || !rotate {
 		if providers.IsUpstreamModelNotFound(attemptErr) {
-			l.s.rememberGatewayLacksModel(attemptCtx, l.decision.Provider, l.decision.Model)
+			rememberGatewayLacksModel(attemptCtx, l.s.engine, l.decision.Provider, l.decision.Model)
 		}
 		return nil, true, attemptErr
 	}
@@ -152,7 +152,7 @@ func (l *accountLoop) oauthTransportFallback(ctx, attemptCtx context.Context) (c
 func (l *accountLoop) leaseAccount(ctx, attemptCtx context.Context, account int) (context.Context, leasedAccount, error) {
 	s, decision, rotationBudget := l.s, l.decision, l.rotationBudget
 	if !credentials.SubscriptionAPIOnly(attemptCtx) && rotationBudget.Remaining <= 0 {
-		return nil, leasedAccount{}, dispatch.Abort{Err: s.afterSubscriptionRotationBudget(ctx, decision, account, credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable))}
+		return nil, leasedAccount{}, dispatch.Abort{Err: afterSubscriptionRotationBudget(ctx, decision, account, credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable))}
 	}
 	leaseCtx, finishLease := rotationBudget.LeaseContext(attemptCtx, s.clock.Now)
 	if credentials.SubscriptionAPIOnly(attemptCtx) {
@@ -274,7 +274,7 @@ func (l *accountLoop) prepareNextAccount(ctx context.Context, leased leasedAccou
 	}
 	l.lastSubscriptionErr = attemptErr
 	if l.rotationBudget.Remaining <= 0 {
-		return l.s.afterSubscriptionRotationBudget(ctx, l.decision, leased.account+1, attemptErr)
+		return afterSubscriptionRotationBudget(ctx, l.decision, leased.account+1, attemptErr)
 	}
 	if l.in.Prelude != nil {
 		l.in.Prelude.Discard()

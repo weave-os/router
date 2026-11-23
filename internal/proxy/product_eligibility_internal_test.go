@@ -126,7 +126,7 @@ func TestDispatchRefusesAnIneligibleDecisionTheTurnLoopMinted(t *testing.T) {
 	in := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic}
 
-	_, err := svc.dispatchWithFallback(maxScopedContext(), in)
+	_, err := fallbackFor(svc).Dispatch(maxScopedContext(), in)
 
 	require.ErrorIs(t, err, eligibility.ErrModelIneligible)
 	assert.Zero(t, anthropic.calls)
@@ -139,7 +139,7 @@ func TestDispatchServesAnEligibleDecision(t *testing.T) {
 	rec := httptest.NewRecorder()
 	in := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, nil)
 
-	_, err := svc.dispatchWithFallback(maxScopedContext(), in)
+	_, err := fallbackFor(svc).Dispatch(maxScopedContext(), in)
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, fireworks.calls)

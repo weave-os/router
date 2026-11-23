@@ -44,7 +44,7 @@ func TestSubscriptionStatePoolOverloadHoldsSessionOffModel(t *testing.T) {
 		rec := httptest.NewRecorder()
 		buffer := newPreludeBuffer(rec)
 		var winner router.Decision
-		_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+		_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 			Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
 			SubscriptionStateWinnerProvider: new(string),
 			InitialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},

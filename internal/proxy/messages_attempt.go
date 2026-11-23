@@ -84,7 +84,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 			attemptOpts.TargetProvider = d.Provider
 			attemptOpts.StripPromptCacheKey = stripPromptCacheKey
 			attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-			attemptOpts.ReasoningReplayScope = deps.svc.reasoningReplayScope(actx, d)
+			attemptOpts.ReasoningReplayScope = deps.svc.engine.ReasoningReplayScope(actx, d)
 			*deps.fastServed = attemptOpts.FastMode
 			deps.setStreamCost(d, true, nil)
 			*deps.respSummary = translate.ResponseSummary{}

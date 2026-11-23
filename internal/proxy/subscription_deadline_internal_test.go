@@ -53,7 +53,7 @@ func TestLinkedClaudeSubscriptionSurvivesSlowFirstOutput(t *testing.T) {
 		var seen []*requestcontext.Credentials
 		in.Attempt = slowAttempt(buf, slowFirstOutput, "slow answer", &seen)
 
-		_, err := svc.dispatchWithFallback(ctx, in)
+		_, err := fallbackFor(svc).Dispatch(ctx, in)
 
 		require.NoError(t, err)
 		require.Equal(t, "slow answer", rec.Body.String())
@@ -86,7 +86,7 @@ func TestManagedSubscriptionSurvivesSlowFirstOutput(t *testing.T) {
 				var seen []*requestcontext.Credentials
 				in.Attempt = slowAttempt(buf, slowFirstOutput, "slow seat answer", &seen)
 
-				_, err := svc.dispatchWithFallback(ctx, in)
+				_, err := fallbackFor(svc).Dispatch(ctx, in)
 
 				require.NoError(t, err)
 				require.Equal(t, "slow seat answer", rec.Body.String())
@@ -125,7 +125,7 @@ func TestSecondAccountAdmittedBeforeBudgetMayFinishAfterIt(t *testing.T) {
 			return err
 		}
 
-		_, err := svc.dispatchWithFallback(ctx, in)
+		_, err := fallbackFor(svc).Dispatch(ctx, in)
 
 		require.NoError(t, err)
 		require.Equal(t, []string{"seat-a", "seat-b"}, seen)
@@ -151,7 +151,7 @@ func TestSlowFailedAttemptsRemainBoundedByDistinctSeats(t *testing.T) {
 			return &providers.UpstreamErrorResponse{Status: 529}
 		}
 
-		_, err := svc.dispatchWithFallback(ctx, in)
+		_, err := fallbackFor(svc).Dispatch(ctx, in)
 
 		require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 		require.Equal(t, 2, calls)
@@ -179,7 +179,7 @@ func TestCallerCancellationDuringSubscriptionAttemptIsTerminal(t *testing.T) {
 			return ctx.Err()
 		}
 
-		_, err := svc.dispatchWithFallback(ctx, in)
+		_, err := fallbackFor(svc).Dispatch(ctx, in)
 
 		require.ErrorIs(t, err, context.Canceled)
 		require.Equal(t, 1, calls, "caller cancellation never triggers another attempt")
@@ -201,7 +201,7 @@ func TestStateModelsTerminalRejectionAfterBudgetIsNotRescued(t *testing.T) {
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		var served []string
-		_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+		_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 			Writer: rec, Prelude: buf, SubscriptionStateRequest: &req,
 			SubscriptionStateWinnerProvider: new(string),
 			InitialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
