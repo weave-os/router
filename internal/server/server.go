@@ -111,6 +111,17 @@ type Features struct {
 	EscalationAdmin          admin.EscalationAdmin
 }
 
+func registerInternalEscalation(internalGroup *gin.RouterGroup, escalationAdmin admin.EscalationAdmin) {
+	if escalationAdmin == nil {
+		escalationAdmin = &floor.Admin{}
+	}
+	internalGroup.GET("/escalation/sessions", admin.InternalLLMEscalationSessionsHandler(escalationAdmin))
+	internalGroup.GET("/escalation/dashboard", admin.InternalEscalationDashboardHandler(escalationAdmin))
+	internalGroup.GET("/escalation/sessions/:scope", admin.InternalLLMEscalationSessionHandler(escalationAdmin))
+	internalGroup.GET("/escalation/config/:installationID", admin.InternalEscalationConfigurationHandler(escalationAdmin))
+	internalGroup.PUT("/escalation/config/:installationID", admin.InternalUpdateEscalationConfigurationHandler(escalationAdmin))
+}
+
 func (f Features) defaultStrategy() router.Strategy {
 	if f.DefaultStrategy == "" {
 		return deploymentDefaultStrategy
@@ -213,15 +224,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		if features.TaskDomainPreview != nil {
 			internalGroup.POST("/task-domain/preview", admin.InternalTaskDomainPreviewHandler(features.TaskDomainPreview))
 		}
-		escalationAdmin := features.EscalationAdmin
-		if escalationAdmin == nil {
-			escalationAdmin = &floor.Admin{}
-		}
-		internalGroup.GET("/escalation/sessions", admin.InternalLLMEscalationSessionsHandler(escalationAdmin))
-		internalGroup.GET("/escalation/dashboard", admin.InternalEscalationDashboardHandler(escalationAdmin))
-		internalGroup.GET("/escalation/sessions/:scope", admin.InternalLLMEscalationSessionHandler(escalationAdmin))
-		internalGroup.GET("/escalation/config/:installationID", admin.InternalEscalationConfigurationHandler(escalationAdmin))
-		internalGroup.PUT("/escalation/config/:installationID", admin.InternalUpdateEscalationConfigurationHandler(escalationAdmin))
+		registerInternalEscalation(internalGroup, features.EscalationAdmin)
 	}
 
 	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission))
