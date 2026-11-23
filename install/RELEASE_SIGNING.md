@@ -117,6 +117,44 @@ Release operations must keep these invariants:
 - **Release tags are never moved or reused.** Clients treat the contents at a
   tag as fixed.
 
+## Wrapper baselines and the re-seed sentinel
+
+The wrapper refresh replaces an installed `.claude/commands/*.md` file only
+when its bytes still equal a cached baseline, so a wrapper the user edited is
+left alone. Baselines written before manifest verification existed (by
+`install.sh`, or by an older statusline that installed unverified downloads)
+cannot be trusted as the "what we shipped" reference.
+
+The sentinel `.manifest-seeded` in the baseline cache directory
+(`${XDG_CACHE_HOME:-~/.cache}/weave-router/`) records that the baselines were
+seeded under the manifest:
+
+- **Absent:** the first refresh whose `MANIFEST` verifies re-seeds once. Each
+  verified body becomes the baseline, an installed wrapper that differs from it
+  is replaced with it, and the sentinel is written. A wrapper whose body could
+  not be fetched or verified in that cycle has its old baseline removed.
+- **Present:** the baseline comparison gates the swap as before, so local edits
+  are preserved.
+
+Users who edited a wrapper before upgrading see it reset once, on the first
+post-upgrade refresh. A cycle that runs under
+`WEAVE_STATUSLINE_TRUST_UNSIGNED=1` never re-seeds or writes the sentinel, so
+returning to a signed source still re-seeds once.
+
+## Turning verification or updates off
+
+- `WEAVE_STATUSLINE_UPDATE=0` turns off every background network path in the
+  statusline, including both refreshes. It is unchanged by signed releases and
+  remains the way to stop fetching code entirely, including on machines without
+  `openssl`, where every refresh is refused anyway.
+- `WEAVE_STATUSLINE_TRUST_UNSIGNED=1` skips signature and digest verification,
+  but only for a source overridden (`WEAVE_STATUSLINE_URL`,
+  `WEAVE_COMMANDS_URL_BASE`, `WEAVE_CODEX_STATUS_URL`, `WEAVE_UNINSTALL_URL`)
+  to a host other than `raw.githubusercontent.com`. Each use prints a warning
+  on stderr. It provides no security property: it exists only so self-hoster
+  forks do not need a signing pipeline of their own, and a tampered replacement
+  script can remove the gate. The default publisher always verifies.
+
 ## Key rotation
 
 Clients trust only the key embedded in the copy they are running. To rotate,
@@ -124,3 +162,10 @@ ship a release signed with the old key whose scripts embed the new key; once
 installed copies have refreshed onto it, later releases are signed with the new
 key. The operational procedure (cadence, who can sign, how a compromised key is
 revoked) belongs with release signing and is out of scope here.
+
+## Scope
+
+The installer code in this repository adds only the verification path and the
+embedded public-key slot. Generating the real key pair, holding the private
+key, stamping the public key and `WEAVE_RELEASE_TAG`, signing each release and
+the key-rotation procedure are owned by the release pipeline.
