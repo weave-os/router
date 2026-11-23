@@ -22,6 +22,7 @@ Index of Markdown documentation in the `router/` repo.
 | Doc | What it covers |
 |---|---|
 | [SEMANTICS.md](SEMANTICS.md) | **Canonical terminology** for sessions, rounds, turns, actions, and steps. Read this first before other docs. |
+| [ROUTER_ARCHITECTURE.md](ROUTER_ARCHITECTURE.md) | Serving and router layers, atoms with their owner packages, the strategy contract and the check that enforces each rule. |
 | [ENDPOINTS.md](ENDPOINTS.md) | API endpoints, health checks, and cost response fields. |
 | [CONFIGURATION.md](CONFIGURATION.md) | Environment variables, provider keys (gateways, model aliases, key-pair auth), BYOK encryption, OTel knobs. |
 | [INFERENCE_BOUNDARY.md](INFERENCE_BOUNDARY.md) | Inference operation inventory, policy-boundary exceptions, and staged migration enforcement. |
