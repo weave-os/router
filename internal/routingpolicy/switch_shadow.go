@@ -1,4 +1,4 @@
-package proxy
+package routingpolicy
 
 import (
 	"context"
@@ -8,23 +8,22 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/routingpolicy"
 )
 
 const switchDecideShadowDefault = true
 
-func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate continuity.CostGateInput, now time.Time, res routingpolicy.TurnRoute) {
+func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate continuity.CostGateInput, now time.Time, res TurnRoute) {
 	if !flags.BoolOr(ctx, flags.KeySwitchDecideShadow, switchDecideShadowDefault) {
 		return
 	}
-	input := routingpolicy.SwitchInput{
+	input := SwitchInput{
 		Current:              stayPin.Model,
 		Fresh:                gate.Fresh.Model,
 		EstimatedInputTokens: gate.EstimatedInputTokens,
-		CacheCold:            stayPin.Model != "" && pinCacheCold(stayPin, gate.PrefixBroken, now),
+		CacheCold:            stayPin.Model != "" && PinCacheCold(stayPin, gate.PrefixBroken, now),
 		PrefixBroken:         gate.PrefixBroken,
 	}
-	verdict := routingpolicy.DecideSwitch(input)
+	verdict := DecideSwitch(input)
 	observability.FromContext(ctx).Info("router.switch_shadow",
 		"installation_id", res.InstallationID.String(),
 		"role", res.PinRole,

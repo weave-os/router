@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"testing"
 
-	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -23,7 +22,7 @@ const (
 )
 
 func smallClientBudget() router.ClientBudget {
-	return credentials.ResolveClientBudget(ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode, UserAgent: budgetTestUserAgent}, nil, budgetTestFable, false)
+	return resolveClientBudget(ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode, UserAgent: budgetTestUserAgent}, nil, budgetTestFable, false)
 }
 
 func TestResolveClientBudget(t *testing.T) {
@@ -55,7 +54,7 @@ func TestResolveClientBudget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			headers := make(http.Header)
 			headers.Set("Anthropic-Beta", tt.beta)
-			got := credentials.ResolveClientBudget(ClientIdentity{ClientApp: tt.clientApp, UserAgent: tt.userAgent}, headers, tt.model, tt.variant)
+			got := resolveClientBudget(ClientIdentity{ClientApp: tt.clientApp, UserAgent: tt.userAgent}, headers, tt.model, tt.variant)
 			assert.Equal(t, tt.window, got.DefaultWindow)
 			assert.Equal(t, tt.threshold, got.DefaultCompactThreshold)
 			assert.Equal(t, tt.variant, got.ModelVariant1M)
@@ -74,7 +73,7 @@ func TestResolveClientBudget(t *testing.T) {
 func TestClientBudgetDoesNotUseRouterAddedBeta(t *testing.T) {
 	clientIdentity := ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode, UserAgent: budgetTestUserAgent}
 	headers := make(http.Header)
-	budget := credentials.ResolveClientBudget(clientIdentity, headers, testOpus, false)
+	budget := resolveClientBudget(clientIdentity, headers, testOpus, false)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"` + testOpus + `","messages":[{"role":"user","content":"hello"}]}`))
 	require.NoError(t, err)
 	prepared, err := env.PrepareAnthropic(headers, translate.EmitOptions{TargetModel: testOpus, Capabilities: router.Lookup(testOpus), EnableExtendedContext: true})
@@ -97,7 +96,7 @@ func TestClientBudgetRecomputedAcrossSameSessionAndAgents(t *testing.T) {
 		{budgetTestFable, false, 200_000},
 		{budgetTestHaiku, false, 200_000},
 	} {
-		budget := credentials.ResolveClientBudget(clientIdentity, nil, tt.model, tt.variant)
+		budget := resolveClientBudget(clientIdentity, nil, tt.model, tt.variant)
 		parent = requestcontext.WithClientBudget(parent, budget)
 		svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 		req := svc.withPolicyRequestContext(parent, router.Request{})

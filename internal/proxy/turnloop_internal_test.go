@@ -140,7 +140,7 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 	t.Parallel()
 
 	zeroTimestamp := routingpolicy.TurnRoute{}
-	applyPinEvidence(hmm.ServingPorts(), &zeroTimestamp, sessionpin.Pin{
+	routingpolicy.ApplyPinEvidence(hmm.ServingPorts(), &zeroTimestamp, sessionpin.Pin{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
 	}, time.Now())
@@ -149,7 +149,7 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 	assert.Nil(t, zeroTimestamp.PriorTurnGapMS)
 
 	withHistory := routingpolicy.TurnRoute{}
-	applyPinEvidence(hmm.ServingPorts(), &withHistory, sessionpin.Pin{
+	routingpolicy.ApplyPinEvidence(hmm.ServingPorts(), &withHistory, sessionpin.Pin{
 		Provider:        providers.ProviderFireworks,
 		Model:           "accounts/fireworks/models/qwen3-235b-a22b",
 		PolicyGroup:     "high",

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"weave-os/router/internal/conversation"
-	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -34,7 +33,7 @@ func TestClientRecoveryIsLimitedToInitialAssistantTurns(t *testing.T) {
 			require.NoError(t, err)
 			env, err := translate.ParseAnthropic(body)
 			require.NoError(t, err)
-			applied, err := conversation.ApplyClientCompactionRecovery(context.Background(), env, smallClientBudget(), turntype.MainLoop, conversationMessagesForRouting(env), DefaultCompactionMaxTokens, credentials.ClaudeCodeDefaultWindow)
+			applied, err := conversation.ApplyClientCompactionRecovery(context.Background(), env, smallClientBudget(), turntype.MainLoop, conversationMessagesForRouting(env), DefaultCompactionMaxTokens, claudeCodeDefaultWindow)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, applied)
 			prepared, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: budgetTestFable, Capabilities: router.Lookup(budgetTestFable)})
@@ -62,7 +61,7 @@ func TestClientRecoveryLeavesUnknownBudgetsAndUtilityTurnsUntouched(t *testing.T
 			require.NoError(t, err)
 			before, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: budgetTestFable, Capabilities: router.Lookup(budgetTestFable)})
 			require.NoError(t, err)
-			applied, err := conversation.ApplyClientCompactionRecovery(context.Background(), env, tt.budget, tt.turn, conversationMessagesForRouting(env), DefaultCompactionMaxTokens, credentials.ClaudeCodeDefaultWindow)
+			applied, err := conversation.ApplyClientCompactionRecovery(context.Background(), env, tt.budget, tt.turn, conversationMessagesForRouting(env), DefaultCompactionMaxTokens, claudeCodeDefaultWindow)
 			require.NoError(t, err)
 			assert.False(t, applied)
 			after, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: budgetTestFable, Capabilities: router.Lookup(budgetTestFable)})
@@ -86,7 +85,7 @@ func TestClientRecoverySeesContinuationAfterHandoverRewrite(t *testing.T) {
 	history := []router.ConversationMessage{{
 		Role: "user", Text: conversation.ClientCompactContinuationPrefix + " Summary: continue the verified fix.",
 	}}
-	applied, err := conversation.ApplyClientCompactionRecovery(context.Background(), env, smallClientBudget(), turntype.MainLoop, history, DefaultCompactionMaxTokens, credentials.ClaudeCodeDefaultWindow)
+	applied, err := conversation.ApplyClientCompactionRecovery(context.Background(), env, smallClientBudget(), turntype.MainLoop, history, DefaultCompactionMaxTokens, claudeCodeDefaultWindow)
 	require.NoError(t, err)
 	assert.True(t, applied)
 	prepared, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: budgetTestFable, Capabilities: router.Lookup(budgetTestFable)})

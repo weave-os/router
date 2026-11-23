@@ -203,7 +203,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	pinAgeSec := routeRes.PinAgeSec
 	logPlannerOutcome(ctx, s.strategyPorts, routeRes)
 
-	if facts.Client.ClientApp == requestcontext.ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
+	if facts.Client.ClientApp == requestcontext.ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.lifecycle.TextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, sessionKey, role, decision).TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
@@ -259,7 +259,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			Capabilities:   opts.Capabilities,
 			HasTools:       feats.HasTools,
 			ChatOnlyParams: env.RequiresChatCompletionsParams(opts.Capabilities),
-			Broad:          s.ResolveOpenAIResponsesBroad(ctx),
+			Broad:          s.ingress.ResponsesBroad(ctx),
 		}) && !s.engine.GatewayCaps().LacksResponses(responsesEndpointKey)
 		if !env.RequiresChatCompletionsParams(opts.Capabilities) && !s.engine.GatewayCaps().LacksResponses(responsesEndpointKey) && s.supportsSubscriptionTransport(decision.Provider) &&
 			(credentials.ServedOnCodexSubscription(resolvedCtx) || credentials.ManagedSubscriptionCanServe(ctx, decision.Provider, decision.Model)) {

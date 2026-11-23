@@ -47,7 +47,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if returnErr != nil {
 		return returnErr
 	}
-	ctx, body, err := s.parseHandoff(ctx, body)
+	ctx, body, err := s.lifecycle.PiHandoff(s.clock.Now).Parse(ctx, body, requestcontext.InstallationIDFromContext(ctx))
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}()
 	}
 
-	clientBudget := credentials.ResolveClientBudget(facts.Client, r.Header, env.Model(), modelVariant1M)
+	clientBudget := resolveClientBudget(facts.Client, r.Header, env.Model(), modelVariant1M)
 	ctx = requestcontext.WithClientBudget(ctx, clientBudget)
 	agentShadowEval, agentShadowMode := requestcontext.AgentShadowEvalFromContext(ctx)
 
@@ -222,8 +222,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		AgentShadowMode: agentShadowMode, Route: routeRes, Env: env, Features: feats, PromptText: promptText, ToolCallCount: inboundToolCallCount,
 		ToolBearing: inboundToolCallCount > 0 || inboundLastUser.HasToolResult, ClientBudget: clientBudget, Scope: req,
 		LoopBreak:  newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, roleForTier(catalog.TierFor(feats.Model)), decision),
-		NoProgress: s.lifecycle.NoProgress(), Now: s.clock.Now, TextRepetitionEnabled: s.ResolveTextRepetitionBreakEnabled(ctx),
-		RecoverClientCompaction: !callerModelPassthroughActive(ctx), SummaryMaxTokens: DefaultCompactionMaxTokens, ClientDefaultWindow: credentials.ClaudeCodeDefaultWindow,
+		NoProgress: s.lifecycle.NoProgress(), Now: s.clock.Now, TextRepetitionEnabled: s.lifecycle.TextRepetitionBreakEnabled(ctx),
+		RecoverClientCompaction: !callerModelPassthroughActive(ctx), SummaryMaxTokens: DefaultCompactionMaxTokens, ClientDefaultWindow: claudeCodeDefaultWindow,
 		HandoverEligible: !subscriptionStateModelsEnabled(ctx) && decision.Provider != providers.ProviderAnthropic,
 		RunCompactionHandover: func(ctx context.Context) handover.Outcome {
 			return s.runCompactionHandover(ctx, env, r.Header, decision.Model, req)
@@ -266,8 +266,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		ModelSwitched:                     routeRes.ModelSwitched(),
 		EnableExtendedContext:             shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserve),
 		EnableServerSideFallback:          s.ResolveAnthropicServerSideFallback(ctx),
-		KeepCrossVendorOrchestrationTools: flags.BoolOr(ctx, flags.KeyCCOrchToolsCrossVendor, s.ccOrchToolsCrossVendor),
-		KeepCrossVendorTaskTools:          s.ResolveCCTaskToolsCrossVendor(ctx),
+		KeepCrossVendorOrchestrationTools: flags.BoolOr(ctx, flags.KeyCCOrchToolsCrossVendor, s.ingress.CCOrchToolsCrossVendor),
+		KeepCrossVendorTaskTools:          s.ingress.TaskToolsCrossVendor(ctx),
 		AppendAutonomySystem:              s.autonomySystemAppendApplies(ctx, body, env, routeRes.TurnType),
 		AppendWorkspaceSystem:             s.workspaceSystemAppendApplies(ctx, body, env, routeRes.TurnType),
 	}

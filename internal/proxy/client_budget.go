@@ -1,8 +1,9 @@
-package credentials
+package proxy
 
 import (
 	"net/http"
 	"strings"
+
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -11,12 +12,12 @@ import (
 
 const (
 	claudeCodeBudgetVersion        = "2.1.257"
-	ClaudeCodeDefaultWindow        = 200_000
+	claudeCodeDefaultWindow        = 200_000
 	claudeCodeCompactOutputReserve = 20_000
 	claudeCodeAutoCompactBuffer    = 13_000
 )
 
-func ResolveClientBudget(clientIdentity requestcontext.ClientIdentity, headers http.Header, model string, hadVariant bool) router.ClientBudget {
+func resolveClientBudget(clientIdentity requestcontext.ClientIdentity, headers http.Header, model string, hadVariant bool) router.ClientBudget {
 	budget := router.ClientBudget{
 		ModelVariant1M:   hadVariant,
 		InboundContext1M: translate.HasContext1MBeta(headers),
@@ -44,7 +45,7 @@ func ResolveClientBudget(clientIdentity requestcontext.ClientIdentity, headers h
 		return budget
 	}
 	budget.Evidence = router.ClientBudgetHarnessDefault
-	budget.DefaultWindow = ClaudeCodeDefaultWindow
+	budget.DefaultWindow = claudeCodeDefaultWindow
 	if hadVariant && router.Lookup(model).Supports(router.CapExtendedContext) {
 		budget.DefaultWindow = 1_000_000
 	}

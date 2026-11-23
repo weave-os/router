@@ -83,24 +83,15 @@ func isAuthoritativePinHoldMismatch(res routingpolicy.TurnRoute, served router.D
 	if served.Metadata != nil {
 		return false
 	}
-	switch pinTier(res.PinTier) {
-	case pinTierAuthoritativeExcludedPin,
-		pinTierAuthoritativeUpgradeConfidenceLow,
-		pinTierAuthoritativeDowngradeConfidenceLow,
-		pinTierAuthoritativeDowngradeHysteresis:
+	switch routingpolicy.AuthoritativePinTier(res.PinTier) {
+	case routingpolicy.PinTierAuthoritativeExcludedPin,
+		routingpolicy.PinTierAuthoritativeUpgradeConfidenceLow,
+		routingpolicy.PinTierAuthoritativeDowngradeConfidenceLow,
+		routingpolicy.PinTierAuthoritativeDowngradeHysteresis:
 		return true
 	default:
 		return false
 	}
 }
 
-func pinAge(p sessionpin.Pin, now time.Time) int64 {
-	if p.FirstPinnedAt.IsZero() {
-		return 0
-	}
-	d := now.Sub(p.FirstPinnedAt)
-	if d < 0 {
-		return 0
-	}
-	return int64(d.Seconds())
-}
+func pinAge(p sessionpin.Pin, now time.Time) int64 { return routingpolicy.PinAge(p, now) }
