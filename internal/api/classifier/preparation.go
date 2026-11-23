@@ -1,6 +1,7 @@
 package classifier
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,12 +10,15 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 )
 
-func PrepareModelHandler(service *proxy.Service) gin.HandlerFunc {
+type RouterModelPreparer interface {
+	PrepareRouterModel(ctx context.Context, model router.RoutingModel, operation string) (policy.ModelPreparation, error)
+}
+
+func PrepareModelHandler(service RouterModelPreparer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
 		if c.Request.Method == http.MethodPost {
@@ -34,9 +38,9 @@ func PrepareModelHandler(service *proxy.Service) gin.HandlerFunc {
 		if err != nil {
 			observability.FromGin(c).Warn("Router model preparation failed", "err", err)
 			status, code := http.StatusServiceUnavailable, "model_preparation_unavailable"
-			if errors.Is(err, proxy.ErrModelPreparationForbidden) {
+			if errors.Is(err, policy.ErrModelPreparationForbidden) {
 				status, code = http.StatusForbidden, "model_preparation_not_permitted"
-			} else if errors.Is(err, proxy.ErrModelPreparationOperation) {
+			} else if errors.Is(err, policy.ErrModelPreparationOperation) {
 				status, code = http.StatusConflict, "model_preparation_release_mismatch"
 			}
 			c.AbortWithStatusJSON(status, gin.H{"error": code})
