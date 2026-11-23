@@ -27,7 +27,7 @@ import (
 
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
 	ctx = credentials.WithWeaveCreditsFunding(ctx, r.Header)
-	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
+	w, finishBlindExperimentWriter := ingress.WithBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
 	if websearch.IsClaudeCodeWebSearchHelper(body) {
 		r = r.Clone(ctx)
