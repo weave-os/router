@@ -57,7 +57,6 @@ type Service struct {
 	pinStore                     sessionpin.Store
 	escalation                   *floor.Helper
 	lifecycle                    *conversation.Lifecycle
-	prefixTrimFreeSwitch         bool
 	captureMode                  capture.Mode
 	captureMaxBytes              int
 	redactor                     capture.Redactor
@@ -65,11 +64,10 @@ type Service struct {
 	credentials                  credentials.Brokerage
 	strategyServing
 
-	rescueConfig     dispatch.RescueConfig
-	armDemotion      dispatch.ArmDemotionPolicy
-	throttling       dispatch.Throttling
-	ingress          ingress.Formats
-	effortEscalation bool
+	rescueConfig dispatch.RescueConfig
+	armDemotion  dispatch.ArmDemotionPolicy
+	throttling   dispatch.Throttling
+	ingress      ingress.Formats
 
 	billing *billing.Service
 	clock   auth.Clock
@@ -654,7 +652,6 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 		pinStore:                     pinStore,
 		lifecycle:                    conversation.NewLifecycle(),
 		searchUse:                    newSearchUseTracker(),
-		prefixTrimFreeSwitch:         true,
 		strategyServing:              strategyServing{continuityConfig: continuity.DefaultConfig(), hmmConfig: continuity.DefaultAuthoritativeConfig()},
 		rescueConfig: dispatch.RescueConfig{
 			SiblingFailover:             true,
@@ -664,7 +661,7 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 			AnthropicServerSideFallback: true,
 		},
 	}
-	s.routing = routingpolicy.New(nil).WithHardPins(overrides.HardPins{Explore: hardPinExplore, Provider: hardPinProvider, Model: hardPinModel})
+	s.routing = routingpolicy.New(nil).WithHardPins(overrides.HardPins{Explore: hardPinExplore, Provider: hardPinProvider, Model: hardPinModel}).WithPrefixTrimFreeSwitch(true)
 	s.escalationHelper()
 	if r == nil {
 		return s
@@ -693,16 +690,6 @@ func (s *Service) WithPolicyDeadlineDefaultModel(model string) *Service {
 	deadline := s.routing.Deadline()
 	deadline.DefaultModel = model
 	s.routing = s.routing.WithDeadline(deadline)
-	return s
-}
-
-func (s *Service) WithPrefixTrimFreeSwitch(enabled bool) *Service {
-	s.prefixTrimFreeSwitch = enabled
-	return s
-}
-
-func (s *Service) WithEffortEscalation(enabled bool) *Service {
-	s.effortEscalation = enabled
 	return s
 }
 
