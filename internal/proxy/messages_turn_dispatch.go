@@ -113,7 +113,7 @@ func dispatchMessagesTurn(ctx, credentialCtx context.Context, t *messagesTurnDis
 	if t.env.Stream() && !t.agentShadowMode {
 		var closeKeepalive func()
 		clientSink, t.streamCost, closeKeepalive = anthropicStreamSink(t.w, t.s.ingress.Keepalive, func() string {
-			return t.s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, t.routeRes.TurnType, t.footerEchoed)
+			return t.s.feedbackFooter(ctx, requestcontext.ClientIdentityFrom(ctx).ClientApp, t.routeRes.TurnType, t.footerEchoed)
 		})
 		defer closeKeepalive()
 	}

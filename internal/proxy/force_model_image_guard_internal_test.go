@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
@@ -152,7 +153,7 @@ func TestRunTurnLoop_ForcedImageCapModel_ReachesProvider(t *testing.T) {
 	assert.True(t, res.StickyHit)
 	assert.Empty(t, fr.captured, "an honored force must not invoke the scorer")
 
-	bindings := svc.resolveBindingsForDispatch(withRequestImageCount(context.Background(), imageCount), res.Decision)
+	bindings := svc.resolveBindingsForDispatch(requestcontext.WithRequestImageCount(context.Background(), imageCount), res.Decision)
 	require.Len(t, bindings, 1)
 	assert.Equal(t, providers.ProviderDeepInfra, bindings[0].Provider)
 }

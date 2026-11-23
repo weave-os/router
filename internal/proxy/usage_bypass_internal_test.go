@@ -750,7 +750,7 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 	require.NotNil(t, row.CohortTreatmentApplied)
 	assert.False(t, *row.CohortTreatmentApplied)
 	assert.Equal(t, string(turntype.MainLoop), row.TurnType)
-	routedKey := deriveSessionKeyForRequest(ctx, env, apiKeyIDFromContext(ctx))
+	routedKey := deriveSessionKeyForRequest(ctx, env, requestcontext.APIKeyIDFromContext(ctx))
 	assert.Equal(t, routedKey[:], row.SessionKey, "bypass replies must advance the same session turn clock as routed replies")
 	require.NotNil(t, row.UnifiedLimitHeaders, "captured unified headers must reach the telemetry row")
 	var headers map[string]string

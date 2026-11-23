@@ -68,7 +68,7 @@ func buildObservationContext(ports continuity.StrategyPorts, ctx context.Context
 	obs := observationContext{
 		TrainingAllowed: policyTrainingAllowedForRequest(ctx),
 		CaptureMode:     captureMode.String(),
-		RolloutID:       ClientIdentityFrom(ctx).RolloutID,
+		RolloutID:       requestcontext.ClientIdentityFrom(ctx).RolloutID,
 	}
 	if rolloutID, ok := ctx.Value(requestcontext.PolicyRolloutIDContextKey{}).(string); ok && rolloutID != "" {
 		obs.RolloutID = rolloutID

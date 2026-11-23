@@ -76,7 +76,7 @@ func clearCredentials(ctx context.Context) context.Context {
 
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
 	subDisabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
-	resolution := credentials.Resolve(requestFactsFrom(ctx, headers), provider, credentials.Suppression{
+	resolution := credentials.Resolve(credentials.RequestFactsFrom(ctx, headers), provider, credentials.Suppression{
 		Claude: credentials.ClaudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model),
 		Codex:  codexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || codexChatEndpoint(ctx) || subDisabled || !codexSubscriptionCanAttemptModel(model),
 	})
