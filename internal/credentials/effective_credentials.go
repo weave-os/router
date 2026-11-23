@@ -39,8 +39,8 @@ func ClearCredentials(ctx context.Context) context.Context {
 func ResolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
 	subDisabled := SubscriptionRoutingDisabledForRequest(ctx) || SubscriptionFundingOutOfPlayForRequest(ctx)
 	resolution := Resolve(RequestFactsFrom(ctx, headers), provider, Suppression{
-		Claude: ClaudeSubscriptionSuppressed(ctx) || subDisabled || ClaudeModelSuppressed(ctx, model),
-		Codex:  CodexSubscriptionSuppressed(ctx) || CodexModelSuppressed(ctx, model) || CodexChatEndpoint(ctx) || subDisabled || !requestcontext.CodexSubscriptionCanAttemptModel(model),
+		Claude: ClaudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model),
+		Codex:  CodexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || CodexChatEndpoint(ctx) || subDisabled || !requestcontext.CodexSubscriptionCanAttemptModel(model),
 	})
 	if resolution.Credentials == nil {
 		if resolution.Clear {

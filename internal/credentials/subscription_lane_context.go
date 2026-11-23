@@ -74,31 +74,31 @@ func AnthropicSubscriptionFromContext(ctx context.Context) string {
 	return v
 }
 
-type SuppressCodexSubscriptionContextKey struct{}
+type suppressCodexSubscriptionContextKey struct{}
 
 func WithSuppressedCodexSubscription(ctx context.Context) context.Context {
-	return context.WithValue(ctx, SuppressCodexSubscriptionContextKey{}, true)
+	return context.WithValue(ctx, suppressCodexSubscriptionContextKey{}, true)
 }
 
 func CodexSubscriptionSuppressed(ctx context.Context) bool {
-	v, _ := ctx.Value(SuppressCodexSubscriptionContextKey{}).(bool)
+	v, _ := ctx.Value(suppressCodexSubscriptionContextKey{}).(bool)
 	return v
 }
 
-type SuppressCodexModelContextKey struct{}
+type suppressCodexModelContextKey struct{}
 
 func WithSuppressedCodexModel(ctx context.Context, model string) context.Context {
-	previous, _ := ctx.Value(SuppressCodexModelContextKey{}).(map[string]struct{})
+	previous, _ := ctx.Value(suppressCodexModelContextKey{}).(map[string]struct{})
 	models := make(map[string]struct{}, len(previous))
 	for id := range previous {
 		models[id] = struct{}{}
 	}
 	models[router.StripDateSuffix(model)] = struct{}{}
-	return context.WithValue(ctx, SuppressCodexModelContextKey{}, models)
+	return context.WithValue(ctx, suppressCodexModelContextKey{}, models)
 }
 
-func CodexModelSuppressed(ctx context.Context, model string) bool {
-	models, _ := ctx.Value(SuppressCodexModelContextKey{}).(map[string]struct{})
+func codexModelSuppressed(ctx context.Context, model string) bool {
+	models, _ := ctx.Value(suppressCodexModelContextKey{}).(map[string]struct{})
 	_, suppressed := models[router.StripDateSuffix(model)]
 	return suppressed
 }
@@ -128,7 +128,7 @@ func CodexSubscriptionFromContext(ctx context.Context) *requestcontext.Credentia
 
 type SuppressClaudeModelContextKey struct{}
 
-func ClaudeModelSuppressed(ctx context.Context, model string) bool {
+func claudeModelSuppressed(ctx context.Context, model string) bool {
 	models, _ := ctx.Value(SuppressClaudeModelContextKey{}).(map[string]struct{})
 	_, suppressed := models[router.StripDateSuffix(model)]
 	return suppressed
