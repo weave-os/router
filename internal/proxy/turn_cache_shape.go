@@ -34,7 +34,7 @@ func withServedCacheWriteTTL(res routingpolicy.TurnRoute, extractor *telemetry.U
 }
 
 func servedPromptTokens(provider string, in, cacheRead, cacheWrite int) int {
-	if providers.FamilyFor(provider) == providers.FamilyAnthropic {
+	if providers.InputTokensExcludeCache(provider) {
 		return in + cacheRead + cacheWrite
 	}
 	return in

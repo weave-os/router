@@ -91,6 +91,10 @@ func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin
 	if endedAt.IsZero() {
 		endedAt = time.Now()
 	}
+	cacheModel, cache, err := usageModelCache(usage, endedAt)
+	if err != nil {
+		return err
+	}
 	q := dbbudget.Queries(r.tx)
 	return q.UpdateSessionPinUsage(ctx, sqlc.UpdateSessionPinUsageParams{
 		SessionKey:              sessionKey[:],
@@ -106,20 +110,21 @@ func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin
 		PriorServedModel:        usage.PriorServedModel,
 		SessionEverSwitched:     usage.SessionEverSwitched,
 		ExpectedRoutingStrategy: string(usage.Strategy),
-		ModelCache:              usageModelCache(usage, endedAt),
+		ModelCacheModel:         cacheModel,
+		ModelCache:              cache,
 	})
 }
 
-func usageModelCache(usage sessionpin.Usage, endedAt time.Time) []byte {
-	state, ok := usage.ModelCache(endedAt)
+func usageModelCache(usage sessionpin.Usage, endedAt time.Time) (string, []byte, error) {
+	model, state, ok := usage.ModelCache(endedAt)
 	if !ok {
-		return nil
+		return "", nil, nil
 	}
 	raw, err := json.Marshal(state)
 	if err != nil {
-		return nil
+		return "", nil, fmt.Errorf("encode model cache state: %w", err)
 	}
-	return raw
+	return model, raw, nil
 }
 
 func modelCaches(raw []byte) sessionpin.ModelCaches {

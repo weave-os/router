@@ -2,11 +2,15 @@ package routingpolicy_test
 
 import (
 	"testing"
+	"time"
 
+	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 )
+
+var switchTestNow = time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 
 const (
 	switchTestLow     = "claude-haiku-5-5"
@@ -36,6 +40,7 @@ func TestDecideSwitch(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.input.EstimatedInputTokens = 10_000
+			tc.input.Now = switchTestNow
 			verdict := routingpolicy.DecideSwitch(tc.input)
 			assert.Equal(t, tc.serve, verdict.Serve)
 			assert.Equal(t, tc.reason, verdict.Reason)
@@ -54,14 +59,17 @@ func TestDecideSwitchPricesTheRewriteOfALargePrompt(t *testing.T) {
 	}{
 		{"side request is served on the fresh pick without moving the session", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, SideRequest: true}, switchTestLow, routingpolicy.SwitchReasonSideRequest},
 		{"downgrade into an unseen destination holds while the current cache is warm", routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestMid}, switchTestHigh, routingpolicy.SwitchReasonDowngradePending},
-		{"downgrade to a model served last turn moves", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, FreshTurnsSinceServed: 1}, switchTestLow, routingpolicy.SwitchReasonDowngrade},
+		{"downgrade to a model served last turn moves", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, MessageCount: 100, ModelCaches: sessionpin.ModelCaches{switchTestLow: {ServedAt: switchTestNow.Add(-20 * time.Second), PromptTokens: 599_000, MessageCount: 98}}}, switchTestLow, routingpolicy.SwitchReasonDowngrade},
 		{"cold downgrade moves", routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestMid, CacheCold: true}, switchTestMid, routingpolicy.SwitchReasonDowngrade},
 		{"broken prefix downgrade moves", routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestMid, PrefixBroken: true}, switchTestMid, routingpolicy.SwitchReasonDowngrade},
+		{"cold upgrade moves", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestHigh, CacheCold: true}, switchTestHigh, routingpolicy.SwitchReasonUpgrade},
+		{"broken prefix upgrade moves", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestHigh, PrefixBroken: true}, switchTestHigh, routingpolicy.SwitchReasonUpgrade},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.input.EstimatedInputTokens = 80_000
 			tc.input.PromptTokens = largePrompt
+			tc.input.Now = switchTestNow
 			verdict := routingpolicy.DecideSwitch(tc.input)
 			assert.Equal(t, tc.serve, verdict.Serve)
 			assert.Equal(t, tc.reason, verdict.Reason)

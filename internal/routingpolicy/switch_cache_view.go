@@ -3,7 +3,6 @@ package routingpolicy
 import (
 	"time"
 
-	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
 )
 
@@ -19,12 +18,12 @@ func FreshCacheView(input SwitchInput) SwitchCacheView {
 	if !ok {
 		return SwitchCacheView{}
 	}
-	view := SwitchCacheView{Known: true, SinceServed: switchNow(input).Sub(state.ServedAt), TTL: time.Duration(state.WriteTTLSeconds) * time.Second}
+	view := SwitchCacheView{Known: true, SinceServed: input.Now.Sub(state.ServedAt), TTL: time.Duration(state.WriteTTLSeconds) * time.Second}
 	if state.MessageCount > 0 && input.MessageCount > 0 {
 		view.MessagesSinceServed = input.MessageCount - state.MessageCount
 	}
-	if m, found := catalog.ByID(input.Fresh); found && view.TTL == 0 {
-		view.TTL = providers.CacheTTLFor(m.PrimaryProvider())
+	if m, found := catalog.ByID(input.Fresh); found {
+		view.TTL = recordedCacheTTL(m, state)
 	}
 	return view
 }

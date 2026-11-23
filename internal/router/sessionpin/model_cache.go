@@ -1,6 +1,9 @@
 package sessionpin
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type ModelCacheState struct {
 	ServedAt        time.Time `json:"served_at"`
@@ -11,11 +14,18 @@ type ModelCacheState struct {
 
 type ModelCaches map[string]ModelCacheState
 
-func (u Usage) ModelCache(endedAt time.Time) (ModelCacheState, bool) {
-	if u.ServedModel == "" || u.PromptTokens <= 0 {
-		return ModelCacheState{}, false
+func BaseModelOf(servedIdentity string) string {
+	if idx := strings.LastIndex(servedIdentity, ":"); idx > 0 {
+		return servedIdentity[:idx]
 	}
-	return ModelCacheState{
+	return servedIdentity
+}
+
+func (u Usage) ModelCache(endedAt time.Time) (string, ModelCacheState, bool) {
+	if u.ServedModel == "" || u.PromptTokens <= 0 {
+		return "", ModelCacheState{}, false
+	}
+	return BaseModelOf(u.ServedModel), ModelCacheState{
 		ServedAt:        endedAt.UTC(),
 		PromptTokens:    u.PromptTokens,
 		MessageCount:    u.MessageCount,

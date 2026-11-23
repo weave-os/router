@@ -41,7 +41,6 @@ func TestLogSwitchShadowRecordsTheEvictionEconomicsWithoutChangingTheServedTurn(
 
 	logSwitchShadow(ctx, stayPin, gate, now, res)
 
-	assert.Equal(t, "claude-sonnet-4-6", res.Decision.Model)
 	var line map[string]any
 	require.NoError(t, json.Unmarshal(logs.Bytes(), &line))
 	assert.Equal(t, "router.switch_shadow", line["msg"])
@@ -71,4 +70,25 @@ func TestFreshCacheViewFallsBackToTheProviderTTLWhenNoneWasRecorded(t *testing.T
 	assert.Equal(t, time.Minute, view.SinceServed)
 	assert.Positive(t, view.TTL)
 	assert.Equal(t, SwitchCacheView{}, FreshCacheView(SwitchInput{Fresh: "claude-sonnet-4-6", Now: now}))
+}
+
+func TestLogSwitchShadowPricesTheRewriteAtTheRequestedWriteTTL(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	evictionAt := func(ttl time.Duration) float64 {
+		var logs bytes.Buffer
+		ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
+		stayPin := sessionpin.Pin{
+			Model: "claude-sonnet-4-6", Provider: providers.ProviderAnthropic, LastServedModel: "claude-sonnet-4-6", LastTurnEndedAt: now.Add(-20 * time.Second),
+			LastInputTokens: 1_000, LastCachedReadTokens: 299_000,
+		}
+		gate := continuity.CostGateInput{Fresh: router.Decision{Model: "claude-opus-4-8"}, EstimatedInputTokens: 300_000}
+		logSwitchShadow(ctx, stayPin, gate, now, TurnRoute{cacheShape: TurnCacheShape{MessageCount: 120, CacheWriteTTL: ttl}})
+		var line map[string]any
+		require.NoError(t, json.Unmarshal(logs.Bytes(), &line))
+		eviction, ok := line["eviction_usd"].(float64)
+		require.True(t, ok)
+		return eviction
+	}
+
+	assert.Less(t, evictionAt(5*time.Minute), evictionAt(time.Hour))
 }

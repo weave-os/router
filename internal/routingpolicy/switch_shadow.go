@@ -16,7 +16,21 @@ func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate continuit
 	if !flags.BoolOr(ctx, flags.KeySwitchDecideShadow, switchDecideShadowDefault) {
 		return
 	}
-	input := switchShadowInput(stayPin, gate, now, res)
+	shape := res.CacheShape()
+	input := SwitchInput{
+		Current:              stayPin.Model,
+		Fresh:                gate.Fresh.Model,
+		EstimatedInputTokens: gate.EstimatedInputTokens,
+		PromptTokens:         PriorPromptTokens(stayPin),
+		CacheCold:            stayPin.Model != "" && PinCacheCold(stayPin, gate.PrefixBroken, now),
+		PrefixBroken:         gate.PrefixBroken,
+		SideRequest:          shape.SideRequest,
+		Now:                  now,
+		MessageCount:         shape.MessageCount,
+		UserPrompt:           shape.UserPrompt,
+		CacheWriteTTL:        shape.CacheWriteTTL,
+		ModelCaches:          gate.HMMHistory.ModelCaches,
+	}
 	verdict := DecideSwitch(input)
 	fresh := FreshCacheView(input)
 	observability.FromContext(ctx).Info("router.switch_shadow",
@@ -47,22 +61,7 @@ func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate continuit
 		"fresh_messages_since_served", fresh.MessagesSinceServed,
 		"fresh_seconds_since_served", int(fresh.SinceServed/time.Second),
 		"fresh_cache_ttl_seconds", int(fresh.TTL/time.Second),
+		"cache_write_ttl_seconds", int(input.CacheWriteTTL/time.Second),
 		"tracked_model_caches", len(input.ModelCaches),
 	)
-}
-
-func switchShadowInput(stayPin sessionpin.Pin, gate continuity.CostGateInput, now time.Time, res TurnRoute) SwitchInput {
-	return SwitchInput{
-		Current:              stayPin.Model,
-		Fresh:                gate.Fresh.Model,
-		EstimatedInputTokens: gate.EstimatedInputTokens,
-		PromptTokens:         PriorPromptTokens(stayPin),
-		CacheCold:            stayPin.Model != "" && PinCacheCold(stayPin, gate.PrefixBroken, now),
-		PrefixBroken:         gate.PrefixBroken,
-		SideRequest:          res.CacheShape().SideRequest,
-		Now:                  now,
-		MessageCount:         res.CacheShape().MessageCount,
-		UserPrompt:           res.CacheShape().UserPrompt,
-		ModelCaches:          gate.HMMHistory.ModelCaches,
-	}
 }

@@ -70,31 +70,34 @@ func rewriteProbability(model string, state sessionpin.ModelCacheState, known bo
 	if state.MessageCount > 0 && turn.messageCount > 0 {
 		appended = turn.messageCount - state.MessageCount
 	}
-	if providers.FamilyFor(m.PrimaryProvider()) != providers.FamilyAnthropic {
+	if !providers.UsesBlockLookbackCache(m.PrimaryProvider()) {
 		return prefixCacheRewriteProbability(turn.now.Sub(state.ServedAt), appended)
 	}
-	ttl := providers.CacheTTLFor(m.PrimaryProvider())
-	if state.WriteTTLSeconds > 0 {
-		ttl = time.Duration(state.WriteTTLSeconds) * time.Second
-	}
-	if turn.now.Sub(state.ServedAt) >= ttl {
+	if turn.now.Sub(state.ServedAt) >= recordedCacheTTL(m, state) {
 		return 1
 	}
 	if appended < 0 || appended >= evictionLookbackMessages {
 		return evictionOutsideLookback
 	}
-	row := 0
+	userPromptRow := 0
 	if turn.userPrompt {
-		row = 1
+		userPromptRow = 1
 	}
 	switch {
 	case appended <= 3:
-		return evictionRewriteRate[row][0]
+		return evictionRewriteRate[userPromptRow][0]
 	case appended <= 11:
-		return evictionRewriteRate[row][1]
+		return evictionRewriteRate[userPromptRow][1]
 	default:
-		return evictionRewriteRate[row][2]
+		return evictionRewriteRate[userPromptRow][2]
 	}
+}
+
+func recordedCacheTTL(m catalog.Model, state sessionpin.ModelCacheState) time.Duration {
+	if state.WriteTTLSeconds > 0 {
+		return time.Duration(state.WriteTTLSeconds) * time.Second
+	}
+	return providers.CacheTTLFor(m.PrimaryProvider())
 }
 
 func prefixCacheRewriteProbability(gap time.Duration, appended int) float64 {
@@ -110,7 +113,7 @@ func prefixCacheRewriteProbability(gap time.Duration, appended int) float64 {
 	}
 }
 
-func expectedTurnUSD(model string, outlook CacheOutlook, tokens, outputTokens int) (float64, bool) {
+func expectedTurnUSD(model string, outlook CacheOutlook, tokens, outputTokens int, writeTTL time.Duration) (float64, bool) {
 	m, ok := catalog.ByID(model)
 	price, priced := catalog.PrimaryPriceFor(model)
 	if !ok || !priced {
@@ -118,7 +121,14 @@ func expectedTurnUSD(model string, outlook CacheOutlook, tokens, outputTokens in
 	}
 	price = price.ForInputTokens(tokens)
 	in := price.InputUSDPer1M / 1e6
+	if writeTTL <= 0 {
+		writeTTL = providers.CacheTTLFor(m.PrimaryProvider())
+	}
+	write := price.EffectiveCacheWriteMultiplier()
+	if writeTTL >= time.Hour {
+		write = price.EffectiveCacheWrite1hMultiplier(m.PrimaryProvider())
+	}
 	return outlook.ReadTokens*in*price.EffectiveCacheReadMultiplier() +
-		outlook.WriteTokens*in*price.EffectiveCacheWrite1hMultiplier(m.PrimaryProvider()) +
+		outlook.WriteTokens*in*write +
 		float64(outputTokens)*price.OutputUSDPer1M/1e6, true
 }

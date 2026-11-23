@@ -340,7 +340,7 @@
             "LastOutputTokens": 7,
             "LastServedModel": "claude-opus-4-7:high",
             "ModelCaches": {
-              "claude-opus-4-7:high": {
+              "claude-opus-4-7": {
                 "MessageCount": 1,
                 "PromptTokens": 12
               }

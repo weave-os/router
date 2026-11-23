@@ -13,6 +13,7 @@ func TestDecideSwitchHoldsADowngradeWhoseCacheRewriteOutweighsTenTurnsOfSavings(
 		Current:              "claude-opus-5-5",
 		Fresh:                "claude-sonnet-5-5",
 		EstimatedInputTokens: 400_000,
+		Now:                  switchTestNow,
 	})
 	assert.Equal(t, "claude-opus-5-5", verdict.Serve)
 	assert.False(t, verdict.Switch)

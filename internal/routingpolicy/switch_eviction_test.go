@@ -27,7 +27,7 @@ func TestDecideSwitchPricesTheDestinationCache(t *testing.T) {
 			name: "downgrade back to a destination still inside the cache lookback",
 			input: routingpolicy.SwitchInput{
 				Current: switchTestHigh, Fresh: switchTestMid, EstimatedInputTokens: prompt, PromptTokens: prompt,
-				FreshTurnsSinceServed: 2, Now: now, MessageCount: 300,
+				Now: now, MessageCount: 300,
 				ModelCaches: sessionpin.ModelCaches{
 					switchTestHigh: {ServedAt: now.Add(-20 * time.Second), PromptTokens: prompt - 2_000, MessageCount: 298},
 					switchTestMid:  {ServedAt: now.Add(-time.Minute), PromptTokens: prompt - 4_000, MessageCount: 296},
@@ -39,7 +39,7 @@ func TestDecideSwitchPricesTheDestinationCache(t *testing.T) {
 			name: "downgrade holds when the destination fell out of the cache lookback",
 			input: routingpolicy.SwitchInput{
 				Current: switchTestHigh, Fresh: switchTestMid, EstimatedInputTokens: prompt, PromptTokens: prompt,
-				FreshTurnsSinceServed: 2, Now: now, MessageCount: 300,
+				Now: now, MessageCount: 300,
 				ModelCaches: sessionpin.ModelCaches{
 					switchTestHigh: {ServedAt: now.Add(-20 * time.Second), PromptTokens: prompt - 2_000, MessageCount: 298},
 					switchTestMid:  {ServedAt: now.Add(-2 * time.Minute), PromptTokens: prompt - 60_000, MessageCount: 270},
@@ -96,7 +96,7 @@ func TestDecideSwitchPricesTheDestinationCache(t *testing.T) {
 			name: "upgrade to a prefix-cached destination is not limited by the block lookback",
 			input: routingpolicy.SwitchInput{
 				Current: switchTestLow, Fresh: switchTestPrefixCached, EstimatedInputTokens: 200_000, PromptTokens: 200_000,
-				FreshTurnsSinceServed: 15, Now: now, MessageCount: 330,
+				Now: now, MessageCount: 330,
 				ModelCaches: sessionpin.ModelCaches{
 					switchTestLow:          {ServedAt: now.Add(-10 * time.Second), PromptTokens: 199_000, MessageCount: 328},
 					switchTestPrefixCached: {ServedAt: now.Add(-10 * time.Minute), PromptTokens: 190_000, MessageCount: 300},

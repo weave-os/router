@@ -330,12 +330,12 @@ func (s *goldenPinStore) UpdateUsage(_ context.Context, key [sessionpin.SessionK
 	p.LastInputTokens, p.LastCachedReadTokens = usage.InputTokens, usage.CachedReadTokens
 	p.LastCachedWriteTokens, p.LastOutputTokens = usage.CachedWriteTokens, usage.OutputTokens
 	p.LastTurnEndedAt, p.LastServedModel = usage.EndedAt, usage.ServedModel
-	if state, ok := usage.ModelCache(usage.EndedAt); ok {
+	if model, state, ok := usage.ModelCache(usage.EndedAt); ok && !p.ModelCaches[model].ServedAt.After(state.ServedAt) {
 		caches := maps.Clone(p.ModelCaches)
 		if caches == nil {
 			caches = sessionpin.ModelCaches{}
 		}
-		caches[usage.ServedModel] = state
+		caches[model] = state
 		p.ModelCaches = caches
 	}
 	p.LastOutputLimitAt = time.Time{}
