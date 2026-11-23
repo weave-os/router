@@ -202,5 +202,5 @@ func TestExcludedModelsOverrideCannotWidenTheBoundary(t *testing.T) {
 	assert.Contains(t, excluded, "muse-spark-1.3")
 	assert.Contains(t, excluded, "gpt-5.5")
 	assert.NotContains(t, excluded, "deepseek/deepseek-v4-pro")
-	assert.NotContains(t, svc.ExcludedModelsOverride(), "claude-opus-4-8")
+	assert.NotContains(t, NewRoutingCatalog(svc).ExcludedModelsOverride(), "claude-opus-4-8")
 }

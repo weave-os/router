@@ -59,7 +59,7 @@ func TestRouteWithoutStrategyContextUsesHMMEmbeddingDefault(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "deepseek/deepseek-v4-pro", decision.Model)
 	assert.Equal(t, 1, defaultRouter.calls)
-	assert.True(t, svc.PolicyStrategyAvailable(router.StrategyHMMEmbedding))
+	assert.True(t, NewRoutingCatalog(svc).PolicyStrategyAvailable(router.StrategyHMMEmbedding))
 }
 
 func TestRetiredClusterStrategyIsNotRoutable(t *testing.T) {
@@ -70,7 +70,7 @@ func TestRetiredClusterStrategyIsNotRoutable(t *testing.T) {
 
 	require.ErrorIs(t, err, router.ErrStrategyUnavailable)
 	assert.Zero(t, defaultRouter.calls)
-	assert.False(t, svc.PolicyStrategyAvailable(router.Strategy("cluster")))
+	assert.False(t, NewRoutingCatalog(svc).PolicyStrategyAvailable(router.Strategy("cluster")))
 }
 
 func TestRouteWithoutDefaultRouterFailsClosed(t *testing.T) {
@@ -79,7 +79,7 @@ func TestRouteWithoutDefaultRouterFailsClosed(t *testing.T) {
 	_, err := svc.Route(context.Background(), router.Request{})
 
 	require.ErrorIs(t, err, hmm.ErrHMMUnavailable)
-	assert.False(t, svc.PolicyStrategyAvailable(router.StrategyHMMEmbedding))
+	assert.False(t, NewRoutingCatalog(svc).PolicyStrategyAvailable(router.StrategyHMMEmbedding))
 }
 
 func TestPolicyStrategyRegistryRoutesFutureStrategyWithoutServiceChanges(t *testing.T) {
@@ -118,7 +118,7 @@ func TestPolicyStrategyRegistryRoutesFutureStrategyWithoutServiceChanges(t *test
 	assert.True(t, futureRouter.request.TrainingAllowed)
 	assert.True(t, futureRouter.request.DebugEnabled)
 	assert.Equal(t, "high", futureRouter.request.RoutingIntent)
-	capabilities, ok := svc.PolicyCapabilities(strategy)
+	capabilities, ok := NewRoutingCatalog(svc).PolicyCapabilities(strategy)
 	require.True(t, ok)
 	assert.True(t, capabilities.ReportsFeedback)
 }
@@ -147,7 +147,7 @@ func TestPolicyCapabilitiesReadsRefreshedRouterCapabilities(t *testing.T) {
 		SupportsShadow: true,
 	}
 
-	capabilities, ok := svc.PolicyCapabilities(strategy)
+	capabilities, ok := NewRoutingCatalog(svc).PolicyCapabilities(strategy)
 
 	require.True(t, ok)
 	assert.True(t, capabilities.SupportsShadow)
@@ -161,7 +161,7 @@ func TestPolicyStrategyAvailableReadsDynamicReadiness(t *testing.T) {
 		Router:   policyRouter,
 	})
 
-	assert.False(t, svc.PolicyStrategyAvailable(strategy))
+	assert.False(t, NewRoutingCatalog(svc).PolicyStrategyAvailable(strategy))
 	policyRouter.available = true
-	assert.True(t, svc.PolicyStrategyAvailable(strategy))
+	assert.True(t, NewRoutingCatalog(svc).PolicyStrategyAvailable(strategy))
 }

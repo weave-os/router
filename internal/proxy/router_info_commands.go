@@ -39,7 +39,7 @@ func (c routerInfoCommands) models(
 	inputTokens int,
 ) error {
 	log := observability.FromContext(ctx)
-	routable := c.s.RoutableModels()
+	routable := NewRoutingCatalog(c.s).RoutableModels()
 	excluded := c.s.excludedModelsForRequest(ctx)
 	automaticExcluded := c.s.globalAutomaticExcludedModels(ctx)
 

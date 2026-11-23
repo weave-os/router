@@ -104,7 +104,7 @@ func (betaCommands) Managed(ctx context.Context) bool {
 }
 
 func (b betaCommands) Available(ctx context.Context, strategy router.Strategy) bool {
-	available := b.s.PolicyStrategyAvailable(strategy)
+	available := NewRoutingCatalog(b.s).PolicyStrategyAvailable(strategy)
 	if snapshot := policyregistry.ServingSnapshotFromContext(ctx); snapshot != nil {
 		available = snapshot.Routers[strategy] != nil
 	}

@@ -1096,7 +1096,7 @@ func main() {
 		logger.Error("ROUTER_DEFAULT_STRATEGY is invalid; refusing to boot", "err", defaultStrategyErr)
 		panic(defaultStrategyErr)
 	}
-	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxySvc, defaultStrategy)
+	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxy.NewRoutingCatalog(proxySvc), defaultStrategy)
 	if defaultStrategyErr := readinessChecker.checkDefaultStrategy(); defaultStrategyErr != nil {
 		logger.Error("ROUTER_DEFAULT_STRATEGY has no router configured; refusing to boot", "err", defaultStrategyErr)
 		panic(defaultStrategyErr)

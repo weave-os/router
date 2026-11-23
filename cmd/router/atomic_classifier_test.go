@@ -70,10 +70,10 @@ func TestAtomicClassifierStartupIsOptInAndFailsClosed(t *testing.T) {
 			service := proxy.WithDeps(&proxy.Service{}, proxy.Deps{Routing: &proxy.RoutingDeps{ClassifierSessions: sessions, Strategies: specs}})
 			if test.wantError {
 				require.Error(t, err)
-				require.False(t, service.PolicyStrategyAvailable(router.StrategyLLMClassifier))
+				require.False(t, proxy.NewRoutingCatalog(service).PolicyStrategyAvailable(router.StrategyLLMClassifier))
 			} else {
 				require.NoError(t, err)
-				require.True(t, service.PolicyStrategyAvailable(router.StrategyLLMClassifier))
+				require.True(t, proxy.NewRoutingCatalog(service).PolicyStrategyAvailable(router.StrategyLLMClassifier))
 			}
 		})
 	}
