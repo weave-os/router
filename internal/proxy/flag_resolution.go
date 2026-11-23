@@ -75,24 +75,8 @@ func (s *Service) ResolveAllowedModelsHeader(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAllowedModelsHeader, s.ingress.AllowedModelsHeader)
 }
 
-func (s *Service) ResolveOpenAIResponsesBroad(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyOpenAIResponsesBroad, s.openAIResponsesBroad)
-}
-
-func (s *Service) ResolveCCTaskToolsCrossVendor(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyCCTaskToolsCrossVendor, s.ccTaskToolsCrossVendor)
-}
-
-func (s *Service) ResolveCCAutonomySystemAppend(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyCCAutonomySystemAppend, s.ccAutonomySystemAppend)
-}
-
 func (s *Service) ResolveEarlyStopRedo(ctx context.Context) flags.EarlyStopRedoMode {
 	return s.rescueConfig.EarlyStopRedoMode(ctx)
-}
-
-func (s *Service) ResolveCCWorkspaceSystemAppend(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyCCWorkspaceSystemAppend, s.ccWorkspaceSystemAppend)
 }
 
 func (s *Service) ResolveCommittedStreamArmDemotion(ctx context.Context) bool {

@@ -66,7 +66,7 @@ func TestProxyOutputLimitAcrossResponsePaths(t *testing.T) {
 					svc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: path.provider, Model: path.model, Reason: "fresh"}},
 						dispatch.NewClients(map[string]providers.Client{path.provider: provider}), nil, store, false, path.provider, path.model, nil), hmm.ServingPorts()),
 						proxy.Deps{Telemetry: proxy.TelemetryDeps{Flags: &proxy.TelemetryFlags{TurnSignalCapture: true}}}).
-						WithOpenAIResponsesBroad(path.wire == "responses")
+						WithIngress(responsesBroadFormats(path.wire == "responses"))
 					ctx := authedCtx(uuid.NewString())
 					rec := httptest.NewRecorder()
 					body := []byte(fmt.Sprintf(`{"model":%q,"max_tokens":64000,"stream":%t,"messages":[{"role":"user","content":"Inspect the repository files"}]}`, path.model, stream))

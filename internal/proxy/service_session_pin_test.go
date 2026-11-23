@@ -333,7 +333,7 @@ func TestService_InContextNativeWebSearchKeepsAnthropicPin(t *testing.T) {
 		Model:    "claude-fable-5-1",
 		Reason:   "cluster:v0.2",
 	}}
-	svc := newPinSvc(fr, store).WithScopedSearchRequirement(true, proxy.DefaultSearchRequirementDecayTurns)
+	svc := newPinSvc(fr, store).WithIngress(scopedSearchFormats())
 	body := []byte(`{
 		"model":"claude-opus-4-8",
 		"tools":[{"type":"web_search_20250305","name":"web_search"}],
@@ -375,7 +375,7 @@ func TestService_NativeSearchResultHistoryFiltersPolicyCandidatesInGo(t *testing
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
 		nil), hmm.ServingPorts()).
-		WithScopedSearchRequirement(true, proxy.DefaultSearchRequirementDecayTurns)
+		WithIngress(scopedSearchFormats())
 	body := []byte(`{
 		"model":"claude-opus-4-8",
 		"tools":[{"type":"web_search_20250305","name":"web_search"}],

@@ -132,7 +132,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 					WithRequestHadTools(deps.feats.HasTools).
 					WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
 					WithSeedToolCallMarkup(deps.env.SeedToolCallNames(prep.ResponseToolNames)).
-					WithEscapeNormalize(flags.BoolOr(ctx, flags.KeyEscapeNormalize, deps.svc.escapeNormalize)).
+					WithEscapeNormalize(flags.BoolOr(ctx, flags.KeyEscapeNormalize, deps.svc.ingress.EscapeNormalize)).
 					WithToolValidator(deps.toolValidator)
 				if providers.OutputExcludesReasoning(d.Provider) {
 					chatTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
@@ -166,7 +166,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 				Capabilities:   targetOpts.Capabilities,
 				HasTools:       deps.feats.HasTools,
 				ChatOnlyParams: deps.env.RequiresChatCompletionsParams(targetOpts.Capabilities),
-				Broad:          deps.svc.ResolveOpenAIResponsesBroad(actx),
+				Broad:          deps.svc.ingress.ResponsesBroad(actx),
 			}) && !deps.svc.engine.GatewayCaps().LacksResponses(gatewayKey)
 			stripPromptCacheKey := deps.svc.engine.GatewayCaps().RejectsPromptCacheKey(gatewayKey)
 			finalize, rawErr := dispatchOpenAICompat(actx, d, p, useResponses, stripPromptCacheKey)
@@ -221,7 +221,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 				WithLogger(deps.log).
 				WithEstimatedInputTokens(deps.feats.Tokens).
 				WithRequestHadTools(deps.feats.HasTools).
-				WithEscapeNormalize(flags.BoolOr(ctx, flags.KeyEscapeNormalize, deps.svc.escapeNormalize)).
+				WithEscapeNormalize(flags.BoolOr(ctx, flags.KeyEscapeNormalize, deps.svc.ingress.EscapeNormalize)).
 				WithToolValidator(deps.toolValidator)
 			if err := anthropicTr.Prelude(deps.env.Stream()); err != nil {
 				return func(err error) error { return err }, fmt.Errorf("emit Anthropic routing marker: %w", err)

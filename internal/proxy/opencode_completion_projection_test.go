@@ -55,7 +55,7 @@ func TestOpenCodeBackgroundCompletionUsesAgentRoutingContext(t *testing.T) {
 			selected := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "scored"}}
 			upstream := &fakeProvider{proxyResponse: responsesTextUpstream}
 			svc := proxy.WithStrategyPorts(proxy.NewService(selected, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}), nil, nil, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil), hmm.ServingPorts()).
-				WithOpenAIResponsesBroad(true).
+				WithIngress(responsesBroadFormats(true)).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: selected, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 			input := []map[string]any{{"type": "message", "role": "user", "content": "Investigate and fix the failing test"}}
 			toolName := "task"

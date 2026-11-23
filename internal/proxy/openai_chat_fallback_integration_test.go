@@ -65,7 +65,7 @@ func TestProxyMessages_OpenAIResponses404UsesValidChatToolFallback(t *testing.T)
 				dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: openai.NewClient("test-key", upstream.URL)}),
 				nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts()).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
-				WithOpenAIResponsesBroad(broad)
+				WithIngress(responsesBroadFormats(broad))
 			body := []byte(`{"model":"auto","stream":true,"max_tokens":1024,"thinking":{"type":"enabled","budget_tokens":2048},"messages":[{"role":"user","content":"list files"}],"tools":[{"name":"read_file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`)
 			for i := 0; i < 2; i++ {
 				rec := httptest.NewRecorder()
