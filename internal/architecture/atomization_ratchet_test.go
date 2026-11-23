@@ -59,16 +59,16 @@ var atomizationRatchetFixes = map[string]string{
 }
 
 var (
-	strategyPackageRoots    = []string{hmmPackagePath, routerPackagePath + "/decisionmodel", policyPackagePath}
-	strategyInternalRoots   = []string{hmmPackagePath, routerPackagePath + "/decisionmodel"}
-	servingAdapterRoots     = []string{"auth", "billing", "subscriptions", "credentials", "dispatch", "postgres"}
-	routerLayerRoots        = []string{routerPackagePath, modulePath + "/internal/routingpolicy", modulePath + "/internal/architecture"}
-	hmmOnlyPinFields        = []string{"PolicyGroup", "ConsecutiveDowngradeVotes", "ConsecutiveUpgradeVotes"}
-	hmmOnlyMetadataFields   = []string{"PolicyGroup", "ArmScores", "SelectionTrace"}
-	hmmOnlyMetadataPrefixes = []string{"Classifier"}
-	escalationInternalPorts = map[string][]string{escalationPackagePath: {"Store", "Observer"}, routerPackagePath + "/llmescalation": {"Judge"}}
-	routerLayerHelperFuncs  = []string{continuityPackagePath, plannerPackagePath, floorPackagePath}
-	routerLayerHelperPorts  = map[string][]string{
+	strategyPackageRoots      = []string{hmmPackagePath, routerPackagePath + "/decisionmodel", policyPackagePath}
+	strategyInternalRoots     = []string{hmmPackagePath, routerPackagePath + "/decisionmodel"}
+	servingAdapterRoots       = []string{"auth", "billing", "subscriptions", "credentials", "dispatch", "postgres"}
+	routerLayerRoots          = []string{routerPackagePath, modulePath + "/internal/routingpolicy", modulePath + "/internal/architecture"}
+	hmmOnlyPinFields          = []string{"PolicyGroup", "ConsecutiveDowngradeVotes", "ConsecutiveUpgradeVotes"}
+	hmmOnlyMetadataFields     = []string{"PolicyGroup", "ArmScores", "SelectionTrace"}
+	hmmOnlyMetadataPrefixes   = []string{"Classifier"}
+	escalationInternalPorts   = map[string][]string{escalationPackagePath: {"Store", "Observer"}, routerPackagePath + "/llmescalation": {"Judge"}}
+	routerLayerHelperPackages = []string{continuityPackagePath, plannerPackagePath, floorPackagePath}
+	routerLayerHelperPorts    = map[string][]string{
 		continuityPackagePath + ".UpgradeJudge": nil,
 		continuityPackagePath + ".CostGate":     {"Decide", "StayPin"},
 		floorPackagePath + ".Helper":            {"Begin", "Settle", "SettleLLM", "ApplyLLM"},
@@ -365,7 +365,7 @@ func isRouterLayerHelperCall(object types.Object) bool {
 	recv := function.Signature().Recv()
 	if recv == nil {
 		name := function.Name()
-		return slices.Contains(routerLayerHelperFuncs, function.Pkg().Path()) && !strings.HasPrefix(name, "New") && !strings.HasPrefix(name, "Default")
+		return slices.Contains(routerLayerHelperPackages, function.Pkg().Path()) && !strings.HasPrefix(name, "New") && !strings.HasPrefix(name, "Default")
 	}
 	recvType := recv.Type()
 	if pointer, isPointer := recvType.(*types.Pointer); isPointer {
