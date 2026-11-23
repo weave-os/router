@@ -62,10 +62,9 @@ func TestTelemetryPort_LinkFeedbackRecordsAndFlushes(t *testing.T) {
 	recorder := &capturingTelemetryRecorder{}
 	emitter := &capturingTelemetryEmitter{recorder: recorder}
 	comment := "The response was helpful."
-	service := proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(nil), emitter, nil, false, "", "", nil), hmm.ServingPorts()).
-		WithFeedback(&fakeFeedbackRepoForSpanTest{}, feedback.NewSigner("secret", time.Hour), "https://router.example.com")
+	links := feedback.NewLinks(&fakeFeedbackRepoForSpanTest{}, feedback.NewSigner("secret", time.Hour), "https://router.example.com", emitter, time.Now)
 
-	err := service.SubmitFeedback(context.Background(), feedback.SubmitFeedbackParams{
+	err := links.SubmitFeedback(context.Background(), feedback.SubmitFeedbackParams{
 		InstallationID: "inst-1",
 		ExternalID:     "org-1",
 		RequestID:      "req-1",
