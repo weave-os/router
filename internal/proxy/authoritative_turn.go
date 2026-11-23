@@ -34,7 +34,7 @@ type sessionTurnInput struct {
 
 func sessionTurnFor(ctx context.Context, s *Service, in sessionTurnInput) routingpolicy.SessionTurn {
 	settings := sessionSettingsFor(ctx, s)
-	settings.HMMToolResultHold = s.ResolveHMMToolResultHold(ctx, in.strategy)
+	settings.HMMToolResultHold = s.strategyPorts.ResolveHMMToolResultHold(ctx, in.strategy)
 	return routingpolicy.SessionTurn{
 		Strategy: in.strategy, Request: in.req, Pin: in.pin, PinFound: in.pinFound, SwitchHistory: in.switchHistory, Fresh: in.fresh, PrefixBroken: in.prefixBroken,
 		PlannerTokens: s.plannerTokensFor(ctx, in.env, in.feats), Pins: in.sessionPins, InstallationID: in.installationID,
@@ -46,20 +46,20 @@ func sessionTurnFor(ctx context.Context, s *Service, in sessionTurnInput) routin
 
 func sessionSettingsFor(ctx context.Context, s *Service) routingpolicy.SessionSettings {
 	return routingpolicy.SessionSettings{
-		UpgradePolicy:                  s.ResolveAuthoritativeUpgradePolicy(ctx),
-		UpgradeGate:                    s.ResolveAuthoritativeUpgradeGate(ctx),
-		UpgradeVotes:                   s.ResolveAuthoritativeUpgradeVotes(ctx),
-		DowngradeGate:                  s.ResolveAuthoritativeDowngradeGate(ctx),
-		DowngradeHysteresisTurns:       s.ResolveHMMDowngradeHysteresisTurns(ctx),
-		DowngradeHysteresisShadowTurns: s.ResolveHMMDowngradeHysteresisShadowTurns(ctx),
-		CacheShadowEnabled:             s.ResolveAuthorityCacheShadow(ctx),
+		UpgradePolicy:                  s.hmmConfig.ResolveAuthoritativeUpgradePolicy(ctx),
+		UpgradeGate:                    s.hmmConfig.ResolveAuthoritativeUpgradeGate(ctx),
+		UpgradeVotes:                   s.hmmConfig.ResolveAuthoritativeUpgradeVotes(ctx),
+		DowngradeGate:                  s.hmmConfig.ResolveAuthoritativeDowngradeGate(ctx),
+		DowngradeHysteresisTurns:       s.hmmConfig.ResolveHMMDowngradeHysteresisTurns(ctx),
+		DowngradeHysteresisShadowTurns: s.hmmConfig.ResolveHMMDowngradeHysteresisShadowTurns(ctx),
+		CacheShadowEnabled:             s.hmmConfig.ResolveAuthorityCacheShadow(ctx),
 		HMMConfig:                      s.hmmConfig,
 		AvailableModels:                s.routing.AvailableModels(),
 		CostGate:                       hmmCostGateFor(s),
 		Planner:                        plannerConfigFor(ctx, s.continuityConfig.Planner),
-		PlannerEnabled:                 s.ResolvePlannerEnabled(ctx),
+		PlannerEnabled:                 s.continuityConfig.ResolvePlannerEnabled(ctx),
 		ContinuityPlanner:              s.continuityConfig.Planner,
-		ScoreToolResultTurns:           s.ResolveScoreToolResultTurns(ctx),
+		ScoreToolResultTurns:           s.continuityConfig.ResolveScoreToolResultTurns(ctx),
 	}
 }
 

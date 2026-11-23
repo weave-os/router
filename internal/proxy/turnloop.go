@@ -618,7 +618,7 @@ func (s *Service) runTurnLoop(
 	}
 
 	if s.strategyPorts.Ownership.Owns(strategy) && pinFound && res.AuthoritativePerTurn && req.ForceCluster == "" &&
-		escalation.Rank(escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)) >= 0 && s.ResolveAuthoritativeUpgradeSlidingThreshold(ctx) {
+		escalation.Rank(escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)) >= 0 && s.hmmConfig.ResolveAuthoritativeUpgradeSlidingThreshold(ctx) {
 		req.Session.SlidingThresholdPinGroup = escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)
 	}
 	return sessionTurnFor(ctx, s, sessionTurnInput{
