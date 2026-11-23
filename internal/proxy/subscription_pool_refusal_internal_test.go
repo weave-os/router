@@ -33,7 +33,7 @@ func poolRefusalPins() map[string]poolRefusalPin {
 	now := time.Now()
 	cooling := now.Add(time.Hour)
 	throttledSeat := &auth.SubscriptionAccount{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooling}
-	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }})
 	enrollmentUnknown := func(ctx context.Context) context.Context {
 		return context.WithValue(credentials.WithManagedSubscriptionUsage(ctx), credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	}
@@ -57,28 +57,28 @@ func poolRefusalPins() map[string]poolRefusalPin {
 		},
 		"funding with unknown enrollment": {
 			err: func(ctx context.Context) error {
-				return svc.authorizeSubscriptionAPI(enrollmentUnknown(ctx), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{})
+				return svc.credentials.AuthorizeSubscriptionAPI(enrollmentUnknown(ctx), subscriptions.ProviderClaude, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{})
 			},
 			sentinel: credentials.ErrSubscriptionPoolUnavailable, kind: refusal.SubscriptionPoolUnavailable,
 			text: "subscription account pool unavailable: subscription enrollment could not be verified",
 		},
 		"funding with every blocking seat throttled": {
 			err: func(ctx context.Context) error {
-				return svc.authorizeSubscriptionAPI(credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(billing.WithWeaveCreditsDenied(ctx)), []*auth.SubscriptionAccount{throttledSeat}), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{})
+				return svc.credentials.AuthorizeSubscriptionAPI(credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(billing.WithWeaveCreditsDenied(ctx)), []*auth.SubscriptionAccount{throttledSeat}), subscriptions.ProviderClaude, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{})
 			},
 			sentinel: credentials.ErrSubscriptionPoolThrottled, kind: refusal.SubscriptionPoolThrottled,
 			text: "subscription account pool unavailable: every blocking account is rate-limited",
 		},
 		"funding with an unproven caller plan": {
 			err: func(ctx context.Context) error {
-				return callerPlanRefusal(ctx, subscriptions.ProviderClaude, true, now)
+				return svc.credentials.CallerPlanRefusal(ctx, subscriptions.ProviderClaude, true, now)
 			},
 			sentinel: credentials.ErrSubscriptionPoolUnavailable, kind: refusal.SubscriptionPoolUnavailable,
 			text: "subscription account pool unavailable: caller subscription quota is available or unknown",
 		},
 		"funding with a throttled caller plan": {
 			err: func(ctx context.Context) error {
-				return callerPlanRefusal(callerPlanThrottledCtx(billing.WithWeaveCreditsDenied(ctx)), subscriptions.ProviderClaude, true, now)
+				return svc.credentials.CallerPlanRefusal(callerPlanThrottledCtx(billing.WithWeaveCreditsDenied(ctx)), subscriptions.ProviderClaude, true, now)
 			},
 			sentinel: credentials.ErrCallerPlanThrottled, kind: refusal.SubscriptionPoolThrottled,
 			text: "subscription account pool unavailable: every blocking account is rate-limited: caller plan is rate-limited",

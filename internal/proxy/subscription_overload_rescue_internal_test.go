@@ -299,25 +299,25 @@ func TestSubscriptionSiblingAllowed(t *testing.T) {
 // never qualifies and the mark expires with its cooldown.
 func TestAuthorizeSubscriptionAPI_ProviderOverloadAuthorizesPaidRescue(t *testing.T) {
 	now := time.Now()
-	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }})
 	ctx := credentials.WithManagedSubscriptionUsage(context.Background())
 	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "acct-1", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 
-	denied := svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{})
+	denied := svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", credentials.ClientAppRefusalFunding{})
 	require.ErrorIs(t, denied, credentials.ErrSubscriptionPoolUnavailable, "healthy included quota must still block paid inference")
 
 	recordSubscriptionUnavailable(ctx, providers.ProviderOpenAI, codexCoveredModel, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"rate_limit_exceeded"}}`)}, svc.clock.Now())
-	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
+	require.ErrorIs(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", credentials.ClientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
 		"a 429 is the quota path's evidence, never capacity evidence")
 
 	recordSubscriptionUnavailable(ctx, providers.ProviderOpenAI, codexCoveredModel, codexOverloadedErr(), svc.clock.Now())
-	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{}),
+	require.NoError(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", credentials.ClientAppRefusalFunding{}),
 		"a 5xx on the plan authorizes paid rescue for this turn")
-	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "claude-token", clientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
+	require.ErrorIs(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "claude-token", credentials.ClientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
 		"the mark is scoped to the pool that failed")
 
 	now = now.Add(credentials.SubscriptionUnavailableCooldown + time.Second)
-	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
+	require.ErrorIs(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", credentials.ClientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
 		"the capacity mark is bounded by its cooldown")
 }
 

@@ -113,7 +113,7 @@ func classifierSessionFixture(t *testing.T, classify atomicClassifierFunc) (*Ser
 	t.Helper()
 	installation := uuid.New()
 	store := &classifierMemoryStore{threads: make(map[uuid.UUID]router.ClassifierThread), turns: make(map[uuid.UUID]map[string]router.ClassifierPrediction), prefixCheckpoints: make(map[uuid.UUID]router.ClassifierPrefixCheckpoint)}
-	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: time.Now}
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: time.Now})
 	require.NoError(t, svc.WithClassifierSessions(ClassifierSessionConfig{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64), SelectionPolicySHA256: strings.Repeat("b", 64), SigningKey: []byte(strings.Repeat("k", 32)), InstallationIDs: []uuid.UUID{installation}}, store, classify))
 	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installation.String())
 	ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "test-credential")
@@ -227,7 +227,7 @@ func TestClassifierPredictionsSurviveRetriesReplicasAndToolLoops(t *testing.T) {
 	)
 	input, err = classifierContextForCall(loop)
 	require.NoError(t, err)
-	replica := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: time.Now}
+	replica := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: time.Now})
 	require.NoError(t, replica.WithClassifierSessions(svc.classifierSessions.config, store, svc.classifierSessions.classifier))
 	prediction, err := replica.classifyThread(ctx, input)
 	require.NoError(t, err)
@@ -349,7 +349,7 @@ func TestClassifierNativeInputGroupsPersistExactBoundaries(t *testing.T) {
 			require.NoError(t, err)
 			require.False(t, loop.AtUserBoundary)
 			require.NotEqual(t, first.TurnDigest, loop.TurnDigest)
-			replica := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: time.Now}
+			replica := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: time.Now})
 			require.NoError(t, replica.WithClassifierSessions(svc.classifierSessions.config, store, svc.classifierSessions.classifier))
 			_, err = replica.classifyThread(ctx, loop)
 			require.NoError(t, err)

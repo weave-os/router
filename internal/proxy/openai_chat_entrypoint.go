@@ -244,7 +244,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if s.codexSubscriptionExhausted(ctx, r.Header) {
 		nudge := codexSubscriptionReconnectNudge(ctx, r.Header, s.credentials.UsageObserver)
 		ctx = credentials.WithSuppressedCodexSubscription(ctx)
-		if codexSeatsCoverOrThrottled(ctx, s.linkedSeatCanCover(ctx, decision.Provider, decision.Model), s.clock.Now()) {
+		if codexSeatsCoverOrThrottled(ctx, s.credentials.LinkedSeatCanCover(ctx, decision.Provider, decision.Model), s.clock.Now()) {
 			ctx = withDeferredReconnectNudge(ctx, nudge)
 		} else {
 			ctx = withSubscriptionReconnectNudge(ctx, nudge)

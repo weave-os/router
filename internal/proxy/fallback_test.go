@@ -65,7 +65,7 @@ func newServiceWithProviders(t *testing.T, providerMap map[string]providers.Clie
 	if providerMap == nil {
 		providerMap = map[string]providers.Client{providers.ProviderOpenAI: &fakeClient{}, providers.ProviderAnthropic: &fakeClient{}}
 	}
-	s := &Service{strategyServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(providerMap))}
+	s := wireCredentialPorts(&Service{strategyServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(providerMap))})
 	return s
 }
 

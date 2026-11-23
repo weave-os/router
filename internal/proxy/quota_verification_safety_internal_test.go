@@ -218,7 +218,7 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 				state := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 				_, capacityMarked := state.UnavailableProviders[subscriptions.ProviderCodex]
 				require.Equal(t, scenario.capacityOverload, capacityMarked)
-				require.False(t, svc.subscriptionPoolUnavailable(ctx, providers.ProviderAnthropic, overloadRescuerModel), "capacity evidence cannot cross pools")
+				require.False(t, svc.credentials.SubscriptionPoolUnavailable(ctx, providers.ProviderAnthropic, overloadRescuerModel), "capacity evidence cannot cross pools")
 				for accountIndex, account := range scenario.accounts {
 					if account.quotaStatus == http.StatusGatewayTimeout {
 						require.NotContains(t, leaser.exhaustedIDs, "synthetic-seat-"+strconv.Itoa(accountIndex))
