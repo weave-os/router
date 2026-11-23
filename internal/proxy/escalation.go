@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/llmescalation"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 )
 
@@ -36,7 +37,7 @@ func (s *Service) WithEscalationShadowDefault(classifier flags.EscalationClassif
 
 func (s *Service) escalationHelper() *floor.Helper {
 	if s.escalation == nil {
-		s.escalation = floor.New(s.recordEscalationJudgeInference, func(reason string) string { return s.redact([]byte(reason), ContentKindResponse) })
+		s.escalation = floor.New(s.recordEscalationJudgeInference, func(reason string) string { return s.redact([]byte(reason), capture.ContentKindResponse) })
 	}
 	return s.escalation
 }
@@ -55,41 +56,41 @@ func (s *Service) escalationFacts(ctx context.Context, env *translate.RequestEnv
 		CredentialIdentity:  sessionCredentialIdentity(ctx, apiKeyID),
 		ExcludedProviders:   installationExcludedProvidersFromContext(ctx),
 		CodexClient:         ClientIdentityFrom(ctx).ClientApp == requestcontext.ClientAppCodex,
-		RetainReason:        s.effectiveCaptureMode(ctx) == CaptureFull,
+		RetainReason:        s.effectiveCaptureMode(ctx) == capture.Full,
 	}
 }
 
-func (s *Service) captureEscalationResponse(w http.ResponseWriter, res routingpolicy.TurnRoute) (http.ResponseWriter, *captureWriter) {
+func (s *Service) captureEscalationResponse(w http.ResponseWriter, res routingpolicy.TurnRoute) (http.ResponseWriter, *capture.Writer) {
 	if res.EscalationOrdinal == 0 && !res.Escalation().HasLLM() {
 		return w, nil
 	}
 	if responses, ok := w.(*translate.ResponsesWriter); ok {
-		var capture *captureWriter
+		var responseCapture *capture.Writer
 		responses.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
-			capture = newCaptureWriter(inner, floor.HistoryMaxBytes)
-			return capture
+			responseCapture = capture.NewWriter(inner, floor.HistoryMaxBytes)
+			return responseCapture
 		})
-		return w, capture
+		return w, responseCapture
 	}
-	capture := newCaptureWriter(w, floor.HistoryMaxBytes)
-	return capture, capture
+	responseCapture := capture.NewWriter(w, floor.HistoryMaxBytes)
+	return responseCapture, responseCapture
 }
 
-func (s *Service) completeEscalation(ctx context.Context, res routingpolicy.TurnRoute, proxyErr error, capture *captureWriter, format translate.EscalationResponseFormat) {
+func (s *Service) completeEscalation(ctx context.Context, res routingpolicy.TurnRoute, proxyErr error, responseCapture *capture.Writer, format translate.EscalationResponseFormat) {
 	if res.EscalationOrdinal == 0 && !res.Escalation().HasLLM() {
 		return
 	}
 	if deferred := deferredCallLogFrom(ctx); deferred != nil {
 		deferred.escalation = func(finalErr error) {
-			s.escalationHelper().Complete(ctx, s.escalationCompletion(ctx, res, finalErr, capture, translate.EscalationResponseResponses))
+			s.escalationHelper().Complete(ctx, s.escalationCompletion(ctx, res, finalErr, responseCapture, translate.EscalationResponseResponses))
 		}
 		return
 	}
-	s.escalationHelper().Complete(ctx, s.escalationCompletion(ctx, res, proxyErr, capture, format))
+	s.escalationHelper().Complete(ctx, s.escalationCompletion(ctx, res, proxyErr, responseCapture, format))
 }
 
-func (s *Service) escalationCompletion(ctx context.Context, res routingpolicy.TurnRoute, proxyErr error, capture *captureWriter, format translate.EscalationResponseFormat) floor.Completion {
-	body, truncated := capturedResponse(capture)
+func (s *Service) escalationCompletion(ctx context.Context, res routingpolicy.TurnRoute, proxyErr error, responseCapture *capture.Writer, format translate.EscalationResponseFormat) floor.Completion {
+	body, truncated := capturedResponse(responseCapture)
 	return floor.Completion{
 		Turn:         res.Escalation(),
 		Committed:    floor.Committed{ShadowMarked: res.EscalationShadowMarked, Scope: res.EscalationScope, Ordinal: res.EscalationOrdinal},

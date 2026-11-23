@@ -37,6 +37,7 @@ import (
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/timing"
 	"weave-os/router/internal/translate"
@@ -61,9 +62,9 @@ type Service struct {
 	lifecycle                    *conversation.Lifecycle
 	prefixTrimFreeSwitch         bool
 	escapeNormalize              bool
-	captureMode                  ContentCaptureMode
+	captureMode                  capture.Mode
 	captureMaxBytes              int
-	redactor                     Redactor
+	redactor                     capture.Redactor
 	routing                      *routingpolicy.Policy
 	credentials                  credentials.Brokerage
 	strategyServing
@@ -945,15 +946,6 @@ func (s *Service) WithBandSwap(enabled bool) *Service {
 
 func (s *Service) WithTurnSignalCapture(enabled bool) *Service {
 	s.turnSignalCaptureEnabled = enabled
-	return s
-}
-
-func (s *Service) WithContentCapture(mode ContentCaptureMode, maxBytes int, redactor Redactor) *Service {
-	s.captureMode = mode
-	if maxBytes > 0 {
-		s.captureMaxBytes = maxBytes
-	}
-	s.redactor = redactor
 	return s
 }
 
