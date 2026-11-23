@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/api/admin"
+	"weave-os/router/internal/router/escalation/floor"
+	"weave-os/router/internal/router/escalationdashboard"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"weave-os/router/internal/api/admin"
-	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/router/escalationdashboard"
 )
 
 type escalationDashboardHandlerStore struct {
@@ -33,7 +34,7 @@ func (s *escalationDashboardHandlerStore) SnapshotPage(_ context.Context, _ stri
 func TestInternalEscalationDashboardHandlerParsesTypedFilters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := &escalationDashboardHandlerStore{}
-	service := (&proxy.Service{}).WithEscalationDashboard(store)
+	service := &floor.Admin{Dashboard: store}
 	engine := gin.New()
 	engine.GET("/internal/v1/escalation/dashboard", admin.InternalEscalationDashboardHandler(service))
 	installationID := uuid.NewString()
@@ -54,7 +55,7 @@ func TestInternalEscalationDashboardHandlerParsesTypedFilters(t *testing.T) {
 
 func TestInternalEscalationDashboardHandlerRejectsInvalidArguments(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	service := (&proxy.Service{}).WithEscalationDashboard(&escalationDashboardHandlerStore{})
+	service := &floor.Admin{Dashboard: &escalationDashboardHandlerStore{}}
 	engine := gin.New()
 	engine.GET("/internal/v1/escalation/dashboard", admin.InternalEscalationDashboardHandler(service))
 	tests := []string{
@@ -82,7 +83,7 @@ func TestInternalEscalationDashboardHandlerReportsExpiredSnapshot(t *testing.T) 
 	snapshotID := uuid.NewString()
 	cursor, err := escalationdashboard.EncodeCursor(snapshotID, 50)
 	require.NoError(t, err)
-	service := (&proxy.Service{}).WithEscalationDashboard(&escalationDashboardHandlerStore{err: escalationdashboard.ErrExpiredCursor})
+	service := &floor.Admin{Dashboard: &escalationDashboardHandlerStore{err: escalationdashboard.ErrExpiredCursor}}
 	engine := gin.New()
 	engine.GET("/internal/v1/escalation/dashboard", admin.InternalEscalationDashboardHandler(service))
 	recorder := httptest.NewRecorder()
