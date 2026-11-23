@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -69,7 +70,7 @@ func (p *reviewerProvider) Proxy(ctx context.Context, _ router.Decision, prep pr
 	p.models = append(p.models, model)
 	p.bodies = append(p.bodies, append([]byte(nil), prep.Body...))
 	p.betas = append(p.betas, prep.Headers.Get("anthropic-beta"))
-	creds := proxy.CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	p.oauth = append(p.oauth, creds != nil && creds.OAuth)
 	script, ok := p.scripts[model]
 	reply := reviewerOK(model)

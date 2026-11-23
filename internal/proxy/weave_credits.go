@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 )
 
 const forcedModelUnfundedReason = "Weave credits are turned off for your organization, and none of your plans or provider API keys can serve the forced model"
@@ -61,7 +62,7 @@ func applyWeaveCreditsPolicy(ctx context.Context, enabled map[string]struct{}) (
 	return out, nil
 }
 
-func usableBYOK(ctx context.Context, provider string) *Credentials {
+func usableBYOK(ctx context.Context, provider string) *requestcontext.Credentials {
 	creds := credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[provider]
 	if creds == nil || creds.CredentialError != nil || len(creds.APIKey) == 0 {
 		return nil
@@ -70,14 +71,14 @@ func usableBYOK(ctx context.Context, provider string) *Credentials {
 }
 
 func servedOnCustomerKey(ctx context.Context) bool {
-	return credentials.CustomerKeyFunded(CredentialsFromContext(ctx))
+	return credentials.CustomerKeyFunded(credentials.CredentialsFromContext(ctx))
 }
 
 func withPaidFallbackCredentials(ctx context.Context, provider string) context.Context {
 	if billing.WeaveCreditsDeniedFromContext(ctx) || provider == providers.ProviderAnthropic && claudeEnterpriseCapRescue(ctx) {
 		if byok := usableBYOK(ctx, provider); byok != nil {
-			return context.WithValue(ctx, CredentialsContextKey{}, byok)
+			return context.WithValue(ctx, requestcontext.CredentialsContextKey{}, byok)
 		}
 	}
-	return clearCredentials(ctx)
+	return credentials.ClearCredentials(ctx)
 }

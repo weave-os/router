@@ -27,9 +27,9 @@ func TestSubscriptionFundingAuthorizationDecisionOrder(t *testing.T) {
 	claudeOpus := inference.Target{Provider: providers.ProviderAnthropic, CatalogID: catalog.ModelIDClaudeOpus48.String()}
 	gemini := inference.Target{Provider: providers.ProviderGoogle, CatalogID: catalog.ModelIDGemini31ProPreview.String()}
 	keyFirstAnthropic := &auth.ExternalAPIKey{Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok-key"), FundingPriority: auth.FundingPriorityKeyFirst}
-	byokCreds := &Credentials{Source: credSourceBYOK, APIKey: []byte("synthetic-byok-key")}
-	claudeOAuth := &Credentials{OAuth: true, Source: credSourceSubscription, APIKey: []byte("sk-ant-oat01-synthetic")}
-	codexOAuth := &Credentials{OAuth: true, Source: requestcontext.SourceCodexSubscription, APIKey: []byte("synthetic-codex-token")}
+	byokCreds := &requestcontext.Credentials{Source: requestcontext.SourceBYOK, APIKey: []byte("synthetic-byok-key")}
+	claudeOAuth := &requestcontext.Credentials{OAuth: true, Source: requestcontext.SourceSubscription, APIKey: []byte("sk-ant-oat01-synthetic")}
+	codexOAuth := &requestcontext.Credentials{OAuth: true, Source: requestcontext.SourceCodexSubscription, APIKey: []byte("synthetic-codex-token")}
 	seat := func(state auth.SubscriptionAccountState) []*auth.SubscriptionAccount {
 		return []*auth.SubscriptionAccount{{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: state, CooldownUntil: &resetAt}}
 	}
@@ -50,7 +50,7 @@ func TestSubscriptionFundingAuthorizationDecisionOrder(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		ctx       context.Context
-		callCreds *Credentials
+		callCreds *requestcontext.Credentials
 		target    inference.Target
 		wantIs    error
 		wantErr   string

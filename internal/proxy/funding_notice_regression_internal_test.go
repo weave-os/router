@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions"
@@ -87,7 +88,7 @@ func TestFundingNoticePolicyAndReplay(t *testing.T) {
 		t.Run(fmt.Sprintf("%s/%s/key=%t", warning.reason, warning.source, warning.customerKey), func(t *testing.T) {
 			ctx := billing.WithSubscriptionOnly(context.Background(), warning.reason)
 			if warning.customerKey {
-				ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{APIKey: []byte("synthetic-key"), Source: credSourceBYOK})
+				ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{APIKey: []byte("synthetic-key"), Source: requestcontext.SourceBYOK})
 			}
 			notice := routerNoticeForRequest(ctx, http.Header{}, warning.source, model, marker)
 			assert.Equal(t, translate.NoticeFundingWarning, notice.Kind)

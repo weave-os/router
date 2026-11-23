@@ -63,7 +63,7 @@ func TestVerificationSafeTransportInboundOAuthUsesLinkedWithoutAPI(t *testing.T)
 	require.Equal(t, []string{"linked-provider-account"}, accountIDs)
 	require.Equal(t, []string{"/responses"}, paths)
 	require.Contains(t, recorder.Body.String(), "linked answer")
-	require.True(t, servedOnSubscription(ctx), "winning subscription must be cost-neutral")
+	require.True(t, credentials.ServedOnSubscription(ctx), "winning subscription must be cost-neutral")
 	require.Equal(t, "read_file", gjson.GetBytes(sent[0], "tools.0.name").String())
 	require.Equal(t, "medium", gjson.GetBytes(sent[0], "reasoning.effort").String())
 }

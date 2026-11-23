@@ -8,6 +8,7 @@ import (
 	"testing/synctest"
 	"time"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
@@ -34,7 +35,7 @@ func TestSubscriptionRecoverySlowFailureUsesSecondSeat(t *testing.T) {
 		in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 		var seats []string
 		in.Attempt = func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
-			creds := CredentialsFromContext(ctx)
+			creds := credentials.CredentialsFromContext(ctx)
 			if creds != nil && creds.OAuth {
 				seats = append(seats, creds.SubscriptionAccountID)
 			}

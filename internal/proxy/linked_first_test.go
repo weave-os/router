@@ -235,7 +235,7 @@ func (*planRefusingProvider) Passthrough(context.Context, providers.PreparedRequ
 }
 
 func (p *planRefusingProvider) Proxy(ctx context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
-	if creds := proxy.CredentialsFromContext(ctx); creds != nil && creds.OAuth {
+	if creds := credentials.CredentialsFromContext(ctx); creds != nil && creds.OAuth {
 		p.subscriptionCalls++
 		return &providers.UpstreamErrorResponse{
 			Status: http.StatusBadRequest,

@@ -45,7 +45,7 @@ func linkedSeatAvailabilityOf(ctx context.Context, pool subscriptions.Provider, 
 }
 
 func linkedClaudeSeatConnected(ctx context.Context) bool {
-	if !managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
+	if !credentials.ManagedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
 		return false
 	}
 	candidates, snapshotPresent := ctx.Value(credentials.ManagedSubscriptionCandidatesContextKey{}).([]credentials.ManagedSubscriptionCandidate)

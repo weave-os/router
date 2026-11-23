@@ -7,10 +7,11 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/requestcontext"
 )
 
 func callerLoginServesFirst(ctx context.Context, model string, observer *usage.Observer, models *credentials.SubscriptionModelAccess, now time.Time) bool {
-	current := CredentialsFromContext(ctx)
+	current := credentials.CredentialsFromContext(ctx)
 	if current == nil || !current.OAuth {
 		return false
 	}
@@ -21,7 +22,7 @@ func callerLoginServesFirst(ctx context.Context, model string, observer *usage.O
 	return token != "" && !models.Denied([]byte(token), model, now)
 }
 
-func ownSeatFirstToken(ctx context.Context, current *Credentials, observer *usage.Observer) string {
+func ownSeatFirstToken(ctx context.Context, current *requestcontext.Credentials, observer *usage.Observer) string {
 	if !flags.BoolOr(ctx, flags.KeyOwnSeatFirst, false) {
 		return ""
 	}
