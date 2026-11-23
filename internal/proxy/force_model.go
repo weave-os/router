@@ -43,7 +43,7 @@ func resolveForceModel(model string) (canonicalID, provider string, known bool) 
 }
 
 func resolveForceModelWithEffort(model string) (canonicalID, provider string, known bool, effort string) {
-	effortLevel, stripped := stripEffortSuffix(model)
+	effortLevel, stripped := routingpolicy.StripEffortSuffix(model)
 	model = stripped
 	model = strings.ToLower(strings.TrimSpace(model))
 	effort = effortLevel
@@ -184,7 +184,7 @@ var forceModelSuggestions = func() map[string]forceModelSuggestion {
 }()
 
 func suggestForceModel(input string) string {
-	effort, model := stripEffortSuffix(input)
+	effort, model := routingpolicy.StripEffortSuffix(input)
 	model, _ = translate.CanonicalModel(strings.ToLower(strings.TrimSpace(model)))
 	key := routingpolicy.FoldModelSpelling(model)
 	if len(key) < 3 {

@@ -181,7 +181,7 @@ func routingMarkerFor(res routingpolicy.TurnRoute) string {
 	if res.EscalationShadowMarked {
 		return routingMarkerPrefix + decision.Model + " · " + markerReasonShadowEscalation + "\n\n"
 	}
-	if baseModelOf(res.PriorServedModel) == res.Decision.Model {
+	if candidates.BaseModelOf(res.PriorServedModel) == res.Decision.Model {
 		return ""
 	}
 	if decision.Metadata != nil {
@@ -283,7 +283,7 @@ func baselineRoutingMarkerFor(res routingpolicy.TurnRoute, baselineModel string)
 	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || baselineModel == "" {
 		return ""
 	}
-	if baseModelOf(res.PriorServedModel) == baselineModel {
+	if candidates.BaseModelOf(res.PriorServedModel) == baselineModel {
 		return ""
 	}
 	return "✦ **Weave Router** → " + baselineModel + " · " + markerReasonBaseline + "\n\n"
@@ -309,7 +309,7 @@ func switchMarkerFor(ports continuity.StrategyPorts, ctx context.Context, h http
 }
 
 func siblingRoutingMarkerFor(res routingpolicy.TurnRoute, reason, siblingModel string) string {
-	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || siblingModel == "" || baseModelOf(res.PriorServedModel) == siblingModel {
+	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || siblingModel == "" || candidates.BaseModelOf(res.PriorServedModel) == siblingModel {
 		return ""
 	}
 	return "✦ **Weave Router** → " + siblingModel + " · " + reason + "\n\n"
@@ -326,7 +326,7 @@ func subscriptionTargetMarker(ports continuity.StrategyPorts, ctx context.Contex
 }
 
 func cyberRefusalRoutingMarkerFor(res routingpolicy.TurnRoute, fallbackModel string) string {
-	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || fallbackModel == "" || baseModelOf(res.PriorServedModel) == fallbackModel {
+	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || fallbackModel == "" || candidates.BaseModelOf(res.PriorServedModel) == fallbackModel {
 		return ""
 	}
 	return "✦ **Weave Router** → " + fallbackModel + " · " + markerReasonCyberRefusal + "\n\n"

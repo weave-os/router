@@ -80,7 +80,7 @@ func baselineWarmPrefillTokens(r routingpolicy.TurnRoute, requestStart time.Time
 	if cacheCreation <= 0 || r.PriorServedModel == "" || r.PrefixTrimmed || historyTruncated {
 		return 0
 	}
-	if baseModelOf(r.PriorServedModel) == servedModel {
+	if candidates.BaseModelOf(r.PriorServedModel) == servedModel {
 		return 0
 	}
 	baseline, ok := catalog.ByID(baselineModel)
@@ -533,7 +533,7 @@ func (s *Service) runTurnLoop(
 			"pin_provider", pin.Provider,
 			"pin_reason", pin.Reason,
 			"pin_age_s", res.PinAgeSec,
-			"pin_cache_warm", cacheWarm(pin, s.clock.Now()),
+			"pin_cache_warm", routingpolicy.CacheWarm(pin, s.clock.Now()),
 			"last_output_tokens", pin.LastOutputTokens,
 			"session_ever_switched", pin.HasEverSwitched,
 		)
@@ -620,7 +620,7 @@ func (s *Service) runTurnLoop(
 }
 
 func modelExcludedForRecoveryProbe(req router.Request, model string) bool {
-	if _, excluded := req.Candidates.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
+	if _, excluded := req.Candidates.ExcludedModels[model]; excluded || candidates.AutomaticallyDisabled(req, model) {
 		return true
 	}
 	if len(req.GatewayProviders) > 0 {
@@ -656,7 +656,7 @@ func applySwitchHistory(r *routingpolicy.TurnRoute, pins ...sessionpin.Pin) {
 	latestTurn, sessionEverSwitched := latestServedTurn(pins...)
 	r.PriorServedModel = latestTurn.LastServedModel
 	r.PriorServedEndedAt = latestTurn.LastTurnEndedAt
-	r.PriorPromptTokens = priorPromptTokens(latestTurn)
+	r.PriorPromptTokens = routingpolicy.PriorPromptTokens(latestTurn)
 	r.SessionEverSwitched = sessionEverSwitched
 	cals := make([]sessionpin.TokenizerCalibration, 0, len(pins))
 	for _, pin := range pins {
@@ -701,7 +701,7 @@ func buildPolicyTurnContext(
 	var priorOutputTokens *int
 	if !previous.LastTurnEndedAt.IsZero() {
 		cacheState = router.PolicyCacheStateCold
-		if cacheWarm(previous, now) && !res.PrefixTrimmed && !req.HistoryTruncated {
+		if routingpolicy.CacheWarm(previous, now) && !res.PrefixTrimmed && !req.HistoryTruncated {
 			cacheState = router.PolicyCacheStateWarm
 		}
 		outputTokens := previous.LastOutputTokens

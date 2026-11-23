@@ -24,7 +24,7 @@ func (tp *turnPin) drop() {
 
 func dropPinRuledOutLastTurn(ctx context.Context, s *Service, env *translate.RequestEnvelope, req *router.Request, res *routingpolicy.TurnRoute, tp *turnPin, switchHistory sessionpin.Pin) {
 	log := observability.FromContext(ctx)
-	if tp.found && !routingpolicy.IsUserForcedReason(tp.pin.Reason) && automaticallyDisabled(*req, tp.pin.Model) {
+	if tp.found && !routingpolicy.IsUserForcedReason(tp.pin.Reason) && candidates.AutomaticallyDisabled(*req, tp.pin.Model) {
 		reason, _ := s.globalAutomaticExclusionReason(ctx, tp.pin.Model)
 		log.Info("Session pin model is disabled for automatic routing; falling through to scorer",
 			"pin_model", tp.pin.Model,
@@ -36,7 +36,7 @@ func dropPinRuledOutLastTurn(ctx context.Context, s *Service, env *translate.Req
 		tp.drop()
 	}
 
-	if maxedModel := maxedOutServedModel(tp.pin); tp.found && maxedModel != "" {
+	if maxedModel := candidates.MaxedOutServedModel(tp.pin); tp.found && maxedModel != "" {
 		log.Info("Session pin maxed out on previous turn; excluding for this turn",
 			"pin_model", tp.pin.Model,
 			"pin_provider", tp.pin.Provider,
@@ -46,14 +46,14 @@ func dropPinRuledOutLastTurn(ctx context.Context, s *Service, env *translate.Req
 		*req = candidates.ExcludeMaxedModel(*req, maxedModel)
 		tp.drop()
 	}
-	if maxedModel := maxedOutServedModel(switchHistory); maxedModel != "" {
+	if maxedModel := candidates.MaxedOutServedModel(switchHistory); maxedModel != "" {
 		log.Info("HMM history maxed out on previous turn; excluding for this turn",
 			"history_provider", switchHistory.Provider,
 			"maxed_model", maxedModel,
 			"last_output_tokens", switchHistory.LastOutputTokens,
 		)
 		*req = candidates.ExcludeMaxedModel(*req, maxedModel)
-		if tp.found && baseModelOf(tp.pin.Model) == maxedModel {
+		if tp.found && candidates.BaseModelOf(tp.pin.Model) == maxedModel {
 			tp.drop()
 		}
 	}
