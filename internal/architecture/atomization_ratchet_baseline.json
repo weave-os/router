@@ -7,7 +7,7 @@
     "proxy_hmm_metadata_references": {},
     "proxy_reason_string_comparisons": {},
     "proxy_router_layer_helper_calls": {
-      "internal/proxy": 19
+      "internal/proxy": 18
     },
     "serving_strategy_constant_references": {
       "internal/api/admin": 6,

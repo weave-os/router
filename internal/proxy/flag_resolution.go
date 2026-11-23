@@ -11,10 +11,6 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-func (s *Service) ResolveTextRepetitionBreakEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyTextRepetitionBreak, s.lifecycle.TextRepetitionBreak())
-}
-
 func (s *Service) ResolvePlannerEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyPlannerEnabled, s.continuityConfig.PlannerEnabled)
 }

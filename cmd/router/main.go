@@ -24,6 +24,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/config"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/entra"
@@ -995,12 +996,13 @@ func main() {
 	proxySvc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(providerMap), telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry), hmm.ServingPorts()), proxy.Deps{
 		Telemetry: proxy.TelemetryDeps{Clock: time.Now, SessionTurnClock: sessionTurnClock, ContentCapture: captureMode, ContentCaptureMaxBytes: captureMaxBytes, Billing: billingSvc, Flags: &proxy.TelemetryFlags{
 			TurnSignalCapture: turnSignalCaptureEnabled, NativeAnthropicResponseSignals: nativeAnthropicResponseSignals, NativeOpenAIResponseSignals: nativeOpenAIResponseSignals}},
+		Conversation: conversation.Config{Summarizer: summarizer, CompactionHandoverSummarizer: compactionHandoverSz, RouterFeedbackStore: repo.Telemetry, SessionStrategies: sessionStrategyStore,
+			FeedbackLinks: feedbackLinks, PiHandoffSecret: config.GetOr("ROUTER_PI_HANDOFF_SECRET", ""), TextRepetitionBreak: &textRepetitionBreakEnabled},
 		Ingress: &ingressFormats, Escalation: proxy.EscalationDeps{SwitchyardActive: escalationJudgeActiveEnabled}, BYOKOnly: byokOnly, DeploymentKeyedProviders: deploymentEligible,
 	}).WithTranslationMetrics(otel.NewTranslationMetrics()).
 		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithExternalKeyUsageRecorder(authSvc).
 		WithCodexExtraCredits(allowCodexCredits).
-		WithSessionStrategyStore(sessionStrategyStore).
 		WithEscalation(escalationStore, escalationObserver).
 		WithLLMEscalation(llmEscalationStore, escalationJudge).
 		WithQwenEscalation(qwenEscalationJudge).
@@ -1026,8 +1028,6 @@ func main() {
 			Strategy: router.StrategyDecisionModel, Router: buildDecisionModelRouter(logger), Unavailable: decisionmodel.ErrUnavailable,
 			Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true},
 		}).
-		WithFeedback(feedbackLinks).
-		WithPiHandoffSecret(config.GetOr("ROUTER_PI_HANDOFF_SECRET", "")).
 		WithPassthroughEligibleProviders(passthroughEligible).
 		WithHardPinResolver(hardPinResolver).
 		WithExplicitUtilityHardPin(hardPinOverrideConfigured).
@@ -1050,10 +1050,6 @@ func main() {
 		WithEarlyStopRedo(earlyStopRedo).
 		WithBandSwap(bandSwapEnabled).
 		WithGlobalAutomaticExclusions(repo.GlobalAutomaticExclusions).
-		WithTextRepetitionBreak(textRepetitionBreakEnabled).
-		WithRouterFeedbackStore(repo.Telemetry).
-		WithSummarizer(summarizer).
-		WithCompactionHandoverSummarizer(compactionHandoverSz).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel())
 	inferenceDeployment.RoutableModels = servedModels

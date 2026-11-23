@@ -71,9 +71,8 @@ type Service struct {
 	ingress          ingress.Formats
 	effortEscalation bool
 
-	billing       *billing.Service
-	clock         auth.Clock
-	feedbackLinks *feedbackLinks
+	billing *billing.Service
+	clock   auth.Clock
 }
 
 type registeredStrategy struct {

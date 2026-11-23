@@ -73,6 +73,33 @@ func (g CostGate) Decide(input CostGateInput) (sessionpin.Pin, planner.Decision,
 	return stayPin, plan, plan.Outcome == planner.OutcomeStay && stayPin.Model != input.Fresh.Model
 }
 
+func (g CostGate) Serve(input CostGateInput, priorServedModel string) continuity.CostGateServe {
+	stayPin, plan, sticky := g.Decide(input)
+	served := continuity.CostGateServe{Decision: input.Fresh, Planner: plan, Sticky: sticky, StayModel: stayPin.Model, PinTier: costGatePinTier(plan, sticky)}
+	if sticky {
+		served.Decision = stayPin.Decision()
+	}
+	if held := EffortHysteresisHold(input.Fresh, priorServedModel, served.Decision.Model, served.Decision.Effort); held != "" {
+		served.ChallengerEffort, served.HeldEffort = served.Decision.Effort, held
+		served.Decision.Effort = held
+		served.Planner.Reason = AppendEffortHysteresisReason(served.Planner.Reason)
+	}
+	return served
+}
+
+func costGatePinTier(plan planner.Decision, sticky bool) string {
+	switch {
+	case sticky:
+		return "hmm_ev_stay_" + plan.Reason
+	case plan.Outcome == planner.OutcomeStay && plan.Evaluated():
+		return "hmm_ev_same_" + plan.Reason
+	case plan.EvaluatedAgainstPin():
+		return "hmm_ev_switch_" + plan.Reason
+	default:
+		return "hmm_fresh_unpinned"
+	}
+}
+
 func (g CostGate) StayPin(req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin, now time.Time) (sessionpin.Pin, bool) {
 	var (
 		best sessionpin.Pin
