@@ -20,7 +20,6 @@ type TelemetryDeps struct {
 	SessionTurnClock       telemetry.SessionTurnClock
 	ContentCapture         capture.Mode
 	ContentCaptureMaxBytes int
-	Redactor               capture.Redactor
 	Billing                *billing.Service
 	Flags                  *TelemetryFlags
 }
@@ -32,7 +31,6 @@ func WithDeps(s *Service, deps Deps) *Service {
 	if deps.Telemetry.ContentCaptureMaxBytes > 0 {
 		s.captureMaxBytes = deps.Telemetry.ContentCaptureMaxBytes
 	}
-	s.redactor = deps.Telemetry.Redactor
 	s.billing = deps.Telemetry.Billing
 	if deps.Telemetry.Flags != nil {
 		s.turnTelemetry.flags = *deps.Telemetry.Flags
