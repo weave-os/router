@@ -11,7 +11,9 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
+	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
@@ -42,28 +44,35 @@ type SessionSettings struct {
 	CostGate                       continuity.CostGateConfig
 	Planner                        planner.EVConfig
 	PlannerEnabled                 bool
+	ContinuityPlanner              planner.EVConfig
+	ScoreToolResultTurns           bool
+	HMMToolResultHold              bool
 }
 
 type SessionTurn struct {
-	Request        router.Request
-	Pin            sessionpin.Pin
-	PinFound       bool
-	SwitchHistory  sessionpin.Pin
-	Fresh          router.Decision
-	PrefixBroken   bool
-	PlannerTokens  int
-	Pins           SessionPins
-	InstallationID uuid.UUID
-	Ports          continuity.StrategyPorts
-	Scorer         router.Router
-	Settings       SessionSettings
-	Serving        SessionServing
-	Now            func() time.Time
+	Strategy        router.Strategy
+	Request         router.Request
+	Pin             sessionpin.Pin
+	PinFound        bool
+	SwitchHistory   sessionpin.Pin
+	Fresh           router.Decision
+	PrefixBroken    bool
+	PlannerTokens   int
+	Pins            SessionPins
+	InstallationID  uuid.UUID
+	Ports           continuity.StrategyPorts
+	Scorer          router.Router
+	Settings        SessionSettings
+	Serving         SessionServing
+	Now             func() time.Time
+	Escalation      *floor.Turn
+	ForcedTierFloor catalog.Tier
 }
 
 type SessionServing interface {
 	BandSwap(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, req router.Request) router.Decision
 	Handover(ctx context.Context, req router.Request, pinModel, freshModel string) (outcome handover.Outcome, contextEstimate int, rewritten bool)
+	TryServeScorerFallback(ctx context.Context, res *TurnRoute, err error, req router.Request) bool
 }
 
 func (t SessionTurn) Serve(ctx context.Context, res *TurnRoute) (TurnRoute, error) {

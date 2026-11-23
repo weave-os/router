@@ -1151,7 +1151,7 @@ func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy route
 		}
 		return router.Decision{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, unavailable)
 	}
-	if s.strategyPorts.Ownership.Owns(strategy) && req.ConversationMessages != nil && !hasTextUserBoundary(req.ConversationMessages) {
+	if s.strategyPorts.Ownership.Owns(strategy) && req.ConversationMessages != nil && !routingpolicy.HasTextUserBoundary(req.ConversationMessages) {
 		req.Unscorable = true
 	}
 	return registered.router.Route(ctx, req)
