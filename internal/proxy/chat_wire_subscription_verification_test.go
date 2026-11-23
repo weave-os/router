@@ -44,5 +44,5 @@ func TestVerificationUnrepresentableChatRefusesAPIWithoutQuotaProof(t *testing.T
 	require.Empty(t, bearers)
 	require.Empty(t, paths)
 	require.NotContains(t, rec.Body.String(), "chat answer")
-	require.False(t, servedOnSubscription(ctx))
+	require.False(t, credentials.ServedOnSubscription(ctx))
 }

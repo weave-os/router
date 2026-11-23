@@ -97,7 +97,7 @@ func parityAnthropicIngress() parityIngress {
 			// These parity cases exercise the explicitly enabled API fallback.
 			return withClaudeCreditFallback(context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, parityInstallationID))
 		},
-		servedOnSub:       servedOnSubscription,
+		servedOnSub:       credentials.ServedOnSubscription,
 		fallbackAvailable: func(s *Service, ctx context.Context) bool { return s.credentials.AnthropicFallbackKeyAvailable(ctx) },
 		exhausted:         (*Service).claudeSubscriptionExhausted,
 		suppress:          credentials.WithSuppressedClaudeSubscription,
@@ -139,10 +139,10 @@ func parityCodexIngress() parityIngress {
 			ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, parityCodexAccountID)
 			return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, parityInstallationID)
 		},
-		servedOnSub:       servedOnCodexSubscription,
+		servedOnSub:       credentials.ServedOnCodexSubscription,
 		fallbackAvailable: (*Service).openaiFallbackKeyAvailable,
 		exhausted:         (*Service).codexSubscriptionExhausted,
-		suppress:          withSuppressedCodexSubscription,
+		suppress:          credentials.WithSuppressedCodexSubscription,
 		tokenRejected:     codexOAuthCredentialRejected,
 		requestBody: func(stream bool) string {
 			return `{"model":"` + parityCodexModel + `","max_tokens":4096,"stream":` + boolLit(stream) +
@@ -184,7 +184,7 @@ func (in parityIngress) byokCtx(ctx context.Context) context.Context {
 // resolved resolves credentials for the ingress' covered model, as the ingress
 // does before dispatching.
 func (in parityIngress) resolved(ctx context.Context) context.Context {
-	return resolveAndInjectCredentials(ctx, in.provider, in.model, http.Header{})
+	return credentials.ResolveAndInjectCredentials(ctx, in.provider, in.model, http.Header{})
 }
 
 // deploymentKeyedService builds a Service with the ingress' provider wired to a
@@ -215,7 +215,7 @@ func TestSubscriptionFailoverParity_Eligibility(t *testing.T) {
 
 			t.Run("a paid key alone is not subscription-served", func(t *testing.T) {
 				ctx := in.resolved(in.byokCtx(context.Background()))
-				require.NotNil(t, CredentialsFromContext(ctx), "the BYOK key must resolve")
+				require.NotNil(t, credentials.CredentialsFromContext(ctx), "the BYOK key must resolve")
 				assert.False(t, in.servedOnSub(ctx),
 					"a BYOK/paid key must never be mistaken for the caller's subscription")
 			})
@@ -252,30 +252,30 @@ func TestSubscriptionFailoverParity_SubscriptionShape(t *testing.T) {
 	t.Run("anthropic: OAuth alone is enough", func(t *testing.T) {
 		in := parityAnthropicIngress()
 		ctx := in.resolved(in.subCtx())
-		creds := CredentialsFromContext(ctx)
+		creds := credentials.CredentialsFromContext(ctx)
 		require.NotNil(t, creds)
 		assert.True(t, creds.OAuth)
 		assert.Empty(t, creds.AccountID, "the Claude subscription carries no account id")
-		assert.True(t, servedOnSubscription(ctx))
+		assert.True(t, credentials.ServedOnSubscription(ctx))
 	})
 
 	t.Run("codex: OAuth without an account id is not Codex-served", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, parityInstallationID)
 		ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
-		ctx = resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
-		assert.True(t, servedOnSubscription(ctx))
-		assert.False(t, servedOnCodexSubscription(ctx),
+		ctx = credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
+		assert.True(t, credentials.ServedOnSubscription(ctx))
+		assert.False(t, credentials.ServedOnCodexSubscription(ctx),
 			"an OAuth credential with no ChatGPT account id must not gate the Codex rescue (D1)")
 	})
 
 	t.Run("codex: OAuth plus account id is Codex-served", func(t *testing.T) {
 		in := parityCodexIngress()
 		ctx := in.resolved(in.subCtx())
-		creds := CredentialsFromContext(ctx)
+		creds := credentials.CredentialsFromContext(ctx)
 		require.NotNil(t, creds)
 		assert.True(t, creds.OAuth)
 		assert.Equal(t, []byte(parityCodexAccountID), creds.AccountID)
-		assert.True(t, servedOnCodexSubscription(ctx))
+		assert.True(t, credentials.ServedOnCodexSubscription(ctx))
 	})
 }
 
@@ -286,19 +286,19 @@ func TestSubscriptionFailoverParity_SubscriptionShape(t *testing.T) {
 func TestSubscriptionFailoverParity_ModelCoverage(t *testing.T) {
 	t.Run("codex uncovered model resolves to the paid key", func(t *testing.T) {
 		in := parityCodexIngress()
-		ctx := resolveAndInjectCredentials(in.byokCtx(in.subCtx()), in.provider, in.uncoveredModel, http.Header{})
-		creds := CredentialsFromContext(ctx)
+		ctx := credentials.ResolveAndInjectCredentials(in.byokCtx(in.subCtx()), in.provider, in.uncoveredModel, http.Header{})
+		creds := credentials.CredentialsFromContext(ctx)
 		require.NotNil(t, creds)
 		assert.Equal(t, []byte(parityCodexBYOK), creds.APIKey,
 			"a model outside the Codex family must serve on infrastructure credentials")
-		assert.False(t, servedOnCodexSubscription(ctx))
+		assert.False(t, credentials.ServedOnCodexSubscription(ctx))
 	})
 
 	t.Run("anthropic has no coverage gate", func(t *testing.T) {
 		in := parityAnthropicIngress()
-		ctx := resolveAndInjectCredentials(in.subCtx(), in.provider, in.uncoveredModel, http.Header{})
-		require.NotNil(t, CredentialsFromContext(ctx))
-		assert.True(t, servedOnSubscription(ctx),
+		ctx := credentials.ResolveAndInjectCredentials(in.subCtx(), in.provider, in.uncoveredModel, http.Header{})
+		require.NotNil(t, credentials.CredentialsFromContext(ctx))
+		assert.True(t, credentials.ServedOnSubscription(ctx),
 			"any Anthropic model the caller can reach serves on the Claude subscription (D2)")
 	})
 }
@@ -347,16 +347,16 @@ func TestSubscriptionFailoverParity_PreDispatchSuppression(t *testing.T) {
 
 			t.Run("suppression still leaves the turn a credential", func(t *testing.T) {
 				// BYOK present: resolution must land on the paid key.
-				byok := resolveAndInjectCredentials(in.suppress(in.byokCtx(in.subCtx())), in.provider, in.model, http.Header{})
-				creds := CredentialsFromContext(byok)
+				byok := credentials.ResolveAndInjectCredentials(in.suppress(in.byokCtx(in.subCtx())), in.provider, in.model, http.Header{})
+				creds := credentials.CredentialsFromContext(byok)
 				require.NotNil(t, creds, "suppression must fall through to the BYOK key, not strand the turn")
 				assert.Equal(t, []byte(in.byokKey), creds.APIKey)
 				assert.False(t, in.servedOnSub(byok), "the rescued turn bills at full cost, not the subscription rate")
 
 				// Deployment key only: no credential is set, which is how the
 				// provider adapter is told to use the deployment key.
-				deployment := resolveAndInjectCredentials(in.suppress(in.subCtx()), in.provider, in.model, http.Header{})
-				assert.Nil(t, CredentialsFromContext(deployment),
+				deployment := credentials.ResolveAndInjectCredentials(in.suppress(in.subCtx()), in.provider, in.model, http.Header{})
+				assert.Nil(t, credentials.CredentialsFromContext(deployment),
 					"with no BYOK the suppressed turn resolves to no credential so the deployment key serves it")
 
 				svc := in.deploymentKeyedService()
@@ -382,29 +382,29 @@ func TestSubscriptionFailoverParity_SuppressionIsProviderScoped(t *testing.T) {
 	t.Run("suppressing Claude leaves Codex intact", func(t *testing.T) {
 		ctx := credentials.WithSuppressedClaudeSubscription(bothSubs())
 		assert.True(t, credentials.ClaudeSubscriptionSuppressed(ctx))
-		assert.False(t, codexSubscriptionSuppressed(ctx))
+		assert.False(t, credentials.CodexSubscriptionSuppressed(ctx))
 
-		anthropic := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
-		assert.Nil(t, CredentialsFromContext(anthropic), "the suppressed Claude subscription must not resolve")
+		anthropic := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
+		assert.Nil(t, credentials.CredentialsFromContext(anthropic), "the suppressed Claude subscription must not resolve")
 
-		codex := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, parityCodexModel, http.Header{})
-		creds := CredentialsFromContext(codex)
+		codex := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, parityCodexModel, http.Header{})
+		creds := credentials.CredentialsFromContext(codex)
 		require.NotNil(t, creds, "the untouched Codex subscription must still resolve")
-		assert.True(t, servedOnCodexSubscription(codex))
+		assert.True(t, credentials.ServedOnCodexSubscription(codex))
 	})
 
 	t.Run("suppressing Codex leaves Claude intact", func(t *testing.T) {
-		ctx := withSuppressedCodexSubscription(bothSubs())
-		assert.True(t, codexSubscriptionSuppressed(ctx))
+		ctx := credentials.WithSuppressedCodexSubscription(bothSubs())
+		assert.True(t, credentials.CodexSubscriptionSuppressed(ctx))
 		assert.False(t, credentials.ClaudeSubscriptionSuppressed(ctx))
 
-		codex := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, parityCodexModel, http.Header{})
-		assert.Nil(t, CredentialsFromContext(codex), "the suppressed Codex subscription must not resolve")
+		codex := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, parityCodexModel, http.Header{})
+		assert.Nil(t, credentials.CredentialsFromContext(codex), "the suppressed Codex subscription must not resolve")
 
-		anthropic := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
-		creds := CredentialsFromContext(anthropic)
+		anthropic := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
+		creds := credentials.CredentialsFromContext(anthropic)
 		require.NotNil(t, creds, "the untouched Claude subscription must still resolve")
-		assert.True(t, servedOnSubscription(anthropic))
+		assert.True(t, credentials.ServedOnSubscription(anthropic))
 	})
 }
 
@@ -592,7 +592,7 @@ func (p *parityUpstream) Proxy(ctx context.Context, decision router.Decision, _ 
 	p.servedModels = append(p.servedModels, decision.Model)
 	// No credential in context means the provider adapter falls back to the
 	// deployment key, which is a paid dispatch.
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	onSubscription := creds != nil && creds.OAuth
 	err := p.paidErr
 	if onSubscription {

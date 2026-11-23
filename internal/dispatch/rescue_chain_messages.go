@@ -246,7 +246,7 @@ func (m *MessagesRescue) ClassifyPrimaryFailure() {
 		log.Error("Upstream rejected the request as unsupported by the routed model",
 			"model", m.Decision.Model,
 			"provider", m.PrimaryProvider,
-			"upstream_status", UpstreamStatus(m.ProxyErr),
+			"upstream_status", providers.UpstreamStatus(m.ProxyErr),
 			"has_images", feats.HasImages)
 	}
 }
@@ -378,7 +378,7 @@ func (m *MessagesRescue) SubscriptionRetry(ctx context.Context) {
 			log.Warn("Subscription failover: no fallback Anthropic binding available; surfacing original error",
 				"model", m.Decision.Model,
 				"err", m.ProxyErr,
-				"upstream_status", UpstreamStatus(m.ProxyErr))
+				"upstream_status", providers.UpstreamStatus(m.ProxyErr))
 			if !m.RescueArmed {
 				m.FlushDeferredErr()
 			}
@@ -386,7 +386,7 @@ func (m *MessagesRescue) SubscriptionRetry(ctx context.Context) {
 			log.Warn("Subscription failover: subscription rejected the turn, retrying requested model on Weave key",
 				"model", m.Decision.Model,
 				"err", m.ProxyErr,
-				"upstream_status", UpstreamStatus(m.ProxyErr))
+				"upstream_status", providers.UpstreamStatus(m.ProxyErr))
 			subNotice := m.Markers.ClaudeNotice(m.Markers.WithOwnClaudeRejectionNudge(ctx), subOpts.TargetModel, m.Marker)
 			subNotice = m.Funding.AddRoutingFundingSource(subCtx, providers.ProviderAnthropic, subOpts.TargetModel, subNotice)
 			subAttempt := m.AnthropicTierAttempt(subOpts, subPrep, subNotice)

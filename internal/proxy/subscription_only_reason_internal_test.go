@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/ingress"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -117,7 +118,7 @@ func TestSubscriptionOnlyUnavailableNamesTheSpentAllowanceWindow(t *testing.T) {
 
 func spendCapOnCustomerKey() context.Context {
 	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlySpendCapReached)
-	return context.WithValue(ctx, CredentialsContextKey{}, &Credentials{APIKey: []byte("synthetic-key"), Source: credSourceBYOK})
+	return context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{APIKey: []byte("synthetic-key"), Source: requestcontext.SourceBYOK})
 }
 
 func TestSpendCapKeyWarningShowsOncePerConversation(t *testing.T) {

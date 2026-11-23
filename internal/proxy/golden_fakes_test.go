@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
@@ -98,7 +98,7 @@ func (p *goldenProvider) SupportsSubscriptions() bool { return true }
 
 func (p *goldenProvider) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	credential := p.rec.credential(ctx)
-	if creds := proxy.CredentialsFromContext(ctx); creds != nil && creds.CredentialError != nil {
+	if creds := credentials.CredentialsFromContext(ctx); creds != nil && creds.CredentialError != nil {
 		p.rec.recordAttempt(goldenAttempt{Provider: p.name, Model: decision.Model, Endpoint: goldenEndpoint(prep.Endpoint),
 			Credential: goldenCredentialSource(ctx), Resolved: credential, Outcome: goldenOutcome(creds.CredentialError)})
 		return creds.CredentialError

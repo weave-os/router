@@ -40,7 +40,7 @@ func ownCodexLoginRejected(ctx context.Context, headers http.Header, observer *u
 	if requestcontext.ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppCodex {
 		return false
 	}
-	token, _ := presentSubscriptionTokens(ctx, headers)
+	token, _ := credentials.PresentSubscriptionTokens(ctx, headers)
 	return token != "" && observer != nil && observer.Rejected(observer.Key([]byte(token)))
 }
 

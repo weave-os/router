@@ -136,12 +136,12 @@ func (o *ChatRescue) CodexRetry(ctx context.Context) {
 				"err", subBuildErr, "model", o.Decision.Model)
 		case len(subBindings) == 0:
 			log.Warn("Codex subscription failover: no fallback OpenAI binding available; surfacing the original error",
-				"model", o.Decision.Model, "upstream_status", UpstreamStatus(o.ProxyErr))
+				"model", o.Decision.Model, "upstream_status", providers.UpstreamStatus(o.ProxyErr))
 		default:
 			log.Warn("Codex subscription failover: ChatGPT plan rejected the turn, retrying on Weave credits",
 				"model", o.Decision.Model,
 				"err", o.ProxyErr,
-				"upstream_status", UpstreamStatus(o.ProxyErr))
+				"upstream_status", providers.UpstreamStatus(o.ProxyErr))
 			o.CodexRetryRan = true
 			o.EffortServed = subEffort
 			*o.RespSummary = translate.ResponseSummary{}
@@ -187,12 +187,12 @@ func (o *ChatRescue) ClaudeRetry(ctx context.Context) {
 				"err", subBuildErr, "model", o.Decision.Model)
 		case len(subBindings) == 0:
 			log.Warn("Claude subscription failover: no fallback Anthropic binding available; surfacing the original error",
-				"model", o.Decision.Model, "upstream_status", UpstreamStatus(o.ProxyErr))
+				"model", o.Decision.Model, "upstream_status", providers.UpstreamStatus(o.ProxyErr))
 		default:
 			log.Warn("Claude subscription failover: subscription rejected the turn, retrying on Weave credits",
 				"model", o.Decision.Model,
 				"err", o.ProxyErr,
-				"upstream_status", UpstreamStatus(o.ProxyErr))
+				"upstream_status", providers.UpstreamStatus(o.ProxyErr))
 			o.ClaudeRetryRan = true
 			*o.RespSummary = translate.ResponseSummary{}
 			o.WinnerIdx, o.ProxyErr = o.Dispatch(subCtx, FailoverInputs{

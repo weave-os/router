@@ -86,7 +86,7 @@ func (s *Service) maybeDemoteArmAfterUnrescuedStall(
 	})
 }
 
-func isUpstreamWatchdogError(err error) bool { return dispatch.IsUpstreamWatchdogError(err) }
+func isUpstreamWatchdogError(err error) bool { return providers.IsUpstreamWatchdogError(err) }
 
 func (s *Service) maybeDemoteArmAfterRescuedFailure(
 	ctx context.Context,

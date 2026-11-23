@@ -47,7 +47,7 @@ type scriptedFundingClient struct {
 func (*scriptedFundingClient) SupportsSubscriptions() bool { return true }
 
 func (c *scriptedFundingClient) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	oauth := creds != nil && creds.OAuth
 	model := gjson.GetBytes(prep.Body, "model").String()
 	if model == "" {
@@ -241,7 +241,7 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 				require.NotEmpty(t, leaser.providers)
 				assert.Equal(t, subscriptions.ProviderCodex, leaser.providers[0], "the out-of-roster model must lease from the Codex pool")
 			}
-			assert.Equal(t, tc.wantPoolServe, managedSubscriptionServed(ctx))
+			assert.Equal(t, tc.wantPoolServe, credentials.ManagedSubscriptionServed(ctx))
 		})
 	}
 }
