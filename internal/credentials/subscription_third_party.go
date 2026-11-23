@@ -10,7 +10,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/translate"
 
 	"github.com/tidwall/gjson"
 )
@@ -29,7 +28,7 @@ type clientAppRefusalPaidFallbackKey struct{}
 
 func WithClientAppRefusalPaidFallback(ctx context.Context, decision router.Decision) context.Context {
 	consented, _ := ctx.Value(requestcontext.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
-	forcedConsent := consented && strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel)
+	forcedConsent := consented && strings.HasPrefix(decision.Reason, router.ReasonUserForceModel)
 	if !forcedConsent && billing.WeaveCreditsDeniedFromContext(ctx) {
 		return ctx
 	}
@@ -54,7 +53,7 @@ func ForcedClaudeClientAppRefused(ctx context.Context, decision router.Decision,
 		return false
 	}
 	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
-	return usage != nil && usage.ClientAppRefused && strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel)
+	return usage != nil && usage.ClientAppRefused && strings.HasPrefix(decision.Reason, router.ReasonUserForceModel)
 }
 
 func anthropicInvalidRequestMessage(err error) string {

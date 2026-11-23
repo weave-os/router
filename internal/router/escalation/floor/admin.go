@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/llmescalation"
@@ -25,7 +24,14 @@ type Admin struct {
 	SwitchyardJudge     llmescalation.Judge
 	QwenJudge           llmescalation.Judge
 	SwitchyardActive    bool
-	Clock               auth.Clock
+	Clock               func() time.Time
+}
+
+func (a *Admin) clockNow() time.Time {
+	if a.Clock == nil {
+		return time.Now()
+	}
+	return a.Clock()
 }
 
 func (a *Admin) switchyardJudgeReady() bool { return a.SwitchyardJudge != nil }
@@ -39,7 +45,7 @@ func (a *Admin) EscalationDashboard(ctx context.Context, filter escalationdashbo
 	if filter.Limit < 1 || filter.Limit > 200 {
 		return escalationdashboard.Snapshot{}, errors.New("invalid escalation dashboard page")
 	}
-	now := a.Clock.Now().UTC()
+	now := a.clockNow().UTC()
 	pageStart := int32(0)
 	var stored escalationdashboard.StoredSnapshot
 	var err error

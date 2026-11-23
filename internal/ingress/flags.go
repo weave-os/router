@@ -6,6 +6,10 @@ import (
 	"weave-os/router/internal/flags"
 )
 
+func (f Formats) ResolveAllowedModelsHeader(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAllowedModelsHeader, f.AllowedModelsHeader)
+}
+
 func (f Formats) ResponsesBroad(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyOpenAIResponsesBroad, f.OpenAIResponsesBroad)
 }

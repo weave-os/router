@@ -27,6 +27,7 @@ func TestServingLayerPortsRejectsNegativeFixtures(t *testing.T) {
 	assert.Equal(t, []string{
 		"internal/architecture/testdata/serving_layer_proxy: holds *proxy.Service (aliasDeps.svc)",
 		"internal/architecture/testdata/serving_layer_proxy: holds *proxy.Service (handlerDeps.svc)",
+		"internal/architecture/testdata/serving_layer_proxy: holds *proxy.Service (pointerAliasDeps.svc)",
 		"internal/architecture/testdata/serving_layer_proxy: imports internal/proxy",
 	}, servingLayerProxyCouplings(t, servingLayerFixturePackage))
 }

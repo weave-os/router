@@ -9,10 +9,6 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-func (s *Service) ResolveAllowedModelsHeader(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyAllowedModelsHeader, s.ingress.AllowedModelsHeader)
-}
-
 func plannerConfigFor(ctx context.Context, cfg planner.EVConfig) planner.EVConfig {
 	cfg.TierUpgradeEnabled = flags.BoolOr(ctx, flags.KeyPlannerTierUpgrade, cfg.TierUpgradeEnabled)
 	cfg.CorrectedEconomics = flags.BoolOr(ctx, flags.KeyPlannerCorrectedEconomics, cfg.CorrectedEconomics)
