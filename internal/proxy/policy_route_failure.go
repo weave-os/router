@@ -31,7 +31,7 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, request route
 	}
 	params := turnrecord.InsertTelemetryParams{
 		InstallationID: installationID.String(),
-		APIKeyID:       apiKeyIDFromContext(ctx),
+		APIKeyID:       requestcontext.APIKeyIDFromContext(ctx),
 		RequestID:      request.RequestID,
 		SpanType:       "router.upstream",
 		TraceID:        request.RequestID,

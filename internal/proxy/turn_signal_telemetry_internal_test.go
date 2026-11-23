@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
@@ -20,15 +21,15 @@ func TestTurnSignalCaptureAllowed(t *testing.T) {
 	tests := []struct {
 		name            string
 		trainingAllowed bool
-		capture         ContentCaptureMode
+		capture         capture.Mode
 		want            bool
 	}{
-		{"full capture and training allowed", true, CaptureFull, true},
-		{"hashed capture and training allowed", true, CaptureHashed, true},
-		{"AI training opted out", false, CaptureFull, false},
-		{"zero retention", true, CaptureOff, false},
-		{"neither allowed", false, CaptureOff, false},
-		{"unknown capture mode", true, ContentCaptureMode(99), false},
+		{"full capture and training allowed", true, capture.Full, true},
+		{"hashed capture and training allowed", true, capture.Hashed, true},
+		{"AI training opted out", false, capture.Full, false},
+		{"zero retention", true, capture.Off, false},
+		{"neither allowed", false, capture.Off, false},
+		{"unknown capture mode", true, capture.Mode(99), false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -38,7 +39,7 @@ func TestTurnSignalCaptureAllowed(t *testing.T) {
 }
 
 func TestTurnSignalCaptureAllowed_FailsClosedOnDefaults(t *testing.T) {
-	assert.False(t, turnSignalCaptureAllowed(false, ParseCaptureMode("")))
+	assert.False(t, turnSignalCaptureAllowed(false, capture.ParseMode("")))
 }
 
 func sampleSignals() conversation.SpiralSignals {
@@ -63,7 +64,7 @@ func sampleSignals() conversation.SpiralSignals {
 func TestApplyTurnSignalTelemetry_CopiesFullSnapshot(t *testing.T) {
 	var telemetry turnrecord.InsertTelemetryParams
 	reasons := []conversation.SpiralReason{conversation.SpiralReasonErrStreak, conversation.SpiralReasonPingPong}
-	applyTurnSignalTelemetry(&telemetry, sampleSignals(), reasons, true, true, CaptureFull)
+	applyTurnSignalTelemetry(&telemetry, sampleSignals(), reasons, true, true, capture.Full)
 
 	assertInt32Ptr := func(field string, got *int32, want int32) {
 		t.Helper()
@@ -89,7 +90,7 @@ func TestApplyTurnSignalTelemetry_CopiesFullSnapshot(t *testing.T) {
 
 func TestApplyTurnSignalTelemetry_QuietTurnRecordsZeros(t *testing.T) {
 	var telemetry turnrecord.InsertTelemetryParams
-	applyTurnSignalTelemetry(&telemetry, conversation.SpiralSignals{}, nil, true, true, CaptureFull)
+	applyTurnSignalTelemetry(&telemetry, conversation.SpiralSignals{}, nil, true, true, capture.Full)
 
 	require.NotNil(t, telemetry.SpiralErrStreak)
 	assert.Zero(t, *telemetry.SpiralErrStreak)
@@ -106,11 +107,11 @@ func TestApplyTurnSignalTelemetry_SkipsIneligibleTurns(t *testing.T) {
 		name            string
 		computed        bool
 		trainingAllowed bool
-		capture         ContentCaptureMode
+		capture         capture.Mode
 	}{
-		{"AI training opted out", true, false, CaptureFull},
-		{"zero retention", true, true, CaptureOff},
-		{"snapshot not computed", false, true, CaptureFull},
+		{"AI training opted out", true, false, capture.Full},
+		{"zero retention", true, true, capture.Off},
+		{"snapshot not computed", false, true, capture.Full},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -130,7 +131,7 @@ func TestApplyTurnSignalTelemetry_SkipsIneligibleTurns(t *testing.T) {
 
 func TestApplyTurnSignalTelemetry_NilParamsIsNoOp(t *testing.T) {
 	assert.NotPanics(t, func() {
-		applyTurnSignalTelemetry(nil, sampleSignals(), nil, true, true, CaptureFull)
+		applyTurnSignalTelemetry(nil, sampleSignals(), nil, true, true, capture.Full)
 	})
 }
 

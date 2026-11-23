@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/translate/toolcheck"
 	providerusage "weave-os/router/internal/usage"
@@ -67,13 +68,13 @@ type messagesTurnDispatch struct {
 	overflowEstimate          int
 	outputReserve             int
 	compactionHandoverOutcome handover.Outcome
-	escalationCapture         **captureWriter
+	escalationCapture         **capture.Writer
 
 	bindings                []catalog.ProviderBinding
 	streamCost              *streamCostWriter
 	contentSink             http.ResponseWriter
-	contentCap              *captureWriter
-	policyOutcomeCap        *captureWriter
+	contentCap              *capture.Writer
+	policyOutcomeCap        *capture.Writer
 	preludeBuf              *preludeBuffer
 	sink                    http.ResponseWriter
 	refusalObs              *refusalObserver
@@ -112,7 +113,7 @@ func dispatchMessagesTurn(ctx, credentialCtx context.Context, t *messagesTurnDis
 	if t.env.Stream() && !t.agentShadowMode {
 		var closeKeepalive func()
 		clientSink, t.streamCost, closeKeepalive = anthropicStreamSink(t.w, t.s.ingress.Keepalive, func() string {
-			return t.s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, t.routeRes.TurnType, t.footerEchoed)
+			return t.s.feedbackFooter(ctx, requestcontext.ClientIdentityFrom(ctx).ClientApp, t.routeRes.TurnType, t.footerEchoed)
 		})
 		defer closeKeepalive()
 	}

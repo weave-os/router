@@ -1,4 +1,4 @@
-package proxy
+package capture
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"weave-os/router/internal/sse"
 )
 
-type captureWriter struct {
+type Writer struct {
 	w           http.ResponseWriter
 	body        bytes.Buffer
 	statusCode  int
@@ -16,13 +16,13 @@ type captureWriter struct {
 	overflow    bool
 }
 
-func newCaptureWriter(w http.ResponseWriter, maxBytes int) *captureWriter {
-	return &captureWriter{w: w, statusCode: http.StatusOK, maxBytes: maxBytes}
+func NewWriter(w http.ResponseWriter, maxBytes int) *Writer {
+	return &Writer{w: w, statusCode: http.StatusOK, maxBytes: maxBytes}
 }
 
-func (c *captureWriter) Header() http.Header { return c.w.Header() }
+func (c *Writer) Header() http.Header { return c.w.Header() }
 
-func (c *captureWriter) WriteHeader(code int) {
+func (c *Writer) WriteHeader(code int) {
 	if c.wroteHeader {
 		return
 	}
@@ -32,7 +32,7 @@ func (c *captureWriter) WriteHeader(code int) {
 	c.w.WriteHeader(code)
 }
 
-func (c *captureWriter) Write(p []byte) (int, error) {
+func (c *Writer) Write(p []byte) (int, error) {
 	if !c.overflow {
 		if c.body.Len()+len(p) > c.maxBytes {
 			c.overflow = true
@@ -44,13 +44,13 @@ func (c *captureWriter) Write(p []byte) (int, error) {
 	return sse.WriteJSONChunk(c.w, p)
 }
 
-func (c *captureWriter) Flush() {
+func (c *Writer) Flush() {
 	if f, ok := c.w.(http.Flusher); ok {
 		f.Flush()
 	}
 }
 
-func (c *captureWriter) captured() ([]byte, int, bool) {
+func (c *Writer) Captured() ([]byte, int, bool) {
 	if c.overflow {
 		return nil, 0, false
 	}

@@ -32,9 +32,9 @@ func TestSlowStartNotice_CodexSubagentContinuations(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, envelope := codexRoutingEnvelope(t, test.agentPath, test.toolResult)
-			ctx = observability.WithClientSessionID(ctx, ClientIdentityFrom(ctx).SessionID)
+			ctx = observability.WithClientSessionID(ctx, requestcontext.ClientIdentityFrom(ctx).SessionID)
 			features := envelope.RoutingFeatures()
-			turn := turntype.Detect(envelope, features, subAgentHintForRequest(ctx, ""), openCodeCaller(ClientIdentityFrom(ctx)))
+			turn := turntype.Detect(envelope, features, subAgentHintForRequest(ctx, ""), openCodeCaller(requestcontext.ClientIdentityFrom(ctx)))
 			require.Equal(t, test.wantTurn, turn)
 
 			tracker, now := slowStartAfterBaseline(t)

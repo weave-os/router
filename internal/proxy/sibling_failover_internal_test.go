@@ -71,7 +71,7 @@ func TestSiblingFailoverSelectsImageCompatibleBinding(t *testing.T) {
 		{name: "within DeepInfra cap", imageCount: 3, wantProvider: providers.ProviderDeepInfra},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := withRequestImageCount(context.Background(), tc.imageCount)
+			ctx := requestcontext.WithRequestImageCount(context.Background(), tc.imageCount)
 			got, ok := firstSibling(s, ctx, failed, 1_000, 0)
 			require.True(t, ok)
 			assert.Equal(t, model, got.Model)
