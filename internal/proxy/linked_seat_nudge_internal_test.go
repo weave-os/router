@@ -247,7 +247,7 @@ func TestDeferredReconnectNudgeShowsOnAPaidTurnWithoutARoutingMarker(t *testing.
 	notice := reconnectNoticeForAttempt(ctx, http.Header{}, unmarked)
 	require.Equal(t, translate.NoticeSubscriptionReconnect, notice.Kind)
 	require.Equal(t, ownClaudePlanSpentNudge, notice.Text)
-	onSeat := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{OAuth: true})
+	onSeat := context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{OAuth: true})
 	require.Equal(t, unmarked, reconnectNoticeForAttempt(onSeat, http.Header{}, unmarked), "a linked seat keeps the turn on a subscription")
 	optedOut := http.Header{routingMarkerHeader: []string{"off"}}
 	require.Empty(t, reconnectNoticeForAttempt(ctx, optedOut, unmarked).Text, "an explicit marker opt-out still hides the nudge")

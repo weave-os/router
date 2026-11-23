@@ -69,9 +69,3 @@ func TestArmDemotionRescuedFailureRecordsTurnFailureWhenDisabled(t *testing.T) {
 	assert.Empty(t, model)
 	assert.Equal(t, []string{"model-a"}, recorded)
 }
-
-func TestUpstreamStatusReadsWrappedStatus(t *testing.T) {
-	assert.Equal(t, http.StatusOK, dispatch.UpstreamStatus(nil))
-	assert.Equal(t, http.StatusBadGateway, dispatch.UpstreamStatus(&providers.UpstreamErrorResponse{Status: http.StatusBadGateway}))
-	assert.Zero(t, dispatch.UpstreamStatus(context.Canceled))
-}

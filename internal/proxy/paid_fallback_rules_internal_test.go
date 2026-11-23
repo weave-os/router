@@ -52,20 +52,20 @@ func paidFallbackBindings() []paidFallbackFacts {
 	return []paidFallbackFacts{
 		{"open", func(ctx context.Context) context.Context { return ctx }},
 		{"api-only", func(ctx context.Context) context.Context {
-			return context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
+			return context.WithValue(ctx, credentials.SubscriptionAPIOnlyKey{}, true)
 		}},
 		{"subscription-attempt", func(ctx context.Context) context.Context {
-			return context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
+			return context.WithValue(ctx, credentials.SubscriptionOnlyAttemptKey{}, true)
 		}},
 		{"own-plan-pick", func(ctx context.Context) context.Context {
 			return context.WithValue(ctx, pickedModelOnOwnPlanContextKey{}, true)
 		}},
 		{"included-lane", withIncludedStateModels},
 		{"exhausted-set", func(ctx context.Context) context.Context {
-			return context.WithValue(withIncludedStateModels(ctx), subscriptionAPIOnlyKey{}, true)
+			return context.WithValue(withIncludedStateModels(ctx), credentials.SubscriptionAPIOnlyKey{}, true)
 		}},
 		{"included-lane-attempt", func(ctx context.Context) context.Context {
-			return context.WithValue(withIncludedStateModels(ctx), subscriptionOnlyAttemptKey{}, true)
+			return context.WithValue(withIncludedStateModels(ctx), credentials.SubscriptionOnlyAttemptKey{}, true)
 		}},
 		{"enterprise-seat", withEnterpriseSeat},
 		{"enterprise-cap-refused", func(ctx context.Context) context.Context {
@@ -73,7 +73,7 @@ func paidFallbackBindings() []paidFallbackFacts {
 		}},
 		{"enterprise-cap-refused-attempt", func(ctx context.Context) context.Context {
 			ctx = context.WithValue(withEnterpriseSeat(ctx), credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
-			return context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
+			return context.WithValue(ctx, credentials.SubscriptionOnlyAttemptKey{}, true)
 		}},
 	}
 }
@@ -95,17 +95,17 @@ func paidFallbackCustomerKeys() []paidFallbackFacts {
 
 func paidFallbackServingCredentials() []struct {
 	name  string
-	creds *Credentials
+	creds *requestcontext.Credentials
 } {
 	return []struct {
 		name  string
-		creds *Credentials
+		creds *requestcontext.Credentials
 	}{
 		{"deployment", nil},
-		{"subscription", &Credentials{APIKey: []byte("oauth-token"), OAuth: true, Source: credSourceSubscription}},
-		{"customer-key", &Credentials{APIKey: []byte("sk-ant-customer"), Source: credSourceBYOK}},
-		{"broken-customer-key", &Credentials{APIKey: []byte("sk-ant-customer"), Source: credSourceBYOK, CredentialError: errors.New("unusable")}},
-		{"client-key", &Credentials{APIKey: []byte("sk-client"), Source: credSourceClient}},
+		{"subscription", &requestcontext.Credentials{APIKey: []byte("oauth-token"), OAuth: true, Source: requestcontext.SourceSubscription}},
+		{"customer-key", &requestcontext.Credentials{APIKey: []byte("sk-ant-customer"), Source: requestcontext.SourceBYOK}},
+		{"broken-customer-key", &requestcontext.Credentials{APIKey: []byte("sk-ant-customer"), Source: requestcontext.SourceBYOK, CredentialError: errors.New("unusable")}},
+		{"client-key", &requestcontext.Credentials{APIKey: []byte("sk-client"), Source: requestcontext.SourceClient}},
 	}
 }
 
@@ -117,11 +117,11 @@ func paidFallbackBit(value bool) string {
 }
 
 func paidFallbackHandover(ctx context.Context, provider string) string {
-	creds := CredentialsFromContext(withPaidFallbackCredentials(ctx, provider))
+	creds := credentials.CredentialsFromContext(withPaidFallbackCredentials(ctx, provider))
 	switch {
 	case creds == nil:
 		return "deployment"
-	case creds.Source == credSourceBYOK && credentials.CustomerKeyFunded(creds):
+	case creds.Source == requestcontext.SourceBYOK && credentials.CustomerKeyFunded(creds):
 		return "customer-key"
 	default:
 		return string(creds.Source)
@@ -143,7 +143,7 @@ func paidFallbackRulesRow(ctx context.Context) string {
 	attempts := make([]string, 0, len(paidFallbackServingCredentials()))
 	unservable := make([]string, 0, len(paidFallbackServingCredentials()))
 	for _, serving := range paidFallbackServingCredentials() {
-		servingCtx := context.WithValue(ctx, CredentialsContextKey{}, serving.creds)
+		servingCtx := context.WithValue(ctx, requestcontext.CredentialsContextKey{}, serving.creds)
 		attempts = append(attempts, serving.name+":"+paidFallbackBit(paidAttemptForbidden(ctx, serving.creds)))
 		unservable = append(unservable, serving.name+":"+paidFallbackBit(subscriptionOnlyUnservable(servingCtx, providers.ProviderAnthropic, stateClaudeModel)))
 	}

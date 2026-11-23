@@ -50,8 +50,8 @@ func claudePoolRefusesClientApp(ctx context.Context) bool {
 	return usage != nil && usage.ClientAppRefused
 }
 
-func forcedClaudeClientAppRefused(ctx context.Context, decision router.Decision, creds *Credentials) bool {
-	if creds != nil && (creds.OAuth || creds.Source == credSourceBYOK) || clientAppRefusalPaidFallback(ctx) {
+func forcedClaudeClientAppRefused(ctx context.Context, decision router.Decision, creds *requestcontext.Credentials) bool {
+	if creds != nil && (creds.OAuth || creds.Source == requestcontext.SourceBYOK) || clientAppRefusalPaidFallback(ctx) {
 		return false
 	}
 	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)

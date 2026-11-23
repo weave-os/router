@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -16,11 +17,11 @@ func ctxWithExternalKeys(keys ...*auth.ExternalAPIKey) context.Context {
 }
 
 func TestServedOnBYOK_KeysOffCredentialSource(t *testing.T) {
-	assert.True(t, servedOnBYOK(ctxWithCreds(&Credentials{Source: credSourceBYOK})),
+	assert.True(t, credentials.ServedOnBYOK(ctxWithCreds(&requestcontext.Credentials{Source: requestcontext.SourceBYOK})),
 		"a turn dispatched on a BYOK credential bills at the fee rate")
-	assert.False(t, servedOnBYOK(ctxWithCreds(&Credentials{Source: credSourceSubscription})),
+	assert.False(t, credentials.ServedOnBYOK(ctxWithCreds(&requestcontext.Credentials{Source: requestcontext.SourceSubscription})),
 		"a subscription turn is free, not fee-billed")
-	assert.False(t, servedOnBYOK(context.Background()),
+	assert.False(t, credentials.ServedOnBYOK(context.Background()),
 		"a deployment-key turn bills full cost")
 }
 

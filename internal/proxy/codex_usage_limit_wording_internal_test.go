@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
@@ -74,7 +75,7 @@ func TestShortDuration(t *testing.T) {
 	}
 }
 
-func tracedCodexQuotaThenLeaseFailure(t *testing.T, creds *Credentials) (*dispatch.AttemptTrace, error) {
+func tracedCodexQuotaThenLeaseFailure(t *testing.T, creds *requestcontext.Credentials) (*dispatch.AttemptTrace, error) {
 	t.Helper()
 	a := codexUsageLimitAttempt(turnrecord.FailureOwnerProvider)
 	quota := a.Err
@@ -84,7 +85,7 @@ func tracedCodexQuotaThenLeaseFailure(t *testing.T, creds *Credentials) (*dispat
 	}
 	trace := dispatch.NewAttemptTrace(nil, false)
 	trace.BeginAttempt(target, "", a.At)
-	trace.ObserveSent(context.WithValue(context.Background(), CredentialsContextKey{}, creds), []byte(`{}`), false)
+	trace.ObserveSent(context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, creds), []byte(`{}`), false)
 	trace.Record(dispatch.Attempt{Target: target}, quota, routerOwned)
 	trace.BeginAttempt(target, "", a.At)
 	leaseFailure := errors.Join(errors.New("no subscription account available"), quota)
@@ -94,13 +95,13 @@ func tracedCodexQuotaThenLeaseFailure(t *testing.T, creds *Credentials) (*dispat
 
 func TestTerminalLeaseFailureNamesCodexUsageLimit(t *testing.T) {
 	t.Parallel()
-	trace, leaseFailure := tracedCodexQuotaThenLeaseFailure(t, &Credentials{OAuth: true, Source: credSourceCodexSubscription})
+	trace, leaseFailure := tracedCodexQuotaThenLeaseFailure(t, &requestcontext.Credentials{OAuth: true, Source: requestcontext.SourceCodexSubscription})
 	got := TerminalErrorMessage(attributeCodexUsageLimitAbort(trace, leaseFailure))
 	assert.Equal(t, "OpenAI hit the Codex usage limit (resets in 1h 29m) after 1 router retry: The usage limit has been reached", got)
 }
 
 func TestTerminalLeaseFailureAfterAPIKeyQuotaKeepsError(t *testing.T) {
 	t.Parallel()
-	trace, leaseFailure := tracedCodexQuotaThenLeaseFailure(t, &Credentials{APIKey: []byte("k"), Source: credSourceClient})
+	trace, leaseFailure := tracedCodexQuotaThenLeaseFailure(t, &requestcontext.Credentials{APIKey: []byte("k"), Source: requestcontext.SourceClient})
 	assert.Equal(t, leaseFailure, attributeCodexUsageLimitAbort(trace, leaseFailure))
 }

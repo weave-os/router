@@ -3,6 +3,8 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/requestcontext"
 )
 
 type summarizerAccess struct {
@@ -17,7 +19,7 @@ func (a summarizerAccess) SummaryContext(ctx context.Context, provider string) (
 		return nil, false
 	}
 	if sumCreds != nil {
-		return context.WithValue(ctx, CredentialsContextKey{}, sumCreds), true
+		return context.WithValue(ctx, requestcontext.CredentialsContextKey{}, sumCreds), true
 	}
-	return clearCredentials(ctx), true
+	return credentials.ClearCredentials(ctx), true
 }
