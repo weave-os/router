@@ -38,7 +38,7 @@ func TestEnterpriseSeatTelemetryUsesTheServingCredential(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), requestcontext.CredentialsContextKey{}, enterprise)
-			ctx = context.WithValue(ctx, claudeSubscriptionPlanKey{}, providers.SubscriptionPlanEnterprise)
+			ctx = context.WithValue(ctx, credentials.ClaudeSubscriptionPlanKey{}, providers.SubscriptionPlanEnterprise)
 			winnerCtx := context.WithValue(ctx, requestcontext.CredentialsContextKey{}, tc.winner)
 			recordWinningCredentials(ctx, winnerCtx)
 			if tc.overage {

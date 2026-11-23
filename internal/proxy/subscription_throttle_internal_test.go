@@ -91,13 +91,13 @@ func TestAuthorizeSubscriptionAPI_LongThrottleFundsCredits(t *testing.T) {
 	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
 	callerCreds := &requestcontext.Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}
 	ctx := credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{activeCodexAccount("seat-1")})
-	recordManagedThrottle(ctx, "seat-1", now.Add(time.Hour))
+	credentials.RecordManagedThrottle(ctx, "seat-1", now.Add(time.Hour))
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
 	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, callerCreds, codexRateLimitedErr())
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{}))
 
 	short := credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{activeCodexAccount("seat-1")})
-	recordManagedThrottle(short, "seat-1", now.Add(10*time.Second))
+	credentials.RecordManagedThrottle(short, "seat-1", now.Add(10*time.Second))
 	require.NoError(t, svc.authorizeSubscriptionAPI(short, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}), "outside the subscription-state lane no seat wait is coming, so a short throttle pays too")
 	requireThrottledRefusal(t, svc.authorizeSubscriptionAPI(billing.WithWeaveCreditsDenied(short), subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
 }
@@ -106,7 +106,7 @@ func TestAuthorizeSubscriptionAPI_UnknownCallerQuotaKeeps503(t *testing.T) {
 	now := time.Now()
 	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
 	ctx := throttleTestContext(activeCodexAccount("seat-1"))
-	recordManagedThrottle(ctx, "seat-1", now.Add(time.Minute))
+	credentials.RecordManagedThrottle(ctx, "seat-1", now.Add(time.Minute))
 
 	err := svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{})
 	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable, "paid fallback stays blocked")
@@ -119,12 +119,12 @@ func TestAuthorizeSubscriptionAPI_ExhaustionStillAuthorizesPaidFallback(t *testi
 	now := time.Now()
 	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
 	ctx := throttleTestContext(activeCodexAccount("seat-spent"), activeCodexAccount("seat-throttled"))
-	recordManagedQuotaProof(ctx, "seat-spent", now.Add(time.Hour))
+	credentials.RecordManagedQuotaProof(ctx, "seat-spent", now.Add(time.Hour))
 
-	recordManagedThrottle(ctx, "seat-throttled", now.Add(time.Minute))
+	credentials.RecordManagedThrottle(ctx, "seat-throttled", now.Add(time.Minute))
 	requireThrottledRefusal(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
 
-	recordManagedQuotaProof(ctx, "seat-throttled", now.Add(time.Hour))
+	credentials.RecordManagedQuotaProof(ctx, "seat-throttled", now.Add(time.Hour))
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
 }
 
@@ -172,7 +172,7 @@ func TestAuthorizeSubscriptionAPI_RateLimitedCallerPlanRefusesAs429(t *testing.T
 	}
 
 	pooled := throttleTestContext(activeCodexAccount("seat-1"))
-	recordManagedThrottle(pooled, "seat-1", now.Add(time.Hour))
+	credentials.RecordManagedThrottle(pooled, "seat-1", now.Add(time.Hour))
 	svc.recordDirectSubscriptionQuota(pooled, providers.ProviderOpenAI, codexCoveredModel, callerCreds, codexRateLimitedErr())
 	requireThrottledRefusal(t, authorize(pooled))
 
@@ -216,7 +216,7 @@ func TestCallerPlanRateLimitRefusalIsClientOwned(t *testing.T) {
 	require.Equal(t, turnrecord.FailureOwnerClient, turnFailureOwnerFor(ctx, turnErr, turnrecord.TurnErrorOther))
 
 	pooled := throttleTestContext(activeCodexAccount("seat-1"))
-	recordManagedThrottle(pooled, "seat-1", now.Add(time.Minute))
+	credentials.RecordManagedThrottle(pooled, "seat-1", now.Add(time.Minute))
 	managedRefusal := svc.authorizeSubscriptionAPI(pooled, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{})
 	requireThrottledRefusal(t, managedRefusal)
 	require.Equal(t, turnrecord.FailureOwnerProvider, turnFailureOwnerFor(pooled, fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, managedRefusal), turnrecord.TurnErrorOther), "a managed pool throttled by the provider is the provider's rate limit")

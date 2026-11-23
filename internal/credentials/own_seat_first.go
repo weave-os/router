@@ -1,21 +1,20 @@
-package proxy
+package credentials
 
 import (
 	"context"
 	"time"
 
-	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/requestcontext"
 )
 
-func callerLoginServesFirst(ctx context.Context, model string, observer *usage.Observer, models *credentials.SubscriptionModelAccess, now time.Time) bool {
-	current := credentials.CredentialsFromContext(ctx)
+func CallerLoginServesFirst(ctx context.Context, model string, observer *usage.Observer, models *SubscriptionModelAccess, now time.Time) bool {
+	current := CredentialsFromContext(ctx)
 	if current == nil || !current.OAuth {
 		return false
 	}
-	if pickedModelOnOwnPlan(ctx) {
+	if PickedModelOnOwnPlan(ctx) {
 		return true
 	}
 	token := ownSeatFirstToken(ctx, current, observer)
@@ -35,16 +34,23 @@ func ownSeatFirstToken(ctx context.Context, current *requestcontext.Credentials,
 		return ""
 	}
 	snapshot, observed := observer.Snapshot(key)
-	if observed && snapshot.BillableOrExhausted() && !ownOverageServesFirst(ctx, snapshot) {
+	if observed && snapshot.BillableOrExhausted() && !OwnOverageServesFirst(ctx, snapshot) {
 		return ""
 	}
 	return inbound
 }
 
-func ownOverageServesFirst(ctx context.Context, snapshot usage.Snapshot) bool {
-	return snapshot.OverageInUse && ownOverageBeforePool(ctx)
+func OwnOverageServesFirst(ctx context.Context, snapshot usage.Snapshot) bool {
+	return snapshot.OverageInUse && OwnOverageBeforePool(ctx)
 }
 
-func ownOverageBeforePool(ctx context.Context) bool {
+func OwnOverageBeforePool(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyOwnSeatFirst, false) && flags.BoolOr(ctx, flags.KeyOwnOverageBeforePool, false)
+}
+
+type PickedModelOnOwnPlanContextKey struct{}
+
+func PickedModelOnOwnPlan(ctx context.Context) bool {
+	onOwnPlan, _ := ctx.Value(PickedModelOnOwnPlanContextKey{}).(bool)
+	return onOwnPlan
 }

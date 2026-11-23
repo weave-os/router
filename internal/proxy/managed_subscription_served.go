@@ -52,7 +52,7 @@ func (s *Service) subscriptionOverageInUse(ctx context.Context) bool {
 	if managedSubscriptionCredentialSource(ctx) == requestcontext.SourceCodexSubscription {
 		return false
 	}
-	headers := UnifiedLimitHeadersFrom(ctx)
+	headers := credentials.UnifiedLimitHeadersFrom(ctx)
 	if claim, present := headers["anthropic-ratelimit-unified-representative-claim"]; present {
 		return usage.PaidAnthropicOverage(
 			usage.AnthropicClaim(claim), headers["anthropic-ratelimit-unified-overage-in-use"])

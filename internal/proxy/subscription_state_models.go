@@ -128,7 +128,7 @@ func beginSubscriptionStateLane(ctx context.Context, initial router.Decision) co
 	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
 		usage.IntendedModel = initial.Model
 	}
-	return withClientAppRefusalPaidFallback(ctx, initial)
+	return credentials.WithClientAppRefusalPaidFallback(ctx, initial)
 }
 
 func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispatch.FailoverInputs) (int, error) {
@@ -212,11 +212,11 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispat
 		if err == nil || committed(in.Prelude) || ctx.Err() != nil {
 			return winner, err
 		}
-		if !isSubscriptionPoolError(err) && !credentials.SubscriptionLaneRefused(err) && !providers.IsRetryable(err) &&
-			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicClientAppRefused(ctx, err) {
+		if !credentials.IsSubscriptionPoolError(err) && !credentials.SubscriptionLaneRefused(err) && !providers.IsRetryable(err) &&
+			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !credentials.AnthropicClientAppRefused(ctx, err) {
 			return winner, err
 		}
-		if !anotherSeatPoolCanServe(ctx, seatAdmissionOf(s), includedModels, target) && waitOutShortSeatThrottle(ctx, target.Provider, target.Model, err, s.clock.Now(), s.engine.RetrySleep(), &throttleWaited) {
+		if !anotherSeatPoolCanServe(ctx, seatAdmissionOf(s), includedModels, target) && credentials.WaitOutShortSeatThrottle(ctx, target.Provider, target.Model, err, s.clock.Now(), s.engine.RetrySleep(), &throttleWaited) {
 			continue
 		}
 		includedFailure = includedFailureAfter(includedFailure, err, ownCodexLoginRejected(ctx, in.SubscriptionStateHeaders, s.credentials.UsageObserver))

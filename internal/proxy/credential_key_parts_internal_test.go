@@ -96,17 +96,17 @@ func TestSubscriptionOverageIsBillableWithoutLosingSubscriptionBillingAttributio
 
 func TestSubscriptionOverageHeaderMarksCostEvenWithoutObserver(t *testing.T) {
 	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
-	ctx := withUnifiedLimitCapture(ctxWithCreds(&requestcontext.Credentials{APIKey: []byte("overage-token"), Source: requestcontext.SourceSubscription, OAuth: true}))
+	ctx := credentials.WithUnifiedLimitCapture(ctxWithCreds(&requestcontext.Credentials{APIKey: []byte("overage-token"), Source: requestcontext.SourceSubscription, OAuth: true}))
 	headers := http.Header{}
 	headers.Set("anthropic-ratelimit-unified-representative-claim", "overage")
 	headers.Set("anthropic-ratelimit-unified-overage-in-use", "true")
-	captureUnifiedLimitHeaders(ctx, headers)
+	credentials.CaptureUnifiedLimitHeaders(ctx, headers)
 	assert.False(t, s.costNeutralSubscriptionServed(ctx))
 	_, _, source := s.credentialKeyParts(ctx)
 	assert.Equal(t, requestcontext.SourceSubscriptionOverage, source)
 
 	headers.Set("anthropic-ratelimit-unified-representative-claim", "seven_day_overage_included")
-	captureUnifiedLimitHeaders(ctx, headers)
+	credentials.CaptureUnifiedLimitHeaders(ctx, headers)
 	assert.True(t, s.costNeutralSubscriptionServed(ctx))
 	_, _, source = s.credentialKeyParts(ctx)
 	assert.Equal(t, requestcontext.SourceSubscription, source)
@@ -115,13 +115,13 @@ func TestSubscriptionOverageHeaderMarksCostEvenWithoutObserver(t *testing.T) {
 func TestIncludedClaimOverridesPriorPaidObservation(t *testing.T) {
 	observer := observerWithSnapshot("overage-token", usage.Snapshot{OverageInUse: true})
 	s := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithUsageObserver(observer)
-	ctx := withUnifiedLimitCapture(ctxWithCreds(&requestcontext.Credentials{
+	ctx := credentials.WithUnifiedLimitCapture(ctxWithCreds(&requestcontext.Credentials{
 		APIKey: []byte("overage-token"), Source: requestcontext.SourceSubscription, OAuth: true,
 	}))
 	headers := http.Header{}
 	headers.Set("anthropic-ratelimit-unified-representative-claim", "seven_day_overage_included")
 	headers.Set("anthropic-ratelimit-unified-overage-in-use", "true")
-	captureUnifiedLimitHeaders(ctx, headers)
+	credentials.CaptureUnifiedLimitHeaders(ctx, headers)
 
 	assert.True(t, s.costNeutralSubscriptionServed(ctx))
 	_, _, source := s.credentialKeyParts(ctx)

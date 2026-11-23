@@ -32,8 +32,8 @@ func TestEnterprisePolicyUsesVerifiedPlanEvenWithExplicitOrgFlag(t *testing.T) {
 			ctx := flags.WithOverrides(routerKeyedCtx(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: true}})
 			headers := http.Header{"Authorization": []string{"Bearer " + parityAnthropicToken}}
 			ctx = service.withSubscriptionFundingAuthorization(ctx, headers)
-			require.Equal(t, plan, claudeSubscriptionPlan(ctx))
-			require.Equal(t, plan == providers.SubscriptionPlanEnterprise, claudeEnterpriseOnly(ctx))
+			require.Equal(t, plan, credentials.ClaudeSubscriptionPlan(ctx))
+			require.Equal(t, plan == providers.SubscriptionPlanEnterprise, credentials.ClaudeEnterpriseOnly(ctx))
 		})
 	}
 }
@@ -52,7 +52,7 @@ func TestSubscriptionProfileCacheIsCredentialScopedAndExpires(t *testing.T) {
 	for range 2 {
 		for _, token := range []string{"sk-ant-oat01-enterprise", "sk-ant-oat01-ordinary"} {
 			ctx := service.withClaudeSubscriptionProfile(routerKeyedCtx(), http.Header{"Authorization": []string{"Bearer " + token}})
-			require.Equal(t, token == "sk-ant-oat01-enterprise", claudeEnterpriseOnly(ctx))
+			require.Equal(t, token == "sk-ant-oat01-enterprise", credentials.ClaudeEnterpriseOnly(ctx))
 		}
 	}
 	require.Equal(t, 2, calls)
@@ -67,9 +67,9 @@ func TestProfileFailureCannotIdentifyEnterpriseOrAuthorizePaidFallback(t *testin
 	}))
 	ctx := context.WithValue(routerKeyedCtx(), credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 	ctx = service.withSubscriptionFundingAuthorization(ctx, nil)
-	require.False(t, claudeEnterpriseOnly(ctx))
+	require.False(t, credentials.ClaudeEnterpriseOnly(ctx))
 	require.ErrorIs(t, service.subscriptionAPIAuthorization(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String()), credentials.ErrSubscriptionPoolUnavailable)
-	claudeTurn := withClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()})
+	claudeTurn := credentials.WithClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()})
 	require.ErrorIs(t, service.subscriptionAPIAuthorization(claudeTurn, providers.ProviderGoogle, catalog.ModelIDGemini31ProPreview.String()), credentials.ErrSubscriptionPoolUnavailable, "unknown Claude identity cannot authorize paid rescue on another provider")
 	require.NoError(t, service.subscriptionAPIAuthorization(ctx, providers.ProviderGoogle, catalog.ModelIDGemini31ProPreview.String()), "an independently selected Google model does not use Claude funding")
 }
@@ -110,7 +110,7 @@ func TestMixedPoolClassifiesTheLeasedAccount(t *testing.T) {
 
 			require.NoError(t, err)
 			require.True(t, managed)
-			require.Equal(t, enterpriseSeat, claudeEnterpriseOnly(leasedCtx), "the org flag and a different caller's plan cannot classify a leased seat")
+			require.Equal(t, enterpriseSeat, credentials.ClaudeEnterpriseOnly(leasedCtx), "the org flag and a different caller's plan cannot classify a leased seat")
 			lease.Release()
 		})
 	}
@@ -136,8 +136,8 @@ func TestEnterpriseSeatDoesNotMarkAnIndependentNonClaudeTurn(t *testing.T) {
 	ctx := credentials.WithManagedSubscriptionUsage(context.Background())
 	state := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 	state.ClaudeSubscriptionPlan = providers.SubscriptionPlanEnterprise
-	nonClaude := withClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderGoogle, Model: catalog.ModelIDGemini31ProPreview.String()})
-	require.False(t, claudeEnterpriseTurn(nonClaude))
-	claude := withClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()})
-	require.True(t, claudeEnterpriseTurn(claude))
+	nonClaude := credentials.WithClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderGoogle, Model: catalog.ModelIDGemini31ProPreview.String()})
+	require.False(t, credentials.ClaudeEnterpriseTurn(nonClaude))
+	claude := credentials.WithClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()})
+	require.True(t, credentials.ClaudeEnterpriseTurn(claude))
 }

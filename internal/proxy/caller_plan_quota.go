@@ -21,7 +21,7 @@ func (s *Service) recordDirectSubscriptionQuota(ctx context.Context, provider, m
 	resetAt, exhausted := s.subscriptionQuotaExhaustion(pool, subscriptions.Lease{AccessToken: string(creds.APIKey)}, attemptErr)
 	if !exhausted {
 		if upstreamStatus(attemptErr) == http.StatusTooManyRequests {
-			recordCallerPlanThrottle(ctx, pool, managedSubscriptionResetAt(attemptErr, s.clock.Now()))
+			recordCallerPlanThrottle(ctx, pool, credentials.ManagedSubscriptionResetAt(attemptErr, s.clock.Now()))
 		}
 		return
 	}

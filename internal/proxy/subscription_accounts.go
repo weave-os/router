@@ -26,7 +26,7 @@ var _ dispatch.SubscriptionAccountPool = subscriptionAccountPool{}
 
 func (p subscriptionAccountPool) Begin(ctx context.Context, initial router.Decision) (context.Context, dispatch.SubscriptionAccounts) {
 	ctx, budget := withSubscriptionAdmissionBudget(ctx)
-	ctx = withClientAppRefusalPaidFallback(ctx, initial)
+	ctx = credentials.WithClientAppRefusalPaidFallback(ctx, initial)
 	return ctx, &subscriptionAccounts{s: p.s, rotationBudget: budget}
 }
 
@@ -166,8 +166,8 @@ func (l *accountLoop) leaseAccount(ctx, attemptCtx context.Context, account int)
 		return nil, leasedAccount{}, ctx.Err()
 	}
 	if leaseErr != nil {
-		if forcedClaudeClientAppRefused(ctx, decision, nil) {
-			return nil, leasedAccount{}, dispatch.Abort{Err: errors.Join(subscriptionClientAppRefusal(ctx), leaseErr, l.lastSubscriptionErr)}
+		if credentials.ForcedClaudeClientAppRefused(ctx, decision, nil) {
+			return nil, leasedAccount{}, dispatch.Abort{Err: errors.Join(credentials.SubscriptionClientAppRefusal(ctx), leaseErr, l.lastSubscriptionErr)}
 		}
 		return nil, leasedAccount{}, dispatch.Abort{Err: errors.Join(leaseErr, l.lastSubscriptionErr)}
 	}
@@ -178,7 +178,7 @@ func (l *accountLoop) leaseAccount(ctx, attemptCtx context.Context, account int)
 	}
 	l.managedBinding = l.managedBinding || managedAttempt
 	credentialCtx = s.withClaudeSubscriptionProfile(credentialCtx, nil)
-	credentialCtx = withClaudeEnterpriseTurn(credentialCtx, decision)
+	credentialCtx = credentials.WithClaudeEnterpriseTurn(credentialCtx, decision)
 	return credentialCtx, leasedAccount{lease: lease, managed: managedAttempt, account: account}, nil
 }
 
@@ -189,14 +189,14 @@ func (l *accountLoop) admitLeased(ctx, credentialCtx context.Context, leased lea
 		}
 		usage.AttemptedAccounts[leased.lease.AccountID+"\x00"+l.decision.Model] = struct{}{}
 	}
-	if forcedClaudeClientAppRefused(ctx, l.decision, credentials.CredentialsFromContext(credentialCtx)) {
+	if credentials.ForcedClaudeClientAppRefused(ctx, l.decision, credentials.CredentialsFromContext(credentialCtx)) {
 		leased.lease.Release()
-		return dispatch.Abort{Err: subscriptionClientAppRefusal(ctx)}
+		return dispatch.Abort{Err: credentials.SubscriptionClientAppRefusal(ctx)}
 	}
 	if paidAttemptForbidden(ctx, credentials.CredentialsFromContext(credentialCtx)) {
 		leased.lease.Release()
-		if claudeEnterpriseTurn(ctx) {
-			return dispatch.Abort{Err: claudeEnterpriseRefusal(ctx)}
+		if credentials.ClaudeEnterpriseTurn(ctx) {
+			return dispatch.Abort{Err: credentials.ClaudeEnterpriseRefusal(ctx)}
 		}
 		return dispatch.Abort{Err: credentials.SubscriptionOnlyUnavailable(ctx)}
 	}

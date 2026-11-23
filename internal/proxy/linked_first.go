@@ -20,7 +20,7 @@ func paidFallbackForbiddenByPlan(ctx context.Context) bool {
 }
 
 func paidFallbackForbiddenFor(ctx context.Context, provider string) bool {
-	return !servingCommitted(ctx, paidFallbackBinding(ctx), payableServingEvent(ctx, paidFallbackEvent(usableBYOK(ctx, provider))))
+	return !servingCommitted(ctx, paidFallbackBinding(ctx), payableServingEvent(ctx, paidFallbackEvent(credentials.UsableBYOK(ctx, provider))))
 }
 
 func paidAttemptForbidden(ctx context.Context, creds *requestcontext.Credentials) bool {
@@ -38,7 +38,7 @@ func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
 func paidFallbackForbiddenForModelOnProvider(ctx context.Context, provider, model string) bool {
 	event := subscriptionlane.OrganizationCreditsServed
 	if provider != "" && credentials.PaidCapacityUnfunded(ctx) {
-		event = payableServingEvent(ctx, paidFallbackEvent(usableBYOK(ctx, provider)))
+		event = payableServingEvent(ctx, paidFallbackEvent(credentials.UsableBYOK(ctx, provider)))
 	}
 	return !servingCommitted(ctx, paidFallbackBindingForModel(ctx, model), event)
 }
