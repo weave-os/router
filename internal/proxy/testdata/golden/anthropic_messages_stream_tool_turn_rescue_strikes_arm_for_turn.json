@@ -477,7 +477,9 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "deepseek/deepseek-v4-pro",
             "ServedProvider": "fireworks",
             "Strategy": "hmm_embedding"
@@ -781,6 +783,12 @@
             "LastOutputTokens": 7,
             "LastServedModel": "deepseek/deepseek-v4-pro",
             "Model": "deepseek/deepseek-v4-pro",
+            "ModelCaches": {
+              "deepseek/deepseek-v4-pro": {
+                "MessageCount": 3,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "fireworks",
             "Reason": "golden_route",
             "Role": "default_high",
@@ -796,8 +804,10 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "PriorServedModel": "deepseek/deepseek-v4-pro",
+            "PromptTokens": 12,
             "ServedModel": "deepseek/deepseek-v4-pro",
             "ServedProvider": "fireworks",
             "Strategy": "hmm_embedding"

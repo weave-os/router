@@ -204,7 +204,9 @@
           "role": "default_low",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "gemini-2.5-flash",
             "ServedProvider": "google",
             "Strategy": "hmm_embedding"

@@ -127,7 +127,9 @@
           "role": "default_mid_hmm_history",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "anthropic",
             "Strategy": "hmm_embedding"
@@ -319,6 +321,12 @@
             "LastInputTokens": 12,
             "LastOutputTokens": 7,
             "LastServedModel": "claude-haiku-4-5",
+            "ModelCaches": {
+              "claude-haiku-4-5": {
+                "MessageCount": 1,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "anthropic",
             "Reason": "hmm_policy",
             "Role": "default_mid_hmm_history",
@@ -331,8 +339,10 @@
           "role": "default_mid_hmm_history",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "PriorServedModel": "claude-haiku-4-5",
+            "PromptTokens": 12,
             "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "anthropic",
             "Strategy": "hmm_embedding"

@@ -129,8 +129,10 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputLimitReached": true,
             "OutputTokens": 4096,
+            "PromptTokens": 12,
             "ServedModel": "claude-sonnet-4-5",
             "ServedProvider": "anthropic",
             "Strategy": "rl"
@@ -331,6 +333,12 @@
             "LastOutputTokens": 4096,
             "LastServedModel": "claude-sonnet-4-5",
             "Model": "claude-haiku-4-5",
+            "ModelCaches": {
+              "claude-sonnet-4-5": {
+                "MessageCount": 1,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "anthropic",
             "Reason": "candidate_fallback",
             "Role": "default_mid",
@@ -343,8 +351,10 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "PriorServedModel": "claude-sonnet-4-5",
+            "PromptTokens": 12,
             "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "anthropic",
             "Strategy": "rl"

@@ -183,7 +183,9 @@
           "role": "default",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 6,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "anthropic",
             "Strategy": "hmm_embedding"

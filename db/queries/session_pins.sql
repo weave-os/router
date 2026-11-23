@@ -268,6 +268,10 @@ SET last_input_tokens        = CASE
       OR @session_ever_switched::boolean
       OR (last_served_model <> '' AND last_served_model <> @last_served_model::varchar)
       OR (@prior_served_model::varchar <> '' AND @prior_served_model::varchar <> @last_served_model::varchar),
+    model_caches             = CASE
+      WHEN @last_served_model::varchar = '' OR sqlc.narg(model_cache)::jsonb IS NULL THEN model_caches
+      ELSE model_caches || jsonb_build_object(@last_served_model::varchar, sqlc.narg(model_cache)::jsonb)
+    END,
     last_served_model        = CASE
       WHEN last_turn_ended_at IS NULL OR @last_turn_ended_at::timestamptz >= last_turn_ended_at
         THEN @last_served_model::varchar
