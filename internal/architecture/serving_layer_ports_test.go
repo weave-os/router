@@ -82,40 +82,46 @@ func fieldOwner(info *types.Info, field *types.Var) string {
 }
 
 func mentionsProxyService(typ types.Type) bool {
-	switch typ := types.Unalias(typ).(type) {
+	typ = types.Unalias(typ)
+	return isProxyServicePointer(typ) || slices.ContainsFunc(componentTypes(typ), mentionsProxyService)
+}
+
+func isProxyServicePointer(typ types.Type) bool {
+	pointer, ok := typ.(*types.Pointer)
+	if !ok {
+		return false
+	}
+	named, ok := types.Unalias(pointer.Elem()).(*types.Named)
+	return ok && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == proxyPackagePath && named.Obj().Name() == "Service"
+}
+
+func componentTypes(typ types.Type) []types.Type {
+	var components []types.Type
+	switch typ := typ.(type) {
 	case *types.Pointer:
-		if named, ok := types.Unalias(typ.Elem()).(*types.Named); ok && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == proxyPackagePath && named.Obj().Name() == "Service" {
-			return true
-		}
-		return mentionsProxyService(typ.Elem())
+		components = append(components, typ.Elem())
 	case *types.Slice:
-		return mentionsProxyService(typ.Elem())
+		components = append(components, typ.Elem())
 	case *types.Array:
-		return mentionsProxyService(typ.Elem())
+		components = append(components, typ.Elem())
 	case *types.Chan:
-		return mentionsProxyService(typ.Elem())
+		components = append(components, typ.Elem())
 	case *types.Map:
-		return mentionsProxyService(typ.Key()) || mentionsProxyService(typ.Elem())
+		components = append(components, typ.Key(), typ.Elem())
+	case *types.Signature:
+		components = append(components, typ.Params(), typ.Results())
 	case *types.Struct:
 		for i := range typ.NumFields() {
-			if mentionsProxyService(typ.Field(i).Type()) {
-				return true
-			}
+			components = append(components, typ.Field(i).Type())
 		}
 	case *types.Tuple:
 		for i := range typ.Len() {
-			if mentionsProxyService(typ.At(i).Type()) {
-				return true
-			}
+			components = append(components, typ.At(i).Type())
 		}
-	case *types.Signature:
-		return mentionsProxyService(typ.Params()) || mentionsProxyService(typ.Results())
 	case *types.Named:
 		for i := range typ.TypeArgs().Len() {
-			if mentionsProxyService(typ.TypeArgs().At(i)) {
-				return true
-			}
+			components = append(components, typ.TypeArgs().At(i))
 		}
 	}
-	return false
+	return components
 }
