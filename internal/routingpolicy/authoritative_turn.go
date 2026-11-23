@@ -38,8 +38,8 @@ type SessionSettings struct {
 	DowngradeGate                  bool
 	DowngradeHysteresisTurns       int
 	DowngradeHysteresisShadowTurns int
-	CacheShadow                    bool
-	Config                         continuity.AuthoritativeConfig
+	CacheShadowEnabled             bool
+	HMMConfig                      continuity.AuthoritativeConfig
 	AvailableModels                map[string]struct{}
 	CostGate                       continuity.CostGateConfig
 	Planner                        planner.EVConfig
@@ -148,7 +148,7 @@ func (t SessionTurn) serveExcluded(ctx context.Context, res *TurnRoute) (TurnRou
 
 func (t SessionTurn) guards(slidingServed bool) continuity.AuthoritativeGuards {
 	return continuity.AuthoritativeGuards{
-		ConfidenceThreshold:   t.Settings.Config.UpgradeConfidenceThreshold,
+		ConfidenceThreshold:   t.Settings.HMMConfig.UpgradeConfidenceThreshold,
 		UpgradeGate:           t.Settings.UpgradeGate && t.Settings.UpgradePolicy != flags.AuthoritativeUpgradePolicyOff && !slidingServed,
 		DowngradeGate:         t.Settings.DowngradeGate,
 		HysteresisTurns:       t.Settings.DowngradeHysteresisTurns,
