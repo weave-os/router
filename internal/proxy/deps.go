@@ -13,6 +13,7 @@ import (
 type Deps struct {
 	Telemetry                TelemetryDeps
 	Ingress                  *ingress.Formats
+	Escalation               EscalationDeps
 	BYOKOnly                 bool
 	DeploymentKeyedProviders map[string]struct{}
 }
@@ -24,6 +25,10 @@ type TelemetryDeps struct {
 	ContentCaptureMaxBytes int
 	Billing                *billing.Service
 	Flags                  *TelemetryFlags
+}
+
+type EscalationDeps struct {
+	SwitchyardActive bool
 }
 
 func WithDeps(s *Service, deps Deps) *Service {
@@ -40,6 +45,7 @@ func WithDeps(s *Service, deps Deps) *Service {
 	if deps.Ingress != nil {
 		s.ingress = *deps.Ingress
 	}
+	s.escalationHelper().WithSwitchyardActive(deps.Escalation.SwitchyardActive)
 	s.credentials.BYOKOnly = deps.BYOKOnly
 	s.credentials.KeyedProviders = maps.Clone(deps.DeploymentKeyedProviders)
 	return s
