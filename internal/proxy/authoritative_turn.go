@@ -42,7 +42,7 @@ func sessionTurnFor(ctx context.Context, s *Service, in sessionTurnInput) routin
 	return routingpolicy.SessionTurn{
 		Request: in.req, Pin: in.pin, PinFound: in.pinFound, SwitchHistory: in.switchHistory, Fresh: in.fresh, PrefixBroken: in.prefixBroken,
 		PlannerTokens: s.plannerTokensFor(ctx, in.env, in.feats), Pins: in.sessionPins, InstallationID: in.installationID,
-		Ports: s.strategyPorts, Scorer: strategyScorer{s: s, strategy: in.strategy}, Settings: sessionSettingsFor(ctx, s),
+		Ports: s.strategyPorts, Scorer: strategyScorer{service: s, strategy: in.strategy}, Settings: sessionSettingsFor(ctx, s),
 		Serving: turnServing{s: s, env: in.env, headers: in.reqHeaders}, Now: s.clock.Now,
 	}
 }
@@ -55,8 +55,8 @@ func sessionSettingsFor(ctx context.Context, s *Service) routingpolicy.SessionSe
 		DowngradeGate:                  s.ResolveAuthoritativeDowngradeGate(ctx),
 		DowngradeHysteresisTurns:       s.ResolveHMMDowngradeHysteresisTurns(ctx),
 		DowngradeHysteresisShadowTurns: s.ResolveHMMDowngradeHysteresisShadowTurns(ctx),
-		CacheShadow:                    s.ResolveAuthorityCacheShadow(ctx),
-		Config:                         s.hmmConfig,
+		CacheShadowEnabled:             s.ResolveAuthorityCacheShadow(ctx),
+		HMMConfig:                      s.hmmConfig,
 		AvailableModels:                s.routing.AvailableModels(),
 		CostGate:                       hmmCostGateFor(s),
 		Planner:                        plannerConfigFor(ctx, s.continuityConfig.Planner),
@@ -65,12 +65,12 @@ func sessionSettingsFor(ctx context.Context, s *Service) routingpolicy.SessionSe
 }
 
 type strategyScorer struct {
-	s        *Service
+	service  *Service
 	strategy router.Strategy
 }
 
 func (r strategyScorer) Route(ctx context.Context, req router.Request) (router.Decision, error) {
-	return r.s.routeFor(ctx, r.strategy, req)
+	return r.service.routeFor(ctx, r.strategy, req)
 }
 
 type turnServing struct {
