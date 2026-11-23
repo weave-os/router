@@ -134,7 +134,8 @@ func TestAtomizationRatchetsDetectSyntheticViolations(t *testing.T) {
 			ratchetHMMHistoryNames: {"internal/architecture/testdata/atomization/proxy_hmm_history": 8},
 		}},
 		{fixture: "upgrade_confidence", want: atomizationCounts{
-			ratchetUpgradeConfidence: {"internal/architecture/testdata/atomization/upgrade_confidence": 6},
+			ratchetUpgradeConfidence:      {"internal/architecture/testdata/atomization/upgrade_confidence": 6},
+			ratchetServingStrategyImports: {"internal/architecture/testdata/atomization/upgrade_confidence -> internal/router/hmm": 1},
 		}},
 		{fixture: "pin_fields", want: atomizationCounts{
 			ratchetHMMPinFields: {"internal/architecture/testdata/atomization/pin_fields": 4},
@@ -185,12 +186,12 @@ func measureAtomization(t *testing.T, root string, patterns ...string) atomizati
 	for _, pkg := range loadTypedPackages(t, root, patterns...) {
 		path := pkg.PkgPath
 		measurePackage(counts, pkg, atomizationScope{
-			proxy:      hasPathPrefix(path, proxyPackagePath),
-			strategy:   isStrategyPackage(path),
-			serving:    isServingLayerPackage(path),
-			pinAllowed: hasPathPrefix(path, hmmPackagePath),
-			hmmHistory: slices.ContainsFunc(hmmHistoryBannedRoots, func(root string) bool { return hasPathPrefix(path, root) }),
-			confidence: hasPathPrefix(path, modulePath+"/internal") && !hasPathPrefix(path, hmmPackagePath),
+			proxy:             hasPathPrefix(path, proxyPackagePath),
+			strategy:          isStrategyPackage(path),
+			serving:           isServingLayerPackage(path),
+			pinAllowed:        hasPathPrefix(path, hmmPackagePath),
+			hmmHistory:        slices.ContainsFunc(hmmHistoryBannedRoots, func(root string) bool { return hasPathPrefix(path, root) }),
+			upgradeConfidence: hasPathPrefix(path, modulePath+"/internal") && !hasPathPrefix(path, hmmPackagePath),
 		})
 	}
 	return counts
@@ -200,13 +201,13 @@ func measureAtomizationFixture(t *testing.T, root, pattern string) atomizationCo
 	t.Helper()
 	counts := atomizationCounts{}
 	for _, pkg := range loadTypedPackages(t, root, pattern) {
-		measurePackage(counts, pkg, atomizationScope{proxy: true, strategy: true, serving: true, hmmHistory: true, confidence: true})
+		measurePackage(counts, pkg, atomizationScope{proxy: true, strategy: true, serving: true, hmmHistory: true, upgradeConfidence: true})
 	}
 	return counts
 }
 
 type atomizationScope struct {
-	proxy, strategy, serving, pinAllowed, hmmHistory, confidence bool
+	proxy, strategy, serving, pinAllowed, hmmHistory, upgradeConfidence bool
 }
 
 func loadTypedPackages(t *testing.T, root string, patterns ...string) []*packages.Package {
@@ -310,7 +311,7 @@ func identViolations(info *types.Info, node ast.Node, scope atomizationScope) []
 		return nil
 	}
 	var found []string
-	if scope.confidence && namesUpgradeConfidenceOutsideHMM(info, ident) {
+	if scope.upgradeConfidence && namesUpgradeConfidenceOutsideHMM(info, ident) {
 		found = append(found, ratchetUpgradeConfidence)
 	}
 	return found
