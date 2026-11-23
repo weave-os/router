@@ -39,13 +39,13 @@ func TestWithDepsKeepsIngressDefaultsWhenUnset(t *testing.T) {
 }
 
 func TestWithDepsAppliesConversationConfig(t *testing.T) {
-	off := false
+	textRepetitionBreak := false
 	links := feedback.NewLinks(nil, nil, "https://feedback.example", nil, nil)
 	secret := strings.Repeat("s", 32)
 	svc := WithDeps(NewService(nil, nil, nil, nil, false, "", "", nil), Deps{Conversation: conversation.Config{
 		FeedbackLinks:       links,
 		PiHandoffSecret:     secret,
-		TextRepetitionBreak: &off,
+		TextRepetitionBreak: &textRepetitionBreak,
 	}})
 	assert.False(t, svc.lifecycle.TextRepetitionBreakEnabled(context.Background()))
 	assert.Same(t, links, svc.lifecycle.FeedbackLinks())
