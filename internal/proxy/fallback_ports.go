@@ -28,7 +28,7 @@ type subscriptionCoverage struct{ s *Service }
 var _ dispatch.SubscriptionCoverage = subscriptionCoverage{}
 
 func (c subscriptionCoverage) Begin(ctx context.Context, in dispatch.FailoverInputs) context.Context {
-	ctx = withClaudeEnterpriseTurn(ctx, in.InitialDecision)
+	ctx = credentials.WithClaudeEnterpriseTurn(ctx, in.InitialDecision)
 	return c.s.withSubscriptionFundingAuthorization(ctx, in.SubscriptionStateHeaders)
 }
 
@@ -77,7 +77,7 @@ func (subscriptionCoverage) NoteIntendedModel(ctx context.Context, model string)
 }
 
 func (subscriptionCoverage) EligibilityRefusal(ctx context.Context, model string) error {
-	return productEligibilityRefusal(ctx, entitlement.ModelBoundaryFromContext(ctx), model)
+	return credentials.ProductEligibilityRefusal(ctx, entitlement.ModelBoundaryFromContext(ctx), model)
 }
 
 func (subscriptionCoverage) PoolExhausted(ctx context.Context) error {

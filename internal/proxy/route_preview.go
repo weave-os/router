@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -56,7 +57,7 @@ func (s *Service) anthropicRoutingRequest(
 		clientIdentity.UserAgent = headerIdentity.UserAgent
 	}
 	ctx = requestcontext.WithClientIdentity(ctx, clientIdentity)
-	ctx = requestcontext.WithClientBudget(ctx, resolveClientBudget(clientIdentity, headers, env.Model(), modelVariant1M))
+	ctx = requestcontext.WithClientBudget(ctx, credentials.ResolveClientBudget(clientIdentity, headers, env.Model(), modelVariant1M))
 
 	apiKeyID, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	var sessionKey [sessionpin.SessionKeyLen]byte

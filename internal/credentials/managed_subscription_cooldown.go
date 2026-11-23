@@ -1,4 +1,4 @@
-package proxy
+package credentials
 
 import (
 	"context"
@@ -6,19 +6,17 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/subscriptions"
 )
 
-const managedUsageRefusalCooldown = 15 * time.Minute
+const ManagedUsageRefusalCooldown = 15 * time.Minute
 
-func cooldownRefusedManagedSeat(ctx context.Context, leaser subscriptions.Leaser, now time.Time, owner auth.SubscriptionOwner, poolProvider subscriptions.Provider, lease subscriptions.Lease, attemptErr error) bool {
-	cooldownUntil := now.Add(managedUsageRefusalCooldown)
-	if resetAt := managedSubscriptionResetAt(attemptErr, now); resetAt.After(cooldownUntil) {
+func CooldownRefusedManagedSeat(ctx context.Context, leaser subscriptions.Leaser, now time.Time, owner auth.SubscriptionOwner, poolProvider subscriptions.Provider, lease subscriptions.Lease, attemptErr error) bool {
+	cooldownUntil := now.Add(ManagedUsageRefusalCooldown)
+	if resetAt := ManagedSubscriptionResetAt(attemptErr, now); resetAt.After(cooldownUntil) {
 		cooldownUntil = resetAt
 	}
 	if err := leaser.Cooldown(ctx, owner, poolProvider, lease.AccountID, cooldownUntil); err != nil {
@@ -30,8 +28,8 @@ func cooldownRefusedManagedSeat(ctx context.Context, leaser subscriptions.Leaser
 	return true
 }
 
-func recordManagedQuotaProof(ctx context.Context, accountID string, resetAt time.Time) {
-	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil {
+func RecordManagedQuotaProof(ctx context.Context, accountID string, resetAt time.Time) {
+	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		if state.QuotaExhaustedAccounts == nil {
 			state.QuotaExhaustedAccounts = make(map[string]time.Time)
 		}
@@ -39,8 +37,8 @@ func recordManagedQuotaProof(ctx context.Context, accountID string, resetAt time
 	}
 }
 
-func recordManagedThrottle(ctx context.Context, accountID string, cooldownUntil time.Time) {
-	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil {
+func RecordManagedThrottle(ctx context.Context, accountID string, cooldownUntil time.Time) {
+	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		if state.ThrottledAccounts == nil {
 			state.ThrottledAccounts = make(map[string]time.Time)
 		}
@@ -48,7 +46,7 @@ func recordManagedThrottle(ctx context.Context, accountID string, cooldownUntil 
 	}
 }
 
-func managedSubscriptionResetAt(err error, now time.Time) time.Time {
+func ManagedSubscriptionResetAt(err error, now time.Time) time.Time {
 	var upstream *providers.UpstreamErrorResponse
 	if !errors.As(err, &upstream) {
 		return now.Add(time.Minute)

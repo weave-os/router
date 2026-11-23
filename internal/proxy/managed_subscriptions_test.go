@@ -825,7 +825,7 @@ func TestManagedClaudeSeatOutOfExtraUsageRotates(t *testing.T) {
 
 			require.True(t, rotated)
 			require.Equal(t, []string{"seat-1"}, leaser.cooldownIDs, "only a known third-party client's refusal is scoped to that client")
-			require.Equal(t, []time.Time{now.Add(managedUsageRefusalCooldown)}, leaser.cooldownUntil, "a seat out of usage stays out of rotation instead of being retried every minute")
+			require.Equal(t, []time.Time{now.Add(credentials.ManagedUsageRefusalCooldown)}, leaser.cooldownUntil, "a seat out of usage stays out of rotation instead of being retried every minute")
 			require.Empty(t, leaser.exhaustedIDs)
 		})
 	}

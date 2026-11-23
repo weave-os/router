@@ -1,14 +1,13 @@
-package proxy
+package credentials
 
 import (
 	"context"
-
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/subscriptions"
 )
 
-func activateManagedSubscription(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, lease subscriptions.Lease) {
+func ActivateManagedSubscription(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, lease subscriptions.Lease) {
 	activator, ok := leaser.(subscriptions.Activator)
 	if !ok || lease.AccountID == "" || lease.State == auth.SubscriptionAccountStateActive {
 		return
@@ -19,7 +18,7 @@ func activateManagedSubscription(ctx context.Context, leaser subscriptions.Lease
 	}
 }
 
-func rejectManagedSubscriptionCredential(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string, upstreamStatus int) (bool, error) {
+func RejectManagedSubscriptionCredential(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string, upstreamStatus int) (bool, error) {
 	if rejector, ok := leaser.(interface {
 		RejectCredential(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string, int) (bool, error)
 	}); ok {

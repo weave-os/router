@@ -47,7 +47,7 @@ func paidFallbackBindings() []paidFallbackFacts {
 		return context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	}
 	withEnterpriseSeat := func(ctx context.Context) context.Context {
-		return context.WithValue(enterpriseOnlyContext(ctx), claudeEnterpriseTurnKey{}, true)
+		return context.WithValue(enterpriseOnlyContext(ctx), credentials.ClaudeEnterpriseTurnKey{}, true)
 	}
 	return []paidFallbackFacts{
 		{"open", func(ctx context.Context) context.Context { return ctx }},
@@ -58,7 +58,7 @@ func paidFallbackBindings() []paidFallbackFacts {
 			return context.WithValue(ctx, credentials.SubscriptionOnlyAttemptKey{}, true)
 		}},
 		{"own-plan-pick", func(ctx context.Context) context.Context {
-			return context.WithValue(ctx, pickedModelOnOwnPlanContextKey{}, true)
+			return context.WithValue(ctx, credentials.PickedModelOnOwnPlanContextKey{}, true)
 		}},
 		{"included-lane", withIncludedStateModels},
 		{"exhausted-set", func(ctx context.Context) context.Context {
@@ -117,7 +117,7 @@ func paidFallbackBit(value bool) string {
 }
 
 func paidFallbackHandover(ctx context.Context, provider string) string {
-	creds := credentials.CredentialsFromContext(withPaidFallbackCredentials(ctx, provider))
+	creds := credentials.CredentialsFromContext(credentials.WithPaidFallbackCredentials(ctx, provider))
 	switch {
 	case creds == nil:
 		return "deployment"
@@ -136,7 +136,7 @@ func paidFallbackRulesRow(ctx context.Context) string {
 		"for-openai=" + paidFallbackBit(paidFallbackForbiddenFor(ctx, providers.ProviderOpenAI)),
 		"for-claude-model=" + paidFallbackBit(paidFallbackForbiddenForModel(ctx, stateClaudeModel)),
 		"for-exhausted-model=" + paidFallbackBit(paidFallbackForbiddenForModel(ctx, statePaidModel)),
-		"cap-rescue=" + paidFallbackBit(claudeEnterpriseCapRescue(ctx)),
+		"cap-rescue=" + paidFallbackBit(credentials.ClaudeEnterpriseCapRescue(ctx)),
 		"fallback-credential-anthropic=" + paidFallbackHandover(ctx, providers.ProviderAnthropic),
 		"fallback-credential-openai=" + paidFallbackHandover(ctx, providers.ProviderOpenAI),
 	}

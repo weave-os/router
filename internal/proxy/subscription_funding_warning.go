@@ -33,7 +33,7 @@ func routerNoticeForDecision(ctx context.Context, headers http.Header, decision 
 }
 
 func fundedByCustomerKey(ctx context.Context, model string) bool {
-	if !servedOnCustomerKey(ctx) {
+	if !credentials.ServedOnCustomerKey(ctx) {
 		return false
 	}
 	m, found := catalog.ByID(model)

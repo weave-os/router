@@ -1389,7 +1389,7 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 
 func (s *Service) openAIPaidCredentialAvailable(ctx context.Context, headers http.Header) bool {
 	if billing.WeaveCreditsDeniedFromContext(ctx) {
-		return usableBYOK(ctx, providers.ProviderOpenAI) != nil
+		return credentials.UsableBYOK(ctx, providers.ProviderOpenAI) != nil
 	}
 	return s.credentials.HasOpenAIInfrastructureCredential(ctx, headers, s.engine.Clients().Has)
 }
@@ -1400,7 +1400,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 	enabledProviders map[string]struct{},
 	excluded map[string]struct{},
 ) map[string]struct{} {
-	_, codexAvailable := subscriptionServableProviders(ctx, headers)[providers.ProviderOpenAI]
+	_, codexAvailable := credentials.SubscriptionServableProviders(ctx, headers)[providers.ProviderOpenAI]
 	if !codexAvailable || (!paidFallbackForbiddenFor(ctx, providers.ProviderOpenAI) && s.openAIPaidCredentialAvailable(ctx, headers)) {
 		return excluded
 	}

@@ -50,7 +50,7 @@ func (s *Service) openaiFallbackKeyAvailable(ctx context.Context) bool {
 }
 
 func (s *Service) codexSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
-	if s.credentials.UsageObserver == nil || pickedModelOnOwnPlan(ctx) {
+	if s.credentials.UsageObserver == nil || credentials.PickedModelOnOwnPlan(ctx) {
 		return false
 	}
 	codexTok, _ := credentials.PresentSubscriptionTokens(ctx, headers)
@@ -65,7 +65,7 @@ func (s *Service) codexSubscriptionExhausted(ctx context.Context, headers http.H
 		return false
 	}
 	snap, ok := s.credentials.UsageObserver.Snapshot(key)
-	return ok && snap.BillableOrExhausted() && !ownOverageServesFirst(ctx, snap)
+	return ok && snap.BillableOrExhausted() && !credentials.OwnOverageServesFirst(ctx, snap)
 }
 
 func codexSubscriptionModelRejected(err error) bool {
@@ -136,7 +136,7 @@ func codexQuotaExhaustion(err error) (time.Time, bool) {
 func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.Header, err error) {
 	resetAt, exhausted := codexQuotaExhaustion(err)
 	if !exhausted && upstreamStatus(err) == http.StatusTooManyRequests {
-		recordCallerPlanThrottle(ctx, subscriptions.ProviderCodex, managedSubscriptionResetAt(err, s.clock.Now()))
+		recordCallerPlanThrottle(ctx, subscriptions.ProviderCodex, credentials.ManagedSubscriptionResetAt(err, s.clock.Now()))
 	}
 	if !exhausted || s.credentials.UsageObserver == nil {
 		return

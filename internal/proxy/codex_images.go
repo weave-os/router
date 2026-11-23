@@ -81,7 +81,7 @@ func codexImageCallerCredential(ctx context.Context, headers http.Header) *reque
 }
 
 func codexImageBYOK(ctx context.Context) *requestcontext.Credentials {
-	if byok := usableBYOK(ctx, providers.ProviderOpenAI); byok != nil && byok.BaseURL == "" {
+	if byok := credentials.UsableBYOK(ctx, providers.ProviderOpenAI); byok != nil && byok.BaseURL == "" {
 		return byok
 	}
 	return nil
@@ -126,7 +126,7 @@ func (c CodexImages) forwardOnLinkedSubscription(ctx context.Context, forwarder 
 
 func recordCodexImageLeaseOutcome(ctx context.Context, svc *Service, owner auth.SubscriptionOwner, lease subscriptions.Lease, attemptErr error) {
 	if attemptErr == nil {
-		activateManagedSubscription(ctx, svc.credentials.ManagedSubscriptions, owner, subscriptions.ProviderCodex, lease)
+		credentials.ActivateManagedSubscription(ctx, svc.credentials.ManagedSubscriptions, owner, subscriptions.ProviderCodex, lease)
 		return
 	}
 	var relayed *providers.UpstreamStatusError

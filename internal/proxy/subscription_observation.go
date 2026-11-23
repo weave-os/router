@@ -24,27 +24,15 @@ func (s *Service) WithUsageObserver(obs *usage.Observer) *Service {
 	return s
 }
 
-func subscriptionServableProviders(ctx context.Context, headers http.Header) map[string]struct{} {
-	codex, anthropic := credentials.PresentSubscriptionTokens(ctx, headers)
-	out := make(map[string]struct{}, 2)
-	if codex != "" || credentials.ManagedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) {
-		out[providers.ProviderOpenAI] = struct{}{}
-	}
-	if anthropic != "" || credentials.ManagedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
-		out[providers.ProviderAnthropic] = struct{}{}
-	}
-	return out
-}
-
 func restrictToSubscriptionProviders(ctx context.Context, headers http.Header, enabled map[string]struct{}) map[string]struct{} {
-	return restrictToProviders(enabled, subscriptionServableProviders(ctx, headers))
+	return restrictToProviders(enabled, credentials.SubscriptionServableProviders(ctx, headers))
 }
 
 func restrictToCustomerFundedProviders(ctx context.Context, headers http.Header, enabled map[string]struct{}) map[string]struct{} {
 	if billing.ByokFeeUnpayable(ctx) {
 		return restrictToSubscriptionProviders(ctx, headers, enabled)
 	}
-	return restrictToProviders(enabled, customerFundedProviders(ctx, headers))
+	return restrictToProviders(enabled, credentials.CustomerFundedProviders(ctx, headers))
 }
 
 func restrictToFundedProviders(ctx context.Context, headers http.Header, enabled map[string]struct{}) map[string]struct{} {
@@ -90,7 +78,7 @@ func RequestHasCustomerFunding(ctx context.Context, headers http.Header, routePa
 		return false
 	}
 	for provider := range credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)) {
-		if usableBYOK(ctx, provider) != nil {
+		if credentials.UsableBYOK(ctx, provider) != nil {
 			return true
 		}
 	}
@@ -103,7 +91,7 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) co
 	if s.credentials.UsageObserver == nil && anthroTok == "" && codexTok == "" && !credentials.ManagedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !credentials.ManagedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
 		return ctx
 	}
-	ctx = withUnifiedLimitCapture(ctx)
+	ctx = credentials.WithUnifiedLimitCapture(ctx)
 	obs := func(callCtx context.Context, h http.Header) {
 		func() {
 			defer func() {
@@ -111,7 +99,7 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) co
 					observability.FromContext(callCtx).Error("weave-capture Phase 0: recovered from panic capturing unified limit headers", "recover", r)
 				}
 			}()
-			captureUnifiedLimitHeaders(callCtx, h)
+			credentials.CaptureUnifiedLimitHeaders(callCtx, h)
 		}()
 
 		if s.credentials.UsageObserver == nil {
@@ -173,7 +161,7 @@ func claudeLoginSpent(ctx context.Context, observer *usage.Observer, token strin
 }
 
 func codexLoginSpent(ctx context.Context, observer *usage.Observer, token string, extraCreditsAllowed bool) bool {
-	if observer == nil || pickedModelOnOwnPlan(ctx) {
+	if observer == nil || credentials.PickedModelOnOwnPlan(ctx) {
 		return false
 	}
 	key := observer.Key([]byte(token))

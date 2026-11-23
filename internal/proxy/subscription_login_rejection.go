@@ -62,7 +62,7 @@ func includedLaneVerdict(ctx context.Context) error {
 }
 
 func flushIncludedLaneVerdict(in dispatch.FailoverInputs, err error) error {
-	if !isSubscriptionPoolError(err) && in.FlushErr != nil && !in.DeferFlushOnExhaustion {
+	if !credentials.IsSubscriptionPoolError(err) && in.FlushErr != nil && !in.DeferFlushOnExhaustion {
 		in.FlushErr(in.Writer, err)
 	}
 	return err

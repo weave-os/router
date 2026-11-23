@@ -35,7 +35,7 @@ func TestClaudeEnterpriseRefusalOutranksEveryLaneMark(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			err := claudeEnterpriseFunding(enterpriseOnlyContext(ctx), target, false)
 
-			require.ErrorIs(t, err, ErrClaudeEnterpriseSubscriptionUnavailable)
+			require.ErrorIs(t, err, credentials.ErrClaudeEnterpriseSubscriptionUnavailable)
 			assert.Equal(t, refusal.ClaudeEnterpriseOnly.Contract(), classifiedRefusal(t, err))
 		})
 	}
@@ -45,7 +45,7 @@ func TestClientAppRefusalOutranksEveryLaneRefusal(t *testing.T) {
 	for name, ctx := range eligibilityRefusalContexts() {
 		t.Run(name, func(t *testing.T) {
 			for _, laneErr := range []error{credentials.SubscriptionPoolExhausted(ctx), credentials.SubscriptionOnlyUnavailable(ctx)} {
-				err := errors.Join(ErrSubscriptionClientAppRefused, laneErr)
+				err := errors.Join(credentials.ErrSubscriptionClientAppRefused, laneErr)
 
 				assert.Equal(t, refusal.SubscriptionClientAppRefused.Contract(), classifiedRefusal(t, err))
 			}
@@ -58,7 +58,7 @@ func TestProductIneligibilityOutranksEveryLaneRefusal(t *testing.T) {
 	require.ErrorIs(t, ineligible, eligibility.ErrModelIneligible)
 	for name, ctx := range eligibilityRefusalContexts() {
 		t.Run(name, func(t *testing.T) {
-			for _, laneErr := range []error{credentials.SubscriptionPoolExhausted(ctx), credentials.SubscriptionOnlyUnavailable(ctx), ErrSubscriptionClientAppRefused, ErrClaudeEnterpriseSubscriptionUnavailable} {
+			for _, laneErr := range []error{credentials.SubscriptionPoolExhausted(ctx), credentials.SubscriptionOnlyUnavailable(ctx), credentials.ErrSubscriptionClientAppRefused, credentials.ErrClaudeEnterpriseSubscriptionUnavailable} {
 				assert.Equal(t, refusal.ProductIneligible.Contract(), classifiedRefusal(t, errors.Join(ineligible, laneErr)))
 			}
 		})
@@ -90,8 +90,8 @@ func TestEligibilityRefusalSentinelsClassifyAsTheirRefusedState(t *testing.T) {
 		refused  subscriptionlane.State
 		sentinel error
 	}{
-		{name: "client app", refuse: subscriptionClientAppRefusal, refused: subscriptionlane.RefusedSubscriptionClientApp, sentinel: ErrSubscriptionClientAppRefused},
-		{name: "claude enterprise", refuse: claudeEnterpriseRefusal, refused: subscriptionlane.RefusedClaudeEnterpriseOnly, sentinel: ErrClaudeEnterpriseSubscriptionUnavailable},
+		{name: "client app", refuse: credentials.SubscriptionClientAppRefusal, refused: subscriptionlane.RefusedSubscriptionClientApp, sentinel: credentials.ErrSubscriptionClientAppRefused},
+		{name: "claude enterprise", refuse: credentials.ClaudeEnterpriseRefusal, refused: subscriptionlane.RefusedClaudeEnterpriseOnly, sentinel: credentials.ErrClaudeEnterpriseSubscriptionUnavailable},
 	} {
 		kind, refused := tc.refused.Refusal()
 		require.True(t, refused, tc.name)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -42,6 +43,6 @@ func TestChatEscalationCompletionSeesThePostDispatchContext(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, store.outcomeCtx, "the served turn must record its escalation outcome")
-	claudeTurn, _ := store.outcomeCtx.Value(claudeSubscriptionTurnKey{}).(bool)
+	claudeTurn, _ := store.outcomeCtx.Value(credentials.ClaudeSubscriptionTurnKey{}).(bool)
 	require.True(t, claudeTurn, "escalation completion must see the sibling funding the rescue chain armed on the turn context")
 }
