@@ -6,8 +6,10 @@ This page describes how routing is structured on `main` and which check enforces
 
 | Layer | Question it answers | Packages |
 |---|---|---|
-| **Serving layer** | Which models *can* serve this turn? | Every `internal/` package outside `internal/router` and `internal/routingpolicy` |
-| **Router layer** | Which eligible model *should* serve it? | `internal/router/...` and `internal/routingpolicy/...` |
+| **Serving layer** | Which models *can* serve this turn? | Every `internal/` package outside `internal/router` and `internal/routingpolicy`, plus the serving atoms housed there: `internal/router/candidates`, `internal/routingpolicy/overrides`, `internal/router/sessionpin`, `internal/router/handover` |
+| **Router layer** | Which eligible model *should* serve it? | The rest of `internal/router/...` and `internal/routingpolicy/...` |
+
+The atomization ratchets scope the serving layer by directory, so they treat every package under `internal/router` and `internal/routingpolicy`, including those four serving atoms, as router layer.
 
 The serving layer owns hard constraints that apply to every strategy: ingress, credentials, candidate filtering, explicit user and client commands (force model, policy pin, utility hard pins), usage bypass, execution and failover, session storage, accounting and telemetry.
 
