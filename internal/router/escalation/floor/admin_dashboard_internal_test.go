@@ -43,7 +43,7 @@ func TestEscalationDashboardCapturesSnapshotTimeAndReturnsStoreResult(t *testing
 			Sessions:         []escalationdashboard.Session{{}, {}},
 		},
 	}}
-	service := (&Admin{Dashboard: store})
+	service := &Admin{Dashboard: store}
 	before := time.Now().UTC()
 
 	snapshot, err := service.EscalationDashboard(context.Background(), escalationdashboard.Filter{
@@ -99,12 +99,12 @@ func TestEscalationDashboardReadsContinuationFromSameSnapshot(t *testing.T) {
 }
 
 func TestEscalationDashboardRejectsInvalidPageAndPropagatesStoreErrors(t *testing.T) {
-	service := (&Admin{Dashboard: &escalationDashboardStoreStub{}})
+	service := &Admin{Dashboard: &escalationDashboardStoreStub{}}
 	_, err := service.EscalationDashboard(context.Background(), escalationdashboard.Filter{Limit: 0})
 	require.ErrorContains(t, err, "invalid escalation dashboard page")
 
 	wantErr := errors.New("snapshot failed")
-	service = (&Admin{Dashboard: &escalationDashboardStoreStub{err: wantErr}})
+	service = &Admin{Dashboard: &escalationDashboardStoreStub{err: wantErr}}
 	_, err = service.EscalationDashboard(context.Background(), escalationdashboard.Filter{Limit: 50})
 	require.ErrorIs(t, err, wantErr)
 

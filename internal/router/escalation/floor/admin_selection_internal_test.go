@@ -28,7 +28,7 @@ func (s *escalationConfigurationStub) SetSelection(_ context.Context, _ string, 
 func TestLLMEscalationConfigurationGatesActiveRollout(t *testing.T) {
 	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Epoch: 2}}
 	invalidations := 0
-	service := &Admin{SwitchyardJudge: &blockingEscalationJudge{}, Configuration: configuration, InvalidateSelection: func(string) { invalidations++ }, SwitchyardActive: false}
+	service := &Admin{SwitchyardJudge: &blockingEscalationJudge{}, Configuration: configuration, InvalidateSelection: func(string) { invalidations++ }}
 
 	_, err := service.UpdateEscalationSelection(context.Background(), "installation", llmescalation.SelectionUpdate{Active: flags.EscalationClassifierSwitchyard, Cadence: 3, Epoch: 2})
 	require.ErrorIs(t, err, ErrEscalationJudgeUnavailable)
@@ -43,7 +43,7 @@ func TestLLMEscalationConfigurationGatesActiveRollout(t *testing.T) {
 
 func TestQwenEscalationSelectionRequiresDeployedJudge(t *testing.T) {
 	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Epoch: 2}}
-	service := &Admin{SwitchyardJudge: &blockingEscalationJudge{}, Configuration: configuration, InvalidateSelection: nil, SwitchyardActive: true}
+	service := &Admin{SwitchyardJudge: &blockingEscalationJudge{}, Configuration: configuration, SwitchyardActive: true}
 	update := llmescalation.SelectionUpdate{Active: flags.EscalationClassifierLLM, Cadence: 3, Epoch: 2}
 
 	_, err := service.UpdateEscalationSelection(context.Background(), "installation", update)
@@ -60,7 +60,7 @@ func TestQwenEscalationSelectionRequiresDeployedJudge(t *testing.T) {
 
 func TestSwitchyardEscalationReadinessReflectsDisabledRollout(t *testing.T) {
 	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Active: flags.EscalationClassifierSwitchyard}}
-	service := &Admin{SwitchyardJudge: &blockingEscalationJudge{}, Configuration: configuration, InvalidateSelection: nil, SwitchyardActive: false}
+	service := &Admin{SwitchyardJudge: &blockingEscalationJudge{}, Configuration: configuration}
 	selection, err := service.EscalationSelection(context.Background(), "installation")
 	require.NoError(t, err)
 	require.False(t, selection.Ready)
@@ -69,7 +69,7 @@ func TestSwitchyardEscalationReadinessReflectsDisabledRollout(t *testing.T) {
 
 func TestQwenEscalationSelectionDoesNotRequireSwitchyardActiveRollout(t *testing.T) {
 	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Epoch: 2}}
-	service := &Admin{QwenJudge: &blockingEscalationJudge{}, Configuration: configuration, SwitchyardActive: false}
+	service := &Admin{QwenJudge: &blockingEscalationJudge{}, Configuration: configuration}
 	selection, err := service.UpdateEscalationSelection(context.Background(), "installation", llmescalation.SelectionUpdate{Active: flags.EscalationClassifierLLM, Cadence: 3, Epoch: 2})
 	require.NoError(t, err)
 	require.True(t, selection.Ready)
