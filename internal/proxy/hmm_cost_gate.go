@@ -7,7 +7,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/continuity"
-	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
 )
@@ -18,16 +17,6 @@ func hmmCostGateFor(s *Service) continuity.CostGateConfig {
 		RegisteredProviders:        func() map[string]struct{} { return s.engine.Clients().NameSet() },
 		UpgradeConfidenceThreshold: s.hmmConfig.UpgradeConfidenceThreshold,
 	}
-}
-
-func hmmCostGatedDecision(ctx context.Context, s *Service, input continuity.CostGateInput) (router.Decision, planner.Decision, bool, string) {
-	input.Planner = plannerConfigFor(ctx, s.continuityConfig.Planner)
-	input.Now = s.clock.Now()
-	stayPin, plan, sticky := s.strategyPorts.CostGate.Decide(hmmCostGateFor(s), input)
-	if sticky {
-		return stayPin.Decision(), plan, true, stayPin.Model
-	}
-	return input.Fresh, plan, false, stayPin.Model
 }
 
 func hmmCostGateServe(ctx context.Context, s *Service, input continuity.CostGateInput, priorServedModel string) continuity.CostGateServe {
