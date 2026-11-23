@@ -175,7 +175,7 @@ func anthropicErrorFrameBody(cls ingress.DispatchErrorClass) []byte {
 }
 
 func openAIErrorFrameBody(cls ingress.DispatchErrorClass) []byte {
-	code := OpenAIErrorCode(cls.Kind)
+	code := ingress.OpenAIErrorCode(cls.Kind)
 	if code == "" {
 		code = "upstream_error"
 	}
