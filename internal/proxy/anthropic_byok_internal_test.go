@@ -100,7 +100,7 @@ func TestAnthropicBYOKDisablesSubscriptionBypass(t *testing.T) {
 		t.Run(map[bool]string{false: "direct", true: "inbound"}[inbound], func(t *testing.T) {
 			svc := newServiceWithProviders(t, nil).WithUsageObserver(usage.NewObserver([]byte("synthetic-salt"), time.Minute, time.Now))
 			ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
-			ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+			ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
 			headers := http.Header{}
 			if inbound {
 				headers.Set("Authorization", "Bearer "+oauthToken)
@@ -141,11 +141,11 @@ func TestAnthropicBYOKHTTPNeverProbesOAuth(t *testing.T) {
 				WithManagedSubscriptions(leaser)
 			ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
 			ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "synthetic-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}})
-			ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+			ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
 			body := `{"model":"` + model + `","max_tokens":32,"messages":[{"role":"user","content":"synthetic task"}]}`
 			for _, token := range []string{"sk-ant-oat01-original", "sk-ant-oat01-refreshed"} {
 				svc.WithUsageObserver(usage.NewObserver([]byte("synthetic-salt"), time.Minute, time.Now))
-				request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathMessages, strings.NewReader(body))
+				request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, requestcontext.RoutePathMessages, strings.NewReader(body))
 				request.Header.Set("Authorization", "Bearer "+token)
 				recorder := httptest.NewRecorder()
 				err := svc.ProxyMessages(ctx, []byte(body), recorder, request)

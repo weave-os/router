@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
@@ -142,7 +143,7 @@ func (rescueRoutingPort) RescueBasis(decision router.Decision, turn dispatch.Res
 }
 
 func (rescueRoutingPort) RecordTurnFailure(ctx context.Context, model string) {
-	recordTurnFailure(ctx, model)
+	requestcontext.RecordTurnFailure(ctx, model)
 }
 
 type rescueFundingPort struct{ seats seatAdmission }

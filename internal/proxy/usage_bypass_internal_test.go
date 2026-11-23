@@ -102,7 +102,7 @@ func TestUsageBypassDecision_CodexSubscriptionPreservesRequestedModel(t *testing
 	svc := &Service{strategyServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: obs}}
 	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, codexToken)
 	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "account-1")
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
 	})
@@ -138,7 +138,7 @@ func TestUsageBypassDecision_SessionDemotionBlocks_GlobalAutomaticExclusionDoesN
 	})
 	svc := &Service{strategyServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: obs}}
 	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
 	})
@@ -191,7 +191,7 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 	}
 	baseCtx := func() context.Context {
 		ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
-		return context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{
+		return context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{
 			Enabled:   true,
 			Threshold: &threshold,
 		})
@@ -253,7 +253,7 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithUsageObserver(obs)
 	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
 	})
@@ -302,7 +302,7 @@ func TestUsageBypass_EngagesUnderAuthoritativePolicy(t *testing.T) {
 			},
 		})
 	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
 	})

@@ -90,7 +90,7 @@ func TestProxyMessages_OverEngineerCap_CoveringSubscription_ServesFreeNo402(t *t
 	// usage-bypass config, and the Claude subscription token.
 	ctx := context.WithValue(context.Background(), requestcontext.ExternalIDContextKey{}, "org-capped")
 	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "engineer-1")
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
 	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, subToken)
 
 	rec := httptest.NewRecorder()
@@ -134,7 +134,7 @@ func TestProxyMessages_OverEngineerCap_WarningAlreadyShown_NotRepeated(t *testin
 	// usage-bypass config, and the Claude subscription token.
 	ctx := context.WithValue(context.Background(), requestcontext.ExternalIDContextKey{}, "org-capped")
 	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "engineer-1")
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
 	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, subToken)
 
 	rec := httptest.NewRecorder()
@@ -174,7 +174,7 @@ func TestProxyMessages_OverEngineerCap_NoSubscription_402s(t *testing.T) {
 	// Usage-bypass enabled but no subscription credential on the request.
 	ctx := context.WithValue(context.Background(), requestcontext.ExternalIDContextKey{}, "org-capped")
 	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "engineer-1")
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -216,7 +216,7 @@ func TestProxyMessages_OverEngineerCap_ExhaustedSubscription_Refuses402(t *testi
 
 	ctx := context.WithValue(context.Background(), requestcontext.ExternalIDContextKey{}, "org-capped")
 	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "engineer-1")
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
 	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, subToken)
 
 	rec := httptest.NewRecorder()

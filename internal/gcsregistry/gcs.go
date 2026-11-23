@@ -1,4 +1,4 @@
-package policyregistry
+package gcsregistry
 
 import (
 	"bytes"
@@ -11,14 +11,8 @@ import (
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/googleapi"
 
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/rosterdata"
-)
-
-const maxPolicyObjectBytes = 8 << 20
-
-var (
-	ErrNotFound = errors.New("router policy registry object not found")
-	ErrConflict = errors.New("router policy lane-head generation conflict")
 )
 
 type Registry struct {
@@ -63,19 +57,19 @@ func (r *Registry) Close() error { return r.client.Close() }
 
 func (r *Registry) RootURI() string { return r.rootURI }
 
-func (r *Registry) ReadRelease(ctx context.Context, ref ObjectRef) (Release, error) {
+func (r *Registry) ReadRelease(ctx context.Context, ref policyregistry.ObjectRef) (policyregistry.Release, error) {
 	payload, err := r.readExact(ctx, ref, "router_policy/v1/releases/sha256/")
 	if err != nil {
-		return Release{}, err
+		return policyregistry.Release{}, err
 	}
-	release, err := DecodeRelease(payload, r.rootURI)
+	release, err := policyregistry.DecodeRelease(payload, r.rootURI)
 	if err != nil {
-		return Release{}, err
+		return policyregistry.Release{}, err
 	}
 	return release, nil
 }
 
-func (r *Registry) ReadPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
+func (r *Registry) ReadPolicy(ctx context.Context, ref policyregistry.ObjectRef) (*rosterdata.Roster, error) {
 	roster, err := r.ReadServingPolicy(ctx, ref)
 	if err != nil {
 		return nil, err
@@ -86,7 +80,7 @@ func (r *Registry) ReadPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.R
 	return roster, nil
 }
 
-func (r *Registry) ReadServingPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
+func (r *Registry) ReadServingPolicy(ctx context.Context, ref policyregistry.ObjectRef) (*rosterdata.Roster, error) {
 	payload, err := r.readExact(ctx, ref, "router_policy/v1/policies/sha256/")
 	if err != nil {
 		return nil, err
@@ -99,84 +93,84 @@ func (r *Registry) ReadServingPolicy(ctx context.Context, ref ObjectRef) (*roste
 	return roster, nil
 }
 
-func (r *Registry) ReadHead(ctx context.Context, environment Environment, lane Lane) (HeadSnapshot, error) {
-	if err := ValidateEnvironment(environment); err != nil {
-		return HeadSnapshot{}, err
+func (r *Registry) ReadHead(ctx context.Context, environment policyregistry.Environment, lane policyregistry.Lane) (policyregistry.HeadSnapshot, error) {
+	if err := policyregistry.ValidateEnvironment(environment); err != nil {
+		return policyregistry.HeadSnapshot{}, err
 	}
-	if err := ValidateLane(lane); err != nil {
-		return HeadSnapshot{}, err
+	if err := policyregistry.ValidateLane(lane); err != nil {
+		return policyregistry.HeadSnapshot{}, err
 	}
 	name := r.headObjectName(environment, lane)
 	attrs, err := r.bucket.Object(name).Attrs(ctx)
 	if err != nil {
-		return HeadSnapshot{}, classifyStorageError("read lane-head attributes", err)
+		return policyregistry.HeadSnapshot{}, classifyStorageError("read lane-head attributes", err)
 	}
 	payload, err := r.readObject(ctx, name, attrs.Generation)
 	if err != nil {
-		return HeadSnapshot{}, err
+		return policyregistry.HeadSnapshot{}, err
 	}
-	head, err := DecodeLaneHead(payload, r.rootURI, environment, lane)
+	head, err := policyregistry.DecodeLaneHead(payload, r.rootURI, environment, lane)
 	if err != nil {
-		return HeadSnapshot{}, err
+		return policyregistry.HeadSnapshot{}, err
 	}
-	return HeadSnapshot{Head: head, Generation: attrs.Generation}, nil
+	return policyregistry.HeadSnapshot{Head: head, Generation: attrs.Generation}, nil
 }
 
-func (r *Registry) publishImmutable(ctx context.Context, name string, payload []byte, digest string) (ObjectRef, error) {
+func (r *Registry) publishImmutable(ctx context.Context, name string, payload []byte, digest string) (policyregistry.ObjectRef, error) {
 	object := r.bucket.Object(name).If(storage.Conditions{DoesNotExist: true})
 	writer := object.NewWriter(ctx)
 	writer.ContentType = "application/json"
 	if _, err := writer.Write(payload); err != nil {
 		_ = writer.Close()
-		return ObjectRef{}, fmt.Errorf("write immutable router policy object: %w", err)
+		return policyregistry.ObjectRef{}, fmt.Errorf("write immutable router policy object: %w", err)
 	}
 	closeErr := writer.Close()
 	if closeErr != nil {
 		if !isPreconditionFailure(closeErr) {
-			return ObjectRef{}, fmt.Errorf("commit immutable router policy object: %w", closeErr)
+			return policyregistry.ObjectRef{}, fmt.Errorf("commit immutable router policy object: %w", closeErr)
 		}
 		return r.verifyExistingImmutable(ctx, name, payload, digest)
 	}
 	attrs := writer.Attrs()
 	if attrs == nil || attrs.Generation <= 0 {
-		return ObjectRef{}, errors.New("immutable policy write returned no generation")
+		return policyregistry.ObjectRef{}, errors.New("immutable policy write returned no generation")
 	}
-	ref := ObjectRef{URI: r.objectURI(name), SHA256: digest, Generation: attrs.Generation}
+	ref := policyregistry.ObjectRef{URI: r.objectURI(name), SHA256: digest, Generation: attrs.Generation}
 	stored, err := r.readObject(ctx, name, ref.Generation)
 	if err != nil {
-		return ObjectRef{}, err
+		return policyregistry.ObjectRef{}, err
 	}
 	if !bytes.Equal(stored, payload) {
-		return ObjectRef{}, errors.New("immutable policy read-after-write bytes differ")
+		return policyregistry.ObjectRef{}, errors.New("immutable policy read-after-write bytes differ")
 	}
 	return ref, nil
 }
 
-func (r *Registry) verifyExistingImmutable(ctx context.Context, name string, payload []byte, digest string) (ObjectRef, error) {
+func (r *Registry) verifyExistingImmutable(ctx context.Context, name string, payload []byte, digest string) (policyregistry.ObjectRef, error) {
 	ref, err := r.objectRef(ctx, name, digest)
 	if err != nil {
-		return ObjectRef{}, err
+		return policyregistry.ObjectRef{}, err
 	}
 	stored, err := r.readObject(ctx, name, ref.Generation)
 	if err != nil {
-		return ObjectRef{}, err
+		return policyregistry.ObjectRef{}, err
 	}
 	if !bytes.Equal(stored, payload) {
-		return ObjectRef{}, errors.New("content-addressed object exists with different bytes")
+		return policyregistry.ObjectRef{}, errors.New("content-addressed object exists with different bytes")
 	}
 	return ref, nil
 }
 
-func (r *Registry) objectRef(ctx context.Context, name, digest string) (ObjectRef, error) {
+func (r *Registry) objectRef(ctx context.Context, name, digest string) (policyregistry.ObjectRef, error) {
 	attrs, err := r.bucket.Object(name).Attrs(ctx)
 	if err != nil {
-		return ObjectRef{}, classifyStorageError("read immutable object attributes", err)
+		return policyregistry.ObjectRef{}, classifyStorageError("read immutable object attributes", err)
 	}
-	return ObjectRef{URI: r.objectURI(name), SHA256: digest, Generation: attrs.Generation}, nil
+	return policyregistry.ObjectRef{URI: r.objectURI(name), SHA256: digest, Generation: attrs.Generation}, nil
 }
 
-func (r *Registry) readExact(ctx context.Context, ref ObjectRef, requiredPathPrefix string) ([]byte, error) {
-	if !validDigest(ref.SHA256) || ref.Generation <= 0 {
+func (r *Registry) readExact(ctx context.Context, ref policyregistry.ObjectRef, requiredPathPrefix string) ([]byte, error) {
+	if !policyregistry.ValidDigest(ref.SHA256) || ref.Generation <= 0 {
 		return nil, errors.New("immutable object reference has invalid digest or generation")
 	}
 	name, err := r.objectName(ref.URI)
@@ -196,24 +190,24 @@ func (r *Registry) readObject(ctx context.Context, name string, generation int64
 		return nil, classifyStorageError("open router policy object", err)
 	}
 	defer func() { _ = reader.Close() }()
-	payload, err := io.ReadAll(io.LimitReader(reader, maxPolicyObjectBytes+1))
+	payload, err := io.ReadAll(io.LimitReader(reader, policyregistry.MaxPolicyObjectBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read router policy object: %w", err)
 	}
-	if len(payload) > maxPolicyObjectBytes {
-		return nil, fmt.Errorf("router policy object exceeds %d bytes", maxPolicyObjectBytes)
+	if len(payload) > policyregistry.MaxPolicyObjectBytes {
+		return nil, fmt.Errorf("router policy object exceeds %d bytes", policyregistry.MaxPolicyObjectBytes)
 	}
 	return payload, nil
 }
 
-func (r *Registry) headObjectName(environment Environment, lane Lane) string {
+func (r *Registry) headObjectName(environment policyregistry.Environment, lane policyregistry.Lane) string {
 	return fmt.Sprintf("%s/runtime_state/router_policy/v1/environments/%s/lanes/%s/head.json", r.prefix, environment, lane)
 }
 
 func (r *Registry) objectURI(name string) string { return "gs://" + r.bucketName + "/" + name }
 
 func (r *Registry) objectName(uri string) (string, error) {
-	bucketName, name, err := parseGCSObjectURI(uri)
+	bucketName, name, err := policyregistry.ParseGCSObjectURI(uri)
 	if err != nil {
 		return "", err
 	}
@@ -224,7 +218,7 @@ func (r *Registry) objectName(uri string) (string, error) {
 }
 
 func parseRegistryURI(uri string) (string, string, error) {
-	bucketName, prefix, err := parseGCSObjectURI(strings.TrimRight(strings.TrimSpace(uri), "/"))
+	bucketName, prefix, err := policyregistry.ParseGCSObjectURI(strings.TrimRight(strings.TrimSpace(uri), "/"))
 	if err != nil {
 		return "", "", err
 	}
@@ -234,27 +228,12 @@ func parseRegistryURI(uri string) (string, string, error) {
 	return bucketName, prefix, nil
 }
 
-func parseGCSObjectURI(uri string) (string, string, error) {
-	if !strings.HasPrefix(uri, "gs://") {
-		return "", "", fmt.Errorf("invalid GCS URI %q", uri)
-	}
-	remainder := strings.TrimPrefix(uri, "gs://")
-	bucketName, name, found := strings.Cut(remainder, "/")
-	if bucketName == "" || !found || strings.Trim(name, "/") == "" {
-		return "", "", fmt.Errorf("invalid GCS object URI %q", uri)
-	}
-	if strings.Contains(name, "//") || strings.Contains(name, "..") {
-		return "", "", fmt.Errorf("invalid GCS object path %q", name)
-	}
-	return bucketName, strings.Trim(name, "/"), nil
-}
-
 func classifyStorageError(action string, err error) error {
 	if errors.Is(err, storage.ErrObjectNotExist) {
-		return fmt.Errorf("%s: %w", action, ErrNotFound)
+		return fmt.Errorf("%s: %w", action, policyregistry.ErrNotFound)
 	}
 	if isPreconditionFailure(err) {
-		return fmt.Errorf("%s: %w", action, ErrConflict)
+		return fmt.Errorf("%s: %w", action, policyregistry.ErrConflict)
 	}
 	return fmt.Errorf("%s: %w", action, err)
 }

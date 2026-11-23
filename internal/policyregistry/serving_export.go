@@ -22,10 +22,6 @@ type ServingExportStore interface {
 	ReadPolicyPayload(context.Context, ObjectRef) ([]byte, error)
 }
 
-func (r *Registry) ReadPolicyPayload(ctx context.Context, ref ObjectRef) ([]byte, error) {
-	return r.readExact(ctx, ref, policyObjectPrefix)
-}
-
 func ExportServingTarget(ctx context.Context, store ServingExportStore, target ServingTarget, dir, classifierImageDigest string) (ServingExport, error) {
 	environment, err := target.Environment()
 	if err != nil {
