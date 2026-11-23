@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"slices"
 	"strings"
 
@@ -11,10 +12,14 @@ import (
 )
 
 const (
-	labelPrefix    = "@cycle"
-	repeatedLabel  = "="
-	labelFieldsLen = 4
-	bucketCount    = 10000
+	labelPrefix = "@cycle"
+	// The plugin's prompt asks for the label as a Markdown link reference
+	// definition, which renderers hide: [@cycle]: <body>.
+	labelDefinitionPrefix = "[@cycle]:"
+	feedbackFooterPrefix  = "_Weave Router feedback:_ "
+	repeatedLabel         = "="
+	positionalFieldsLen   = 4
+	bucketCount           = 10000
 )
 
 type Arm string
@@ -49,12 +54,12 @@ func PreviousTurnLabel(messages []router.ConversationMessage) (Label, bool) {
 		if closingIdx < 0 {
 			return Label{}, false
 		}
-		fields, ok := labelFields(messages[closingIdx].Text)
+		label, repeated, ok := parseLabel(messages[closingIdx].Text)
 		if !ok {
 			return Label{}, false
 		}
-		if len(fields) == labelFieldsLen {
-			return Label{Goal: fields[0], Task: fields[1], Step: fields[2]}, true
+		if !repeated {
+			return label, true
 		}
 		end = closingIdx
 	}
@@ -63,7 +68,7 @@ func PreviousTurnLabel(messages []router.ConversationMessage) (Label, bool) {
 func closingMessage(messages []router.ConversationMessage) int {
 	promptIdx := lastUserPrompt(messages)
 	for i := len(messages) - 1; i > promptIdx; i-- {
-		if messages[i].Role == "assistant" && strings.HasPrefix(lastLine(messages[i].Text), labelPrefix) {
+		if _, isLabel := labelBody(lastLine(messages[i].Text)); messages[i].Role == "assistant" && isLabel {
 			return i
 		}
 	}
@@ -95,22 +100,58 @@ func lastAssistantText(messages []router.ConversationMessage) int {
 	return -1
 }
 
+// lastLine is the reply's last line above any router feedback footer.
 func lastLine(text string) string {
 	text = strings.TrimSpace(text)
-	return strings.TrimSpace(text[strings.LastIndexByte(text, '\n')+1:])
+	line := strings.TrimSpace(text[strings.LastIndexByte(text, '\n')+1:])
+	if strings.HasPrefix(line, feedbackFooterPrefix) && len(line) < len(text) {
+		return lastLine(text[:len(text)-len(line)])
+	}
+	return line
 }
 
-func labelFields(text string) ([]string, bool) {
-	rest, found := strings.CutPrefix(lastLine(text), labelPrefix)
+func labelBody(line string) (string, bool) {
+	if body, found := strings.CutPrefix(line, labelDefinitionPrefix); found {
+		body = strings.TrimSpace(body)
+		body = strings.TrimSuffix(strings.TrimPrefix(body, "<"), ">")
+		return strings.TrimSpace(body), true
+	}
+	if line == labelPrefix || strings.HasPrefix(line, labelPrefix+" ") {
+		return strings.TrimSpace(strings.TrimPrefix(line, labelPrefix)), true
+	}
+	return "", false
+}
+
+// parseLabel reads the label closing text: the named JSON form current
+// plugins write ({"task": ..., "step": ..., "summary": ...}, goal optional),
+// the positional form older prompts wrote (goal task step status | reason),
+// or a repeated label (=).
+func parseLabel(text string) (label Label, repeated bool, ok bool) {
+	body, found := labelBody(lastLine(text))
 	if !found {
-		return nil, false
+		return Label{}, false, false
 	}
-	head, _, _ := strings.Cut(rest, "|")
+	if body == repeatedLabel {
+		return Label{}, true, true
+	}
+	if strings.HasPrefix(body, "{") {
+		var fields struct {
+			Goal string `json:"goal"`
+			Task string `json:"task"`
+			Step string `json:"step"`
+		}
+		if json.Unmarshal([]byte(body), &fields) != nil {
+			return Label{}, false, false
+		}
+		label = Label{Goal: strings.TrimSpace(fields.Goal), Task: strings.TrimSpace(fields.Task), Step: strings.TrimSpace(fields.Step)}
+		return label, false, label.Task != "" && label.Step != ""
+	}
+	head, _, _ := strings.Cut(body, "|")
 	fields := strings.Fields(head)
-	if len(fields) == labelFieldsLen || (len(fields) == 1 && fields[0] == repeatedLabel) {
-		return fields, true
+	if len(fields) != positionalFieldsLen {
+		return Label{}, false, false
 	}
-	return nil, false
+	return Label{Goal: fields[0], Task: fields[1], Step: fields[2]}, false, true
 }
 
 func Assign(subject Subject, label Label, steps []string, treatmentPct int) (Assignment, bool) {
