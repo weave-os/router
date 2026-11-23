@@ -41,9 +41,9 @@ func inferencePoliciesEngine(t *testing.T) *gin.Engine {
 	}}})
 	engine := gin.New()
 	group := engine.Group("/internal/v1", middleware.WithInternalServiceAuth(inspectionToken))
-	group.GET("/inference-policies", admin.InternalInferencePoliciesHandler(proxySvc))
-	group.GET("/inference-policies/deployment", admin.InternalInferenceDeploymentHandler(proxySvc))
-	group.POST("/inference-policies/resolve", admin.InternalInferenceResolveHandler(proxySvc))
+	group.GET("/inference-policies", admin.InternalInferencePoliciesHandler(proxy.DispatchEngine(proxySvc)))
+	group.GET("/inference-policies/deployment", admin.InternalInferenceDeploymentHandler(proxy.DispatchEngine(proxySvc)))
+	group.POST("/inference-policies/resolve", admin.InternalInferenceResolveHandler(proxy.DispatchEngine(proxySvc)))
 	return engine
 }
 

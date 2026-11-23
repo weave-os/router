@@ -22,22 +22,6 @@ func (s *Service) inferenceExecutor() (*dispatch.Executor, error) {
 	return s.engine.ResolveExecutor(s.clock)
 }
 
-func (s *Service) InferencePolicyRegistry() policy.Registry {
-	return policy.DefaultRegistry()
-}
-
-func (s *Service) InferenceDeploymentProjection() policy.DeploymentProjection {
-	return policy.DefaultRegistry().DeploymentProjection(s.engine.Deployment())
-}
-
-func (s *Service) InspectInferencePlan(request policy.InspectionRequest) (policy.ResolvedPlan, error) {
-	plans, err := s.inferencePlans()
-	if err != nil {
-		return policy.ResolvedPlan{}, err
-	}
-	return plans.Inspect(request, s.engine.Deployment())
-}
-
 func (s *Service) afterSubscriptionRotationBudget(ctx context.Context, decision router.Decision, subscriptionAttempts int, rotationErr error) error {
 	observability.FromContext(ctx).Warn("Subscription admission budget spent; refusing unproven paid recovery", "model", decision.Model, "provider", decision.Provider, "budget_ms", credentials.SubscriptionRotationBudget.Milliseconds(), "subscription_account_attempt", subscriptionAttempts, "err", rotationErr)
 	if credentials.ForcedClaudeClientAppRefused(ctx, decision, nil) {
