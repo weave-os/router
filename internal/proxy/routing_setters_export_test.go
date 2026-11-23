@@ -1,25 +1,13 @@
 package proxy
 
 import (
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
-	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/routingpolicy"
 )
-
-func (s *Service) WithContinuityConfig(cfg continuity.Config) *Service {
-	s.continuityConfig = cfg
-	return s
-}
-
-func (s *Service) WithHMMConfig(cfg continuity.AuthoritativeConfig) *Service {
-	s.hmmConfig = cfg
-	return s
-}
 
 func (s *Service) WithPolicyDeadlineFallback(enabled bool) *Service {
 	deadline := s.routing.Deadline()
@@ -118,11 +106,6 @@ func (s *Service) WithLLMEscalation(store llmescalation.Store, judge llmescalati
 
 func (s *Service) WithQwenEscalation(judge llmescalation.Judge) *Service {
 	s.escalationHelper().WithQwen(judge)
-	return s
-}
-
-func (s *Service) WithEscalationShadowDefault(classifier flags.EscalationClassifier) *Service {
-	s.escalationHelper().WithShadowDefault(classifier)
 	return s
 }
 

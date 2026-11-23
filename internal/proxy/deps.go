@@ -131,11 +131,11 @@ func DispatchEngine(s *Service) *dispatch.Engine {
 }
 
 func applyRoutingDeps(s *Service, deps RoutingDeps) {
-	if esc := deps.Escalation; esc != nil {
-		s.escalationHelper().WithXGB(esc.Store, esc.Observer)
-		s.escalationHelper().WithLLM(esc.LLMStore, esc.LLMJudge)
-		s.escalationHelper().WithQwen(esc.QwenJudge)
-		s.escalationHelper().WithShadowDefault(esc.ShadowDefault)
+	if routingEscalation := deps.Escalation; routingEscalation != nil {
+		s.escalationHelper().WithXGB(routingEscalation.Store, routingEscalation.Observer)
+		s.escalationHelper().WithLLM(routingEscalation.LLMStore, routingEscalation.LLMJudge)
+		s.escalationHelper().WithQwen(routingEscalation.QwenJudge)
+		s.escalationHelper().WithShadowDefault(routingEscalation.ShadowDefault)
 	}
 	for _, spec := range deps.Strategies {
 		registerPolicyStrategy(s, spec)
