@@ -13,6 +13,8 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+var ErrRequestNotJSONObject = translate.ErrNotJSONObject
+
 var ErrGeminiCrossFormatUnsupported = errors.New("gemini cross-format emit not implemented")
 
 type Gemini struct{}

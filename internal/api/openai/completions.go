@@ -1,20 +1,24 @@
 package openai
 
 import (
+	"context"
 	"io"
 	"net/http"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 )
 
-func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
+type ChatCompletions interface {
+	ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error
+}
+
+func ChatCompletionHandler(svc ChatCompletions, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
