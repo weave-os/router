@@ -89,7 +89,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	ctx, log, sessionKey = bindRequestLogger(ctx, env, facts.APIKeyID, facts.RequestID, "anthropic_messages")
 	log.Debug("Resolved client context budget", "budget_evidence", clientBudget.Evidence, "client_version", clientBudget.Version, "model_variant_1m", clientBudget.ModelVariant1M, "inbound_context_1m", clientBudget.InboundContext1M, "default_window", clientBudget.DefaultWindow, "default_compact_threshold", clientBudget.DefaultCompactThreshold)
-	if ctx, err = stripClientHistory(ctx, log, env, "Anthropic"); err != nil {
+	if ctx, err = conversation.StripClientHistory(ctx, log, env, "Anthropic"); err != nil {
 		return err
 	}
 
@@ -101,8 +101,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if conversation.PreparingHandoff(ctx) && !s.canPrepareHandoff(ctx, env, feats, r.Header, body) {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
 	}
-	promptText, embedInput := turnPromptText(feats)
-	logTurnStart(log, "ProxyMessages start", env.Stream(), feats, s.zdrLogField(ctx, observability.Preview(promptText, 200)))
+	promptText, embedInput := conversation.TurnPromptText(feats)
+	conversation.LogTurnStart(log, "ProxyMessages start", env.Stream(), feats, s.zdrLogField(ctx, observability.Preview(promptText, 200)))
 
 	if !agentShadowMode {
 		betaSessionKey := deriveBetaSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)

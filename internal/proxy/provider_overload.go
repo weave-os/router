@@ -71,7 +71,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 	if pinRole == "" {
 		pinRole = sessionpin.DefaultRole
 	}
-	if err := s.expireSessionPinAndHMMHistory(ctx, target.strategy, target.installationID, target.sessionKey, pinRole, "provider_overloaded"); err != nil {
+	if err := s.expireSessionPinAndSwitchHistory(ctx, target.strategy, target.installationID, target.sessionKey, pinRole, "provider_overloaded"); err != nil {
 		log.Error("pin eviction after provider overload failed", "err", err, "role", role, "pin_role", pinRole, "provider", finalProvider)
 		return
 	}

@@ -18,17 +18,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type betaArtifactHistoryContextKey struct{}
-
-func withBetaArtifactHistory(ctx context.Context) context.Context {
-	return context.WithValue(ctx, betaArtifactHistoryContextKey{}, true)
-}
-
-func betaArtifactHistoryFromContext(ctx context.Context) bool {
-	found, _ := ctx.Value(betaArtifactHistoryContextKey{}).(bool)
-	return found
-}
-
 func internalBetaSession(ctx context.Context) bool {
 	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
 	return managed && policyregistry.ExperimentalRoutingModelsPermitted(policyregistry.ServingTarget(identity.Target), entitlement.Plan(identity.Plan)) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != ""
@@ -150,7 +139,7 @@ func (b betaCommands) Invalidate(
 	for _, role := range roles {
 		for _, stateRole := range []string{
 			role,
-			hmmHistoryRole(role),
+			b.s.strategyPorts.History.HistoryRole(role),
 			conversation.CommandContinuationRole(role),
 		} {
 			if _, duplicate := seen[stateRole]; duplicate {

@@ -30,8 +30,8 @@ func hmmCostGatedDecision(ctx context.Context, s *Service, input continuity.Cost
 	return input.Fresh, plan, false, stayPin.Model
 }
 
-func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {
-	return s.strategyPorts.CostGate.StayPin(hmmCostGateFor(s), req, activePin, hmmHistory, s.clock.Now())
+func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, switchHistory sessionpin.Pin) (sessionpin.Pin, bool) {
+	return s.strategyPorts.CostGate.StayPin(hmmCostGateFor(s), req, activePin, switchHistory, s.clock.Now())
 }
 
 func hmmEffectiveInputUSDPer1M(model string, inputTokens int) (float64, bool) {

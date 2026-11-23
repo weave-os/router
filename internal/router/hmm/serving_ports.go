@@ -1,6 +1,7 @@
 package hmm
 
 import (
+	"context"
 	"time"
 
 	"weave-os/router/internal/router"
@@ -13,7 +14,7 @@ type servingPorts struct{}
 
 func ServingPorts() continuity.StrategyPorts {
 	ports := servingPorts{}
-	return continuity.StrategyPorts{Ownership: ports, Facts: ports, Upgrade: ports, CostGate: ports}
+	return continuity.StrategyPorts{Ownership: ports, Facts: ports, Upgrade: ports, CostGate: ports, History: ports}
 }
 
 func (servingPorts) Owns(strategy router.Strategy) bool { return Owns(strategy) }
@@ -65,3 +66,13 @@ func (servingPorts) StayPin(gate continuity.CostGateConfig, req router.Request, 
 }
 
 func (servingPorts) HistoryReason() string { return HistoryReason }
+
+func (servingPorts) HistoryRole(pinRole string) string { return HistoryRole(pinRole) }
+
+func (servingPorts) LoadHistory(ctx context.Context, rows continuity.HistoryRows, sessionKey [sessionpin.SessionKeyLen]byte, pinRole string) sessionpin.Pin {
+	return LoadHistory(ctx, rows, sessionKey, pinRole)
+}
+
+func (servingPorts) RecordTurnHistory(ctx context.Context, rows continuity.HistoryRows, rec continuity.TurnHistoryRecord) (string, bool) {
+	return RecordTurnHistory(ctx, rows, rec)
+}

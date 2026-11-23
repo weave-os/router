@@ -46,7 +46,7 @@ func admitTurn(ctx context.Context, s turnAdmissionServices, clock auth.Clock, r
 		return ctx, admittedTurn{}, err
 	}
 	ctx = s.withUsageObserver(ctx, r.Header)
-	ctx = withTurnFailures(ctx)
+	ctx = requestcontext.WithTurnFailures(ctx)
 	ctx, rateLimit := s.withRateLimitTurn(ctx)
 	turn := admittedTurn{rateLimit: rateLimit, start: clock.Now(), facts: requestFactsFrom(ctx, r.Header)}
 	return telemetry.WithRecorder(ctx, s.newTelemetryRecorder()), turn, nil

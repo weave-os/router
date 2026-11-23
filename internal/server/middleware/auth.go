@@ -163,7 +163,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 				})
 			}
 			if installation.UsageBypassEnabled {
-				ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{
+				ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{
 					Enabled:   true,
 					Threshold: installation.UsageBypassThreshold,
 				})
@@ -209,7 +209,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		byokAllowed := testPlan == nil && (!byokRequiresOptIn || (installation != nil && installation.ByokEnabled))
 		if externalKeys != nil && byokAllowed {
 			ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, externalKeys)
-			ctx = proxy.WithForwardedHeaderSnapshot(ctx, externalKeys, c.Request.Header)
+			ctx = requestcontext.WithForwardedHeaderSnapshot(ctx, externalKeys, c.Request.Header)
 		}
 		if len(clusterModelLists) > 0 {
 			overrides := make(map[string][]string, len(clusterModelLists))

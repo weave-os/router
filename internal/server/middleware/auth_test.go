@@ -491,7 +491,7 @@ func TestWithAuthSnapshotsForwardedClientHeaders(t *testing.T) {
 	engine.GET("/probe", func(c *gin.Context) {
 		// Router-built upstream calls (compaction summaries, Cortex web
 		// search) have no inbound request to read these off later.
-		snapshot := proxy.ForwardedHeaderSnapshotFrom(c.Request.Context())
+		snapshot := requestcontext.ForwardedHeaderSnapshotFrom(c.Request.Context())
 		assert.Equal(t, "cortex-cli/1.2.3", snapshot.Get("X-SNOWFLAKE-APPLICATION"))
 		assert.Equal(t, `{"deployment":"prod"}`, snapshot.Get("X-SNOWFLAKE-BAGGAGE"))
 		assert.Empty(t, snapshot.Get("Authorization"),

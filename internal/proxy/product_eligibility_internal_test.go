@@ -155,7 +155,7 @@ func TestUsageBypassDisengagesForAnIneligibleModel(t *testing.T) {
 	obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
 	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{UsageObserver: obs}}
 	ctx := context.WithValue(maxScopedContext(), credentials.AnthropicSubscriptionContextKey{}, token)
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 
 	_, engaged := svc.usageBypassDecision(ctx, http.Header{}, router.Request{
 		RequestedModel:     "claude-sonnet-4-6",

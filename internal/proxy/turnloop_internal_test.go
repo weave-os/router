@@ -331,12 +331,12 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	require.Len(t, store.upserts, 1)
-	assert.Equal(t, hmmHistoryRole(sessionpin.DefaultRole), store.upserts[0].Role)
+	assert.Equal(t, hmm.HistoryRole(sessionpin.DefaultRole), store.upserts[0].Role)
 	assert.Equal(t, "hmm_policy(label=high)", store.upserts[0].Reason)
 	assert.Equal(t, providers.ProviderAnthropic, store.upserts[0].Provider)
 	assert.Empty(t, store.upserts[0].Model, "HMM history rows must not be routable pins")
 	assert.Equal(t, router.StrategyHMMBeta, store.upserts[0].Strategy)
-	assert.Equal(t, []string{hmmHistoryRole(sessionpin.DefaultRole)}, store.usageRoles)
+	assert.Equal(t, []string{hmm.HistoryRole(sessionpin.DefaultRole)}, store.usageRoles)
 	assert.NotContains(t, store.usageRoles, sessionpin.DefaultRole, "HMM turns must not mutate the active routing pin role")
 	assert.Equal(t, 1200, store.lastUsage.InputTokens)
 	assert.Equal(t, 900, store.lastUsage.CachedReadTokens)
@@ -384,14 +384,14 @@ func TestRecordTurnUsage_HMMModelChangeWritesCurrentUsageOnly(t *testing.T) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	assert.Equal(t, 1, store.usageHits)
-	assert.Equal(t, []string{hmmHistoryRole(sessionpin.DefaultRole)}, store.usageRoles)
+	assert.Equal(t, []string{hmm.HistoryRole(sessionpin.DefaultRole)}, store.usageRoles)
 	assert.Equal(t, 1200, store.lastUsage.InputTokens)
 	assert.Equal(t, 80, store.lastUsage.OutputTokens)
 	assert.Equal(t, "claude-sonnet-5", store.lastUsage.ServedModel)
 	assert.Equal(t, "claude-haiku-4-5", store.lastUsage.PriorServedModel)
 }
 
-func TestRecordHMMTurnHistory_ZeroUsageRefreshesTTLButSkipsUsageWriteback(t *testing.T) {
+func TestRecordSwitchHistory_ZeroUsageRefreshesTTLButSkipsUsageWriteback(t *testing.T) {
 	store := newStubPinStore()
 	svc := withHMMPorts(NewService(
 		nil,
@@ -427,12 +427,12 @@ func TestRecordHMMTurnHistory_ZeroUsageRefreshesTTLButSkipsUsageWriteback(t *tes
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	require.Len(t, store.upserts, 1, "TTL-refreshing upsert must still run on a zero-usage turn")
-	assert.Equal(t, hmmHistoryRole(sessionpin.DefaultRole), store.upserts[0].Role)
+	assert.Equal(t, hmm.HistoryRole(sessionpin.DefaultRole), store.upserts[0].Role)
 	assert.Empty(t, store.usageRoles, "zero-usage turn must not clobber the history row's usage columns")
 	assert.Equal(t, 0, store.usageHits)
 }
 
-func TestRecordHMMTurnHistory_ZeroUsagePreservesPriorProvider(t *testing.T) {
+func TestRecordSwitchHistory_ZeroUsagePreservesPriorProvider(t *testing.T) {
 	store := newStubPinStore()
 	store.getFound = true
 	store.getPin = sessionpin.Pin{Provider: providers.ProviderMakora}
@@ -587,9 +587,9 @@ func TestRecordTurnUsage_HMMEVStayWritesHistoryOnly(t *testing.T) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	require.Len(t, store.upserts, 1)
-	assert.Equal(t, hmmHistoryRole(sessionpin.DefaultRole), store.upserts[0].Role)
+	assert.Equal(t, hmm.HistoryRole(sessionpin.DefaultRole), store.upserts[0].Role)
 	assert.Empty(t, store.upserts[0].Model, "HMM history rows must not be routable pins")
-	assert.Equal(t, []string{hmmHistoryRole(sessionpin.DefaultRole)}, store.usageRoles)
+	assert.Equal(t, []string{hmm.HistoryRole(sessionpin.DefaultRole)}, store.usageRoles)
 	assert.Equal(t, 80, store.lastUsage.OutputTokens)
 	assert.Equal(t, "claude-sonnet-5", store.lastUsage.ServedModel)
 }
@@ -598,9 +598,9 @@ func TestStickyStateRole_HMMEVStayTargetsHistory(t *testing.T) {
 	res := routingpolicy.TurnRoute{
 		StickyHit:  true,
 		PinRole:    sessionpin.DefaultRole,
-		StickyRole: hmmHistoryRole(sessionpin.DefaultRole),
+		StickyRole: hmm.HistoryRole(sessionpin.DefaultRole),
 	}
-	assert.Equal(t, hmmHistoryRole(sessionpin.DefaultRole), stickyStateRole(res))
+	assert.Equal(t, hmm.HistoryRole(sessionpin.DefaultRole), stickyStateRole(res))
 }
 
 func TestStickyStateRole_DefaultsToActivePinRole(t *testing.T) {
@@ -1114,12 +1114,12 @@ func TestSwitchHistoryFromPins_UsesHMMHistory(t *testing.T) {
 		LastServedModel: "claude-haiku-4-5",
 		LastTurnEndedAt: now.Add(-time.Minute),
 	}
-	hmmHistory := sessionpin.Pin{
+	switchHistory := sessionpin.Pin{
 		LastServedModel: "claude-sonnet-5",
 		LastTurnEndedAt: now,
 	}
 
-	prior, everSwitched := switchHistoryFromPins(active, hmmHistory)
+	prior, everSwitched := switchHistoryFromPins(active, switchHistory)
 
 	assert.Equal(t, "claude-sonnet-5", prior)
 	assert.True(t, everSwitched, "different active/history models must preserve thinking-block stripping")

@@ -248,7 +248,7 @@ func TestOpenAIFormats_FastModeQuotaRejectionRetriesAtStandardSpeed(t *testing.T
 			var err error
 			if tc.format == translate.FormatOpenAIResponses {
 				body = []byte(`{"model":"auto","input":"hi"}`)
-				err = svc.ProxyOpenAIResponses(fastModeCtx(fastOpusModel), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader("")))
+				err = svc.ProxyOpenAIResponses(fastModeCtx(fastOpusModel), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, requestcontext.RoutePathResponses, strings.NewReader("")))
 			} else {
 				err = svc.ProxyOpenAIChatCompletion(fastModeCtx(fastOpusModel), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
 			}

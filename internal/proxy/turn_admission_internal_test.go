@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
@@ -56,7 +57,7 @@ func TestAdmitTurnRejectsOverCapUserBeforeOpeningTurnState(t *testing.T) {
 	ctx, _, err := admitTurn(context.Background(), fake, nil, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/messages", nil))
 	require.ErrorIs(t, err, capErr)
 	assert.Empty(t, fake.opened)
-	assert.Nil(t, turnFailuresFromContext(ctx))
+	assert.NotEqual(t, ctx, requestcontext.WithTurnFailures(ctx), "the turn-failure accumulator is not opened")
 }
 
 func TestAdmitTurnOpensTurnState(t *testing.T) {
@@ -66,7 +67,7 @@ func TestAdmitTurnOpensTurnState(t *testing.T) {
 	ctx, turn, err := admitTurn(context.Background(), fake, clock, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/messages", nil))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"usage observer", "rate limit", "telemetry"}, fake.opened)
-	assert.NotNil(t, turnFailuresFromContext(ctx))
+	assert.Equal(t, ctx, requestcontext.WithTurnFailures(ctx), "the turn-failure accumulator is already open")
 	assert.NotEmpty(t, turn.facts.RequestID)
 	assert.Equal(t, admittedAt, turn.start)
 }
