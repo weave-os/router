@@ -1,30 +1,17 @@
-package proxy
+package requestcontext
 
 import (
 	"context"
-	"net/http"
 	"strings"
 
-	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/translate"
 
 	"github.com/tidwall/gjson"
 )
 
 type codexSelectedModelContextKey struct{}
 
-const CodexModelCatalogHeader = "X-Weave-Codex-Model-Catalog"
-
-func codexModelSwitched(header http.Header, conversion translate.ResponsesConversion) bool {
-	if header.Get(requestcontext.CodexNativeModelPinHeader) != "1" {
-		return false
-	}
-	return conversion.CodexModelSwitch ||
-		(conversion.CodexModelInstructions && header.Get(CodexModelCatalogHeader) == "1")
-}
-
-func withCodexSelectedModel(ctx context.Context, model string, nativeBody []byte) context.Context {
+func WithCodexSelectedModel(ctx context.Context, model string, nativeBody []byte) context.Context {
 	if isCodexAutomaticModel(model) {
 		return ctx
 	}
@@ -36,7 +23,7 @@ func withCodexSelectedModel(ctx context.Context, model string, nativeBody []byte
 	return context.WithValue(ctx, codexSelectedModelContextKey{}, selected)
 }
 
-func codexSelectedModel(ctx context.Context) string {
+func CodexSelectedModel(ctx context.Context) string {
 	selected, _ := ctx.Value(codexSelectedModelContextKey{}).(string)
 	return selected
 }

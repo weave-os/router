@@ -27,7 +27,6 @@ const (
 )
 
 type BetaPolicy interface {
-	CurrentStrategy(ctx context.Context) router.Strategy
 	InternalOnly(strategy router.Strategy) bool
 	InternalSession(ctx context.Context) bool
 	Managed(ctx context.Context) bool
@@ -50,6 +49,7 @@ type BetaRequest struct {
 	SessionKey      [sessionpin.SessionKeyLen]byte
 	PreferenceKey   [sessionpin.SessionKeyLen]byte
 	ClientSessionID string
+	Strategy        router.Strategy
 }
 
 func (c BetaCommand) Run(ctx context.Context, req BetaRequest) (string, error) {
@@ -74,7 +74,7 @@ func (c BetaCommand) Run(ctx context.Context, req BetaRequest) (string, error) {
 	if c.Strategies == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) || req.ClientSessionID == "" {
 		return unavailableMessage, nil
 	}
-	currentStrategy := c.Policy.CurrentStrategy(ctx)
+	currentStrategy := req.Strategy
 	previousStrategy := currentStrategy
 	previous, found, err := c.Strategies.Get(ctx, installationID, preferenceKey)
 	if err != nil {

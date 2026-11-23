@@ -51,14 +51,15 @@ func (s *Service) applySessionStrategy(
 	if !router.IsBetaStrategy(preference.Strategy) {
 		return ctx, strategy, fmt.Errorf("unsupported persisted session routing strategy %q", preference.Strategy)
 	}
-	if preference.Strategy == router.StrategyHMMQwen && !internalBetaSession(ctx) {
+	if router.IsInternalOnlyStrategy(preference.Strategy) && !internalBetaSession(ctx) {
 		return ctx, strategy, nil
 	}
 	return router.WithStrategy(ctx, preference.Strategy), preference.Strategy, nil
 }
 
 type betaCommands struct {
-	s *Service
+	s        *Service
+	strategy router.Strategy
 }
 
 func (b betaCommands) handle(
@@ -81,6 +82,7 @@ func (b betaCommands) handle(
 		SessionKey:      sessionKey,
 		PreferenceKey:   preferenceKey,
 		ClientSessionID: clientSessionIDForRequest(ctx, env),
+		Strategy:        b.strategy,
 	})
 	if err != nil {
 		return err
@@ -88,12 +90,8 @@ func (b betaCommands) handle(
 	return writeBetaCommandResponse(w, env, message, inputTokens)
 }
 
-func (betaCommands) CurrentStrategy(ctx context.Context) router.Strategy {
-	return router.StrategyFromContext(ctx)
-}
-
 func (betaCommands) InternalOnly(strategy router.Strategy) bool {
-	return strategy == router.StrategyHMMQwen
+	return router.IsInternalOnlyStrategy(strategy)
 }
 
 func (betaCommands) InternalSession(ctx context.Context) bool { return internalBetaSession(ctx) }

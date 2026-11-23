@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -22,7 +23,7 @@ import (
 
 func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
 	ctx = credentials.WithWeaveCreditsFunding(ctx, r.Header)
-	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
+	w, finishBlindExperimentWriter := ingress.WithBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	ctx, strategy, returnErr := withTurnInput(ctx, s, body, r.Header, router.EndpointOpenAIChat)
@@ -77,7 +78,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	betaSessionKey := deriveBetaSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 	if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
 		log.Info("ProxyOpenAIChatCompletion beta command")
-		return (betaCommands{s}).handle(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
+		return (betaCommands{s, strategy}).handle(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
 	}
 	ctx, strategy, err = s.applySessionStrategy(ctx, strategy, facts.InstallationID, betaSessionKey)
 	if err != nil {
@@ -131,7 +132,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		forceModel = headerForceModel
 	}
 	if forceModel == "" {
-		forceModel = codexSelectedModel(ctx)
+		forceModel = requestcontext.CodexSelectedModel(ctx)
 	}
 	forceCluster, taskArm, forceErr := forceClusterForTurn(s.strategyPorts, ctx, turnRequest{Strategy: strategy, InstallationID: facts.InstallationID}, r, env, feats, forceModel)
 	if forceErr != nil {

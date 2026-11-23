@@ -27,12 +27,17 @@ var _ turnAdmissionServices = (*Service)(nil)
 
 func withTurnInput(ctx context.Context, s turnAdmissionServices, body []byte, headers http.Header, endpoint router.TranslationEndpoint) (context.Context, router.Strategy, error) {
 	ctx = withAttemptTrace(ctx, body, headers)
-	strategy := router.StrategyFromContext(ctx)
-	ctx, err := s.withClassifierInput(ctx, strategy, body, endpoint)
+	ctx, strategy, err := withTurnClassifierInput(ctx, s, body, endpoint)
 	if err != nil {
 		return ctx, strategy, err
 	}
 	return requestcontext.WithContentLogging(ctx, s.effectiveCaptureMode(ctx) != capture.Off), strategy, nil
+}
+
+func withTurnClassifierInput(ctx context.Context, s turnAdmissionServices, body []byte, endpoint router.TranslationEndpoint) (context.Context, router.Strategy, error) {
+	strategy := router.StrategyFromContext(ctx)
+	ctx, err := s.withClassifierInput(ctx, strategy, body, endpoint)
+	return ctx, strategy, err
 }
 
 type admittedTurn struct {

@@ -15,11 +15,11 @@ import (
 )
 
 func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
-	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
+	w, finishBlindExperimentWriter := ingress.WithBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, body, r.Header)
 	ctx = context.WithValue(ctx, responsesSurfaceContextKey{}, true)
-	ctx, inputErr := s.withClassifierInput(ctx, router.StrategyFromContext(ctx), body, router.EndpointOpenAIResponses)
+	ctx, _, inputErr := withTurnClassifierInput(ctx, s, body, router.EndpointOpenAIResponses)
 	if inputErr != nil {
 		return inputErr
 	}
@@ -55,8 +55,8 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		observability.FromContext(ctx).Info("Responses request restricted to its native wire family",
 			"native_only_reasons", ingress.NativeOnlyReasons(conversion.Report, conversionBody))
 	}
-	if portableCodex && codexModelSwitched(r.Header, conversion) {
-		ctx = withCodexSelectedModel(ctx, model, nativeBody)
+	if portableCodex && ingress.CodexModelSwitched(r.Header, conversion) {
+		ctx = requestcontext.WithCodexSelectedModel(ctx, model, nativeBody)
 	}
 	ctx = conversation.WithCodexSkillTurn(ctx, conversion.CodexSkill)
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
