@@ -99,7 +99,7 @@ type routerFeedbackCommand struct {
 }
 
 func (c routerFeedbackCommand) handle(ctx context.Context, s *Service) error {
-	clientID := ClientIdentityFrom(ctx)
+	clientID := requestcontext.ClientIdentityFrom(ctx)
 	ack := newCommandAcknowledgment(translate.CommandRouterFeedback)
 	ack.clientApp = clientID.ClientApp
 	externalID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)

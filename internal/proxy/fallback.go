@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/sse"
@@ -54,7 +55,7 @@ func (s *Service) shouldFailover(ctx context.Context) bool {
 func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding {
 	req := dispatch.BindingRequest{
 		Decision:   decision,
-		ImageCount: requestImageCountFromContext(ctx),
+		ImageCount: requestcontext.RequestImageCountFromContext(ctx),
 		UserForced: isUserForcedReason(decision.Reason),
 		ForceModel: decision.UserForcedModel(),
 	}
@@ -168,7 +169,7 @@ func anthropicErrorFrameBody(cls ingress.DispatchErrorClass) []byte {
 }
 
 func openAIErrorFrameBody(cls ingress.DispatchErrorClass) []byte {
-	code := OpenAIErrorCode(cls.Kind)
+	code := ingress.OpenAIErrorCode(cls.Kind)
 	if code == "" {
 		code = "upstream_error"
 	}

@@ -70,7 +70,7 @@ func assembleMessagesPreRoute(ctx context.Context, s *Service, in messagesPreRou
 	}
 	if requestBodyChanged {
 		feats = env.RoutingFeatures()
-		ctx = withRequestImageCount(ctx, feats.ImageCount)
+		ctx = requestcontext.WithRequestImageCount(ctx, feats.ImageCount)
 		promptText, embedInput = conversation.TurnPromptText(feats)
 	}
 
