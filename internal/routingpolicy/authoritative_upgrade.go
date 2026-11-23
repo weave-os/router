@@ -25,7 +25,7 @@ func (t AuthoritativeTurn) UpgradeDecision(pin sessionpin.Pin, res TurnRoute) *A
 	if mode == flags.AuthoritativeUpgradePolicyScore && !t.Settings.UpgradeGate {
 		mode = flags.AuthoritativeUpgradePolicyOff
 	}
-	upgradeShadow := t.Settings.Config.UpgradeShadow
+	upgradeShadow := t.Settings.HMMConfig.UpgradeShadow
 	decision := &AuthoritativeUpgradeDecision{
 		Mode:            mode,
 		PinModel:        pin.Model,
@@ -88,7 +88,7 @@ func (t AuthoritativeTurn) UpgradeDecision(pin sessionpin.Pin, res TurnRoute) *A
 
 func (t AuthoritativeTurn) cacheShadow(activePin sessionpin.Pin) AuthorityCacheShadow {
 	fresh := t.Fresh
-	if !t.Settings.CacheShadow || !t.Ports.Ownership.IsDecision(fresh) {
+	if !t.Settings.CacheShadowEnabled || !t.Ports.Ownership.IsDecision(fresh) {
 		return AuthorityCacheShadow{}
 	}
 	_, plannerDecision, sticky, stayModel := CostGatedDecision(t.Ports, t.Settings.CostGate, continuity.CostGateInput{
