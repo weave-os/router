@@ -7,14 +7,13 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"unicode"
 
 	"weave-os/router/internal/router"
 )
 
 const (
-	labelPrefix = "@cycle"
-	// The plugin's prompt asks for the label as a Markdown link reference
-	// definition, which renderers hide: [@cycle]: <body>.
+	labelPrefix           = "@cycle"
 	labelDefinitionPrefix = "[@cycle]:"
 	feedbackFooterPrefix  = "_Weave Router feedback:_ "
 	repeatedLabel         = "="
@@ -100,7 +99,6 @@ func lastAssistantText(messages []router.ConversationMessage) int {
 	return -1
 }
 
-// lastLine is the reply's last line above any router feedback footer.
 func lastLine(text string) string {
 	text = strings.TrimSpace(text)
 	line := strings.TrimSpace(text[strings.LastIndexByte(text, '\n')+1:])
@@ -116,23 +114,17 @@ func labelBody(line string) (string, bool) {
 		body = strings.TrimSuffix(strings.TrimPrefix(body, "<"), ">")
 		return strings.TrimSpace(body), true
 	}
-	if line == labelPrefix || strings.HasPrefix(line, labelPrefix+" ") {
-		return strings.TrimSpace(strings.TrimPrefix(line, labelPrefix)), true
+	rest, found := strings.CutPrefix(line, labelPrefix)
+	if !found || (rest != "" && !unicode.IsSpace(rune(rest[0]))) {
+		return "", false
 	}
-	return "", false
+	return strings.TrimSpace(rest), true
 }
 
-// parseLabel reads the label closing text: the named JSON form current
-// plugins write ({"task": ..., "step": ..., "summary": ...}, goal optional),
-// the positional form older prompts wrote (goal task step status | reason),
-// or a repeated label (=).
 func parseLabel(text string) (label Label, repeated bool, ok bool) {
 	body, found := labelBody(lastLine(text))
 	if !found {
 		return Label{}, false, false
-	}
-	if body == repeatedLabel {
-		return Label{}, true, true
 	}
 	if strings.HasPrefix(body, "{") {
 		var fields struct {
@@ -148,6 +140,9 @@ func parseLabel(text string) (label Label, repeated bool, ok bool) {
 	}
 	head, _, _ := strings.Cut(body, "|")
 	fields := strings.Fields(head)
+	if len(fields) == 1 && fields[0] == repeatedLabel {
+		return Label{}, true, true
+	}
 	if len(fields) != positionalFieldsLen {
 		return Label{}, false, false
 	}
