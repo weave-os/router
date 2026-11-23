@@ -25,6 +25,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/config"
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/entra"
@@ -994,6 +995,17 @@ func main() {
 	ingressFormats.OpenAIResponsesBroad, ingressFormats.EscapeNormalize = openAIResponsesBroad, escapeNormalize
 	ingressFormats.CCOrchToolsCrossVendor, ingressFormats.CCTaskToolsCrossVendor = ccOrchToolsCrossVendor, ccTaskToolsCrossVendor
 	ingressFormats.CCAutonomySystemAppend, ingressFormats.CCWorkspaceSystemAppend = ccAutonomySystemAppend, ccWorkspaceSystemAppend
+	seatUsage := postgres.NewSeatUsageRepo(pool)
+	usageObserver := newUsageObserver(logger, seatUsage)
+	if subscriptionRuntime != nil {
+		subscriptionRuntime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, now time.Time) subscriptions.CandidateSignal {
+			snapshot, observed := usageObserver.Snapshot(usageObserver.Key([]byte("subscription-account:" + accountID)))
+			if !observed {
+				return subscriptions.CandidateSignal{}
+			}
+			return subscriptionCandidateSignal(snapshot, now)
+		})
+	}
 	proxySvc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(providerMap), telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry), hmm.ServingPorts()), proxy.Deps{
 		Telemetry: proxy.TelemetryDeps{Clock: time.Now, SessionTurnClock: sessionTurnClock, ContentCapture: captureMode, ContentCaptureMaxBytes: captureMaxBytes, Billing: billingSvc, Flags: &proxy.TelemetryFlags{
 			TurnSignalCapture: turnSignalCaptureEnabled, NativeAnthropicResponseSignals: nativeAnthropicResponseSignals, NativeOpenAIResponseSignals: nativeOpenAIResponseSignals}},
@@ -1001,6 +1013,8 @@ func main() {
 			FeedbackLinks: feedbackLinks, PiHandoffSecret: config.GetOr("ROUTER_PI_HANDOFF_SECRET", ""), TextRepetitionBreak: &textRepetitionBreakEnabled},
 		Routing: &proxy.RoutingDeps{PrefixTrimFreeSwitch: &prefixTrimFreeSwitch, EffortEscalation: effortEscalation},
 		Ingress: &ingressFormats, Escalation: proxy.EscalationDeps{SwitchyardActive: escalationJudgeActiveEnabled}, BYOKOnly: byokOnly, DeploymentKeyedProviders: deploymentEligible,
+		Credentials: &credentials.Brokerage{ExternalKeyUsage: authSvc, UsageObserver: usageObserver, ClaudePlans: subscriptions.NewPlanResolver(anthropicClient, time.Now), CodexExtraCredits: allowCodexCredits,
+			ManagedSubscriptions: managedSubscriptionLeaser(subscriptionRuntime), PassthroughEligible: passthroughEligible, ExcludedProvidersOverride: excludedProvidersFromEnv(logger)},
 		Dispatch: &dispatch.Config{
 			Rescue: dispatch.RescueConfig{SiblingFailover: siblingFailover, EarlyStopRedo: earlyStopRedo, CyberRefusalRepin: cyberRefusalRepin, CyberRefusalRetry: cyberRefusalRetry,
 				CyberRefusalFallbackModel: cyberRefusalFallbackModel, AnthropicServerSideFallback: anthropicServerSideFallback},
@@ -1010,9 +1024,6 @@ func main() {
 			Executor: inferenceExecutor, Plans: inferencePlans, Deployment: inferenceDeployment,
 			TranslationCompatibilityMode: dispatch.TranslationCompatibilityMode(translationCompatibilityMode), TranslationMetrics: otel.NewTranslationMetrics()},
 	}).
-		WithClaudeSubscriptionPlanReader(anthropicClient).
-		WithExternalKeyUsageRecorder(authSvc).
-		WithCodexExtraCredits(allowCodexCredits).
 		WithEscalation(escalationStore, escalationObserver).
 		WithLLMEscalation(llmEscalationStore, escalationJudge).
 		WithQwenEscalation(qwenEscalationJudge).
@@ -1037,7 +1048,6 @@ func main() {
 			Strategy: router.StrategyDecisionModel, Router: buildDecisionModelRouter(logger), Unavailable: decisionmodel.ErrUnavailable,
 			Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true},
 		}).
-		WithPassthroughEligibleProviders(passthroughEligible).
 		WithHardPinResolver(hardPinResolver).
 		WithExplicitUtilityHardPin(hardPinOverrideConfigured).
 		WithSubAgentOverride(subAgentProvider, subAgentModel).
@@ -1054,9 +1064,6 @@ func main() {
 		panic(err)
 	}
 	proxySvc = withRoutingPolicy(proxySvc, inferencePlans)
-	if subscriptionRuntime != nil {
-		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
-	}
 	for _, spec := range configuredPolicySpecs {
 		proxySvc = proxySvc.WithPolicyStrategy(spec)
 		logger.Info("Generic policy sidecar wired", "strategy", spec.Strategy, "candidate_models", len(routingTargets))
@@ -1090,31 +1097,6 @@ func main() {
 		proxySvc = proxySvc.WithExcludedModelsOverride(cleaned)
 		logger.Info("Model exclusion override active", "excluded_models", cleaned)
 	}
-
-	if excludedRaw := strings.TrimSpace(config.GetOr("ROUTER_EXCLUDED_PROVIDERS", "")); excludedRaw != "" {
-		parts := strings.Split(excludedRaw, ",")
-		cleaned := make([]string, 0, len(parts))
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				cleaned = append(cleaned, trimmed)
-			}
-		}
-		proxySvc = proxySvc.WithExcludedProvidersOverride(cleaned)
-		logger.Info("Provider exclusion override active", "excluded_providers", cleaned)
-	}
-
-	seatUsage := postgres.NewSeatUsageRepo(pool)
-	usageObserver := newUsageObserver(logger, seatUsage)
-	if subscriptionRuntime != nil {
-		subscriptionRuntime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, now time.Time) subscriptions.CandidateSignal {
-			snapshot, observed := usageObserver.Snapshot(usageObserver.Key([]byte("subscription-account:" + accountID)))
-			if !observed {
-				return subscriptions.CandidateSignal{}
-			}
-			return subscriptionCandidateSignal(snapshot, now)
-		})
-	}
-	proxySvc = proxySvc.WithUsageObserver(usageObserver)
 
 	trafficCapture, err := newTrafficCaptureFromEnvironment()
 	if err != nil {

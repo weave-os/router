@@ -3,21 +3,10 @@ package proxy
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"weave-os/router/internal/credentials"
-	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
-	"weave-os/router/internal/subscriptions"
 )
-
-func (s *Service) WithClaudeSubscriptionPlanReader(reader providers.SubscriptionPlanReader) *Service {
-	s.credentials.ClaudePlans = nil
-	if reader != nil {
-		s.credentials.ClaudePlans = subscriptions.NewPlanResolver(reader, func() time.Time { return s.clock.Now() })
-	}
-	return s
-}
 
 func (s *Service) withClaudeSubscriptionProfile(ctx context.Context, headers http.Header) context.Context {
 	if s.credentials.ClaudePlans == nil || credentials.SubscriptionRoutingDisabledForRequest(ctx) || credentials.SubscriptionFundingOutOfPlayForRequest(ctx) || credentials.AnthropicBYOKFirst(ctx) {

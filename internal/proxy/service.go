@@ -838,19 +838,6 @@ func (s *Service) ExcludedModelsOverride() []string {
 	return out
 }
 
-func (s *Service) WithExcludedProvidersOverride(providerNames []string) *Service {
-	if len(providerNames) == 0 {
-		s.credentials.ExcludedProvidersOverride = nil
-		return s
-	}
-	set := make(map[string]struct{}, len(providerNames))
-	for _, p := range providerNames {
-		set[p] = struct{}{}
-	}
-	s.credentials.ExcludedProvidersOverride = set
-	return s
-}
-
 func (s *Service) HasExcludedProvidersOverride() bool {
 	return s.credentials.ExcludedProvidersOverride != nil
 }
@@ -906,29 +893,6 @@ func (s *Service) newTelemetryRecorder() telemetry.Recorder {
 		return nil
 	}
 	return s.turnTelemetry.emitter.NewRecorder()
-}
-
-func (s *Service) WithCodexExtraCredits(enabled bool) *Service {
-	s.credentials.CodexExtraCredits = enabled
-	return s
-}
-
-func (s *Service) WithManagedSubscriptions(pool subscriptions.Leaser) *Service {
-	s.credentials.ManagedSubscriptions = pool
-	return s
-}
-
-func (s *Service) WithPassthroughEligibleProviders(set map[string]struct{}) *Service {
-	if set == nil {
-		s.credentials.PassthroughEligible = nil
-		return s
-	}
-	copied := make(map[string]struct{}, len(set))
-	for p := range set {
-		copied[p] = struct{}{}
-	}
-	s.credentials.PassthroughEligible = copied
-	return s
 }
 
 var ErrProviderNotConfigured = dispatch.ErrProviderNotConfigured
