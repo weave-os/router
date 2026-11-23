@@ -336,19 +336,3 @@ func (s *Service) runCompactionHandover(ctx context.Context, env *translate.Requ
 		Now:        s.clock.Now,
 	}.Run(ctx, env, decisionModel, scope)
 }
-
-func (s *Service) WithSummarizer(sz handover.Summarizer) *Service {
-	if s.lifecycle == nil {
-		s.lifecycle = &conversation.Lifecycle{}
-	}
-	s.lifecycle.SetSummarizer(sz)
-	return s
-}
-
-func (s *Service) WithCompactionHandoverSummarizer(sz handover.Summarizer) *Service {
-	if s.lifecycle == nil {
-		s.lifecycle = &conversation.Lifecycle{}
-	}
-	s.lifecycle.SetCompactionHandoverSummarizer(sz)
-	return s
-}

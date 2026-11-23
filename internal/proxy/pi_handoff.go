@@ -30,24 +30,10 @@ type preparedHandoff struct {
 	Complexity   string `json:"complexity,omitempty"`
 }
 
-func (s *Service) WithPiHandoffSecret(secret string) *Service {
-	if len(secret) >= 32 {
-		if s.lifecycle == nil {
-			s.lifecycle = &conversation.Lifecycle{}
-		}
-		s.lifecycle.SetPiHandoffSecret([]byte(secret))
-	}
-	return s
-}
-
 func writePreparedHandoff(w http.ResponseWriter, prepared preparedHandoff) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	return json.NewEncoder(w).Encode(prepared)
-}
-
-func (s *Service) parseHandoff(ctx context.Context, body []byte) (context.Context, []byte, error) {
-	return s.lifecycle.PiHandoff(s.clock.Now).Parse(ctx, body, requestcontext.InstallationIDFromContext(ctx))
 }
 
 func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.Strategy, w http.ResponseWriter, env *translate.RequestEnvelope, req router.Request, route routingpolicy.TurnRoute) error {

@@ -1,9 +1,11 @@
 package conversation
 
 import (
+	"context"
 	"time"
 
 	"weave-os/router/internal/feedback"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/sessionstrategy"
 )
@@ -17,6 +19,31 @@ type Lifecycle struct {
 	routerFeedback               feedback.RouterFeedbackStore
 	sessionStrategies            sessionstrategy.Store
 	piHandoffSecret              []byte
+	feedbackLinks                *feedback.Links
+}
+
+type Config struct {
+	Summarizer                   handover.Summarizer
+	CompactionHandoverSummarizer handover.Summarizer
+	RouterFeedbackStore          feedback.RouterFeedbackStore
+	SessionStrategies            sessionstrategy.Store
+	FeedbackLinks                *feedback.Links
+	PiHandoffSecret              string
+	TextRepetitionBreak          *bool
+}
+
+func (l *Lifecycle) Configure(cfg Config) {
+	l.summarizer = cfg.Summarizer
+	l.compactionHandoverSummarizer = cfg.CompactionHandoverSummarizer
+	l.routerFeedback = cfg.RouterFeedbackStore
+	l.sessionStrategies = cfg.SessionStrategies
+	l.feedbackLinks = cfg.FeedbackLinks
+	if len(cfg.PiHandoffSecret) >= 32 {
+		l.piHandoffSecret = []byte(cfg.PiHandoffSecret)
+	}
+	if cfg.TextRepetitionBreak != nil {
+		l.textRepetitionBreak = *cfg.TextRepetitionBreak
+	}
 }
 
 func NewLifecycle() *Lifecycle {
@@ -32,6 +59,10 @@ func (l *Lifecycle) NoProgress() *NoProgressTracker {
 
 func (l *Lifecycle) TextRepetitionBreak() bool {
 	return l != nil && l.textRepetitionBreak
+}
+
+func (l *Lifecycle) TextRepetitionBreakEnabled(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyTextRepetitionBreak, l.TextRepetitionBreak())
 }
 
 func (l *Lifecycle) SetTextRepetitionBreak(enabled bool) {
@@ -98,4 +129,15 @@ func (l *Lifecycle) PiHandoff(now func() time.Time) PiHandoff {
 
 func (l *Lifecycle) SetPiHandoffSecret(secret []byte) {
 	l.piHandoffSecret = secret
+}
+
+func (l *Lifecycle) FeedbackLinks() *feedback.Links {
+	if l == nil {
+		return nil
+	}
+	return l.feedbackLinks
+}
+
+func (l *Lifecycle) SetFeedbackLinks(links *feedback.Links) {
+	l.feedbackLinks = links
 }

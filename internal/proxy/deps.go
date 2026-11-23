@@ -5,6 +5,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
@@ -12,6 +13,7 @@ import (
 
 type Deps struct {
 	Telemetry                TelemetryDeps
+	Conversation             conversation.Config
 	Ingress                  *ingress.Formats
 	Escalation               EscalationDeps
 	BYOKOnly                 bool
@@ -48,5 +50,9 @@ func WithDeps(s *Service, deps Deps) *Service {
 	s.escalationHelper().WithSwitchyardActive(deps.Escalation.SwitchyardActive)
 	s.credentials.BYOKOnly = deps.BYOKOnly
 	s.credentials.KeyedProviders = maps.Clone(deps.DeploymentKeyedProviders)
+	if s.lifecycle == nil {
+		s.lifecycle = &conversation.Lifecycle{}
+	}
+	s.lifecycle.Configure(deps.Conversation)
 	return s
 }
