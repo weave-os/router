@@ -5,12 +5,14 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
 )
 
 type Deps struct {
 	Telemetry                TelemetryDeps
+	Ingress                  *ingress.Formats
 	BYOKOnly                 bool
 	DeploymentKeyedProviders map[string]struct{}
 }
@@ -34,6 +36,9 @@ func WithDeps(s *Service, deps Deps) *Service {
 	s.billing = deps.Telemetry.Billing
 	if deps.Telemetry.Flags != nil {
 		s.turnTelemetry.flags = *deps.Telemetry.Flags
+	}
+	if deps.Ingress != nil {
+		s.ingress = *deps.Ingress
 	}
 	s.credentials.BYOKOnly = deps.BYOKOnly
 	s.credentials.KeyedProviders = maps.Clone(deps.DeploymentKeyedProviders)

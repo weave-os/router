@@ -258,7 +258,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			Capabilities:   opts.Capabilities,
 			HasTools:       feats.HasTools,
 			ChatOnlyParams: env.RequiresChatCompletionsParams(opts.Capabilities),
-			Broad:          s.ResolveOpenAIResponsesBroad(ctx),
+			Broad:          s.ingress.ResponsesBroad(ctx),
 		}) && !s.engine.GatewayCaps().LacksResponses(responsesEndpointKey)
 		if !env.RequiresChatCompletionsParams(opts.Capabilities) && !s.engine.GatewayCaps().LacksResponses(responsesEndpointKey) && s.supportsSubscriptionTransport(decision.Provider) &&
 			(servedOnCodexSubscription(resolvedCtx) || managedSubscriptionCanServe(ctx, decision.Provider, decision.Model)) {
