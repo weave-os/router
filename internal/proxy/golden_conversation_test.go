@@ -3,7 +3,6 @@ package proxy_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -16,10 +15,8 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionstrategy"
-	"weave-os/router/internal/translate"
 )
 
 const goldenConversationPrefix = ingressAnthropic + "_conversation_"
@@ -185,40 +182,6 @@ func goldenContinuationScenarios() []goldenScenario {
 	return []goldenScenario{grant, noPin, forced, expired}
 }
 
-func conversationLongHistory(turns int) []string {
-	msgs := []string{conversationUser(goldenConversationOpening)}
-	for i := range turns {
-		msgs = append(msgs, conversationAssistant(fmt.Sprintf("step %d done", i)), conversationUser(fmt.Sprintf("next step %d", i)))
-	}
-	return msgs
-}
-
-func handoverScenario(name string, summarizer handover.Summarizer) goldenScenario {
-	long := conversationLongHistory(6)
-	short := []string{conversationUser(goldenConversationOpening), conversationAssistant("Summary: parser split into lexer and grammar."), conversationUser("keep going")}
-	sc := goldenScenario{
-		name: goldenConversationPrefix + name, ingress: ingressAnthropic,
-		decisions: []router.Decision{decision(providers.ProviderFireworks, goldenCompatModel)},
-		upstreams: map[string][]goldenStep{
-			providers.ProviderFireworks: {compatOK(false, "first"), compatOK(false, "second")},
-			providers.ProviderAnthropic: {anthropicOK(false, "never")},
-		},
-		requests: []goldenRequest{
-			{body: conversationBody(false, long...), decorateContext: goldenSessionCtx},
-			{body: conversationBody(false, short...), decorateContext: goldenSessionCtx},
-		},
-	}
-	if summarizer != nil {
-		sc.configure = func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-			if s, ok := summarizer.(*goldenSummarizer); ok {
-				s.rec = h.rec
-			}
-			return svc.WithCompactionHandoverSummarizer(summarizer)
-		}
-	}
-	return sc
-}
-
 const goldenHandoffSecret = "golden-handoff-secret-0123456789abcdef"
 
 func handoffScenario(name string, requests ...goldenRequest) goldenScenario {
@@ -255,10 +218,6 @@ func goldenHandoverScenarios() []goldenScenario {
 	body := fmt.Sprintf(`{"model":%q,"max_tokens":1024,"stream":false,"metadata":{"user_id":"pi:golden"},"messages":[%s]}`,
 		goldenAnthropicModel, conversationUser(goldenConversationOpening))
 	return []goldenScenario{
-		handoverScenario("compaction_handover_summarizes_history", &goldenSummarizer{summary: "Earlier: parser split into lexer and grammar."}),
-		handoverScenario("compaction_handover_summarizer_error_keeps_history", &goldenSummarizer{err: errors.New("summarizer unavailable")}),
-		handoverScenario("compaction_handover_empty_summary_keeps_history", &goldenSummarizer{}),
-		handoverScenario("compaction_handover_without_summarizer", nil),
 		handoffScenario("handoff_prepare_then_resume_skips_reclassify",
 			goldenRequest{body: body, decorateContext: handoffCtx(true), noTelemetry: true},
 			goldenRequest{decorateContext: handoffCtx(false), bodyFrom: func(prev []byte) string { return withHandoffToken(body, prev) }}),
@@ -371,23 +330,4 @@ func (s *goldenConversationStore) Disable(_ context.Context, _ uuid.UUID, _ [ses
 	was := s.enabled
 	s.enabled = false
 	return was, nil
-}
-
-// goldenSummarizer returns a fixed summary or error and records each call as a
-// handover.summarize store event.
-type goldenSummarizer struct {
-	rec     *goldenRecorder
-	summary string
-	err     error
-}
-
-func (g *goldenSummarizer) Provider() string { return providers.ProviderAnthropic }
-
-func (g *goldenSummarizer) Summarize(_ context.Context, env *translate.RequestEnvelope, scope router.Request) (string, handover.Usage, error) {
-	g.rec.mu.Lock()
-	g.rec.storeEvents = append(g.rec.storeEvents, goldenPinEvent{Op: "handover.summarize", Detail: map[string]any{
-		"requested_model": scope.RequestedModel, "estimated_tokens": env.FullTokenEstimate(),
-	}})
-	g.rec.mu.Unlock()
-	return g.summary, handover.Usage{}, g.err
 }

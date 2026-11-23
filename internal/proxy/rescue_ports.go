@@ -12,7 +12,6 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -319,10 +318,6 @@ func (rescueOverflowPort) ObservedOverflowModels(ctx context.Context) []string {
 
 func (rescueOverflowPort) ClientRequestedModel(ctx context.Context, requested string) string {
 	return clientRequestedModel(ctx, requested)
-}
-
-func (p rescueOverflowPort) RunCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) handover.Outcome {
-	return p.s.runCompactionHandover(ctx, env, reqHeaders, decisionModel, scope)
 }
 
 func (rescueRenderPort) FlushAnthropicError(w http.ResponseWriter, err error) {

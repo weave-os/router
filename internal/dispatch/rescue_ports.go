@@ -8,7 +8,6 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -92,7 +91,6 @@ type RescueOverflow interface {
 	WithClientTrimCounts(ctx context.Context, err, primaryErr error) error
 	ObservedOverflowModels(ctx context.Context) []string
 	ClientRequestedModel(ctx context.Context, requested string) string
-	RunCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) handover.Outcome
 }
 
 type RescueRender interface {

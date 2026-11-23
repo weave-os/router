@@ -120,9 +120,9 @@ Operator-facing behavior of the same features is in [CONFIGURATION.md](CONFIGURA
 
 ## Handover summarizer and the credential boundary
 
-The model-switch handover in `turnloop.go` and the compaction handover in
-`handover.go` run the summarizer on the caller's own credentials for the
-summarizer's provider when the request carries them. Otherwise the summarizer
+The model-switch handover in `turnloop.go` runs the summarizer on the
+caller's own credentials for the summarizer's provider when the request carries
+them. Otherwise the summarizer
 runs on deployment credentials, with request credentials cleared, only when
 the request itself uses deployment credentials. A BYOK or client-keyed request
 without matching summarizer credentials skips summarization and keeps the full
@@ -130,10 +130,8 @@ without matching summarizer credentials skips summarization and keeps the full
 summarizer on the deployment key. Claude subscription OAuth tokens cannot fund
 the synthetic summarizer call and are ignored for it.
 
-Both copies of the guard are pinned:
-`TestTurnLoop_HandoverSkippedWhenStoredBYOKKeyIsForAnotherProvider` (switch
-handover) and `TestRunCompactionHandover_SummarizerNeverCrossesTenantCredentialBoundary`
-(compaction handover).
+The guard is pinned by
+`TestTurnLoop_HandoverSkippedWhenStoredBYOKKeyIsForAnotherProvider`.
 
 ## Force-model name resolution
 

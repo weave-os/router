@@ -47,14 +47,6 @@ func (s *Service) WithSummarizer(sz handover.Summarizer) *Service {
 	return s
 }
 
-func (s *Service) WithCompactionHandoverSummarizer(sz handover.Summarizer) *Service {
-	if s.lifecycle == nil {
-		s.lifecycle = &conversation.Lifecycle{}
-	}
-	s.lifecycle.SetCompactionHandoverSummarizer(sz)
-	return s
-}
-
 func (s *Service) WithTextRepetitionBreak(enabled bool) *Service {
 	if s.lifecycle == nil {
 		s.lifecycle = &conversation.Lifecycle{}

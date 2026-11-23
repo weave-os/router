@@ -40,7 +40,7 @@ func (o *ChatRescue) ArmRescues(ctx context.Context) context.Context {
 }
 
 func (o *ChatRescue) DispatchPrimary(ctx context.Context) {
-	o.DispatchPrimaryAttempt(ctx, o.CyberRetryViable || o.CodexRetryViable || o.ClaudeRetryViable || o.RescueArmed, nil)
+	o.DispatchPrimaryAttempt(ctx, o.CyberRetryViable || o.CodexRetryViable || o.ClaudeRetryViable || o.RescueArmed)
 	if o.SubscriptionStatePaidTargetAttempted {
 		o.CodexRetryViable = false
 		o.ClaudeRetryViable = false

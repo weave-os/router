@@ -22,9 +22,8 @@ const SpanTypePlatformAuxiliaryInference = "router.platform_auxiliary_inference"
 const decisionReasonEscalationJudge = "escalation_judge"
 
 const (
-	auxSuffixHandoverSummary          = "_summary"
-	auxSuffixPrecompactionSummary     = "_precompaction_summary"
-	auxSuffixCompactionHandoverSummry = "_compaction_summary"
+	auxSuffixHandoverSummary      = "_summary"
+	auxSuffixPrecompactionSummary = "_precompaction_summary"
 )
 
 func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, requestIDSuffix, externalID string, usage handover.Usage) {
