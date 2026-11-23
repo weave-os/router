@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/translate/toolcheck"
 
@@ -60,11 +61,11 @@ type chatTurnDispatch struct {
 	overflowEstimateOAI     int
 	outputReserveOAI        int
 	responsesEndpointKey    string
-	escalationCapture       **captureWriter
+	escalationCapture       **capture.Writer
 
 	bindings             []catalog.ProviderBinding
 	contentSink          http.ResponseWriter
-	contentCap           *captureWriter
+	contentCap           *capture.Writer
 	marker               string
 	responsesWriter      *translate.ResponsesWriter
 	isResponses          bool
@@ -136,7 +137,7 @@ func (t *chatTurnDispatch) bindAndGate(ctx context.Context) (context.Context, er
 func (t *chatTurnDispatch) prepareSinks(ctx, credentialCtx context.Context) (context.Context, error) {
 	clientSink := t.w
 	if _, isResponses := t.w.(*translate.ResponsesWriter); t.env.Stream() && !isResponses {
-		if footer := t.s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, t.routeRes.TurnType, t.footerEchoed); footer != "" {
+		if footer := t.s.feedbackFooter(ctx, requestcontext.ClientIdentityFrom(ctx).ClientApp, t.routeRes.TurnType, t.footerEchoed); footer != "" {
 			clientSink = translate.NewOpenAIRoutingFooterWriter(t.w, footer)
 		}
 	}

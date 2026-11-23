@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
@@ -63,7 +64,7 @@ func describeAttempt(ctx context.Context, trace *dispatch.AttemptTrace, attempt 
 				Err:                    err,
 				BodyTranslated:         diagnosis.BodyTranslated,
 				CustomerCredential:     customerCredential,
-				RejectedFieldUnchanged: rejectedFieldUnchanged(err, inbound, sent),
+				RejectedFieldUnchanged: ingress.RejectedFieldUnchanged(err, inbound, sent),
 			}))
 			logAttemptFailure(ctx, attempt, err, diagnosis)
 		}

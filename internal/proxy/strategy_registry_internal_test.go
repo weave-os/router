@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/telemetry/capture"
 )
 
 type registryRouter struct {
@@ -101,7 +102,7 @@ func TestPolicyStrategyRegistryRoutesFutureStrategyWithoutServiceChanges(t *test
 	ctx = context.WithValue(ctx, requestcontext.PolicyDebugEnabledContextKey{}, true)
 	ctx = context.WithValue(ctx, requestcontext.PolicyRoutingIntentContextKey{}, "high")
 	ctx = router.WithStrategy(ctx, strategy)
-	svc.captureMode = CaptureFull
+	svc.captureMode = capture.Full
 
 	decision, err := svc.Route(ctx, router.Request{})
 

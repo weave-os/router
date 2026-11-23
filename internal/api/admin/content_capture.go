@@ -6,14 +6,10 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/telemetry/capture"
 
 	"github.com/gin-gonic/gin"
 )
-
-type CaptureModeSource interface {
-	CaptureMode() proxy.ContentCaptureMode
-}
 
 type contentCaptureResponse struct {
 	Deployment   string  `json:"deployment"`
@@ -25,10 +21,10 @@ type updateContentCaptureRequest struct {
 	Mode *string `json:"mode"`
 }
 
-func contentCaptureFor(installation *auth.Installation, deployment proxy.ContentCaptureMode) contentCaptureResponse {
+func contentCaptureFor(installation *auth.Installation, deployment capture.Mode) contentCaptureResponse {
 	effective := deployment
 	if installation.ContentCaptureMode != nil {
-		effective = proxy.StricterCaptureMode(deployment, proxy.ParseCaptureMode(*installation.ContentCaptureMode))
+		effective = capture.StricterMode(deployment, capture.ParseMode(*installation.ContentCaptureMode))
 	}
 	return contentCaptureResponse{
 		Deployment:   deployment.String(),
@@ -37,17 +33,17 @@ func contentCaptureFor(installation *auth.Installation, deployment proxy.Content
 	}
 }
 
-func GetContentCaptureHandler(authSvc *auth.Service, capture CaptureModeSource) gin.HandlerFunc {
+func GetContentCaptureHandler(authSvc *auth.Service, deployment capture.Mode) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
 			return
 		}
-		c.JSON(http.StatusOK, contentCaptureFor(installation, capture.CaptureMode()))
+		c.JSON(http.StatusOK, contentCaptureFor(installation, deployment))
 	}
 }
 
-func UpdateContentCaptureHandler(authSvc *auth.Service, capture CaptureModeSource) gin.HandlerFunc {
+func UpdateContentCaptureHandler(authSvc *auth.Service, deployment capture.Mode) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		installation, ok := resolveInstallation(c, authSvc)
@@ -72,8 +68,6 @@ func UpdateContentCaptureHandler(authSvc *auth.Service, capture CaptureModeSourc
 		}
 
 		installation.ContentCaptureMode = req.Mode
-		c.JSON(http.StatusOK, contentCaptureFor(installation, capture.CaptureMode()))
+		c.JSON(http.StatusOK, contentCaptureFor(installation, deployment))
 	}
 }
-
-var _ CaptureModeSource = (*proxy.Service)(nil)

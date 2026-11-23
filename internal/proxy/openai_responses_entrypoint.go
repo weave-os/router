@@ -24,9 +24,9 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		return inputErr
 	}
 	ctx = s.withUsageObserver(ctx, r.Header)
-	clientApp := ClientIdentityFrom(ctx).ClientApp
+	clientApp := requestcontext.ClientIdentityFrom(ctx).ClientApp
 	portableCodex := clientApp == requestcontext.ClientAppCodex
-	terminalResponses := supportsResponsesTerminalSurfaces(clientApp)
+	terminalResponses := requestcontext.SupportsResponsesTerminalSurfaces(clientApp)
 	if translate.FeedbackFooterInResponsesHistory(body) {
 		ctx = context.WithValue(ctx, responsesFooterEchoedContextKey{}, true)
 	}

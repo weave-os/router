@@ -2,11 +2,12 @@ package proxy
 
 import (
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
 
-func turnSignalCaptureAllowed(trainingAllowed bool, capture ContentCaptureMode) bool {
-	return trainingAllowed && (capture == CaptureHashed || capture == CaptureFull)
+func turnSignalCaptureAllowed(trainingAllowed bool, mode capture.Mode) bool {
+	return trainingAllowed && (mode == capture.Hashed || mode == capture.Full)
 }
 
 func applyTurnSignalTelemetry(
@@ -15,9 +16,9 @@ func applyTurnSignalTelemetry(
 	reasons []conversation.SpiralReason,
 	computed bool,
 	trainingAllowed bool,
-	capture ContentCaptureMode,
+	mode capture.Mode,
 ) {
-	if p == nil || !computed || !turnSignalCaptureAllowed(trainingAllowed, capture) {
+	if p == nil || !computed || !turnSignalCaptureAllowed(trainingAllowed, mode) {
 		return
 	}
 	p.SpiralErrStreak = int32Ptr(int32(sig.ErrStats.TrailingErrStreak))

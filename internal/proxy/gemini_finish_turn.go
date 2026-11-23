@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
@@ -50,7 +51,7 @@ type geminiFinishedTurn struct {
 	effortServed      dispatch.EffortResolution
 	proxyStart        time.Time
 	extractor         *telemetry.UsageExtractor
-	contentCap        *captureWriter
+	contentCap        *capture.Writer
 	preludeBuf        *preludeBuffer
 	primaryDecision   router.Decision
 	proxyErr          error
@@ -76,7 +77,7 @@ func finishGeminiTurn(ctx context.Context, s *Service, t *geminiFinishedTurn) er
 	settleGeminiTurn(ctx, s, t, usage, geminiSubscriberTelemetry(ctx, s, t, usage, geminiObs))
 	demotionLogFields := strikeGeminiArms(ctx, s, t)
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	t.log.Info("ProxyGeminiGenerateContent complete", append(append([]any{"requested_model", t.feats.Model, "baseline_model", s.baselineFor(ctx, t.feats.Model), "decision_model", t.decision.Model, "decision_provider", t.decision.Provider, "decision_reason", t.decision.Reason, "embedded_tokens", len(t.promptText) / 4, "total_input_tokens", t.feats.Tokens, "has_tools", t.feats.HasTools, "embed_input", t.embedInput, "sticky_hit", t.stickyHit, "pin_tier", t.pinTier, "turn_type", string(t.tt), "route_ms", t.routeMs, "proxy_ms", t.proxyMs, "proxy_err", t.proxyErr, "error_class", classifyTurnError(t.proxyErr, "", 0), "failure_owner", turnFailureOwnerFor(ctx, t.proxyErr, classifyTurnError(t.proxyErr, "", 0)), "upstream_status", upstreamStatus(t.proxyErr), "credential_source", servedCredentialSource, "client_app", completionLogClientApp(t.facts.Client), "subscription_tier", servedSubscriptionTier}, demotionLogFields...), append(plannerLogFields(t.routeRes), t.rateLimit.CompletionLogFields()...)...)...)
+	t.log.Info("ProxyGeminiGenerateContent complete", append(append([]any{"requested_model", t.feats.Model, "baseline_model", s.baselineFor(ctx, t.feats.Model), "decision_model", t.decision.Model, "decision_provider", t.decision.Provider, "decision_reason", t.decision.Reason, "embedded_tokens", len(t.promptText) / 4, "total_input_tokens", t.feats.Tokens, "has_tools", t.feats.HasTools, "embed_input", t.embedInput, "sticky_hit", t.stickyHit, "pin_tier", t.pinTier, "turn_type", string(t.tt), "route_ms", t.routeMs, "proxy_ms", t.proxyMs, "proxy_err", t.proxyErr, "error_class", classifyTurnError(t.proxyErr, "", 0), "failure_owner", turnFailureOwnerFor(ctx, t.proxyErr, classifyTurnError(t.proxyErr, "", 0)), "upstream_status", upstreamStatus(t.proxyErr), "credential_source", servedCredentialSource, "client_app", requestcontext.CompletionLogClientApp(t.facts.Client), "subscription_tier", servedSubscriptionTier}, demotionLogFields...), append(plannerLogFields(t.routeRes), t.rateLimit.CompletionLogFields()...)...)...)
 	s.reportPolicyOutcome(ctx, t.routeRes, t.decision, t.effortServed, t.decision.Provider, false, t.feats.Tokens, usage.in, usage.out, usage.cacheCreation, usage.cacheRead, usage.usageMods, t.routeMs, t.proxyMs, t.proxyErr, nil)
 	return t.proxyErr
 }
@@ -124,7 +125,7 @@ func geminiSubscriberTelemetry(ctx context.Context, s *Service, t *geminiFinishe
 		}
 		telemetryParams := turnrecord.InsertTelemetryParams{
 			InstallationID:         t.facts.InstallationID.String(),
-			APIKeyID:               apiKeyIDFromContext(ctx),
+			APIKeyID:               requestcontext.APIKeyIDFromContext(ctx),
 			RequestID:              t.facts.RequestID,
 			SpanType:               "router.upstream",
 			TraceID:                t.facts.RequestID,

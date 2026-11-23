@@ -11,8 +11,8 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry/capture"
 
 	"github.com/gin-gonic/gin"
 )
@@ -199,7 +199,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			}
 			if installation.ContentCaptureMode != nil {
 				ctx = context.WithValue(ctx, requestcontext.InstallationCaptureModeContextKey{},
-					proxy.ParseCaptureMode(*installation.ContentCaptureMode))
+					capture.ParseMode(*installation.ContentCaptureMode))
 			}
 			if !svc.FlagOverridesDisabled() {
 				ctx = flags.WithOverrides(ctx, installation.FlagOverrides)
