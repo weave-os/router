@@ -6,7 +6,6 @@ import (
 	"slices"
 	"time"
 
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -77,7 +76,7 @@ type dashboardReportSummaryResponse struct {
 	LastRequestAt     *string `json:"last_request_at"`
 }
 
-func MetricsSeriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func MetricsSeriesHandler(queries turnrecord.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		metric := dashboardMetricType(c.Query("type"))
 		group := dashboardMetricGroup(c.Query("group"))
@@ -108,14 +107,14 @@ func MetricsSeriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			if collapseBuckets {
 				activeUsersGranularity = totalGranularity
 			}
-			users, err := proxySvc.MetricsActiveUsers(ctx, installationID, from, to, activeUsersGranularity)
+			users, err := queries.MetricsActiveUsers(ctx, installationID, from, to, activeUsersGranularity)
 			if err != nil {
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch active users."})
 				return
 			}
 			points = activeUserPoints(users, group, collapseBuckets)
 		} else {
-			facts, err := proxySvc.MetricsDashboardFacts(ctx, installationID, from, to, granularity)
+			facts, err := queries.MetricsDashboardFacts(ctx, installationID, from, to, granularity)
 			if err != nil {
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch metric series."})
 				return
@@ -126,7 +125,7 @@ func MetricsSeriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-func MetricsReportSummaryHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func MetricsReportSummaryHandler(queries turnrecord.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		from, to := parseTimeWindow(c)
 		installationID, ok := dashboardScope(c)
@@ -138,7 +137,7 @@ func MetricsReportSummaryHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Unsupported routing_state."})
 			return
 		}
-		facts, err := proxySvc.MetricsDashboardFacts(c.Request.Context(), installationID, from, to, "hour")
+		facts, err := queries.MetricsDashboardFacts(c.Request.Context(), installationID, from, to, "hour")
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch summary."})
 			return
@@ -159,13 +158,13 @@ type dashboardPeopleResponse struct {
 	People []dashboardPerson `json:"people"`
 }
 
-func MetricsPeopleHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func MetricsPeopleHandler(queries turnrecord.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installationID, ok := dashboardScope(c)
 		if !ok {
 			return
 		}
-		people, err := proxySvc.MetricsPeople(c.Request.Context(), installationID)
+		people, err := queries.MetricsPeople(c.Request.Context(), installationID)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch people."})
 			return
