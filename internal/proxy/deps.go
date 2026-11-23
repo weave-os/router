@@ -11,6 +11,7 @@ import (
 
 type Deps struct {
 	Telemetry                TelemetryDeps
+	Escalation               EscalationDeps
 	BYOKOnly                 bool
 	DeploymentKeyedProviders map[string]struct{}
 }
@@ -24,6 +25,10 @@ type TelemetryDeps struct {
 	Flags                  *TelemetryFlags
 }
 
+type EscalationDeps struct {
+	SwitchyardActive bool
+}
+
 func WithDeps(s *Service, deps Deps) *Service {
 	s.clock = deps.Telemetry.Clock
 	s.turnTelemetry.turnClock = deps.Telemetry.SessionTurnClock
@@ -35,6 +40,7 @@ func WithDeps(s *Service, deps Deps) *Service {
 	if deps.Telemetry.Flags != nil {
 		s.turnTelemetry.flags = *deps.Telemetry.Flags
 	}
+	s.escalationHelper().WithSwitchyardActive(deps.Escalation.SwitchyardActive)
 	s.credentials.BYOKOnly = deps.BYOKOnly
 	s.credentials.KeyedProviders = maps.Clone(deps.DeploymentKeyedProviders)
 	return s
