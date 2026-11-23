@@ -97,11 +97,6 @@ type registeredStrategy struct {
 	feedback     policy.FeedbackReporter
 }
 
-func apiKeyIDFromContext(ctx context.Context) string {
-	id, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
-	return id
-}
-
 type codexResponsesBodyContextKey struct{}
 
 type nativeResponsesBodyContextKey struct{}
@@ -732,13 +727,8 @@ func openaiSubscriptionFromContext(ctx context.Context) string {
 	return v
 }
 
-func openaiAccountIDFromContext(ctx context.Context) string {
-	v, _ := ctx.Value(credentials.OpenAIAccountIDContextKey{}).(string)
-	return v
-}
-
 func codexSubscriptionFromContext(ctx context.Context) *Credentials {
-	return codexSubscriptionCreds(openaiSubscriptionFromContext(ctx), openaiAccountIDFromContext(ctx))
+	return codexSubscriptionCreds(openaiSubscriptionFromContext(ctx), requestcontext.OpenAIAccountIDFromContext(ctx))
 }
 
 func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
@@ -1017,7 +1007,7 @@ func clientRequestedModel(ctx context.Context, requested string) string {
 }
 
 func clientBaselineModel(ctx context.Context) string {
-	switch ClientIdentityFrom(ctx).ClientApp {
+	switch requestcontext.ClientIdentityFrom(ctx).ClientApp {
 	case requestcontext.ClientAppClaudeCode:
 		return "claude-opus-5-5"
 	case requestcontext.ClientAppCodex:
@@ -1364,7 +1354,7 @@ func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Reque
 	if installationID := requestcontext.InstallationIDFromContext(ctx); installationID != uuid.Nil {
 		req.InstallationID = installationID.String()
 	}
-	clientIdentity := ClientIdentityFrom(ctx)
+	clientIdentity := requestcontext.ClientIdentityFrom(ctx)
 	req.ClientApp = clientIdentity.ClientApp
 	req.ClientBudget = requestcontext.ClientBudgetFrom(ctx)
 	req.RolloutID = policyRolloutIDFromContext(ctx)
@@ -1379,7 +1369,7 @@ func policyRolloutIDFromContext(ctx context.Context) string {
 	if rolloutID, ok := ctx.Value(requestcontext.PolicyRolloutIDContextKey{}).(string); ok && rolloutID != "" {
 		return rolloutID
 	}
-	return ClientIdentityFrom(ctx).RolloutID
+	return requestcontext.ClientIdentityFrom(ctx).RolloutID
 }
 
 func (s *Service) Route(ctx context.Context, req router.Request) (router.Decision, error) {

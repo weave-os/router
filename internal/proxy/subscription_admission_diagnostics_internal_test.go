@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
 
@@ -45,7 +46,7 @@ func TestSubscriptionAdmissionReportsSkipGateAndPreservesRotation(t *testing.T) 
 			return ctx
 		}},
 		{name: "client restriction", reason: subscriptionSkipClientAppDenied, configure: func(s *Service, ctx context.Context, _ *scriptedSubscriptionLeaser) context.Context {
-			s.credentials.SubscriptionModels.DenyManagedClientApp("skipped", providers.ProviderAnthropic, ClientIdentityFrom(ctx).ClientApp, now.Add(time.Minute))
+			s.credentials.SubscriptionModels.DenyManagedClientApp("skipped", providers.ProviderAnthropic, requestcontext.ClientIdentityFrom(ctx).ClientApp, now.Add(time.Minute))
 			return ctx
 		}},
 		{name: "plan", reason: subscriptionSkipPlanIneligible, configure: func(_ *Service, ctx context.Context, l *scriptedSubscriptionLeaser) context.Context {

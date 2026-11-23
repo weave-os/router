@@ -33,7 +33,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 	}
 	pricing, _ := catalog.PrimaryPriceFor(usage.Model)
 	usageMods := catalog.UsageModifiers{CacheCreation1h: usage.CacheCreation1h, InferenceGeo: catalog.InferenceGeo(usage.InferenceGeo)}
-	apiKeyID := apiKeyIDFromContext(ctx)
+	apiKeyID := requestcontext.APIKeyIDFromContext(ctx)
 	auxRequestID := requestID + requestIDSuffix
 
 	byokServed := credentials.ByokServedForProvider(ctx, usage.Provider)
@@ -59,7 +59,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 	if installationID == uuid.Nil {
 		return
 	}
-	clientID := ClientIdentityFrom(ctx)
+	clientID := requestcontext.ClientIdentityFrom(ctx)
 	inputCost := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead, pricing, usage.Provider, usageMods)
 	outputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(usage.InputTokens, usage.CacheCreation, usage.CacheRead, usage.Provider), usage.OutputTokens, pricing, usageMods)
 
