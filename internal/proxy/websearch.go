@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/websearch"
@@ -22,7 +23,7 @@ func (s *Service) serveNativeWebSearch(
 	headers http.Header,
 	w http.ResponseWriter,
 ) bool {
-	if s.webSearch == nil {
+	if s.ingress.WebSearch == nil {
 		return false
 	}
 	tool, hasTool := websearch.FindServerTool(body)
@@ -37,14 +38,14 @@ func (s *Service) serveNativeWebSearch(
 		return false
 	}
 
-	credCtx := resolveAndInjectCredentials(ctx, providers.ProviderAnthropicGateway, model, headers)
-	if CredentialsFromContext(credCtx) == nil {
+	credCtx := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropicGateway, model, headers)
+	if credentials.CredentialsFromContext(credCtx) == nil {
 		log.Info("Native web-search executor skipped: no gateway credential for this request")
 		return false
 	}
 
 	start := s.clock.Now()
-	result, err := s.webSearch.Search(credCtx, query)
+	result, err := s.ingress.WebSearch.Search(credCtx, query)
 	if err != nil {
 		log.Warn("Native web-search execution failed; falling back to normal routing",
 			"err", err, "latency_ms", s.clock.Now().Sub(start).Milliseconds())

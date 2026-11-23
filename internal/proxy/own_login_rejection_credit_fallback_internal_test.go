@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/credentials/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
@@ -41,21 +42,21 @@ func TestRecordOwnClaudeLoginRejectedOnlyHoldsTheCallersOwnLogin(t *testing.T) {
 	rejected := upstreamErr(http.StatusUnauthorized, `{"error":{"type":"authentication_error"}}`)
 	now := time.Unix(1_800_000_000, 0)
 	headers := http.Header{"Authorization": []string{"Bearer " + ownToken}}
-	ownLogin := &Credentials{APIKey: []byte(ownToken), OAuth: true}
+	ownLogin := &requestcontext.Credentials{APIKey: []byte(ownToken), OAuth: true}
 	for _, tc := range []struct {
 		name  string
-		creds *Credentials
+		creds *requestcontext.Credentials
 		err   error
 		held  bool
 	}{
-		{name: "own login", creds: &Credentials{APIKey: []byte(ownToken), OAuth: true}, held: true},
-		{name: "managed seat", creds: &Credentials{APIKey: []byte("sk-ant-oat01-synthetic-seat"), OAuth: true, SubscriptionAccountID: "synthetic-seat"}},
-		{name: "BYOK key", creds: &Credentials{APIKey: []byte(ownToken)}},
+		{name: "own login", creds: &requestcontext.Credentials{APIKey: []byte(ownToken), OAuth: true}, held: true},
+		{name: "managed seat", creds: &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-synthetic-seat"), OAuth: true, SubscriptionAccountID: "synthetic-seat"}},
+		{name: "BYOK key", creds: &requestcontext.Credentials{APIKey: []byte(ownToken)}},
 		{name: "model access denied", creds: ownLogin, err: upstreamErr(http.StatusForbidden, `{"error":{"type":"permission_error"}}`)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			observer := usage.NewObserver([]byte("synthetic-salt"), time.Hour, func() time.Time { return now })
-			ctx := context.WithValue(context.Background(), CredentialsContextKey{}, tc.creds)
+			ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, tc.creds)
 			err := rejected
 			if tc.err != nil {
 				err = tc.err

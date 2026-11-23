@@ -15,5 +15,5 @@ func (s *Service) markServedExternalKeyUsed(ctx context.Context, servedErr error
 	if servedErr != nil || managedSubscriptionCredentialSource(ctx) != "" {
 		return
 	}
-	s.credentials.MarkServedExternalKeyUsed(ctx, CredentialsFromContext(ctx))
+	s.credentials.MarkServedExternalKeyUsed(ctx, credentials.CredentialsFromContext(ctx))
 }

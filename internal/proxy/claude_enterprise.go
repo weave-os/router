@@ -22,7 +22,7 @@ func claudeEnterpriseOnly(ctx context.Context) bool {
 }
 
 func claudeEnterpriseEnabled(ctx context.Context) bool {
-	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || anthropicBYOKFirst(ctx) {
+	if credentials.SubscriptionRoutingDisabledForRequest(ctx) || credentials.SubscriptionFundingOutOfPlayForRequest(ctx) || credentials.AnthropicBYOKFirst(ctx) {
 		return false
 	}
 	if overrides, ok := flags.OverridesFromContext(ctx); ok {

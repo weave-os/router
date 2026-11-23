@@ -30,7 +30,7 @@ func (s *Service) CodexModelCatalog(ctx context.Context, headers http.Header, cl
 	if !ok {
 		return nil, fmt.Errorf("OpenAI provider does not support Codex model discovery")
 	}
-	creds := ExtractClientCredentials(providers.ProviderOpenAI, headers)
+	creds := requestcontext.ExtractClientCredentials(providers.ProviderOpenAI, headers)
 	ctx = requestcontext.WithCredentials(ctx, creds)
 	catalog, err := fetcher.FetchCodexModelCatalog(ctx, clientVersion)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 )
@@ -24,19 +25,19 @@ func claudeEnterpriseCapRescue(ctx context.Context) bool {
 }
 
 func claudeEnterpriseFunding(ctx context.Context, target inference.Target, subscriptionTransport bool) error {
-	creds := CredentialsFromContext(ctx)
-	if target.Provider == providers.ProviderAnthropic && creds != nil && creds.Source == credSourceBYOK && creds.CredentialError == nil && claudeEnterpriseCapRescue(ctx) {
+	creds := credentials.CredentialsFromContext(ctx)
+	if target.Provider == providers.ProviderAnthropic && creds != nil && creds.Source == requestcontext.SourceBYOK && creds.CredentialError == nil && claudeEnterpriseCapRescue(ctx) {
 		return nil
 	}
 	pool, compatible := subscriptionPoolForModel(target)
-	if creds == nil || !creds.OAuth || creds.Source != credSourceSubscription || !compatible || pool != subscriptions.ProviderClaude || !subscriptionTransport {
+	if creds == nil || !creds.OAuth || creds.Source != requestcontext.SourceSubscription || !compatible || pool != subscriptions.ProviderClaude || !subscriptionTransport {
 		return claudeEnterpriseRefusal(ctx)
 	}
 	return nil
 }
 
 func claudeEnterpriseCapRotation(credentialCtx, attemptCtx context.Context, decision router.Decision, attemptErr error) (context.Context, bool) {
-	if !servedOnSubscription(credentialCtx) || !claudeEnterpriseTurn(credentialCtx) || !claudeEnterpriseCapRefused(attemptErr) {
+	if !credentials.ServedOnSubscription(credentialCtx) || !claudeEnterpriseTurn(credentialCtx) || !claudeEnterpriseCapRefused(attemptErr) {
 		return attemptCtx, false
 	}
 	state, _ := credentialCtx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
@@ -44,7 +45,7 @@ func claudeEnterpriseCapRotation(credentialCtx, attemptCtx context.Context, deci
 		return attemptCtx, false
 	}
 	state.ClaudeEnterpriseCapRefused = true
-	return resolveAndInjectCredentials(credentials.WithSuppressedClaudeSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{}), true
+	return credentials.ResolveAndInjectCredentials(credentials.WithSuppressedClaudeSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{}), true
 }
 
 func bypassMayReroute(ctx context.Context, err error) bool {

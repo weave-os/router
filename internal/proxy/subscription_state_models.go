@@ -24,7 +24,7 @@ type subscriptionStateAllowedModelsKey struct{}
 
 func subscriptionStateModelsEnabled(ctx context.Context) bool {
 	enabled, _ := ctx.Value(requestcontext.InstallationSubscriptionStateModelsEnabledContextKey{}).(bool)
-	return !subscriptionFundingOutOfPlayForRequest(ctx) &&
+	return !credentials.SubscriptionFundingOutOfPlayForRequest(ctx) &&
 		(enabled || openRouterOverflowEnabled(ctx) ||
 			len(installationSubscriptionModelsWhenActiveFromContext(ctx)) > 0 ||
 			len(installationSubscriptionModelsWhenInactiveFromContext(ctx)) > 0)
@@ -99,8 +99,8 @@ func (s *Service) subscriptionStateModelAvailable(ctx context.Context, req route
 		if seatAdmissionOf(s).mayAdmit(ctx, binding.Provider, model) {
 			return true
 		}
-		resolvedCredentials := s.resolveCredentials(clearCredentials(ctx), binding.Provider, model, headers)
-		if !servedOnSubscription(resolvedCredentials) {
+		resolvedCredentials := s.resolveCredentials(credentials.ClearCredentials(ctx), binding.Provider, model, headers)
+		if !credentials.ServedOnSubscription(resolvedCredentials) {
 			continue
 		}
 		if binding.Provider == providers.ProviderAnthropic && !s.claudeSubscriptionExhausted(ctx, headers) ||
@@ -307,8 +307,8 @@ func (s *Service) subscriptionStatePaidTargetRefusal(ctx context.Context, header
 	if _, permitted := paidReq.Candidates.AllowedModels[target.Model]; !permitted {
 		return router.ErrAllowlistEmptiesPool
 	}
-	resolvedCredentials := s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, headers)
-	if servedOnSubscription(resolvedCredentials) || servedOnCodexSubscription(resolvedCredentials) {
+	resolvedCredentials := s.resolveCredentials(credentials.ClearCredentials(ctx), target.Provider, target.Model, headers)
+	if credentials.ServedOnSubscription(resolvedCredentials) || credentials.ServedOnCodexSubscription(resolvedCredentials) {
 		return router.ErrAllowlistEmptiesPool
 	}
 	if err := s.subscriptionAPIAuthorization(s.withSubscriptionFundingAuthorization(ctx, headers), target.Provider, target.Model); err != nil {
@@ -321,7 +321,7 @@ func (s *Service) subscriptionStatePaidTargetRefusal(ctx context.Context, header
 }
 
 func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in dispatch.FailoverInputs, target router.Decision, usesIncludedSubscription bool) (int, error) {
-	ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.SubscriptionStateHeaders)
+	ctx = s.resolveCredentials(credentials.ClearCredentials(ctx), target.Provider, target.Model, in.SubscriptionStateHeaders)
 	resolvedTargetBindings := s.subscriptionStateTargetBindings(ctx, target)
 	if !usesIncludedSubscription && in.OnSubscriptionStatePaidTarget != nil {
 		in.OnSubscriptionStatePaidTarget(target, resolvedTargetBindings)

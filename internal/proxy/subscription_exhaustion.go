@@ -18,7 +18,7 @@ func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, he
 	if s.credentials.UsageObserver == nil {
 		return false
 	}
-	_, anthroTok := presentSubscriptionTokens(ctx, headers)
+	_, anthroTok := credentials.PresentSubscriptionTokens(ctx, headers)
 	return credentials.ClaudeSubscriptionObservedExhausted(s.credentials.UsageObserver, anthroTok, claudeSubscriptionFacts(ctx))
 }
 

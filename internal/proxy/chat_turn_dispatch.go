@@ -151,7 +151,7 @@ func (t *chatTurnDispatch) prepareSinks(ctx, credentialCtx context.Context) (con
 	t.marker = suppressMarkerIfRequested(ctx, t.r.Header, modelSelectionMarkerForRequest(t.s.strategyPorts, ctx, announcementTurn, routingMarkerFor(announcementTurn), t.decision.Model, ""))
 	muteSlowStartFor(ctx, t.routeRes)
 	fundingCtx := ctx
-	if CredentialsFromContext(fundingCtx) == nil {
+	if credentials.CredentialsFromContext(fundingCtx) == nil {
 		fundingCtx = credentialCtx
 	}
 	notice := routerNoticeForDecision(ctx, t.r.Header, t.decision, t.marker)
@@ -266,7 +266,7 @@ func (t *chatTurnDispatch) dispatchAttempts(ctx, fundingCtx context.Context) (co
 
 func (t *chatTurnDispatch) finish(ctx context.Context) (context.Context, error) {
 	if t.rescue.CodexFailoverUsed {
-		ctx = withSuppressedCodexSubscription(ctx)
+		ctx = credentials.WithSuppressedCodexSubscription(ctx)
 	} else if t.rescue.ClaudeFailoverUsed {
 		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 	}

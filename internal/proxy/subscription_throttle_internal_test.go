@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/stretchr/testify/require"
@@ -88,7 +89,7 @@ func TestAuthorizeSubscriptionAPI_PersistedCooldownCountsAsThrottle(t *testing.T
 func TestAuthorizeSubscriptionAPI_LongThrottleFundsCredits(t *testing.T) {
 	now := time.Now()
 	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
-	callerCreds := &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}
+	callerCreds := &requestcontext.Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}
 	ctx := credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{activeCodexAccount("seat-1")})
 	recordManagedThrottle(ctx, "seat-1", now.Add(time.Hour))
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
@@ -165,7 +166,7 @@ func TestAuthorizeSubscriptionAPI_CredentialRejectedCooldownDoesNotBlockPaidFall
 func TestAuthorizeSubscriptionAPI_RateLimitedCallerPlanRefusesAs429(t *testing.T) {
 	now := time.Now()
 	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
-	callerCreds := &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}
+	callerCreds := &requestcontext.Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}
 	authorize := func(ctx context.Context) error {
 		return svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{})
 	}
@@ -190,7 +191,7 @@ func TestAuthorizeSubscriptionAPI_CallerQuotaExhaustionStillAuthorizesPaidFallba
 	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
 	ctx := throttleTestContext()
 	quotaExhaustedErr := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"usage_limit_reached","message":"limit"}}`)}
-	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}, quotaExhaustedErr)
+	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, &requestcontext.Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}, quotaExhaustedErr)
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{}))
 }
 
@@ -207,7 +208,7 @@ func TestCallerPlanRateLimitRefusalIsClientOwned(t *testing.T) {
 		return seat
 	}
 	ctx := throttleTestContext(spentSeat("seat-1"), spentSeat("seat-2"))
-	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}, codexRateLimitedErr())
+	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, &requestcontext.Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}, codexRateLimitedErr())
 
 	refusal := svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{})
 	requireThrottledRefusal(t, refusal)

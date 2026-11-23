@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
@@ -22,7 +23,7 @@ func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName s
 	if err != nil {
 		return err
 	}
-	ctx = resolveAndInjectCredentials(ctx, providerName, "", r.Header)
+	ctx = credentials.ResolveAndInjectCredentials(ctx, providerName, "", r.Header)
 
 	if providerName == providers.ProviderAnthropic && len(body) > 0 {
 		if canon, had, cerr := translate.CanonicalizeModelInBody(body); cerr == nil && had {

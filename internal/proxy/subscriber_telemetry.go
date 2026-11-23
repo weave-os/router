@@ -94,11 +94,11 @@ func telemetryCapacitySource(ctx context.Context, credentialSource string) entit
 		return entitlement.CapacitySourceBillingOverride
 	}
 	switch credentialSource {
-	case credSourceSubscription, credSourceSubscriptionOverage:
+	case requestcontext.SourceSubscription, requestcontext.SourceSubscriptionOverage:
 		return entitlement.CapacitySourceLinkedClaude
-	case credSourceCodexSubscription:
+	case requestcontext.SourceCodexSubscription:
 		return entitlement.CapacitySourceLinkedCodex
-	case credSourceBYOK:
+	case requestcontext.SourceBYOK:
 		return ""
 	}
 	if _, ok := entitlement.CoverageFromContext(ctx); ok {
@@ -152,8 +152,8 @@ func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *tel
 	if source != "" {
 		attrs.String("credential.source", source)
 	}
-	if source == credSourceSubscription || source == credSourceSubscriptionOverage {
-		if creds := CredentialsFromContext(ctx); creds != nil && creds.OAuth && creds.SubscriptionPlan == providers.SubscriptionPlanEnterprise {
+	if source == requestcontext.SourceSubscription || source == requestcontext.SourceSubscriptionOverage {
+		if creds := credentials.CredentialsFromContext(ctx); creds != nil && creds.OAuth && creds.SubscriptionPlan == providers.SubscriptionPlanEnterprise {
 			attrs.Bool("subscription.claude_enterprise", true)
 		}
 	}

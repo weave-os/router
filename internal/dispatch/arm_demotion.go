@@ -60,7 +60,7 @@ func (p ArmDemotionPolicy) AfterCommittedStreamFailure(ctx context.Context, comm
 	if !committedStream || !IsCommittedStreamFailure(ctx, f.Err) {
 		return ""
 	}
-	if !f.Session.DemoteArm(ctx, f.Model, sessionpin.DemotionReasonCommittedStreamFailure, time.Time{}, UpstreamStatus(f.Err)) {
+	if !f.Session.DemoteArm(ctx, f.Model, sessionpin.DemotionReasonCommittedStreamFailure, time.Time{}, providers.UpstreamStatus(f.Err)) {
 		return ""
 	}
 	return f.Model
@@ -98,7 +98,7 @@ func (p ArmDemotionPolicy) StrikeAfterRescuedFailure(ctx context.Context, s Resc
 		reason, cooldownUntil = sessionpin.DemotionReasonRateLimited, s.Now().Add(cooldown)
 		ThrottleLedgerFromContext(ctx).RecordCooldown(cooldownUntil, cooldown)
 	}
-	if !s.Session.DemoteArm(ctx, s.Model, reason, cooldownUntil, UpstreamStatus(s.Err)) {
+	if !s.Session.DemoteArm(ctx, s.Model, reason, cooldownUntil, providers.UpstreamStatus(s.Err)) {
 		return "", ""
 	}
 	return s.Model, reason
@@ -107,17 +107,17 @@ func (p ArmDemotionPolicy) StrikeAfterRescuedFailure(ctx context.Context, s Resc
 func (p ArmDemotionPolicy) AfterUnrescuedStall(ctx context.Context, rescueRan, committed bool, f ArmFailure) string {
 	if !p.RescuedFailureEnabled(ctx) || f.Session == nil ||
 		f.Model == "" || f.HardPinned || rescueRan || committed || ctx.Err() != nil ||
-		strings.HasPrefix(f.Reason, translate.ReasonUserForceModel) || !IsUpstreamWatchdogError(f.Err) {
+		strings.HasPrefix(f.Reason, translate.ReasonUserForceModel) || !providers.IsUpstreamWatchdogError(f.Err) {
 		return ""
 	}
-	if !f.Session.DemoteArm(ctx, f.Model, sessionpin.DemotionReasonUnrescuedStall, time.Time{}, UpstreamStatus(f.Err)) {
+	if !f.Session.DemoteArm(ctx, f.Model, sessionpin.DemotionReasonUnrescuedStall, time.Time{}, providers.UpstreamStatus(f.Err)) {
 		return ""
 	}
 	return f.Model
 }
 
 func IsTransientGatewayFailure(err error) bool {
-	switch UpstreamStatus(err) {
+	switch providers.UpstreamStatus(err) {
 	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return true
 	default:
@@ -130,13 +130,13 @@ func IsCommittedStreamFailure(ctx context.Context, err error) bool {
 		return false
 	}
 	err = UnwrapSyntheticStatusErrors(err)
-	if IsUpstreamWatchdogError(err) || IsUpstreamWatchdogError(context.Cause(ctx)) {
+	if providers.IsUpstreamWatchdogError(err) || providers.IsUpstreamWatchdogError(context.Cause(ctx)) {
 		return true
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
-	switch status := UpstreamStatus(err); {
+	switch status := providers.UpstreamStatus(err); {
 	case status == ProviderOverloadedStatus:
 		return false
 	case status >= http.StatusInternalServerError:
@@ -155,25 +155,4 @@ func UnwrapSyntheticStatusErrors(err error) error {
 		}
 		err = synthetic.Cause
 	}
-}
-
-func IsUpstreamWatchdogError(err error) bool {
-	return errors.Is(err, providers.ErrUpstreamIdleTimeout) ||
-		errors.Is(err, providers.ErrUpstreamOutputStall) ||
-		errors.Is(err, providers.ErrUpstreamSlowThroughput)
-}
-
-func UpstreamStatus(err error) int {
-	if err == nil {
-		return http.StatusOK
-	}
-	var statusErr *providers.UpstreamStatusError
-	if errors.As(err, &statusErr) {
-		return statusErr.Status
-	}
-	var bufferedErr *providers.UpstreamErrorResponse
-	if errors.As(err, &bufferedErr) {
-		return bufferedErr.Status
-	}
-	return 0
 }

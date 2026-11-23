@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"testing"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -19,7 +21,7 @@ import (
 // credentials it saw so tests can assert they were placed in context.
 type listerClient struct {
 	models    []string
-	seenCreds *proxy.Credentials
+	seenCreds *requestcontext.Credentials
 }
 
 func (c *listerClient) Proxy(context.Context, router.Decision, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
@@ -29,7 +31,7 @@ func (c *listerClient) Passthrough(context.Context, providers.PreparedRequest, h
 	return nil
 }
 func (c *listerClient) ListModels(ctx context.Context) ([]string, error) {
-	c.seenCreds = proxy.CredentialsFromContext(ctx)
+	c.seenCreds = credentials.CredentialsFromContext(ctx)
 	return c.models, nil
 }
 
@@ -51,7 +53,7 @@ func TestListUpstreamModels_PassesCredentialsToLister(t *testing.T) {
 	lister := &listerClient{models: []string{"cortex-a", "cortex-b"}}
 	svc := upstreamModelsService(map[string]providers.Client{providers.ProviderOpenAIGateway: lister})
 
-	creds := &proxy.Credentials{APIKey: []byte("byok"), BaseURL: "https://cortex.example/api/v2/cortex/v1"}
+	creds := &requestcontext.Credentials{APIKey: []byte("byok"), BaseURL: "https://cortex.example/api/v2/cortex/v1"}
 	models, err := svc.ListUpstreamModels(context.Background(), providers.ProviderOpenAIGateway, creds)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"cortex-a", "cortex-b"}, models)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -55,10 +56,14 @@ func init() { gin.SetMode(gin.TestMode) }
 
 // goldenHandler serves the request through the production handler with no
 // auth service, which the handlers treat as an unauthenticated installation.
-func goldenHandler(route string, handler func(*proxy.Service, *auth.Service, ingress.ErrorVocabulary) gin.HandlerFunc) func(*proxy.Service, context.Context, []byte, http.ResponseWriter, *http.Request) error {
+func goldenHandler[P any](route string, handler func(P, *auth.Service, ingress.ErrorVocabulary) gin.HandlerFunc) func(*proxy.Service, context.Context, []byte, http.ResponseWriter, *http.Request) error {
 	return func(svc *proxy.Service, _ context.Context, _ []byte, w http.ResponseWriter, r *http.Request) error {
+		port, ok := any(svc).(P)
+		if !ok {
+			return fmt.Errorf("proxy.Service does not implement %T", port)
+		}
 		engine := gin.New()
-		engine.POST(route, handler(svc, nil, ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage}))
+		engine.POST(route, handler(port, nil, ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage}))
 		engine.ServeHTTP(w, r)
 		return nil
 	}

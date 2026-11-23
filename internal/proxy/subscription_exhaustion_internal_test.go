@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials/usage"
@@ -43,13 +44,13 @@ func TestResolveAndInjectCredentials_SuppressedSubscriptionFallsThroughToBYOK(t 
 	ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 	headers := http.Header{"Authorization": []string{"Bearer " + exhaustedSubToken}}
 
-	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
-	creds := CredentialsFromContext(out)
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
+	creds := credentials.CredentialsFromContext(out)
 	require.NotNil(t, creds)
 	assert.False(t, creds.OAuth, "the spent subscription token must be skipped")
 	assert.Equal(t, []byte("sk-ant-api-byok"), creds.APIKey,
 		"resolution must fall through to the BYOK Anthropic key")
-	assert.False(t, servedOnSubscription(out),
+	assert.False(t, credentials.ServedOnSubscription(out),
 		"a suppressed-subscription turn must bill at full cost, not the subscription rate")
 }
 
@@ -60,8 +61,8 @@ func TestResolveAndInjectCredentials_SuppressedSubscriptionFallsThroughToDeploym
 	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken)
 	ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 
-	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
-	assert.Nil(t, CredentialsFromContext(out),
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
+	assert.Nil(t, credentials.CredentialsFromContext(out),
 		"with the subscription suppressed and no BYOK, no credential is set so the deployment key serves the turn")
 }
 
@@ -74,8 +75,8 @@ func TestResolveAndInjectCredentials_SuppressedInboundBearerNotReResolved(t *tes
 	ctx := credentials.WithSuppressedClaudeSubscription(context.Background())
 	headers := http.Header{"Authorization": []string{"Bearer " + exhaustedSubToken}}
 
-	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
-	assert.Nil(t, CredentialsFromContext(out),
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
+	assert.Nil(t, credentials.CredentialsFromContext(out),
 		"a suppressed inbound subscription bearer must not be re-resolved via client extraction")
 }
 
@@ -86,8 +87,8 @@ func TestResolveAndInjectCredentials_SuppressedKeepsRealClientApiKey(t *testing.
 	ctx := credentials.WithSuppressedClaudeSubscription(context.Background())
 	headers := http.Header{"X-Api-Key": []string{"sk-ant-api-real-client-key"}}
 
-	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
-	creds := CredentialsFromContext(out)
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
+	creds := credentials.CredentialsFromContext(out)
 	require.NotNil(t, creds, "a real client API key is not the suppressed subscription and must be kept")
 	assert.False(t, creds.OAuth)
 	assert.Equal(t, []byte("sk-ant-api-real-client-key"), creds.APIKey)
@@ -102,11 +103,11 @@ func TestResolveAndInjectCredentials_ClaudeSuppressionLeavesCodexIntact(t *testi
 	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-1")
 	ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 
-	out := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.6-sol", http.Header{})
-	creds := CredentialsFromContext(out)
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.6-sol", http.Header{})
+	creds := credentials.CredentialsFromContext(out)
 	require.NotNil(t, creds)
 	assert.True(t, creds.OAuth, "the Codex subscription must survive Claude-only suppression")
-	assert.Equal(t, credSourceCodexSubscription, creds.Source)
+	assert.Equal(t, requestcontext.SourceCodexSubscription, creds.Source)
 }
 
 func TestResolveAndInjectCredentials_UnsuppressedSubscriptionStillWins(t *testing.T) {
@@ -115,11 +116,11 @@ func TestResolveAndInjectCredentials_UnsuppressedSubscriptionStillWins(t *testin
 	// into the normal path.
 	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken)
 
-	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
-	creds := CredentialsFromContext(out)
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
+	creds := credentials.CredentialsFromContext(out)
 	require.NotNil(t, creds)
 	assert.True(t, creds.OAuth, "a non-suppressed subscription must still be resolved")
-	assert.Equal(t, credSourceSubscription, creds.Source)
+	assert.Equal(t, requestcontext.SourceSubscription, creds.Source)
 }
 
 func TestClaudeSubscriptionExhausted(t *testing.T) {
@@ -208,17 +209,17 @@ func TestBaselineFailoverCtxSuppression(t *testing.T) {
 	base := context.Background()
 
 	t.Run("unsuppressed ctx resolves the inbound bearer", func(t *testing.T) {
-		out := resolveAndInjectCredentials(base, providers.ProviderAnthropic, "claude-opus-4-8", headers)
-		assert.True(t, servedOnSubscription(out),
+		out := credentials.ResolveAndInjectCredentials(base, providers.ProviderAnthropic, "claude-opus-4-8", headers)
+		assert.True(t, credentials.ServedOnSubscription(out),
 			"without suppression the OAuth bearer is injected and the turn bills the subscription")
 	})
 
 	t.Run("suppressed ctx drops the bearer", func(t *testing.T) {
 		suppressed := credentials.WithSuppressedClaudeSubscription(base)
-		out := resolveAndInjectCredentials(suppressed, providers.ProviderAnthropic, "claude-opus-4-8", headers)
-		assert.False(t, servedOnSubscription(out),
+		out := credentials.ResolveAndInjectCredentials(suppressed, providers.ProviderAnthropic, "claude-opus-4-8", headers)
+		assert.False(t, credentials.ServedOnSubscription(out),
 			"with suppression the OAuth bearer is dropped and the turn bills at full cost")
-		creds := CredentialsFromContext(out)
+		creds := credentials.CredentialsFromContext(out)
 		assert.True(t, creds == nil || !creds.OAuth,
 			"no Anthropic OAuth credential must be present: deployment key serves the turn")
 	})
