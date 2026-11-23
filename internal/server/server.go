@@ -69,14 +69,12 @@ func Register(engine *gin.Engine, authSvc *auth.Service, services Services, hmmM
 	RegisterWithFeatures(engine, authSvc, services, hmmModels, mode, nil, readinessChecker, hmmRosterSources, analyticsSvc, Features{})
 }
 
-const deploymentDefaultStrategy = router.StrategyHMMEmbedding
-
 func ParseDefaultStrategy(raw string) (router.Strategy, error) {
-	strategy := router.Strategy(strings.ToLower(strings.TrimSpace(raw)))
+	strategy := router.NormalizeStrategy(raw)
 	if strategy == "" {
-		return deploymentDefaultStrategy, nil
+		return router.DefaultStrategy, nil
 	}
-	if router.IsBetaStrategy(strategy) || strategy == router.StrategyLLMClassifier {
+	if !router.SelectableAsDefault(strategy) {
 		return "", fmt.Errorf("ROUTER_DEFAULT_STRATEGY=%q is not a valid deployment default: beta and classifier lanes are opt-in per installation", raw)
 	}
 	return strategy, nil
@@ -121,7 +119,7 @@ func registerInternalEscalation(internalGroup *gin.RouterGroup, escalationAdmin 
 
 func (f Features) defaultStrategy() router.Strategy {
 	if f.DefaultStrategy == "" {
-		return deploymentDefaultStrategy
+		return router.DefaultStrategy
 	}
 	return f.DefaultStrategy
 }
