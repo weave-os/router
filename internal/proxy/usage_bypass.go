@@ -22,6 +22,7 @@ import (
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
@@ -262,7 +263,7 @@ func (s *Service) bypassToAnthropic(
 
 	proxyStart := s.clock.Now()
 	inferenceParentCtx := ctx
-	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
+	ctx, inferenceSpan := spans.StartInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
 	passiveRefusal := newPassiveRefusalObserver(respW)
 	toolNames := translate.NewAnthropicToolNameWriter(passiveRefusal, prep.ResponseToolNames)
 	decision, proxyErr := proxyClassifierWithRefusalRescue(ctx, func(d router.Decision, prep providers.PreparedRequest, out http.ResponseWriter) error {
@@ -272,8 +273,8 @@ func (s *Service) bypassToAnthropic(
 	if proxyErr == nil && terminal != nil {
 		proxyErr = terminal.streamErr()
 	}
-	finishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
-	ctx = restoreParentSpan(ctx, inferenceParentCtx)
+	spans.FinishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
+	ctx = spans.RestoreParentSpan(ctx, inferenceParentCtx)
 	var upstreamErr *providers.UpstreamErrorResponse
 	recordSubscriptionModelOutcome(s, ctx, decision.Provider, decision.Model, proxyErr)
 	if proxyErr != nil {

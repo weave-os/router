@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -18,6 +19,7 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
+	"weave-os/router/internal/telemetry/iolog"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
@@ -291,7 +293,7 @@ func completeChatTurn(ctx context.Context, s *Service, t *chatFinishedTurn, armS
 		s.repinOffRefusingModel(ctx, t.strategy, t.routeRes.SessionKey, stickyStateRole(t.routeRes), t.rescue.PrimaryDecision, providers.CyberPolicyErrorCode, t.rescue.PrimaryDecision.Provider)
 	}
 
-	logToolCallIssues(t.log, t.respSummary.ToolCallIssues, t.decision.Model, t.finalProvider, t.routeRes.SessionKey)
+	iolog.LogToolCallIssues(t.log, t.respSummary.ToolCallIssues, t.decision.Model, t.finalProvider, conversation.ShortSessionKey(t.routeRes.SessionKey))
 
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
 	t.log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", t.feats.Model, "baseline_model", s.baselineFor(ctx, t.feats.Model), "decision_model", t.decision.Model, "decision_provider", t.decision.Provider, "primary_provider", t.rescue.PrimaryProvider, "primary_model", t.rescue.PrimaryModel, "fallback_attempts", t.winnerIdx, "failover_used", t.rescue.FailoverUsed, "failover_attempted", t.rescue.FailoverAttempted, "subscription_failover", t.rescue.CodexFailoverUsed || t.rescue.ClaudeFailoverUsed, "decision_reason", t.decision.Reason, "requested_tier", t.routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(t.decision.Model).String(), "embedded_tokens", len(t.promptText) / 4, "total_input_tokens", t.feats.Tokens, "has_tools", t.feats.HasTools, "embed_input", t.embedInput, "cross_format", t.crossFormat, "sticky_hit", t.stickyHit, "pin_tier", t.pinTier, "turn_type", string(t.tt), "route_ms", t.routeMs, "proxy_ms", t.proxyMs, "proxy_err", t.proxyErr, "error_class", classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, t.proxyErr, classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), t.respSummary.UpstreamFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(t.proxyErr)), "upstream_status", upstreamStatus(t.proxyErr), "upstream_finish_reason", t.respSummary.UpstreamFinishReason, "resp_stop_reason", t.respSummary.StopReason, "stop_reason_promoted", t.respSummary.StopReasonPromoted, "tool_use_blocks", t.respSummary.ToolUseBlocks, "invalid_tool_args_blocks", t.respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(t.respSummary.ToolCallIssues), "routing_marker", t.marker, "prior_served_model", t.routeRes.PriorServedModel, "hard_pinned", t.routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", requestcontext.CompletionLogClientApp(t.facts.Client), "subscription_tier", servedSubscriptionTier}, append(append(armStrikeFields, plannerLogFields(t.routeRes)...), t.rateLimit.CompletionLogFields()...)...), downgradeShadowLogFields(t.routeRes)...)...)

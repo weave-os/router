@@ -1,4 +1,4 @@
-package proxy
+package iolog
 
 import (
 	"log/slog"
@@ -32,7 +32,7 @@ func logInboundToolTraffic(log *slog.Logger, env *translate.RequestEnvelope) {
 	)
 }
 
-func logInboundRequestDiagnostics(log *slog.Logger, env *translate.RequestEnvelope) {
+func LogInboundRequestDiagnostics(log *slog.Logger, env *translate.RequestEnvelope) {
 	logInboundToolTraffic(log, env)
 	logInboundConversationTail(log, env)
 	logInboundSystemTail(log, env)

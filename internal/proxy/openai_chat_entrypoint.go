@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry/capture"
+	"weave-os/router/internal/telemetry/iolog"
 	"weave-os/router/internal/translate"
 )
 
@@ -140,7 +141,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	if s.effectiveCaptureMode(ctx) != capture.Off {
-		logInboundRequestDiagnostics(log, env)
+		iolog.LogInboundRequestDiagnostics(log, env)
 	}
 
 	subAgentHint := r.Header.Get("x-weave-subagent-type")

@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/translate/toolcheck"
 	providerusage "weave-os/router/internal/usage"
@@ -120,7 +121,7 @@ func dispatchMessagesTurn(ctx, credentialCtx context.Context, t *messagesTurnDis
 	t.prepareSinks(ctx, clientSink)
 	t.proxyStart = t.s.clock.Now()
 	t.inferenceParentCtx = ctx
-	ctx, t.inferenceSpan = startInferenceSpan(ctx, t.decision, clientSessionIDForRequest(ctx, t.env))
+	ctx, t.inferenceSpan = spans.StartInferenceSpan(ctx, t.decision, clientSessionIDForRequest(ctx, t.env))
 	defer t.inferenceSpan.End()
 	fundingCtx := t.prepareAttempt(ctx, credentialCtx)
 	ctx, err = t.dispatchAttempts(ctx, fundingCtx)
@@ -249,7 +250,7 @@ func (t *messagesTurnDispatch) dispatchAttempts(ctx, fundingCtx context.Context)
 	}
 	attempt, attemptBuildErr := buildAttempt(t.decision, t.opts, t.marker, fundingCtx)
 	if attemptBuildErr != nil && !translate.IsIntrinsicallyIncompatible(attemptBuildErr) {
-		finishInferenceSpan(t.inferenceSpan, t.decision, t.decision.Provider, -1, attemptBuildErr)
+		spans.FinishInferenceSpan(t.inferenceSpan, t.decision, t.decision.Provider, -1, attemptBuildErr)
 		return ctx, attemptBuildErr
 	}
 
@@ -323,8 +324,8 @@ func (t *messagesTurnDispatch) settle(ctx context.Context) context.Context {
 	}
 
 	t.proxyMs = t.s.clock.Now().Sub(t.proxyStart).Milliseconds()
-	finishInferenceSpan(t.inferenceSpan, t.decision, t.finalProvider, t.winnerIdx, t.proxyErr)
-	ctx = restoreParentSpan(ctx, t.inferenceParentCtx)
+	spans.FinishInferenceSpan(t.inferenceSpan, t.decision, t.finalProvider, t.winnerIdx, t.proxyErr)
+	ctx = spans.RestoreParentSpan(ctx, t.inferenceParentCtx)
 	return ctx
 }
 
