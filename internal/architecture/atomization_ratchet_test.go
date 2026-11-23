@@ -122,7 +122,7 @@ func TestAtomizationRatchetsDetectSyntheticViolations(t *testing.T) {
 			ratchetServingStrategyNames:   {"internal/architecture/testdata/atomization/serving_strategy": 2},
 		}},
 		{fixture: "serving_strategy_names", want: atomizationCounts{
-			ratchetServingStrategyNames: {"internal/architecture/testdata/atomization/serving_strategy_names": 7},
+			ratchetServingStrategyNames: {"internal/architecture/testdata/atomization/serving_strategy_names": 8},
 		}},
 		{fixture: "proxy_escalation", want: atomizationCounts{
 			ratchetProxyEscalation: {"internal/architecture/testdata/atomization/proxy_escalation": 3},
@@ -314,8 +314,12 @@ func isHMMMetadataField(info *types.Info, selector *ast.SelectorExpr) bool {
 // router.Strategy by a conversion, comparison, assignment or switch case. The
 // zero value "" is an absence check, not a strategy name.
 func namesRouterStrategy(info *types.Info, expression ast.Expr) bool {
-	switch expression.(type) {
+	switch expression := expression.(type) {
 	case *ast.BasicLit, *ast.Ident, *ast.SelectorExpr:
+	case *ast.CallExpr:
+		if len(expression.Args) != 1 || namesRouterStrategy(info, expression.Args[0]) {
+			return false
+		}
 	default:
 		return false
 	}

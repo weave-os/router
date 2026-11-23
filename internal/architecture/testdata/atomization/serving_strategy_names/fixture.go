@@ -8,9 +8,15 @@ import (
 
 const localName = "hmm-local"
 
-func names(strategy router.Strategy, raw string) router.Strategy {
+const typedName string = "hmm-typed"
+
+func routeWithStrategyNames(strategy router.Strategy, raw string) router.Strategy {
 	// Counted: a conversion of a string constant.
 	converted := router.Strategy("hmm-converted")
+	// Counted: a conversion of a typed string constant.
+	if strategy == router.Strategy(typedName) {
+		return converted
+	}
 	// Counted: an untyped literal compared with a router.Strategy.
 	if strategy == "hmm-compared" {
 		return converted
