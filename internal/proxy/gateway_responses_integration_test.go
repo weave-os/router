@@ -187,7 +187,7 @@ func directOpenAIService(t *testing.T, baseURL string, broad bool) *proxy.Servic
 		}),
 		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
-		WithOpenAIResponsesBroad(broad)
+		WithIngress(responsesBroadFormats(broad))
 }
 
 // Under the broad rollout, direct-OpenAI serves every expressible turn on

@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -29,8 +30,8 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 	svc := withHMMPorts(NewService(nil, dispatch.NewClients(clients), nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithEscalation(store, observer).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1}})
-	svc.scopedSearchRequirement = true
-	svc.searchRequirementDecayTurns = DefaultSearchRequirementDecayTurns
+	svc.ingress.ScopedSearchRequirement = true
+	svc.ingress.SearchRequirementDecayTurns = ingress.DefaultSearchRequirementDecayTurns
 	svc.searchUse = newSearchUseTracker()
 	ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), flags.Overrides{Bools: map[flags.Key]bool{
 		flags.KeyEscalationXGBoostEnabled: true, flags.KeyPlannerEnabled: false, flags.KeyPrefixTrimFreeSwitch: true,
@@ -43,7 +44,7 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 		if n == 5 {
 			store.failCommit = true
 			svc.lifecycle.Compaction().CheckAndRecord(sessionKey, installation, role, 9, 0)
-			require.True(t, svc.searchUse.observe(string(sessionKey[:]), 0, DefaultSearchRequirementDecayTurns))
+			require.True(t, svc.searchUse.observe(string(sessionKey[:]), 0, ingress.DefaultSearchRequirementDecayTurns))
 		}
 		res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "test-key", installation), "", http.Header{}, router.Request{
 			RequestedModel:          feats.Model,
@@ -63,7 +64,7 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 		require.True(t, res.PrefixBroken)
 		remaining, found := svc.searchUse.cache.Get(string(sessionKey[:]))
 		require.True(t, found)
-		require.Equal(t, DefaultSearchRequirementDecayTurns-1, remaining, "fallback must not age search evidence a second time")
+		require.Equal(t, ingress.DefaultSearchRequirementDecayTurns-1, remaining, "fallback must not age search evidence a second time")
 	}
 	require.Len(t, observer.requests, 5, "fallback must not observe the same turn twice")
 }
