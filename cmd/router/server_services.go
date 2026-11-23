@@ -22,14 +22,12 @@ func serverServices(proxySvc *proxy.Service) server.Services {
 		ClassifierThreads:         proxySvc,
 		ClassifierThreadAdmission: proxySvc,
 		AllowedModelsHeader:       proxySvc,
-		ParseAllowedModelsHeader:  parseAllowedModelsHeader,
-		RoutingCatalog:            proxy.NewRoutingCatalog(proxySvc),
-		UpstreamModels:            proxy.DispatchEngine(proxySvc),
-		InferencePlans:            proxy.DispatchEngine(proxySvc),
-		ErrorVocab:                ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage},
+		ParseAllowedModelsHeader: func(raw string, installationAllowed []string) (any, error) {
+			return proxy.ParseAllowedModelsHeader(raw, installationAllowed)
+		},
+		RoutingCatalog: proxy.NewRoutingCatalog(proxySvc),
+		UpstreamModels: proxy.DispatchEngine(proxySvc),
+		InferencePlans: proxy.DispatchEngine(proxySvc),
+		ErrorVocab:     ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage},
 	}
-}
-
-func parseAllowedModelsHeader(raw string, installationAllowed []string) (any, error) {
-	return proxy.ParseAllowedModelsHeader(raw, installationAllowed)
 }
