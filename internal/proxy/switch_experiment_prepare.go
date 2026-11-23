@@ -159,18 +159,28 @@ func (x *switchExperiment) finishPreparation(key string, tokens int, now time.Ti
 	*p = done
 }
 
-func (x *switchExperiment) prepare(ctx context.Context, key string, served *translate.RequestEnvelope, plan conversation.ThreadCompaction, req router.Request, summarizer string, tokens int, reason string) {
-	now := plan.CreatedAt
-	if !x.claimPreparation(key, tokens, served.MessageCount(), now) {
+type summaryPreparation struct {
+	key        string
+	served     *translate.RequestEnvelope
+	plan       conversation.ThreadCompaction
+	req        router.Request
+	summarizer string
+	tokens     int
+	reason     string
+}
+
+func (x *switchExperiment) prepare(ctx context.Context, p summaryPreparation) {
+	now := p.plan.CreatedAt
+	if !x.claimPreparation(p.key, p.tokens, p.served.MessageCount(), now) {
 		return
 	}
 	log := observability.FromContext(ctx)
-	history := served.Clone()
+	history := p.served.Clone()
 	timeout := x.compactTimeout()
-	summarize := x.compactor.CompactionOn(summarizer, x.summaryTokens())
+	summarize := x.compactor.CompactionOn(p.summarizer, x.summaryTokens())
 	x.spawn(clearCredentials(ctx), timeout, func(callCtx context.Context) {
 		started := x.now()
-		summary, usage, err := summarize.Summarize(callCtx, history, req)
+		summary, usage, err := summarize.Summarize(callCtx, history, p.req)
 		latency := x.now().Sub(started)
 		failure := ""
 		switch {
@@ -182,12 +192,12 @@ func (x *switchExperiment) prepare(ctx context.Context, key string, served *tran
 			failure = switchCompactionFailureEmpty
 		}
 		if failure != "" {
-			x.finishPreparation(key, tokens, now, preparedCompaction{})
-			log.Warn("switch experiment summary preparation failed", "err", err, "failure", failure, "reason", reason, "summarizer_model", summarizer, "summary_latency_ms", latency.Milliseconds(), "summary_input_tokens", usage.InputTokens, "summary_output_tokens", usage.OutputTokens)
+			x.finishPreparation(p.key, p.tokens, now, preparedCompaction{})
+			log.Warn("switch experiment summary preparation failed", "err", err, "failure", failure, "reason", p.reason, "summarizer_model", p.summarizer, "summary_latency_ms", latency.Milliseconds(), "summary_input_tokens", usage.InputTokens, "summary_output_tokens", usage.OutputTokens)
 			return
 		}
-		plan.Summary = summary
-		x.finishPreparation(key, tokens, now, preparedCompaction{plan: plan, usage: usage, latency: latency})
-		log.Info("switch experiment summary prepared", "reason", reason, "summarizer_model", summarizer, "anchor_messages", plan.AnchorMessages, "prompt_tokens", tokens, "summary_latency_ms", latency.Milliseconds(), "summary_input_tokens", usage.InputTokens, "summary_output_tokens", usage.OutputTokens, "summary_cache_read_tokens", usage.CacheRead, "summary_cache_creation_tokens", usage.CacheCreation+usage.CacheCreation1h)
+		p.plan.Summary = summary
+		x.finishPreparation(p.key, p.tokens, now, preparedCompaction{plan: p.plan, usage: usage, latency: latency})
+		log.Info("switch experiment summary prepared", "reason", p.reason, "summarizer_model", p.summarizer, "anchor_messages", p.plan.AnchorMessages, "prompt_tokens", p.tokens, "summary_latency_ms", latency.Milliseconds(), "summary_input_tokens", usage.InputTokens, "summary_output_tokens", usage.OutputTokens, "summary_cache_read_tokens", usage.CacheRead, "summary_cache_creation_tokens", usage.CacheCreation+usage.CacheCreation1h)
 	})
 }

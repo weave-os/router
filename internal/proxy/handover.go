@@ -367,9 +367,9 @@ func (s *Service) runCompactionHandover(ctx context.Context, env *translate.Requ
 	var out handoverOutcome
 	out.Invoked = true
 
-	summarizer := s.summarizer
-	if s.compactionHandoverSummarizer != nil {
-		summarizer = s.compactionHandoverSummarizer
+	summarizer := s.summaries.handover
+	if s.summaries.compaction != nil {
+		summarizer = s.summaries.compaction
 	}
 	var (
 		sumProvider       string

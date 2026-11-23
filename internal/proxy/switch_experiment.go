@@ -45,14 +45,16 @@ type switchExperiment struct {
 	prepared    map[string]*preparedCompaction
 	spawn       func(parent context.Context, timeout time.Duration, fn func(context.Context))
 	now         func() time.Time
+	ownCreds    func(ctx context.Context, headers http.Header) bool
 }
 
-func (s *Service) WithSwitchExperiment(cfg SwitchExperimentConfig, compactor ThreadCompactor, store conversation.CompactionStore) *Service {
+func EnableSwitchExperiment(s *Service, cfg SwitchExperimentConfig, compactor ThreadCompactor, store conversation.CompactionStore) *Service {
 	if cfg.Live {
-		s.switchExperiment = &switchExperiment{
+		s.summaries.switchExperiment = &switchExperiment{
 			cfg: cfg, compactor: compactor, compactions: store,
 			threads: map[string]switchExperimentThread{}, prepared: map[string]*preparedCompaction{},
-			now: func() time.Time { return s.clock.Now() },
+			now:      func() time.Time { return s.clock.Now() },
+			ownCreds: s.requestUsesNonDeploymentCreds,
 			spawn: func(parent context.Context, timeout time.Duration, fn func(context.Context)) {
 				observability.SafeGoContext(parent, observability.FromContext(parent), timeout, "switch-experiment-compaction", fn)
 			},
@@ -79,11 +81,12 @@ func (x *switchExperiment) record(key, model string, now time.Time, tokens, mess
 	x.threads[key] = thread
 }
 
-func (s *Service) applySwitchExperiment(ctx context.Context, env *translate.RequestEnvelope, req router.Request, reqHeaders http.Header, res *turnLoopResult) {
-	if s.switchExperiment == nil {
-		return
+func (x *switchExperiment) afterRoute(ctx context.Context, env *translate.RequestEnvelope, req router.Request, reqHeaders http.Header, res turnLoopResult, routeErr error) (turnLoopResult, error) {
+	if x == nil || routeErr != nil {
+		return res, routeErr
 	}
-	s.switchExperiment.apply(ctx, env, req, s.clock.Now(), !s.requestUsesNonDeploymentCreds(ctx, reqHeaders), res)
+	x.apply(ctx, env, req, x.now(), !x.ownCreds(ctx, reqHeaders), &res)
+	return res, nil
 }
 
 func (x *switchExperiment) apply(ctx context.Context, env *translate.RequestEnvelope, req router.Request, now time.Time, deploymentCreds bool, res *turnLoopResult) {
@@ -145,14 +148,13 @@ func (x *switchExperiment) apply(ctx context.Context, env *translate.RequestEnve
 		prepareReason, prepareWith = "ahead", earliest
 	}
 	if prepareReason != "" {
-		x.prepare(ctx, key, env, prepareWith, req, summarizer, tokens, prepareReason)
+		x.prepare(ctx, summaryPreparation{key: key, served: env, plan: prepareWith, req: req, summarizer: summarizer, tokens: tokens, reason: prepareReason})
 		ready, hasPrepared = x.readyCompaction(key, original)
 		hasReady = hasPrepared && x.tailCovered(original, ready)
 	}
 	if verdict.Compact && !hasReady {
-		verdict.Compact = false
-		verdict.Reason = routingpolicy.SwitchReasonSummaryNotReady
-		log.Info("switch experiment summary not ready; switching with full history", "current", current, "serve", verdict.Serve, "summarizer_model", summarizer, "summary_prepared", hasPrepared)
+		verdict = routingpolicy.DecideSwitchWithFullHistory(input)
+		log.Info("switch experiment summary not ready; following the full-history verdict", "current", current, "serve", verdict.Serve, "full_history_reason", string(verdict.Reason), "summarizer_model", summarizer, "summary_prepared", hasPrepared)
 	}
 	served := res.Fresh
 	if verdict.Serve != res.Fresh.Model {
@@ -182,4 +184,10 @@ func (x *switchExperiment) apply(ctx context.Context, env *translate.RequestEnve
 		"estimated_tokens", tokens, "compacted_tokens", input.CompactedTokens, "servedTokens", servedTokens,
 		"summarizer_model", summarizer, "summary_ready", hasReady, "prepare_reason", prepareReason,
 		"messages", env.MessageCount())
+}
+
+type serviceSummaries struct {
+	handover         handover.Summarizer
+	compaction       handover.Summarizer
+	switchExperiment *switchExperiment
 }

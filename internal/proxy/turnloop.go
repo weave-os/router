@@ -1508,14 +1508,14 @@ func (s *Service) runTurnLoop(
 				sumCreds          *Credentials
 				canCallSummarizer bool
 			)
-			if s.summarizer != nil {
-				sumProvider = s.summarizer.Provider()
+			if s.summaries.handover != nil {
+				sumProvider = s.summaries.handover.Provider()
 				sumCreds = resolveSummarizerCreds(ctx, sumProvider, reqHeaders)
 				nonDepCreds := s.requestUsesNonDeploymentCreds(ctx, reqHeaders)
 				canCallSummarizer = sumCreds != nil || !nonDepCreds
 			}
 			switch {
-			case s.summarizer == nil:
+			case s.summaries.handover == nil:
 				res.Handover.Invoked = true
 				res.Handover.FallbackToFullHistory = true
 				log.Info("Handover summarizer not wired; preserved full history instead", "pin_model", pin.Model, "fresh_model", fresh.Model)
@@ -1531,7 +1531,7 @@ func (s *Service) runTurnLoop(
 					summCtx = clearCredentials(ctx)
 				}
 				start := s.clock.Now()
-				summary, summaryUsage, sumErr := s.summarizer.Summarize(summCtx, env, req)
+				summary, summaryUsage, sumErr := s.summaries.handover.Summarize(summCtx, env, req)
 				res.Handover.Invoked = true
 				res.Handover.LatencyMS = s.clock.Now().Sub(start).Milliseconds()
 				switch {
@@ -1583,10 +1583,7 @@ func (s *Service) runTurnLoop(
 			}
 		}
 	}
-	if routeErr == nil {
-		s.applySwitchExperiment(ctx, env, req, reqHeaders, &res)
-	}
-	return res, routeErr
+	return s.summaries.switchExperiment.afterRoute(ctx, env, req, reqHeaders, res, routeErr)
 }
 
 func modelExcludedForRecoveryProbe(req router.Request, model string) bool {

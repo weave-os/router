@@ -145,23 +145,21 @@ type Service struct {
 	ccWorkspaceSystemAppend        bool
 	bandSwap                       *bandswap.Classifier
 
-	turnSignalCaptureEnabled     bool
-	textRepetitionBreakEnabled   bool
-	feedbackStore                RouterFeedbackStore
-	summarizer                   handover.Summarizer
-	switchExperiment             *switchExperiment
-	webSearch                    websearch.Executor
-	compactionHandoverSummarizer handover.Summarizer
-	availableModels              map[string]struct{}
-	defaultBaselineModel         string
-	billing                      *billing.Service
-	retrySleep                   func(context.Context, time.Duration) error
-	clock                        auth.Clock
-	feedbackRepo                 FeedbackRepository
-	feedbackSigner               *feedback.Signer
-	piHandoffSecret              []byte
-	feedbackBaseURL              string
-	usageObserver                *usage.Observer
+	turnSignalCaptureEnabled   bool
+	textRepetitionBreakEnabled bool
+	feedbackStore              RouterFeedbackStore
+	summaries                  serviceSummaries
+	webSearch                  websearch.Executor
+	availableModels            map[string]struct{}
+	defaultBaselineModel       string
+	billing                    *billing.Service
+	retrySleep                 func(context.Context, time.Duration) error
+	clock                      auth.Clock
+	feedbackRepo               FeedbackRepository
+	feedbackSigner             *feedback.Signer
+	piHandoffSecret            []byte
+	feedbackBaseURL            string
+	usageObserver              *usage.Observer
 
 	managedSubscriptions subscriptions.Leaser
 }
@@ -1345,12 +1343,12 @@ func forcedReasoningEffort(model string, escalate bool) string {
 }
 
 func (s *Service) WithSummarizer(sz handover.Summarizer) *Service {
-	s.summarizer = sz
+	s.summaries.handover = sz
 	return s
 }
 
 func (s *Service) WithCompactionHandoverSummarizer(sz handover.Summarizer) *Service {
-	s.compactionHandoverSummarizer = sz
+	s.summaries.compaction = sz
 	return s
 }
 

@@ -1,8 +1,12 @@
 package main
 
 import (
+	"time"
+
 	"weave-os/router/internal/config"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/routingpolicy"
 )
 
@@ -19,4 +23,9 @@ func switchExperimentConfigFromEnv() proxy.SwitchExperimentConfig {
 		CompactTimeout: parseEnvDurationMs("ROUTER_SWITCH_COMPACT_TIMEOUT_MS", proxy.DefaultSwitchCompactionTimeout),
 		SummaryTokens:  parseEnvInt("ROUTER_SWITCH_COMPACT_SUMMARY_TOKENS", proxy.DefaultSwitchCompactionSummaryTokens),
 	}
+}
+
+func withSwitchExperiment(svc *proxy.Service, summarizer handover.Summarizer) *proxy.Service {
+	compactor, _ := summarizer.(proxy.ThreadCompactor)
+	return proxy.EnableSwitchExperiment(svc, switchExperimentConfigFromEnv(), compactor, conversation.NewMemoryCompactionStore(time.Hour))
 }

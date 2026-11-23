@@ -302,16 +302,31 @@ func TestSwitchExperiment_KeepsThePreparedSummaryCurrent(t *testing.T) {
 	assert.Len(t, compactor.summarizers(), 2, "the summary is re-prepared once the unsummarized tail grows well past the configured tail")
 }
 
-func TestSwitchExperiment_SwitchesWithFullHistoryWhenTheSummaryIsNotReady(t *testing.T) {
+func notReadySwitchTurn(t *testing.T, upgradeHorizon int) (turnLoopResult, *translate.RequestEnvelope, int) {
+	t.Helper()
 	compactor := &allowlistCompactor{allowed: map[string]bool{switchExperimentMid: true, switchExperimentHigh: true}, summary: gatedSummary{release: make(chan struct{})}}
 	x := newFlooredExperiment(compactor, func(context.Context, time.Duration, func(context.Context)) {})
+	x.cfg.Tuning.UpgradeHorizonTurns = upgradeHorizon
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
 	applyExperimentTurn(x, largeAgentTurn(t, 10, preloadedPrompt), switchExperimentMid, now)
 	turn := largeAgentTurn(t, 11, preloadedPrompt)
 	resent := turn.MessageCount()
 	res := applyExperimentTurn(x, turn, switchExperimentHigh, now.Add(time.Minute))
-	assert.Equal(t, switchExperimentHigh, res.Decision.Model, "a compaction-worthy switch still happens when its summary is not ready")
+	return res, turn, resent
+}
+
+func TestSwitchExperiment_StaysWhenTheSummaryIsNotReadyAndTheFullRewriteDoesNotPay(t *testing.T) {
+	res, turn, resent := notReadySwitchTurn(t, 25)
+	assert.Equal(t, switchExperimentMid, res.Decision.Model, "without a summary the switch only happens when the no-compaction rule would make it")
+	assert.Equal(t, "switch_experiment_"+string(routingpolicy.SwitchReasonUpgradePending), res.PinTier)
+	assert.Equal(t, resent, turn.MessageCount())
+	assert.False(t, firstMessageIsSummary(t, turn))
+}
+
+func TestSwitchExperiment_SwitchesWithFullHistoryWhenTheSummaryIsNotReadyAndTheFullRewritePays(t *testing.T) {
+	res, turn, resent := notReadySwitchTurn(t, 10_000)
+	assert.Equal(t, switchExperimentHigh, res.Decision.Model)
 	assert.Equal(t, "switch_experiment_"+string(routingpolicy.SwitchReasonSummaryNotReady), res.PinTier)
 	assert.Equal(t, resent, turn.MessageCount(), "the switch carries the full history")
 	assert.False(t, firstMessageIsSummary(t, turn))

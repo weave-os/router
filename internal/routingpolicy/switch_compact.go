@@ -5,6 +5,15 @@ const (
 	switchCompactSummaryOutputTokens = 4_000
 )
 
+func DecideSwitchWithFullHistory(input SwitchInput) SwitchVerdict {
+	input.CompactedTokens = 0
+	verdict := DecideSwitch(input)
+	if verdict.Switch {
+		verdict.Reason = SwitchReasonSummaryNotReady
+	}
+	return verdict
+}
+
 func compactionPays(input SwitchInput, tokens, output int, eviction, moveValue float64) bool {
 	compacted := input.CompactedTokens
 	if compacted <= 0 || 2*compacted > tokens || tokens < input.Tuning.CompactMinPromptTokens ||
