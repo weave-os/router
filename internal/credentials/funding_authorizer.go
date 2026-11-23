@@ -37,7 +37,7 @@ func (b *Brokerage) AuthorizeFunding(ctx, admissionCtx context.Context, attemptC
 	if PickedModelOnOwnPlan(ctx) {
 		return SubscriptionPoolUnavailableBecause(ctx, "picked model runs on the caller's own plan")
 	}
-	refusal := ClientAppRefusalFunding{counts: ClientAppRefusalPaidFallback(ctx), poolRefused: ClaudePoolRefusesClientApp(ctx), clientApp: requestcontext.ClientIdentityFrom(ctx).ClientApp}
+	refusal := ClientAppRefusalFunding{paidFallbackCounts: ClientAppRefusalPaidFallback(ctx), poolRefused: ClaudePoolRefusesClientApp(ctx), clientApp: requestcontext.ClientIdentityFrom(ctx).ClientApp}
 	if err := b.AuthorizeSubscriptionAPI(admissionCtx, pool, target, codexToken, claudeToken, refusal); err != nil {
 		observability.FromContext(ctx).Warn("Blocked API inference without subscription quota-exhaustion evidence", "model", model, "provider", provider, "subscription_provider", pool, "err", err)
 		return err

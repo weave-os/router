@@ -14,9 +14,9 @@ import (
 )
 
 type ClientAppRefusalFunding struct {
-	counts      bool
-	poolRefused bool
-	clientApp   string
+	paidFallbackCounts bool
+	poolRefused        bool
+	clientApp          string
 }
 
 func (b *Brokerage) AuthorizeSubscriptionAPI(ctx context.Context, pool subscriptions.Provider, target inference.Target, codexToken, claudeToken string, refusal ClientAppRefusalFunding) error {
@@ -39,7 +39,7 @@ func (b *Brokerage) AuthorizeSubscriptionAPI(ctx context.Context, pool subscript
 		if b.SubscriptionModels.ManagedDenied("account:"+candidate.AccountID, candidate.AccountID, target.Provider, target.CatalogID, now) {
 			continue
 		}
-		if refusal.counts && pool == subscriptions.ProviderClaude && (refusal.poolRefused || b.SubscriptionModels.ManagedClientAppDenied(candidate.AccountID, providers.ProviderAnthropic, refusal.clientApp, now)) {
+		if refusal.paidFallbackCounts && pool == subscriptions.ProviderClaude && (refusal.poolRefused || b.SubscriptionModels.ManagedClientAppDenied(candidate.AccountID, providers.ProviderAnthropic, refusal.clientApp, now)) {
 			continue
 		}
 		if ManagedAccountThrottled(ctx, candidate, now) {
