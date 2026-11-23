@@ -69,24 +69,21 @@ type Service struct {
 	credentials                  credentials.Brokerage
 	strategyServing
 
-	rescueConfig                   dispatch.RescueConfig
-	openAIResponsesBroad           bool
-	nativeAnthropicResponseSignals bool
-	nativeOpenAIResponseSignals    bool
-	armDemotion                    dispatch.ArmDemotionPolicy
-	throttling                     dispatch.Throttling
-	ingress                        ingress.Formats
-	effortEscalation               bool
-	ccOrchToolsCrossVendor         bool
-	ccTaskToolsCrossVendor         bool
-	ccAutonomySystemAppend         bool
-	ccWorkspaceSystemAppend        bool
+	rescueConfig            dispatch.RescueConfig
+	openAIResponsesBroad    bool
+	armDemotion             dispatch.ArmDemotionPolicy
+	throttling              dispatch.Throttling
+	ingress                 ingress.Formats
+	effortEscalation        bool
+	ccOrchToolsCrossVendor  bool
+	ccTaskToolsCrossVendor  bool
+	ccAutonomySystemAppend  bool
+	ccWorkspaceSystemAppend bool
 
-	turnSignalCaptureEnabled bool
-	webSearch                websearch.Executor
-	billing                  *billing.Service
-	clock                    auth.Clock
-	feedbackLinks            *feedbackLinks
+	webSearch     websearch.Executor
+	billing       *billing.Service
+	clock         auth.Clock
+	feedbackLinks *feedbackLinks
 }
 
 type registeredStrategy struct {
@@ -758,14 +755,13 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 	s := &Service{
 		engine:                       dispatch.NewEngine(clients),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
-		turnTelemetry:                turnTelemetry{emitter: emitter, repo: telemetryRepo},
+		turnTelemetry:                turnTelemetry{emitter: emitter, repo: telemetryRepo, flags: TelemetryFlags{TurnSignalCapture: true, NativeAnthropicResponseSignals: true, NativeOpenAIResponseSignals: true}},
 		ingress:                      ingress.New(0),
 		pinStore:                     pinStore,
 		lifecycle:                    conversation.NewLifecycle(),
 		searchUse:                    newSearchUseTracker(),
 		searchRequirementDecayTurns:  DefaultSearchRequirementDecayTurns,
 		prefixTrimFreeSwitch:         true,
-		turnSignalCaptureEnabled:     true,
 		ccOrchToolsCrossVendor:       true,
 		strategyServing:              strategyServing{continuityConfig: continuity.DefaultConfig(), hmmConfig: continuity.DefaultAuthoritativeConfig()},
 		rescueConfig: dispatch.RescueConfig{
@@ -775,9 +771,7 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 			CyberRefusalFallbackModel:   "claude-sonnet-5",
 			AnthropicServerSideFallback: true,
 		},
-		openAIResponsesBroad:           true,
-		nativeAnthropicResponseSignals: true,
-		nativeOpenAIResponseSignals:    true,
+		openAIResponsesBroad: true,
 	}
 	s.routing = routingpolicy.New(nil).WithHardPins(overrides.HardPins{Explore: hardPinExplore, Provider: hardPinProvider, Model: hardPinModel})
 	s.escalationHelper()
@@ -845,16 +839,6 @@ func (s *Service) WithRescuedFailureArmDemotion(enabled bool) *Service {
 
 func (s *Service) WithTransientRateLimit(enabled bool, cooldownSeconds int) *Service {
 	s.throttling.RateLimit = dispatch.NewRateLimitPolicy(enabled, cooldownSeconds)
-	return s
-}
-
-func (s *Service) WithNativeAnthropicResponseSignals(enabled bool) *Service {
-	s.nativeAnthropicResponseSignals = enabled
-	return s
-}
-
-func (s *Service) WithNativeOpenAIResponseSignals(enabled bool) *Service {
-	s.nativeOpenAIResponseSignals = enabled
 	return s
 }
 
@@ -941,11 +925,6 @@ func (s *Service) WithBandSwap(enabled bool) *Service {
 		return s
 	}
 	s.bandSwap = clf
-	return s
-}
-
-func (s *Service) WithTurnSignalCapture(enabled bool) *Service {
-	s.turnSignalCaptureEnabled = enabled
 	return s
 }
 
@@ -1043,11 +1022,6 @@ func (s *Service) WithInferenceExecutor(executor *dispatch.Executor) *Service {
 
 func (s *Service) InferenceExecutor() *dispatch.Executor {
 	return s.engine.Executor()
-}
-
-func (s *Service) WithByokOnly(byokOnly bool) *Service {
-	s.credentials.BYOKOnly = byokOnly
-	return s
 }
 
 func (s *Service) WithExcludedModelsOverride(models []string) *Service {
@@ -1169,11 +1143,6 @@ func (s *Service) WithTranslationMetrics(metrics telemetry.TranslationMetrics) *
 	return s
 }
 
-func (s *Service) WithBillingService(b *billing.Service) *Service {
-	s.billing = b
-	return s
-}
-
 func (s *Service) WithCodexExtraCredits(enabled bool) *Service {
 	s.credentials.CodexExtraCredits = enabled
 	return s
@@ -1181,19 +1150,6 @@ func (s *Service) WithCodexExtraCredits(enabled bool) *Service {
 
 func (s *Service) WithManagedSubscriptions(pool subscriptions.Leaser) *Service {
 	s.credentials.ManagedSubscriptions = pool
-	return s
-}
-
-func (s *Service) WithDeploymentKeyedProviders(set map[string]struct{}) *Service {
-	if set == nil {
-		s.credentials.KeyedProviders = nil
-		return s
-	}
-	copied := make(map[string]struct{}, len(set))
-	for p := range set {
-		copied[p] = struct{}{}
-	}
-	s.credentials.KeyedProviders = copied
 	return s
 }
 

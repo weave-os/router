@@ -117,7 +117,7 @@ func messagesTurnUsageFor(ctx context.Context, s *Service, t *messagesFinishedTu
 	}
 
 	nativeRespSummary := false
-	if t.respSummary.StopReason == "" && s.ResolveNativeAnthropicResponseSignals(ctx) {
+	if t.respSummary.StopReason == "" && s.turnTelemetry.flags.resolveNativeAnthropicResponseSignals(ctx) {
 		if stopReason, toolUseBlocks, observed := t.extractor.AnthropicResponse(); observed {
 			t.respSummary.UpstreamFinishReason = stopReason
 			t.respSummary.StopReason = stopReason

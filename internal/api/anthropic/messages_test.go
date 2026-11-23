@@ -449,8 +449,8 @@ func TestRouteHandler_HappyPathReturnsDecision(t *testing.T) {
 func TestRouteHandler_ForwardsAuthorizationForProviderEligibility(t *testing.T) {
 	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}
 	var got router.Request
-	svc := newTestService(&fakeRouter{decision: decision, got: &got}, providers.ProviderAnthropic, &fakeProviderClient{}).
-		WithByokOnly(true)
+	svc := proxy.WithDeps(newTestService(&fakeRouter{decision: decision, got: &got}, providers.ProviderAnthropic, &fakeProviderClient{}),
+		proxy.Deps{BYOKOnly: true})
 	engine := routeEngine(svc)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route", bytes.NewReader([]byte(validAnthropicBody)))
 	req.Header.Set("Authorization", "Bearer sk-ant-oat01-claude-code-token")

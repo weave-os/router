@@ -220,7 +220,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				}
 				*deps.respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.Signals().FinishReason}
 				*deps.nativeRespSummary = false
-				if nativeTerminal.Observed() && deps.svc.ResolveNativeOpenAIResponseSignals(actx) {
+				if nativeTerminal.Observed() && deps.svc.turnTelemetry.flags.resolveNativeOpenAIResponseSignals(actx) {
 					deps.respSummary.StopReason = nativeTerminal.Signals().FinishReason
 					deps.respSummary.ToolUseBlocks = nativeTerminal.Signals().ToolCalls
 					*deps.nativeRespSummary = true

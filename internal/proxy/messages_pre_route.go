@@ -94,7 +94,7 @@ func assembleMessagesPreRoute(ctx context.Context, s *Service, in messagesPreRou
 
 	var inboundSpiralSignals conversation.SpiralSignals
 	var inboundSpiralReasons []conversation.SpiralReason
-	inboundSpiralComputed := s.ResolveTurnSignalCaptureEnabled(ctx)
+	inboundSpiralComputed := s.turnTelemetry.flags.resolveTurnSignalCapture(ctx)
 	if inboundSpiralComputed {
 		inboundSpiralSignals = conversation.ComputeSpiralSignals(env, feats.MessageCount)
 		inboundSpiralReasons = conversation.SpiralReasons(inboundSpiralSignals)
