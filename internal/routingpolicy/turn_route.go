@@ -157,6 +157,6 @@ func (r TurnRoute) Escalation() *floor.Turn { return r.escalation }
 
 func (r *TurnRoute) SetEscalation(turn *floor.Turn) { r.escalation = turn }
 
-func (r TurnRoute) AuthoritativeHMMScored(ports continuity.StrategyPorts) bool {
+func (r TurnRoute) IsAuthoritativeHMMDecision(ports continuity.StrategyPorts) bool {
 	return r.AuthoritativePerTurn && ports.Ownership.IsDecision(r.Fresh) && !r.HardPinned && !r.ForcedPinDropped && !r.PolicyFallback && !r.CallerModelPassthrough && !r.UsageBypass && !floor.RoutingApplied(r.Fresh)
 }

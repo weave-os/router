@@ -53,7 +53,7 @@ func applyAgreementShadowTelemetry(ports continuity.StrategyPorts, ctx context.C
 		Observation: switchpolicy.ShadowObservation{RequestID: p.RequestID, StartedAt: p.Timestamp, Gap: switchpolicy.ShadowGapUnsupported},
 	}
 	p.AgreementShadow = shadow
-	if !res.AuthoritativeHMMScored(ports) {
+	if !res.IsAuthoritativeHMMDecision(ports) {
 		return
 	}
 	md, classifier := res.Fresh.Metadata, ports.Facts.ClassifierTelemetryOf(res.Fresh.Metadata)
