@@ -6007,7 +6007,7 @@ weave_self_refresh() {
     # Detach stdin so curl can't accidentally consume it, and silence all
     # output so nothing leaks into the client's display.
     exec </dev/null
-    local base url outcome=fail unsigned=0
+    local base url outcome=fail unsigned=0 tag=""
     if [ -n "${WEAVE_CODEX_STATUS_URL:-}" ]; then
       url="$WEAVE_CODEX_STATUS_URL"
       base="${url%/*}"
@@ -6015,7 +6015,6 @@ weave_self_refresh() {
     else
       base=""
       if curl -fsSL --max-time 15 "$WEAVE_RELEASE_REPO_URL/main/install/codex-status.sh" -o "$tmp.channel" 2>/dev/null; then
-        local tag
         tag="$(weave_release_advertised_tag "$tmp.channel")" || tag=""
         if weave_release_tag_newer "$tag" "$WEAVE_RELEASE_TAG"; then
           base="$WEAVE_RELEASE_REPO_URL/$tag/install"
@@ -6028,17 +6027,24 @@ weave_self_refresh() {
     fi
     # Verify before anything touches $self: the MANIFEST signature under the
     # embedded key, then this body's SHA-256 against its MANIFEST row. The
-    # shape checks stay as a second line of defence, and are the only check
-    # for a source trusted unsigned.
+    # signature does not name a release, so a body fetched from a tag must also
+    # carry that tag; an older signed release replayed under a newer tag name
+    # is refused. The shape checks stay as a second line of defence, and are
+    # the only check for a source trusted unsigned. A body that downloaded but
+    # failed a check is "rejected", not "fail": retrying it next turn would
+    # fetch the same bytes again.
     if [ "$unsigned" = "1" ]; then
       curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null && outcome=fetched
     elif [ -n "$base" ] \
        && curl -fsSL --max-time 15 "$base/MANIFEST" -o "$tmp.MANIFEST" 2>/dev/null \
        && curl -fsSL --max-time 15 "$base/MANIFEST.sig.b64" -o "$tmp.MANIFEST.sig.b64" 2>/dev/null \
-       && curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null \
-       && weave_verify_manifest "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" \
-       && weave_verify_file "$tmp.MANIFEST" "install/codex-status.sh" "$tmp"; then
-      outcome=fetched
+       && curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null; then
+      outcome=rejected
+      if weave_verify_manifest "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" \
+         && weave_verify_file "$tmp.MANIFEST" "install/codex-status.sh" "$tmp" \
+         && { [ -z "$tag" ] || [ "$(weave_release_advertised_tag "$tmp")" = "$tag" ]; }; then
+        outcome=fetched
+      fi
     fi
     if [ "$outcome" = "fetched" ]; then
       if [ -s "$tmp" ] \
@@ -6046,7 +6052,7 @@ weave_self_refresh() {
          && [ "$(wc -c <"$tmp")" -ge 1024 ]; then
         outcome=verified
       else
-        outcome=fail
+        outcome=rejected
       fi
     fi
     rm -f "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64"
@@ -7883,7 +7889,7 @@ weave_self_refresh() {
     # Detach stdin so curl can't accidentally consume it, and silence all
     # output so nothing leaks into the client's display.
     exec </dev/null
-    local base url outcome=fail unsigned=0
+    local base url outcome=fail unsigned=0 tag=""
     if [ -n "${WEAVE_STATUSLINE_URL:-}" ]; then
       url="$WEAVE_STATUSLINE_URL"
       base="${url%/*}"
@@ -7891,7 +7897,6 @@ weave_self_refresh() {
     else
       base=""
       if curl -fsSL --max-time 15 "$WEAVE_RELEASE_REPO_URL/main/install/cc-statusline.sh" -o "$tmp.channel" 2>/dev/null; then
-        local tag
         tag="$(weave_release_advertised_tag "$tmp.channel")" || tag=""
         if weave_release_tag_newer "$tag" "$WEAVE_RELEASE_TAG"; then
           base="$WEAVE_RELEASE_REPO_URL/$tag/install"
@@ -7904,17 +7909,24 @@ weave_self_refresh() {
     fi
     # Verify before anything touches $self: the MANIFEST signature under the
     # embedded key, then this body's SHA-256 against its MANIFEST row. The
-    # shape checks stay as a second line of defence, and are the only check
-    # for a source trusted unsigned.
+    # signature does not name a release, so a body fetched from a tag must also
+    # carry that tag; an older signed release replayed under a newer tag name
+    # is refused. The shape checks stay as a second line of defence, and are
+    # the only check for a source trusted unsigned. A body that downloaded but
+    # failed a check is "rejected", not "fail": retrying it next turn would
+    # fetch the same bytes again.
     if [ "$unsigned" = "1" ]; then
       curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null && outcome=fetched
     elif [ -n "$base" ] \
        && curl -fsSL --max-time 15 "$base/MANIFEST" -o "$tmp.MANIFEST" 2>/dev/null \
        && curl -fsSL --max-time 15 "$base/MANIFEST.sig.b64" -o "$tmp.MANIFEST.sig.b64" 2>/dev/null \
-       && curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null \
-       && weave_verify_manifest "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" \
-       && weave_verify_file "$tmp.MANIFEST" "install/cc-statusline.sh" "$tmp"; then
-      outcome=fetched
+       && curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null; then
+      outcome=rejected
+      if weave_verify_manifest "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" \
+         && weave_verify_file "$tmp.MANIFEST" "install/cc-statusline.sh" "$tmp" \
+         && { [ -z "$tag" ] || [ "$(weave_release_advertised_tag "$tmp")" = "$tag" ]; }; then
+        outcome=fetched
+      fi
     fi
     if [ "$outcome" = "fetched" ]; then
       if [ -s "$tmp" ] \
@@ -7922,7 +7934,7 @@ weave_self_refresh() {
          && [ "$(wc -c <"$tmp")" -ge 1024 ]; then
         outcome=verified
       else
-        outcome=fail
+        outcome=rejected
       fi
     fi
     rm -f "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64"
@@ -7937,9 +7949,9 @@ weave_self_refresh() {
       fi
     else
       rm -f "$tmp"
-      # A download or verification that failed shouldn't spend the caller's
-      # whole interval; drop the stamp so the next turn can try again. Being
-      # on the newest release already is not a failure.
+      # A download that failed shouldn't spend the caller's whole interval;
+      # drop the stamp so the next turn can try again. Being on the newest
+      # release already, or a rejected body, is not a transient failure.
       if [ "$outcome" = "fail" ] && [ "$retry_on_fail" = "1" ]; then
         rm -f "$stamp"
       fi
@@ -8104,7 +8116,7 @@ weave_sync_commands() {
     # selector of the shape install_slash_commands writes; anything else (shell
     # metacharacters, extra commands) would be copied into verified wrappers.
     if ! printf '%s\n' "$scope_args" \
-         | grep -Eqx '( --scope project| --dir ([A-Za-z0-9_./~+@:=,%-]|\\[^[:cntrl:]])+)?'; then
+         | grep -Eqx '( --scope project| --dir ([^][:space:][:cntrl:]|&;<>()$`"'"'"'\\*?{}!^]|\\[^[:cntrl:]])+)?'; then
       scope_args="" scope_known="false"
     fi
   fi

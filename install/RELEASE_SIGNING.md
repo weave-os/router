@@ -92,6 +92,9 @@ release it belongs to, stamped by the release pipeline. A refresh:
 3. Downloads `install/MANIFEST`, `install/MANIFEST.sig.b64` and the script
    from `raw.githubusercontent.com/weave-os/router/<tag>/`, verifies them as
    described above, and swaps the script in only if every check passes.
+4. Refuses a verified body whose own `WEAVE_RELEASE_TAG` is not `<tag>`. The
+   signature covers file digests, not a release name, so without this check
+   an older signed release republished under a newer tag name would pass.
 
 Anyone who can write to `main` can change the advertised tag, but only to
 another tag that is newer than the installed one and that carries a

@@ -183,7 +183,7 @@ victim_env() {
     "PATH=$shim_bin:$1" "MIT_PUB_ROOT=$pub" "MIT_CURL_LOG=$log" "MIT_REAL_CURL=$real_curl"
 }
 
-cc_payload() { printf '{"model":{"id":"claude-opus-5"},"transcript_path":"%s/none.jsonl"}' "$c"; }
+cc_payload() { printf '{"model":{"id":"%s"},"transcript_path":"%s/none.jsonl"}' "${cc_model:-claude-opus-5}" "$c"; }
 codex_payload() { printf '%s' '{"session_id":"s-integrity","model":"gpt-5.6-terra","last_assistant_message":"done"}'; }
 
 # run_tool <tool> <installed> [VAR=value...]: one victim invocation; stderr is
@@ -366,6 +366,18 @@ for tool in cc codex; do
   settle "$installed" "$next_tag/install/$file"
   expect_refused "$tool: a signed but malformed body is still refused" "$before"
 
+  # The signature names no release, so an older signed release replayed under a
+  # newer tag name is refused by the tag the body itself carries.
+  self_refresh_lab "$tool" "$tool-replayed"
+  cp "$(tool_keyed "$tool")" "$served"
+  printf '# older signed release body\n' >>"$served"
+  manifest_row "install/$file" "$served" >"$release_dir/MANIFEST"
+  sign "$release_dir/MANIFEST" "$keys/release.key" "$release_dir/MANIFEST.sig.b64"
+  before="$(sha "$installed")"
+  run_tool "$tool" "$installed"
+  settle "$installed" "$next_tag/install/$file"
+  expect_refused "$tool: an older signed body served under a newer tag is refused" "$before"
+
   # No downgrade or re-fetch: main advertising this copy's own tag fetches
   # nothing from any tag.
   self_refresh_lab "$tool" "$tool-current"
@@ -420,6 +432,18 @@ for tool in cc codex; do
   settle "$installed" "$next_tag/install/$file"
   expect_refused "$tool: without openssl a genuine release is not swapped in" "$before"
 done
+
+# A price-miss refresh retries a failed download next turn, but a body that
+# downloaded and was refused keeps its stamp: the same bytes would come back.
+self_refresh_lab cc cc-price-miss-refused
+tamper_served
+cc_model="unpriced-model-x" run_tool cc "$installed"
+settle "$installed" "$next_tag/install/cc-statusline.sh"
+if compgen -G "$c/cache/weave-router/checked-at*.miss.unpriced-model-x" >/dev/null; then
+  ok "a refused price-miss refresh keeps its stamp"
+else
+  no "a refused price-miss refresh keeps its stamp" "stamp kept" "stamp dropped"
+fi
 
 # ---------- slash-command refresh (surface 2) ----------
 
@@ -565,7 +589,7 @@ check "re-seed leaves a user-owned command untouched" "$(cat "$cmd_dir/fm.md")" 
 if file_absent "$cmd_dir/fm.md.weave-router"; then ok "re-seed claims no ownership of a user-owned command"; else no "re-seed claims no ownership of a user-owned command" "no sidecar" "sidecar written"; fi
 check "re-seed still records the verified baseline for a user-owned name" "$(sha "$baseline/fm.md")" "$(sha "$release_dir/commands/fm.md")"
 
-# A wrapper source at a host root fetches MANIFEST from that root.
+# A host-root URL base has no parent to strip, so MANIFEST must come from the root itself.
 commands_lab cmd-host-root
 : >"$baseline/.manifest-seeded"
 upstream_wrapper fm "host-root fm."
@@ -586,10 +610,10 @@ scope_lab() { # scope_lab <name> <router-off npx suffix>
   commands_lab "$1"
   : >"$baseline/.manifest-seeded"
   local off_line="\`npx @weave-os/router off --claude$2\`"
-  sed "s#^\`npx @weave-os/router off --claude{{SCOPE}}\`\$#$off_line#" \
+  sed "s|^\`npx @weave-os/router off --claude{{SCOPE}}\`\$|$off_line|" \
     "$script_dir/../commands/router-off.md" >"$cmd_dir/router-off.md"
   cp "$script_dir/../commands/router-on.md" "$baseline/router-on.md"
-  sed "s#{{SCOPE}}#$2#g" "$script_dir/../commands/router-on.md" >"$cmd_dir/router-on.md"
+  sed "s|{{SCOPE}}|$2|g" "$script_dir/../commands/router-on.md" >"$cmd_dir/router-on.md"
   sed 's#^Turn#Now turn#' "$script_dir/../commands/router-on.md" >"$release_dir/commands/router-on.md"
   sign_commands
 }
@@ -602,6 +626,15 @@ else
 fi
 sync_settle "commands/router-on.md"
 check_contains "a refreshed scoped wrapper keeps its scope selector" "$(cat "$cmd_dir/router-on.md")" "on --claude --scope project"
+
+scope_lab cmd-scope-dir-hash " --dir $(printf '%q' "/srv/team#2/repo")"
+run_tool cc "$installed"
+if wait_for 20 grep -q '^Now turn' "$cmd_dir/router-on.md"; then
+  ok "a --dir selector with a mid-word # still refreshes scoped wrappers"
+else
+  no "a --dir selector with a mid-word # still refreshes scoped wrappers" "refreshed router-on" "$(cat "$cmd_dir/router-on.md")"
+fi
+sync_settle "commands/router-on.md"
 
 scope_lab cmd-scope-injected " --scope project; touch pwned"
 on_before="$(cat "$cmd_dir/router-on.md")"
