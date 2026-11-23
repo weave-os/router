@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -173,13 +174,13 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 	stickyHit bool,
 	proxyErr error,
 	decisionReason string,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role string,
 ) {
-	if !stickyHit || s.pinStore == nil || target.installationID == uuid.Nil {
+	if !stickyHit || s.pinStore == nil || target.InstallationID == uuid.Nil {
 		return
 	}
-	if target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+	if target.SessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return
 	}
 	if strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
@@ -189,7 +190,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 	log := observability.FromContext(ctx)
 
 	if proxyErr == nil {
-		if err := s.pinStore.ResetUpstreamErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy); err != nil {
+		if err := s.pinStore.ResetUpstreamErrors(context.WithoutCancel(ctx), target.SessionKey, role, target.Strategy); err != nil {
 			log.Error("pin error-counter reset failed", "err", err, "role", role)
 		}
 		return
@@ -203,7 +204,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 		return
 	}
 
-	count, err := s.pinStore.IncrementUpstreamErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy)
+	count, err := s.pinStore.IncrementUpstreamErrors(context.WithoutCancel(ctx), target.SessionKey, role, target.Strategy)
 	if err != nil {
 		log.Error("pin error-counter increment failed", "err", err, "role", role, "upstream_status", status)
 		return
@@ -218,7 +219,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 		return
 	}
 
-	if err := s.expireSessionPin(ctx, target.strategy, target.installationID, target.sessionKey, role, "upstream_error_strike_threshold"); err != nil {
+	if err := s.expireSessionPin(ctx, target.Strategy, target.InstallationID, target.SessionKey, role, "upstream_error_strike_threshold"); err != nil {
 		log.Error("pin eviction upsert failed", "err", err, "role", role)
 		return
 	}

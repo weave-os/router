@@ -24,11 +24,11 @@ import (
 )
 
 func TestPinNeverExpires_OutlivesAnyIdleGapWithinPostgresRange(t *testing.T) {
-	if !pinNeverExpires.After(time.Now().AddDate(1000, 0, 0)) {
-		t.Fatalf("pinNeverExpires = %v, want at least 1000 years out", pinNeverExpires)
+	if !routingpolicy.PinNeverExpires.After(time.Now().AddDate(1000, 0, 0)) {
+		t.Fatalf("routingpolicy.PinNeverExpires = %v, want at least 1000 years out", routingpolicy.PinNeverExpires)
 	}
-	if pinNeverExpires.Year() > 9999 {
-		t.Fatalf("pinNeverExpires = %v, want a four-digit year inside the Postgres timestamp range", pinNeverExpires)
+	if routingpolicy.PinNeverExpires.Year() > 9999 {
+		t.Fatalf("routingpolicy.PinNeverExpires = %v, want a four-digit year inside the Postgres timestamp range", routingpolicy.PinNeverExpires)
 	}
 }
 

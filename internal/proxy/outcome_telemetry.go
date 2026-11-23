@@ -27,8 +27,8 @@ func latestToolCallCountsJSON(env *translate.RequestEnvelope) []byte {
 
 func applyServedGroupTelemetry(ports continuity.StrategyPorts, ctx context.Context, params *turnrecord.InsertTelemetryParams, routed routingpolicy.TurnRoute, served router.Decision) {
 	group := ""
-	if served.Model == routed.Decision.Model && !isUserForcedReason(routed.Decision.Reason) {
-		group = decisionPolicyGroup(routed.Decision)
+	if served.Model == routed.Decision.Model && !routingpolicy.IsUserForcedReason(routed.Decision.Reason) {
+		group = routingpolicy.DecisionPolicyGroup(routed.Decision)
 		if group == "" && routed.Decision.Metadata != nil && ports.Facts.ClassifierTelemetryOf(routed.Decision.Metadata).SelectionTrace != nil {
 			group = ports.Facts.ClassifierTelemetryOf(routed.Decision.Metadata).SelectionTrace.SelectedGroup
 		}

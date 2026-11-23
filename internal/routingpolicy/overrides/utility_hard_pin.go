@@ -1,4 +1,4 @@
-package proxy
+package overrides
 
 import (
 	"weave-os/router/internal/router"

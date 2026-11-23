@@ -37,7 +37,7 @@ func writePreparedHandoff(w http.ResponseWriter, prepared preparedHandoff) error
 }
 
 func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.Strategy, w http.ResponseWriter, env *translate.RequestEnvelope, req router.Request, route routingpolicy.TurnRoute) error {
-	if route.UsageBypass || route.HardPinned || isUserForcedReason(route.Decision.Reason) {
+	if route.UsageBypass || route.HardPinned || routingpolicy.IsUserForcedReason(route.Decision.Reason) {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
 	}
 	apiKeyID, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
@@ -52,7 +52,7 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.
 	}
 	prepared := preparedHandoff{
 		Token: token, Model: route.Decision.Model, Provider: route.Decision.Provider,
-		Complexity: decisionPolicyGroup(route.Decision),
+		Complexity: routingpolicy.DecisionPolicyGroup(route.Decision),
 	}
 	prepared.SessionToken, err = mintPiSession(ctx, s.lifecycle.PiHandoff(s.clock.Now), env, deriveSessionKeyForRequest(ctx, env, apiKeyID))
 	if err != nil {

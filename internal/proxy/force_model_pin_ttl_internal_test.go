@@ -64,15 +64,15 @@ func (s *recordingPinStore) SweepExpired(context.Context) error { return nil }
 // model. User-forced pins must carry the never-expires sentinel; every other
 // reason keeps the sliding session TTL.
 func TestPinExpiry_UserForcedNeverExpires(t *testing.T) {
-	assert.Equal(t, pinNeverExpires, pinExpiry(translate.ReasonUserForceModel, time.Time{}),
+	assert.Equal(t, routingpolicy.PinNeverExpires, routingpolicy.PinExpiry(translate.ReasonUserForceModel, time.Time{}),
 		"user-forced pins must never expire")
 	// The "+tier_clamp" suffix is written when a forced pin is clamped for a
 	// turn; the underlying directive is still user-forced and must not expire.
-	assert.Equal(t, pinNeverExpires, pinExpiry(translate.ReasonUserForceModel+"+tier_clamp", time.Time{}),
+	assert.Equal(t, routingpolicy.PinNeverExpires, routingpolicy.PinExpiry(translate.ReasonUserForceModel+"+tier_clamp", time.Time{}),
 		"a tier-clamped user-forced pin must still never expire")
 
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	assert.Equal(t, now.Add(routingpolicy.PinSessionTTL), pinExpiry("cluster:v0.67 top_p=[2,4]", now),
+	assert.Equal(t, now.Add(routingpolicy.PinSessionTTL), routingpolicy.PinExpiry("cluster:v0.67 top_p=[2,4]", now),
 		"cluster pin keeps the bounded one-hour session TTL, not the sentinel")
 }
 
@@ -92,7 +92,7 @@ func TestSetForceModelSessionPin_WritesNeverExpiresSentinel(t *testing.T) {
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, forceModelSessionRole, store.upserts[0].Role)
 	assert.Equal(t, translate.ReasonUserForceModel, store.upserts[0].Reason)
-	assert.Equal(t, pinNeverExpires, store.upserts[0].PinnedUntil,
+	assert.Equal(t, routingpolicy.PinNeverExpires, store.upserts[0].PinnedUntil,
 		"a /force-model pin must be written with the never-expires sentinel")
 }
 

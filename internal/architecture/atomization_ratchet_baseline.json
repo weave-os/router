@@ -9,7 +9,7 @@
     "proxy_router_layer_helper_calls": {},
     "serving_strategy_constant_references": {
       "internal/policyregistry": 5,
-      "internal/proxy": 8,
+      "internal/proxy": 7,
       "internal/server": 2,
       "internal/subscriptions/entitlement": 1,
       "internal/translate": 2

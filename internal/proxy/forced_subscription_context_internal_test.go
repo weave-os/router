@@ -26,6 +26,7 @@ import (
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
@@ -121,7 +122,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 			defer upstream.Close()
 			store := &forcedPinStore{pin: sessionpin.Pin{
 				Provider: providers.ProviderAnthropic, Model: gatewayCompactionOpusModel,
-				Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires,
+				Reason: translate.ReasonUserForceModel, PinnedUntil: routingpolicy.PinNeverExpires,
 			}}
 			svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{
 				providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL),

@@ -311,7 +311,7 @@ func (s *Service) runTurnLoop(
 			Model:          canonicalModel,
 			Effort:         effort,
 			Reason:         translate.ReasonUserForceModel,
-			PinnedUntil:    pinNeverExpires,
+			PinnedUntil:    routingpolicy.PinNeverExpires,
 		}
 		forceModelFound = true
 	}
@@ -382,7 +382,7 @@ func (s *Service) runTurnLoop(
 	hardPinnedTurn := isHardPinnedTurn(ctx, s, strategy, res.TurnType)
 	if s.pinStore != nil && hardPinnedTurn && !forceModelFound && !forceModelCleared {
 		legacyPin, found := sessionPins.Load(ctx, threadSessionKey, res.PinRole)
-		if found && isUserForcedReason(legacyPin.Reason) {
+		if found && routingpolicy.IsUserForcedReason(legacyPin.Reason) {
 			binding, refusal := s.forcedModelBinding(ctx, legacyPin.Model, legacyPin.Provider)
 			if refusal != nil {
 				return res, refusal
@@ -436,7 +436,7 @@ func (s *Service) runTurnLoop(
 		return s.routeWithoutPin(ctx, strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 	if res.TurnType == turntype.Compaction {
-		return s.routeCompaction(ctx, req, res, reqHeaders, sessionTarget{strategy: strategy, installationID: installationID, sessionKey: threadSessionKey}, forceModelFound, forceModelPin)
+		return s.routeCompaction(ctx, req, res, reqHeaders, routingpolicy.SessionTarget{Strategy: strategy, InstallationID: installationID, SessionKey: threadSessionKey}, forceModelFound, forceModelPin)
 	}
 
 	sessionKey := threadSessionKey
@@ -468,7 +468,7 @@ func (s *Service) runTurnLoop(
 	if forceModelFound || forceModelCleared {
 		forceHistory = s.loadForceModelHistory(ctx, res.SessionKey, res.PinRole)
 	}
-	if !forceModelFound && !forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
+	if !forceModelFound && !forceModelCleared && pinFound && routingpolicy.IsUserForcedReason(pin.Reason) {
 		binding, refusal := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
 		if refusal != nil {
 			return res, refusal
@@ -477,7 +477,7 @@ func (s *Service) runTurnLoop(
 		forceModelPin, forceModelFound = pin, true
 		req.Candidates.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
 	}
-	if forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
+	if forceModelCleared && pinFound && routingpolicy.IsUserForcedReason(pin.Reason) {
 		pinFound = false
 		pin = sessionpin.Pin{}
 	}
@@ -486,7 +486,7 @@ func (s *Service) runTurnLoop(
 	if res.TurnType == turntype.MainLoop {
 		commandContinuation, commandContinuationFound = postCommandContinuation(s, strategy).Consume(ctx, res.SessionKey, res.PinRole)
 	}
-	if pinFound && isUserForcedReason(pin.Reason) {
+	if pinFound && routingpolicy.IsUserForcedReason(pin.Reason) {
 		binding, refusal := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
 		if refusal != nil {
 			log.Warn("turnloop: forced pin refers to an excluded model",
@@ -501,7 +501,7 @@ func (s *Service) runTurnLoop(
 	forcedProvider := ""
 	if forceModelFound {
 		forcedProvider = forceModelPin.Provider
-	} else if pinFound && isUserForcedReason(pin.Reason) {
+	} else if pinFound && routingpolicy.IsUserForcedReason(pin.Reason) {
 		forcedProvider = pin.Provider
 	}
 	if disabledProviders := candidates.SessionDisabledProviders(pin.DisabledProviders, switchHistory.DisabledProviders, forcedProvider); len(disabledProviders) > 0 {
@@ -543,18 +543,18 @@ func (s *Service) runTurnLoop(
 
 	forcedTierFloor := catalog.TierUnknown
 	if forceModelFound {
-		served, tierFloor := serveForceModelPin(ctx, &req, &res, forceModelPin, forceHistory, sessionPins, s.clock.Now())
+		served, tierFloor := routingpolicy.ServeForceModelPinTurn(ctx, &req, &res, forceModelPin, forceHistory, sessionPins, s.clock.Now())
 		if served {
 			return res, nil
 		}
 		forcedTierFloor = tierFloor
-		if !sessionForceControlFound || isUserForcedReason(pin.Reason) {
+		if !sessionForceControlFound || routingpolicy.IsUserForcedReason(pin.Reason) {
 			pinFound = false
 			pin = sessionpin.Pin{}
 		}
 	}
-	if pinFound && isUserForcedReason(pin.Reason) {
-		served, tierFloor := serveUserForcedPin(ctx, &req, &res, pin, sessionPins)
+	if pinFound && routingpolicy.IsUserForcedReason(pin.Reason) {
+		served, tierFloor := routingpolicy.ServeUserForcedPinTurn(ctx, &req, &res, pin, sessionPins)
 		if served {
 			return res, nil
 		}
@@ -586,7 +586,7 @@ func (s *Service) runTurnLoop(
 		res.StickyHit = true
 		res.PinTier = "post_command_continuation"
 		res.PinModel = commandContinuation.Model
-		res.PinAgeSec = pinAge(commandContinuation, s.clock.Now())
+		res.PinAgeSec = routingpolicy.PinAge(commandContinuation, s.clock.Now())
 		if forceModelCleared {
 			applySwitchHistory(&res, commandContinuation, switchHistory, forceHistory, forceModelPin)
 		} else {

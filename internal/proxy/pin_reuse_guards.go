@@ -24,7 +24,7 @@ func (tp *turnPin) drop() {
 
 func dropPinRuledOutLastTurn(ctx context.Context, s *Service, env *translate.RequestEnvelope, req *router.Request, res *routingpolicy.TurnRoute, tp *turnPin, switchHistory sessionpin.Pin) {
 	log := observability.FromContext(ctx)
-	if tp.found && !isUserForcedReason(tp.pin.Reason) && automaticallyDisabled(*req, tp.pin.Model) {
+	if tp.found && !routingpolicy.IsUserForcedReason(tp.pin.Reason) && automaticallyDisabled(*req, tp.pin.Model) {
 		reason, _ := s.globalAutomaticExclusionReason(ctx, tp.pin.Model)
 		log.Info("Session pin model is disabled for automatic routing; falling through to scorer",
 			"pin_model", tp.pin.Model,

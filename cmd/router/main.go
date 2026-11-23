@@ -599,13 +599,7 @@ func main() {
 	}
 	logger.Info("Hard-pin model resolved", "provider", hardPinProvider, "model", hardPinModel, "byok_only", byokOnly)
 
-	var hardPinResolver proxy.HardPinResolver
-	if !hardPinOverrideConfigured {
-		hardPinResolver = proxy.CatalogUtilityHardPin
-		logger.Info("Hard-pin resolver wired (per-request catalog utility target, applies excluded_models)", "default_model", policy.UtilityHardPinDefaultModel, "byok_only", byokOnly)
-	} else {
-		logger.Info("Hard-pin resolver not wired: ROUTER_HARD_PIN_MODEL operator override is set and absolute by design", "model", hardPinModel)
-	}
+	hardPinResolver := selectHardPinResolver(logger, hardPinOverrideConfigured, byokOnly, hardPinModel)
 
 	subAgentProvider := config.GetOr("ROUTER_SUBAGENT_PROVIDER", "")
 	subAgentModel := config.GetOr("ROUTER_SUBAGENT_MODEL", "")

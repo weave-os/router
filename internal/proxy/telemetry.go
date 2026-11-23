@@ -93,7 +93,7 @@ func applyBlindExperimentTelemetry(ctx context.Context, params *turnrecord.Inser
 			params.CohortBypassReason = auth.CohortBypassNotDispatched
 		case routed.UsageBypass:
 			params.CohortBypassReason = auth.CohortBypassUsageBypass
-		case isUserForcedReason(routed.Decision.Reason):
+		case routingpolicy.IsUserForcedReason(routed.Decision.Reason):
 			params.CohortBypassReason = auth.CohortBypassForceModel
 		case routed.HardPinned:
 			params.CohortBypassReason = auth.CohortBypassHardPin

@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/routingpolicy/overrides"
 	"weave-os/router/internal/translate"
 )
 
@@ -31,7 +32,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}), nil, store, false,
 		providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil)).
 		WithAvailableModels(map[string]struct{}{compactionStrategyModel: {}}).
-		WithHardPinResolver(CatalogUtilityHardPin)
+		WithHardPinResolver(overrides.CatalogUtilityHardPin)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "compaction-strategy-test"})
 	ctx = router.WithStrategy(ctx, router.StrategyHMM)
 	env, err := translate.ParseOpenAI([]byte(`{"model":"weave-hmm-20261019-0001v1","messages":[{"role":"user","content":"You are performing a CONTEXT CHECKPOINT COMPACTION. Summarize the work."}]}`))
