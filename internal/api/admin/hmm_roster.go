@@ -3,7 +3,6 @@ package admin
 import (
 	"net/http"
 	"sort"
-	"strings"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
@@ -35,11 +34,8 @@ type hmmRosterResponse struct {
 
 func HMMRosterHandler(sources map[router.Strategy]policy.RosterSource, catalogID func(string) string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(c.Query("strategy"))))
-		if strategy == "" || strategy == router.StrategyHMMEmbedding {
-			strategy = router.StrategyHMM
-		}
-		if strategy != router.StrategyHMM && strategy != router.StrategyHMMBeta {
+		strategy, ok := router.HMMRosterLane(c.Query("strategy"))
+		if !ok {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "unsupported_hmm_strategy"})
 			return
 		}
@@ -48,7 +44,7 @@ func HMMRosterHandler(sources map[router.Strategy]policy.RosterSource, catalogID
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "hmm_policy_lane_unavailable"})
 			return
 		}
-		snapshot, err := source.ClusterRoster(c.Request.Context(), router.StrategyFromContext(c.Request.Context()))
+		snapshot, err := source.ClusterRoster(c.Request.Context(), router.StrategySelection{}.Effective())
 		if err != nil {
 			observability.FromGin(c).Warn("HMM roster fetch failed", "err", err)
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "hmm_roster_unavailable"})
