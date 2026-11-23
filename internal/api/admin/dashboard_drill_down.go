@@ -9,7 +9,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
@@ -48,7 +47,7 @@ type dashboardDrillDownResponse struct {
 	People          []dashboardDrillDownPerson `json:"people"`
 }
 
-func MetricsDrillDownHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func MetricsDrillDownHandler(queries turnrecord.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		group := dashboardMetricGroup(c.Query("group"))
 		billing := c.Query("billing")
@@ -61,7 +60,7 @@ func MetricsDrillDownHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		if !ok {
 			return
 		}
-		rows, err := proxySvc.MetricsDrillDown(c.Request.Context(), installationID, from, to)
+		rows, err := queries.MetricsDrillDown(c.Request.Context(), installationID, from, to)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch drill-down."})
 			return
