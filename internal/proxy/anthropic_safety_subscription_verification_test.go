@@ -64,7 +64,7 @@ func TestVerificationNativeAnthropicSubscriptionPreferredToPaidAPI(t *testing.T)
 			require.Zero(t, apiRequests)
 			require.Contains(t, rec.Body.String(), "authorized Anthropic answer")
 			require.Equal(t, "read_file", gjson.GetBytes(winningPayload, "tools.0.name").String())
-			require.True(t, servedOnSubscription(ctx))
+			require.True(t, credentials.ServedOnSubscription(ctx))
 		})
 	}
 }
@@ -130,5 +130,5 @@ func TestVerificationNativeAnthropicSubscriptionDelayedHeadersSucceed(t *testing
 	require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_stop"))
 	require.Equal(t, int32(1), subscriptionRequests.Load())
 	require.Zero(t, apiRequests.Load(), "a slow subscription response must not be rescued on paid credentials")
-	require.True(t, servedOnSubscription(ctx))
+	require.True(t, credentials.ServedOnSubscription(ctx))
 }

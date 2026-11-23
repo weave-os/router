@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/websearch"
 )
 
@@ -36,7 +37,7 @@ const searchTurnBody = `{
 }`
 
 func gatewayCtx() context.Context {
-	return context.WithValue(context.Background(), CredentialsContextKey{}, &Credentials{
+	return context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:   []byte("WIF.GCP.token"),
 		BaseURL:  "https://acct.snowflakecomputing.com/api/v2/cortex",
 		AuthType: auth.AuthTypeWIF,

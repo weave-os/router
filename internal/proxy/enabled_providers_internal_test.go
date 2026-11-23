@@ -378,7 +378,7 @@ func TestEnabledProvidersForRequest_LinkedSubscriptions(t *testing.T) {
 		assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}, s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, http.Header{}))
 	})
 	t.Run("API-only funding does not enroll linked accounts", func(t *testing.T) {
-		paid := context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
+		paid := context.WithValue(ctx, credentials.SubscriptionAPIOnlyKey{}, true)
 		assert.Empty(t, s.enabledProvidersForRequest(paid, providers.ProviderAnthropic, http.Header{}))
 	})
 	t.Run("disabled subscriptions do not enroll linked accounts", func(t *testing.T) {
@@ -404,7 +404,7 @@ func TestEnabledProvidersForRequest_LinkedSubscriptions(t *testing.T) {
 		assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, s.enabledProvidersForRequest(excluded, providers.ProviderAnthropic, http.Header{}))
 	})
 	t.Run("chat endpoint cannot serve linked Codex", func(t *testing.T) {
-		chat := context.WithValue(ctx, codexChatEndpointContextKey{}, true)
+		chat := context.WithValue(ctx, credentials.CodexChatEndpointContextKey{}, true)
 		assert.NotContains(t, s.enabledProvidersForRequest(chat, providers.ProviderOpenAI, http.Header{}), providers.ProviderOpenAI)
 	})
 }

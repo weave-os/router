@@ -36,14 +36,14 @@ func anthropicSubscriptionModelUnavailable(model string) error {
 
 func recordSubscriptionModelOutcome(s *Service, ctx context.Context, provider, model string, err error) {
 	if err == nil {
-		s.credentials.SubscriptionModels.MarkServedForCaller(CredentialsFromContext(ctx), provider, model, s.clock.Now())
+		s.credentials.SubscriptionModels.MarkServedForCaller(credentials.CredentialsFromContext(ctx), provider, model, s.clock.Now())
 		return
 	}
 	s.recordSubscriptionModelRejection(ctx, provider, model, err)
 }
 
 func (s *Service) recordSubscriptionModelRejection(ctx context.Context, provider, model string, err error) {
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	if creds == nil || !creds.OAuth || len(creds.APIKey) == 0 {
 		return
 	}
@@ -60,31 +60,23 @@ func (s *Service) recordSubscriptionModelRejection(ctx context.Context, provider
 	}
 }
 
-type suppressClaudeModelContextKey struct{}
-
-func claudeModelSuppressed(ctx context.Context, model string) bool {
-	models, _ := ctx.Value(suppressClaudeModelContextKey{}).(map[string]struct{})
-	_, suppressed := models[router.StripDateSuffix(model)]
-	return suppressed
-}
-
 func (s *Service) resolveCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
-	resolved := resolveAndInjectCredentials(ctx, provider, model, headers)
-	creds := CredentialsFromContext(resolved)
+	resolved := credentials.ResolveAndInjectCredentials(ctx, provider, model, headers)
+	creds := credentials.CredentialsFromContext(resolved)
 	if provider == providers.ProviderOpenAI && creds != nil && creds.OAuth && len(creds.AccountID) > 0 &&
 
 		s.credentials.SubscriptionModels.DeniedForProvider(creds.APIKey, provider, model, s.clock.Now()) {
-		return resolveAndInjectCredentials(withSuppressedCodexModel(resolved, model), provider, model, headers)
+		return credentials.ResolveAndInjectCredentials(credentials.WithSuppressedCodexModel(resolved, model), provider, model, headers)
 	}
 	if provider != providers.ProviderAnthropic || creds == nil || !creds.OAuth ||
 		!s.credentials.SubscriptionModels.Denied(creds.APIKey, model, s.clock.Now()) {
 		return resolved
 	}
-	previous, _ := ctx.Value(suppressClaudeModelContextKey{}).(map[string]struct{})
+	previous, _ := ctx.Value(credentials.SuppressClaudeModelContextKey{}).(map[string]struct{})
 	models := make(map[string]struct{}, len(previous))
 	for id := range previous {
 		models[id] = struct{}{}
 	}
 	models[router.StripDateSuffix(model)] = struct{}{}
-	return resolveAndInjectCredentials(context.WithValue(ctx, suppressClaudeModelContextKey{}, models), provider, model, headers)
+	return credentials.ResolveAndInjectCredentials(context.WithValue(ctx, credentials.SuppressClaudeModelContextKey{}, models), provider, model, headers)
 }

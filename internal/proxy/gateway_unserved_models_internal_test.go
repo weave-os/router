@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
@@ -104,8 +105,8 @@ func TestGatewayUnservedModelsForRequest_KeepsModelWhenAnotherGatewayServesIt(t 
 func TestRememberGatewayLacksModel_MemoizesPerEndpointAndModel(t *testing.T) {
 	const endpoint = "https://cortex.example.com/api/v2/cortex"
 	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
-	ctx := context.WithValue(context.Background(), CredentialsContextKey{},
-		&Credentials{APIKey: []byte("k"), BaseURL: endpoint})
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{},
+		&requestcontext.Credentials{APIKey: []byte("k"), BaseURL: endpoint})
 
 	s.rememberGatewayLacksModel(ctx, providers.ProviderOpenAIGateway, "grok-4.6")
 

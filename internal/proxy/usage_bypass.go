@@ -86,7 +86,7 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 }
 
 func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req router.Request) (provider, token string, covered bool) {
-	codexToken, anthropicToken := presentSubscriptionTokens(ctx, headers)
+	codexToken, anthropicToken := credentials.PresentSubscriptionTokens(ctx, headers)
 	return overrides.SubscriptionCoveredTarget(req, codexToken, anthropicToken)
 }
 
@@ -162,7 +162,7 @@ func reconnectNoticeForAttempt(ctx context.Context, headers http.Header, notice 
 	if nudge == "" || notice.Kind != translate.NoticeModelSelection || reconnectNudgeEchoed(ctx, nudge) {
 		return notice
 	}
-	if creds := CredentialsFromContext(ctx); creds != nil && creds.OAuth {
+	if creds := credentials.CredentialsFromContext(ctx); creds != nil && creds.OAuth {
 		return notice
 	}
 	return translate.NewRouterNotice(translate.NoticeSubscriptionReconnect, suppressMarkerIfRequested(ctx, headers, nudge), notice.Model, notice.AttemptID)
@@ -226,7 +226,7 @@ func (s *Service) bypassToAnthropic(
 	}
 
 	ctx, telemetryCtx := resolveBypassCredentialsForTelemetry(s, ctx, decision.Provider, decision.Model, r.Header)
-	if claudeEnterpriseOnly(ctx) && !servedOnSubscription(ctx) {
+	if claudeEnterpriseOnly(ctx) && !credentials.ServedOnSubscription(ctx) {
 		return claudeEnterpriseRefusal(ctx)
 	}
 	outputReserve := max(contextWindowOutputReserve, feats.MaxTokens)

@@ -4,16 +4,17 @@ import (
 	"context"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/requestcontext"
 )
 
 func (s *Service) credentialKeyParts(ctx context.Context) (prefix, suffix, source string) {
 	if managedSource := managedSubscriptionCredentialSource(ctx); managedSource != "" {
-		if managedSource == credSourceSubscription && s.subscriptionOverageInUse(ctx) {
-			return "", "", credSourceSubscriptionOverage
+		if managedSource == requestcontext.SourceSubscription && s.subscriptionOverageInUse(ctx) {
+			return "", "", requestcontext.SourceSubscriptionOverage
 		}
 		return "", "", managedSource
 	}
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	if creds == nil || len(creds.APIKey) == 0 {
 		return "", "", ""
 	}
@@ -22,8 +23,8 @@ func (s *Service) credentialKeyParts(ctx context.Context) (prefix, suffix, sourc
 }
 
 func (s *Service) telemetryCredentialSource(ctx context.Context, source string) string {
-	if source == credSourceSubscription && s.subscriptionOverageInUse(ctx) {
-		return credSourceSubscriptionOverage
+	if source == requestcontext.SourceSubscription && s.subscriptionOverageInUse(ctx) {
+		return requestcontext.SourceSubscriptionOverage
 	}
 	return source
 }

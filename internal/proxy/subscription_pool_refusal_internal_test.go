@@ -117,12 +117,12 @@ func TestOnlyACallerPlanThrottleIsCustomerOwned(t *testing.T) {
 func TestManagedSubscriptionCommitMarksTheTurnServed(t *testing.T) {
 	for mark, lane := range subscriptionLaneRefusalCases() {
 		ctx := credentials.WithManagedSubscriptionUsage(lane.ctx)
-		require.False(t, managedSubscriptionServed(ctx), mark)
+		require.False(t, credentials.ManagedSubscriptionServed(ctx), mark)
 
 		(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).markManagedSubscriptionServed(ctx, ctx, subscriptions.Lease{AccountID: "seat"})
 
-		assert.True(t, managedSubscriptionServed(ctx), mark)
-		assert.True(t, servedOnSubscription(ctx), mark)
+		assert.True(t, credentials.ManagedSubscriptionServed(ctx), mark)
+		assert.True(t, credentials.ServedOnSubscription(ctx), mark)
 	}
 }
 

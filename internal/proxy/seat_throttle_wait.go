@@ -38,7 +38,7 @@ func shortestSeatThrottle(ctx context.Context, pool subscriptions.Provider, now 
 }
 
 func waitOutShortSeatThrottle(ctx context.Context, provider, model string, err error, now time.Time, sleep func(context.Context, time.Duration) error, waited *time.Duration) bool {
-	pool, eligible := managedSubscriptionProviderFromUpstream(provider, model)
+	pool, eligible := credentials.ManagedSubscriptionProviderFromUpstream(provider, model)
 	if !eligible || !isSubscriptionPoolError(err) {
 		return false
 	}
@@ -101,11 +101,11 @@ func throttledPoolRefusal(ctx context.Context, pool subscriptions.Provider, call
 }
 
 func anotherSeatPoolCanServe(ctx context.Context, admission seatAdmission, models []string, target router.Decision) bool {
-	pool, _ := managedSubscriptionProviderFromUpstream(target.Provider, target.Model)
+	pool, _ := credentials.ManagedSubscriptionProviderFromUpstream(target.Provider, target.Model)
 	for _, model := range models {
 		entry, _ := catalog.ByID(model)
 		for _, binding := range entry.Providers {
-			other, eligible := managedSubscriptionProviderFromUpstream(binding.Provider, model)
+			other, eligible := credentials.ManagedSubscriptionProviderFromUpstream(binding.Provider, model)
 			if eligible && other != pool && admission.mayAdmit(ctx, binding.Provider, model) {
 				return true
 			}

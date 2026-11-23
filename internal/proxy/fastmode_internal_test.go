@@ -57,9 +57,9 @@ func TestFastModeForAttempt(t *testing.T) {
 		assert.False(t, fastModeForAttempt(fastModeCtx("claude-sonnet-4-6"), "claude-sonnet-4-6", providers.ProviderAnthropic))
 	})
 	t.Run("off when the turn is served on a subscription", func(t *testing.T) {
-		ctx := context.WithValue(fastModeCtx(fastOpusModel), CredentialsContextKey{}, &Credentials{
+		ctx := context.WithValue(fastModeCtx(fastOpusModel), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 			APIKey: []byte("sk-ant-oat-token"),
-			Source: credSourceSubscription,
+			Source: requestcontext.SourceSubscription,
 			OAuth:  true,
 		})
 		assert.False(t, fastModeForAttempt(ctx, fastOpusModel, providers.ProviderAnthropic))
