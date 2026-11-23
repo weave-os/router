@@ -339,7 +339,7 @@ func TestPickedCodexModelMaySpendOwnCredits(t *testing.T) {
 }
 
 func TestCodexPickFundsOnOwnPlan(t *testing.T) {
-	selected := withCodexSelectedModel(context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "codex-jwt"), "gpt-6-astra", []byte(`{"reasoning":{"effort":"high"}}`))
+	selected := requestcontext.WithCodexSelectedModel(context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "codex-jwt"), "gpt-6-astra", []byte(`{"reasoning":{"effort":"high"}}`))
 	creditFallback := context.WithValue(selected, requestcontext.InstallationPickedModelCreditFallbackContextKey{}, true)
 
 	served := withCodexPickFunding(selected, "gpt-6-astra", providers.ProviderOpenAI)
