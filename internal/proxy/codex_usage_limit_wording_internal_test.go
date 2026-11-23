@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -25,7 +26,7 @@ func codexUsageLimitAttempt(owner turnrecord.FailureOwner) dispatch.TracedAttemp
 			strconv.FormatInt(at.Add(89*time.Minute+30*time.Second).Unix(), 10) + `}}`)}
 	return dispatch.TracedAttempt{
 		Target:       inference.Target{Provider: providers.ProviderOpenAI},
-		Err:          errors.Join(codexSubscriptionModelUnavailable("gpt-test"), quota),
+		Err:          errors.Join(credentials.CodexSubscriptionModelUnavailable("gpt-test"), quota),
 		Diagnosis:    inference.AttemptDiagnosis{ErrorClass: string(turnrecord.TurnErrorModelNotFound), FailureOwner: string(owner)},
 		At:           at,
 		Subscription: true,

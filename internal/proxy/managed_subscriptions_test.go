@@ -260,7 +260,7 @@ func TestLeaseManagedCodexRefusesPaidFallbackAfterAllLinkedAccountsAreRejected(t
 
 	_, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderOpenAI, "gpt-5.6-sol")
 
-	require.True(t, codexSubscriptionModelRejected(err))
+	require.True(t, credentials.CodexSubscriptionModelRejected(err))
 	require.True(t, managed)
 	require.Empty(t, lease.AccountID)
 	require.Len(t, leaser.providers, 2)
@@ -542,7 +542,7 @@ func TestDispatchWithFallbackRefusesPaidRecoveryAfterManagedModelDenial(t *testi
 		if requestIndex == 0 {
 			require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 		} else {
-			require.True(t, anthropicSubscriptionModelRejected(err))
+			require.True(t, credentials.AnthropicSubscriptionModelRejected(err))
 		}
 		assert.Empty(t, recorder.Body.String())
 	}
@@ -610,7 +610,7 @@ func TestDispatchWithFallbackKeepsManagedModelDenialModelSpecific(t *testing.T) 
 	assert.Equal(t, 1, client.calls, "denied account/model is dispatched once")
 	_, _, managed, deniedErr := svc.leaseManagedSubscription(managedSubscriptionTestContext(), providers.ProviderAnthropic, parityAnthropicModel)
 	require.True(t, managed)
-	require.True(t, anthropicSubscriptionModelRejected(deniedErr), "cached denial remains model-specific")
+	require.True(t, credentials.AnthropicSubscriptionModelRejected(deniedErr), "cached denial remains model-specific")
 	_, availableLease, managed, otherModelErr := svc.leaseManagedSubscription(managedSubscriptionTestContext(), providers.ProviderAnthropic, "claude-opus-4-8")
 	require.NoError(t, otherModelErr)
 	require.True(t, managed)

@@ -22,7 +22,7 @@ import (
 
 func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, headers http.Header) context.Context {
 	ctx = credentials.WithManagedSubscriptionUsage(ctx)
-	ctx, _ = withSubscriptionAdmissionBudget(ctx)
+	ctx, _ = credentials.WithSubscriptionAdmissionBudget(ctx)
 	if dispatch.AuthorizationFromContext(ctx) != nil {
 		return ctx
 	}
@@ -43,7 +43,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 				if !credentials.ClaudeEnterpriseTarget(ctx, target) && !credentials.ClaudeEnterpriseTurn(ctx) {
 					return false, nil
 				}
-				return true, claudeEnterpriseFunding(ctx, target, s.supportsSubscriptionTransport(target.Provider))
+				return true, credentials.ClaudeEnterpriseFunding(ctx, target, s.supportsSubscriptionTransport(target.Provider))
 			},
 			ByokFirst: func(ctx context.Context) bool { return credentials.ByokFirst(ctx, target.Provider) },
 			PlanUnverified: func(ctx context.Context) bool {
@@ -80,7 +80,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		return credentials.SubscriptionPoolUnavailableBecause(ctx, "subscription enrollment could not be verified")
 	}
 	now := s.clock.Now()
-	if includedLaneCannotServe(ctx, pool, target, now) {
+	if credentials.IncludedLaneCannotServe(ctx, pool, target, now) {
 		return nil
 	}
 	candidates, snapshotPresent := ctx.Value(credentials.ManagedSubscriptionCandidatesContextKey{}).([]credentials.ManagedSubscriptionCandidate)
@@ -125,7 +125,7 @@ func callerPlanRefusal(ctx context.Context, pool subscriptions.Provider, callerQ
 	if !callerQuotaUnproven {
 		return nil
 	}
-	if callerPlanThrottled(ctx, pool, now) {
+	if credentials.CallerPlanThrottled(ctx, pool, now) {
 		if !billing.WeaveCreditsDeniedFromContext(ctx) {
 			return nil
 		}
@@ -173,7 +173,7 @@ func upstreamServerFailure(err error) bool {
 	if errors.Is(err, providers.ErrUpstreamEmptyCompletion) {
 		return false
 	}
-	if _, quota := codexQuotaExhaustion(err); quota {
+	if _, quota := credentials.CodexQuotaExhaustion(err); quota {
 		return false
 	}
 	var envelope struct {
@@ -184,7 +184,7 @@ func upstreamServerFailure(err error) bool {
 	}
 	if json.Unmarshal(buffered.Body, &envelope) == nil {
 		for _, label := range []string{envelope.Error.Type, envelope.Error.Code} {
-			if _, quota := codexQuotaErrorTypes[label]; quota || strings.Contains(label, "rate_limit") {
+			if _, quota := credentials.CodexQuotaErrorTypes[label]; quota || strings.Contains(label, "rate_limit") {
 				return false
 			}
 		}

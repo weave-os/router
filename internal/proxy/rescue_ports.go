@@ -212,11 +212,11 @@ func (rescueCredentialPort) SubscriptionStateModelsEnabled(ctx context.Context) 
 }
 
 func (rescueCredentialPort) AnthropicOAuthRejected(err error) bool {
-	return anthropicOAuthCredentialRejected(err)
+	return credentials.AnthropicOAuthCredentialRejected(err)
 }
 
 func (rescueCredentialPort) AnthropicSubscriptionModelRejected(err error) bool {
-	return anthropicSubscriptionModelRejected(err)
+	return credentials.AnthropicSubscriptionModelRejected(err)
 }
 
 func (rescueCredentialPort) AnthropicThirdPartyRefused(err error) bool {
@@ -224,11 +224,11 @@ func (rescueCredentialPort) AnthropicThirdPartyRefused(err error) bool {
 }
 
 func (rescueCredentialPort) CodexOAuthRejected(err error) bool {
-	return codexOAuthCredentialRejected(err)
+	return credentials.CodexOAuthCredentialRejected(err)
 }
 
 func (rescueCredentialPort) CodexSubscriptionModelRejected(err error) bool {
-	return codexSubscriptionModelRejected(err)
+	return credentials.CodexSubscriptionModelRejected(err)
 }
 
 func (rescueCredentialPort) CredentialRejectionStands(subscriptionErr, retryErr error, credentialRejected func(error) bool) bool {

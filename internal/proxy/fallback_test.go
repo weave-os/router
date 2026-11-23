@@ -718,7 +718,7 @@ func TestDispatchWithFallback_SlowAttemptsStopBeforeRetryCount(t *testing.T) {
 
 	s := newServiceWithProviders(t, map[string]providers.Client{"anthropic": hung})
 	s.engine.SetRetrySleep(noopSleep)
-	// Absolute, not a multiple of subscriptionRotationBudget — a multiple would
+	// Absolute, not a multiple of credentials.SubscriptionRotationBudget — a multiple would
 	// trivially pass even if the budget check were removed.
 	const slowAttempt = 30 * time.Second
 	base := time.Now()
@@ -728,7 +728,7 @@ func TestDispatchWithFallback_SlowAttemptsStopBeforeRetryCount(t *testing.T) {
 		reads++
 		return now
 	}
-	require.Greater(t, slowAttempt, subscriptionRotationBudget, "attempt must outrun the budget for this test to mean anything")
+	require.Greater(t, slowAttempt, credentials.SubscriptionRotationBudget, "attempt must outrun the budget for this test to mean anything")
 
 	rec := httptest.NewRecorder()
 	buf := dispatch.NewPreludeBuffer(rec)

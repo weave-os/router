@@ -58,7 +58,7 @@ func withOwnClaudeRejectionNudge(ctx context.Context, headers http.Header, obser
 
 func recordOwnClaudeLoginRejected(ctx context.Context, headers http.Header, observer *usage.Observer, now time.Time, err error) {
 	var upstream *providers.UpstreamErrorResponse
-	if observer == nil || !anthropicOAuthCredentialRejected(err) || !errors.As(err, &upstream) || upstream.Status != http.StatusUnauthorized {
+	if observer == nil || !credentials.AnthropicOAuthCredentialRejected(err) || !errors.As(err, &upstream) || upstream.Status != http.StatusUnauthorized {
 		return
 	}
 	_, token := credentials.PresentSubscriptionTokens(ctx, headers)

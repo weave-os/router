@@ -3,25 +3,12 @@ package proxy
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
-	"strings"
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-
-	"github.com/tidwall/gjson"
 )
-
-func anthropicSubscriptionModelRejected(err error) bool {
-	var upstream *providers.UpstreamErrorResponse
-	if !errors.As(err, &upstream) || upstream.Status != http.StatusNotFound {
-		return false
-	}
-	return gjson.GetBytes(upstream.Body, "error.type").String() == "not_found_error" &&
-		strings.HasPrefix(strings.ToLower(gjson.GetBytes(upstream.Body, "error.message").String()), "model:")
-}
 
 func anthropicSubscriptionModelUnavailable(model string) error {
 	body, _ := json.Marshal(map[string]any{
@@ -50,11 +37,11 @@ func (s *Service) recordSubscriptionModelRejection(ctx context.Context, provider
 	until := s.clock.Now().Add(credentials.SubscriptionModelDenialTTL)
 	switch provider {
 	case providers.ProviderAnthropic:
-		if anthropicSubscriptionModelRejected(err) {
+		if credentials.AnthropicSubscriptionModelRejected(err) {
 			s.credentials.SubscriptionModels.DenyForProvider(creds.APIKey, "", model, until)
 		}
 	case providers.ProviderOpenAI:
-		if len(creds.AccountID) > 0 && codexSubscriptionModelRejected(err) {
+		if len(creds.AccountID) > 0 && credentials.CodexSubscriptionModelRejected(err) {
 			s.credentials.SubscriptionModels.DenyForProvider(creds.APIKey, provider, model, until)
 		}
 	}

@@ -16,10 +16,10 @@ import (
 )
 
 func codexPlanSpentForTurn(ctx context.Context, headers http.Header, observer *usage.Observer, provider string, err error, ownLoginSpent bool) bool {
-	if provider != providers.ProviderOpenAI || codexSubscriptionModelRejected(err) {
+	if provider != providers.ProviderOpenAI || credentials.CodexSubscriptionModelRejected(err) {
 		return false
 	}
-	if _, spent := codexQuotaExhaustion(err); spent {
+	if _, spent := credentials.CodexQuotaExhaustion(err); spent {
 		return true
 	}
 	if observer != nil {

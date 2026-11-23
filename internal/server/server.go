@@ -213,14 +213,14 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			internalGroup.POST("/test-plans/prepare", admin.InternalTestPlanPrepareHandler(features.TestPlans))
 			internalGroup.DELETE("/test-plans/launches/:id", admin.InternalTestPlanRevokeHandler(features.TestPlans))
 		}
-		internalGroup.POST("/provider-keys/models", admin.InternalListUpstreamModelsHandler(authSvc, proxySvc))
+		internalGroup.POST("/provider-keys/models", admin.InternalListUpstreamModelsHandler(authSvc, proxy.DispatchEngine(proxySvc)))
 		internalGroup.POST("/session-issuers", admin.InternalRegisterSessionIssuerHandler(authSvc))
 		internalGroup.DELETE("/session-issuers/:installationID/:kid", admin.InternalRevokeSessionIssuerHandler(authSvc))
 		registerInternalSubscriptions(engine, internalGroup, authSvc, features, internalToken)
 
-		internalGroup.GET("/inference-policies", admin.InternalInferencePoliciesHandler(proxySvc))
-		internalGroup.GET("/inference-policies/deployment", admin.InternalInferenceDeploymentHandler(proxySvc))
-		internalGroup.POST("/inference-policies/resolve", admin.InternalInferenceResolveHandler(proxySvc))
+		internalGroup.GET("/inference-policies", admin.InternalInferencePoliciesHandler(proxy.DispatchEngine(proxySvc)))
+		internalGroup.GET("/inference-policies/deployment", admin.InternalInferenceDeploymentHandler(proxy.DispatchEngine(proxySvc)))
+		internalGroup.POST("/inference-policies/resolve", admin.InternalInferenceResolveHandler(proxy.DispatchEngine(proxySvc)))
 		if features.TaskDomainPreview != nil {
 			internalGroup.POST("/task-domain/preview", admin.InternalTaskDomainPreviewHandler(features.TaskDomainPreview))
 		}
@@ -271,8 +271,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		mgmt.POST("/provider-keys", admin.UpsertExternalKeyHandler(authSvc, hmmModels, features.Admin))
 		mgmt.PUT("/provider-keys/:id/model-aliases", admin.UpdateExternalKeyAliasesHandler(authSvc, hmmModels))
 		mgmt.PUT("/provider-keys/:id/funding-priority", admin.UpdateExternalKeyFundingPriorityHandler(authSvc))
-		mgmt.GET("/provider-keys/:id/models", admin.ListUpstreamModelsHandler(authSvc, proxySvc))
-		mgmt.POST("/provider-keys/discover-models", admin.DiscoverModelsHandler(proxySvc))
+		mgmt.GET("/provider-keys/:id/models", admin.ListUpstreamModelsHandler(authSvc, proxy.DispatchEngine(proxySvc)))
+		mgmt.POST("/provider-keys/discover-models", admin.DiscoverModelsHandler(proxy.DispatchEngine(proxySvc)))
 		mgmt.DELETE("/provider-keys/:id", admin.DeleteExternalKeyHandler(authSvc))
 		mgmt.GET("/config", admin.ConfigHandler(features.Admin))
 		mgmt.GET("/onboarding", admin.OnboardingHandler(authSvc))

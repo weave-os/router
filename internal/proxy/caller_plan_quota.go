@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Service) recordDirectSubscriptionQuota(ctx context.Context, provider, model string, creds *requestcontext.Credentials, attemptErr error) {
-	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil && (anthropicOAuthCredentialRejected(attemptErr) || codexOAuthCredentialRejected(attemptErr)) {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil && (credentials.AnthropicOAuthCredentialRejected(attemptErr) || credentials.CodexOAuthCredentialRejected(attemptErr)) {
 		state.CallerCredentialRejected = true
 	}
 	pool, compatible := credentials.ManagedSubscriptionProviderFromUpstream(provider, model)
@@ -40,9 +40,4 @@ func recordCallerPlanThrottle(ctx context.Context, pool subscriptions.Provider, 
 		}
 		state.ThrottledProviders[pool] = until
 	}
-}
-
-func callerPlanThrottled(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
-	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
-	return state != nil && state.ThrottledProviders[pool].After(now)
 }

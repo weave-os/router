@@ -307,7 +307,7 @@ func TestVerificationCommittedSubscriptionStreamOutlivesRotationBudget(t *testin
 		select {
 		case <-r.Context().Done():
 			return
-		case <-time.After(subscriptionRotationBudget + time.Second):
+		case <-time.After(credentials.SubscriptionRotationBudget + time.Second):
 		}
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"late output\"}\n\n")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"synthetic\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n")
