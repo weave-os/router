@@ -3,7 +3,6 @@ package architecture_test
 import (
 	"go/types"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,6 +25,7 @@ func TestServingLayerDependsOnPortsNotProxy(t *testing.T) {
 
 func TestServingLayerPortsRejectsNegativeFixtures(t *testing.T) {
 	assert.Equal(t, []string{
+		"internal/architecture/testdata/serving_layer_proxy: holds *proxy.Service (aliasDeps.svc)",
 		"internal/architecture/testdata/serving_layer_proxy: holds *proxy.Service (handlerDeps.svc)",
 		"internal/architecture/testdata/serving_layer_proxy: imports internal/proxy",
 	}, servingLayerProxyCouplings(t, servingLayerFixturePackage))
@@ -37,7 +37,6 @@ func servingLayerProxyCouplings(t *testing.T, patterns ...string) []string {
 	loaded, err := packages.Load(&packages.Config{Dir: repositoryRoot(t), Mode: mode}, patterns...)
 	require.NoError(t, err)
 	require.NotEmpty(t, loaded)
-	serviceType := "*" + proxyPackagePath + ".Service"
 	found := map[string]bool{}
 	for _, pkg := range loaded {
 		require.Empty(t, pkg.Errors, pkg.PkgPath)
@@ -48,12 +47,12 @@ func servingLayerProxyCouplings(t *testing.T, patterns ...string) []string {
 			}
 		}
 		for ident, obj := range pkg.TypesInfo.Defs {
-			field, ok := obj.(*types.Var)
-			if !ok || !strings.Contains(types.TypeString(field.Type(), nil), serviceType) {
+			variable, ok := obj.(*types.Var)
+			if !ok || !mentionsProxyService(variable.Type()) {
 				continue
 			}
 			holder := ident.Name
-			if owner := fieldOwner(pkg.TypesInfo, field); owner != "" {
+			if owner := fieldOwner(pkg.TypesInfo, variable); owner != "" {
 				holder = owner + "." + holder
 			}
 			found[pkgPath+": holds *proxy.Service ("+holder+")"] = true
@@ -80,4 +79,43 @@ func fieldOwner(info *types.Info, field *types.Var) string {
 		}
 	}
 	return ""
+}
+
+func mentionsProxyService(typ types.Type) bool {
+	switch typ := types.Unalias(typ).(type) {
+	case *types.Pointer:
+		if named, ok := types.Unalias(typ.Elem()).(*types.Named); ok && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == proxyPackagePath && named.Obj().Name() == "Service" {
+			return true
+		}
+		return mentionsProxyService(typ.Elem())
+	case *types.Slice:
+		return mentionsProxyService(typ.Elem())
+	case *types.Array:
+		return mentionsProxyService(typ.Elem())
+	case *types.Chan:
+		return mentionsProxyService(typ.Elem())
+	case *types.Map:
+		return mentionsProxyService(typ.Key()) || mentionsProxyService(typ.Elem())
+	case *types.Struct:
+		for i := range typ.NumFields() {
+			if mentionsProxyService(typ.Field(i).Type()) {
+				return true
+			}
+		}
+	case *types.Tuple:
+		for i := range typ.Len() {
+			if mentionsProxyService(typ.At(i).Type()) {
+				return true
+			}
+		}
+	case *types.Signature:
+		return mentionsProxyService(typ.Params()) || mentionsProxyService(typ.Results())
+	case *types.Named:
+		for i := range typ.TypeArgs().Len() {
+			if mentionsProxyService(typ.TypeArgs().At(i)) {
+				return true
+			}
+		}
+	}
+	return false
 }
