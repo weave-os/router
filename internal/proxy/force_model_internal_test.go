@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -413,7 +414,7 @@ func TestBareCatalogNames_Unambiguous(t *testing.T) {
 	for tail, owners := range tails {
 		mapped, listed := bareCatalogNames[tail]
 		_, isFullID := catalog.ByID(tail)
-		_, aliased := forceModelAliases[tail]
+		_, aliased := routingpolicy.ForceModelAliases[tail]
 
 		if len(owners) > 1 || isFullID || aliased {
 			assert.False(t, listed,
@@ -436,7 +437,7 @@ func TestBareCatalogNames_Unambiguous(t *testing.T) {
 // An alias must win over a bare catalog name, so a deliberate alias can never
 // be shadowed by an incidental tail collision.
 func TestBareCatalogNames_AliasesTakePrecedence(t *testing.T) {
-	for alias := range forceModelAliases {
+	for alias := range routingpolicy.ForceModelAliases {
 		_, shadowed := bareCatalogNames[alias]
 		assert.False(t, shadowed, "alias %q must not also be a bare-name entry", alias)
 	}
@@ -546,7 +547,7 @@ func TestResolveForceModel_ObservedUnknowns(t *testing.T) {
 func TestFoldedForceModelNames_Unambiguous(t *testing.T) {
 	targets := make(map[string]map[string]bool)
 	for name, id := range forceModelNames() {
-		key := foldModelSpelling(name)
+		key := routingpolicy.FoldModelSpelling(name)
 		if targets[key] == nil {
 			targets[key] = make(map[string]bool)
 		}
@@ -567,7 +568,7 @@ func TestFoldedForceModelNames_Unambiguous(t *testing.T) {
 // its folded spelling, so folding can only add reach, never redirect it.
 func TestFoldedForceModelNames_AgreeWithExactNames(t *testing.T) {
 	for name, id := range forceModelNames() {
-		if folded, ok := foldedForceModelNames[foldModelSpelling(name)]; ok {
+		if folded, ok := foldedForceModelNames[routingpolicy.FoldModelSpelling(name)]; ok {
 			assert.Equal(t, id, folded, "name %q", name)
 		}
 	}
@@ -640,10 +641,10 @@ func TestUnversionedAliasesFollowNewestFamilyRelease(t *testing.T) {
 		"terra":  "gpt-6.1-terra",
 		"kimi":   "moonshotai/kimi-k3.1",
 	} {
-		assert.Equal(t, want, forceModelAliases[alias], alias)
+		assert.Equal(t, want, routingpolicy.ForceModelAliases[alias], alias)
 	}
-	assert.Equal(t, "gpt-6.1-sol", forceModelAliases["gpt-6-1-sol"], "versioned aliases stay exact")
-	assert.Equal(t, "gpt-6-astra", forceModelAliases["gpt-6"], "versioned aliases stay exact")
+	assert.Equal(t, "gpt-6.1-sol", routingpolicy.ForceModelAliases["gpt-6-1-sol"], "versioned aliases stay exact")
+	assert.Equal(t, "gpt-6-astra", routingpolicy.ForceModelAliases["gpt-6"], "versioned aliases stay exact")
 }
 
 func TestResolveForceModel_NeonAlias(t *testing.T) {
