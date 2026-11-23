@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/google/uuid"
@@ -12,6 +11,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/respobserve"
 )
 
 // repinFakeStore is a minimal sessionpin.Store for the re-pin unit tests.
@@ -61,114 +61,6 @@ func (f *repinFakeStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte
 }
 func (f *repinFakeStore) SweepExpired(context.Context) error { return nil }
 
-// A realistic Anthropic-native refusal SSE (the router-visible wire shape:
-// stop_reason "refusal" on HTTP 200; see catalog.go). The real opus cyber
-// refusal also carries api_refusal_category "cyber" / "safeguards flagged".
-const refusalSSE = `event: message_start
-data: {"type":"message_start","message":{"id":"msg_1","model":"claude-opus-4-8","stop_reason":null}}
-
-event: message_delta
-data: {"type":"message_delta","delta":{"stop_reason":"refusal","stop_sequence":null},"usage":{"output_tokens":5}}
-
-event: message_stop
-data: {"type":"message_stop"}
-`
-
-const normalSSE = `event: message_start
-data: {"type":"message_start","message":{"id":"msg_2","model":"claude-opus-4-8"}}
-
-event: message_delta
-data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null}}
-`
-
-func TestRefusalCategory(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"api_refusal_category", `{"api_refusal_category":"reasoning_extraction"}`, "reasoning_extraction"},
-		{"rendered client text", "safeguards flagged this message. Details: [reasoning_extraction] Request ID: req_1", "reasoning_extraction"},
-		{"no category", `"stop_reason":"refusal"`, ""},
-		{"unterminated field", `{"api_refusal_category":"cyber`, ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := refusalCategory([]byte(c.in)); got != c.want {
-				t.Fatalf("refusalCategory(%q) = %q, want %q", c.in, got, c.want)
-			}
-		})
-	}
-}
-
-func TestRefusalObserver_CapturesCategory(t *testing.T) {
-	rec := httptest.NewRecorder()
-	obs := newRefusalObserver(rec)
-	if _, err := obs.Write([]byte(`data: {"type":"message_delta","delta":{"stop_reason":"refusal","api_refusal_category":"reasoning_extraction"}}`)); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if !obs.refused {
-		t.Fatal("refusal not detected")
-	}
-	if obs.category != "reasoning_extraction" {
-		t.Fatalf("category = %q, want reasoning_extraction", obs.category)
-	}
-}
-
-func TestDetectRefusalSignal(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want bool
-	}{
-		{"stop_reason refusal", `"stop_reason":"refusal"`, true},
-		{"refusal content block", `{"type":"refusal","text":"..."}`, true},
-		{"api_refusal_category", `"api_refusal_category":"cyber"`, true},
-		{"safeguard text mixed case", "This request triggered cyber-related SAFEGUARDS FLAGGED for review", true},
-		{"normal end_turn", `"stop_reason":"end_turn"`, false},
-		{"benign cybersecurity mention", "here is a summary of cybersecurity best practices", false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := detectRefusalSignal([]byte(c.in)); got != c.want {
-				t.Fatalf("detectRefusalSignal(%q) = %v, want %v", c.in, got, c.want)
-			}
-		})
-	}
-}
-
-func TestRefusalObserver_ForwardsUnchangedAndDetects(t *testing.T) {
-	// Signal split across two Write calls must still be caught, and every byte
-	// must be forwarded to inner unchanged (observe-only).
-	rec := httptest.NewRecorder()
-	obs := newRefusalObserver(rec)
-	half := len(refusalSSE) / 2
-	if _, err := obs.Write([]byte(refusalSSE[:half])); err != nil {
-		t.Fatalf("write 1: %v", err)
-	}
-	if _, err := obs.Write([]byte(refusalSSE[half:])); err != nil {
-		t.Fatalf("write 2: %v", err)
-	}
-	if !obs.refused {
-		t.Fatal("observer did not detect the refusal split across writes")
-	}
-	if got := rec.Body.String(); got != refusalSSE {
-		t.Fatalf("observer altered forwarded bytes:\n got=%q\nwant=%q", got, refusalSSE)
-	}
-
-	rec2 := httptest.NewRecorder()
-	obs2 := newRefusalObserver(rec2)
-	if _, err := obs2.Write([]byte(normalSSE)); err != nil {
-		t.Fatalf("write normal: %v", err)
-	}
-	if obs2.refused {
-		t.Fatal("observer false-positived on a normal end_turn response")
-	}
-	if rec2.Body.String() != normalSSE {
-		t.Fatal("observer altered a normal response")
-	}
-}
-
 func repinCtx() context.Context {
 	return context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, uuid.New().String())
 }
@@ -176,7 +68,7 @@ func repinCtx() context.Context {
 func TestMaybeRepinOnRefusal_RepinsToFallbackModel(t *testing.T) {
 	store := &repinFakeStore{} // no existing pin -> no PairedModel
 	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), pinStore: store, rescueConfig: dispatch.RescueConfig{CyberRefusalRepin: true, CyberRefusalFallbackModel: "claude-sonnet-5"}}
-	obs := &refusalObserver{refused: true}
+	obs := &respobserve.RefusalObserver{Refused: true}
 	served := router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"}
 
 	s.maybeRepinOnRefusal(repinCtx(), router.StrategyFromContext(repinCtx()), obs, [sessionpin.SessionKeyLen]byte{1, 2, 3}, "main_loop", served)
@@ -202,7 +94,7 @@ func TestMaybeRepinOnRefusal_PrefersPairedModel(t *testing.T) {
 		getPin: sessionpin.Pin{PairedModel: "claude-haiku-4-5", PairedProvider: "anthropic"},
 	}
 	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), pinStore: store, rescueConfig: dispatch.RescueConfig{CyberRefusalRepin: true, CyberRefusalFallbackModel: "claude-sonnet-5"}}
-	obs := &refusalObserver{refused: true}
+	obs := &respobserve.RefusalObserver{Refused: true}
 	served := router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"}
 
 	s.maybeRepinOnRefusal(repinCtx(), router.StrategyFromContext(repinCtx()), obs, [sessionpin.SessionKeyLen]byte{4, 5, 6}, "main_loop", served)
@@ -258,7 +150,7 @@ func TestMaybeRepinOnRefusal_NoOpCases(t *testing.T) {
 	t.Run("no refusal observed", func(t *testing.T) {
 		store := &repinFakeStore{}
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), pinStore: store, rescueConfig: dispatch.RescueConfig{CyberRefusalRepin: true, CyberRefusalFallbackModel: "claude-sonnet-5"}}
-		s.maybeRepinOnRefusal(repinCtx(), router.StrategyFromContext(repinCtx()), &refusalObserver{refused: false}, key, "main_loop", served)
+		s.maybeRepinOnRefusal(repinCtx(), router.StrategyFromContext(repinCtx()), &respobserve.RefusalObserver{Refused: false}, key, "main_loop", served)
 		if len(store.upserts) != 0 {
 			t.Fatalf("no refusal should not re-pin, got %d upserts", len(store.upserts))
 		}
@@ -267,7 +159,7 @@ func TestMaybeRepinOnRefusal_NoOpCases(t *testing.T) {
 	t.Run("re-pin disabled", func(t *testing.T) {
 		store := &repinFakeStore{}
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), pinStore: store, rescueConfig: dispatch.RescueConfig{CyberRefusalRepin: false, CyberRefusalFallbackModel: "claude-sonnet-5"}}
-		s.maybeRepinOnRefusal(repinCtx(), router.StrategyFromContext(repinCtx()), &refusalObserver{refused: true}, key, "main_loop", served)
+		s.maybeRepinOnRefusal(repinCtx(), router.StrategyFromContext(repinCtx()), &respobserve.RefusalObserver{Refused: true}, key, "main_loop", served)
 		if len(store.upserts) != 0 {
 			t.Fatalf("re-pin disabled should not upsert, got %d", len(store.upserts))
 		}
@@ -277,7 +169,7 @@ func TestMaybeRepinOnRefusal_NoOpCases(t *testing.T) {
 		store := &repinFakeStore{}
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), pinStore: store, rescueConfig: dispatch.RescueConfig{CyberRefusalRepin: true, CyberRefusalFallbackModel: "claude-sonnet-5"}}
 		alreadyFallback := router.Decision{Provider: "anthropic", Model: "claude-sonnet-5"}
-		s.maybeRepinOnRefusal(repinCtx(), router.StrategyFromContext(repinCtx()), &refusalObserver{refused: true}, key, "main_loop", alreadyFallback)
+		s.maybeRepinOnRefusal(repinCtx(), router.StrategyFromContext(repinCtx()), &respobserve.RefusalObserver{Refused: true}, key, "main_loop", alreadyFallback)
 		if len(store.upserts) != 0 {
 			t.Fatalf("re-pin to the same model should be skipped, got %d upserts", len(store.upserts))
 		}

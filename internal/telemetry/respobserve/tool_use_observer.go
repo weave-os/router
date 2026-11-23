@@ -1,4 +1,4 @@
-package proxy
+package respobserve
 
 import (
 	"bytes"
@@ -22,19 +22,19 @@ const (
 	toolUseStopReason             = "tool_use"
 )
 
-type toolCallTally struct {
+type ToolCallTally struct {
 	Calls  int `json:"calls"`
 	Errors int `json:"errors"`
 }
 
-func toolErrorCounts(outcomes []translate.ToolCallOutcome) map[string]toolCallTally {
-	var counts map[string]toolCallTally
+func ToolErrorCounts(outcomes []translate.ToolCallOutcome) map[string]ToolCallTally {
+	var counts map[string]ToolCallTally
 	for _, outcome := range outcomes {
 		if !outcome.Resolved {
 			continue
 		}
 		if counts == nil {
-			counts = make(map[string]toolCallTally)
+			counts = make(map[string]ToolCallTally)
 		}
 		tally := counts[outcome.Name]
 		tally.Calls++
@@ -46,7 +46,7 @@ func toolErrorCounts(outcomes []translate.ToolCallOutcome) map[string]toolCallTa
 	return counts
 }
 
-func toolErrorCountsJSON(counts map[string]toolCallTally) []byte {
+func ToolErrorCountsJSON(counts map[string]ToolCallTally) []byte {
 	if len(counts) == 0 {
 		return nil
 	}
@@ -57,12 +57,12 @@ func toolErrorCountsJSON(counts map[string]toolCallTally) []byte {
 	return encoded
 }
 
-type lastToolUse struct {
+type LastToolUse struct {
 	Name       string
 	InputBytes int
 }
 
-type toolUseObserver struct {
+type ToolUseObserver struct {
 	inner http.ResponseWriter
 
 	pending   bytes.Buffer
@@ -73,31 +73,31 @@ type toolUseObserver struct {
 	overflow  bool
 
 	stopReason string
-	last       lastToolUse
+	last       LastToolUse
 	lastIndex  int64
 	haveLast   bool
 }
 
-func newToolUseObserver(inner http.ResponseWriter) *toolUseObserver {
-	return &toolUseObserver{inner: inner}
+func NewToolUseObserver(inner http.ResponseWriter) *ToolUseObserver {
+	return &ToolUseObserver{inner: inner}
 }
 
-func (o *toolUseObserver) Header() http.Header { return o.inner.Header() }
+func (o *ToolUseObserver) Header() http.Header { return o.inner.Header() }
 
-func (o *toolUseObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
+func (o *ToolUseObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
 
-func (o *toolUseObserver) Flush() {
+func (o *ToolUseObserver) Flush() {
 	if f, ok := o.inner.(http.Flusher); ok {
 		f.Flush()
 	}
 }
 
-func (o *toolUseObserver) Write(p []byte) (int, error) {
+func (o *ToolUseObserver) Write(p []byte) (int, error) {
 	o.observe(p)
 	return o.inner.Write(p)
 }
 
-func (o *toolUseObserver) observe(p []byte) {
+func (o *ToolUseObserver) observe(p []byte) {
 	if o.overflow {
 		return
 	}
@@ -129,7 +129,7 @@ func (o *toolUseObserver) observe(p []byte) {
 	}
 }
 
-func (o *toolUseObserver) observeEvent(event []byte) {
+func (o *ToolUseObserver) observeEvent(event []byte) {
 	eventType, data := sse.ParseEvent(event)
 	switch string(eventType) {
 	case toolUseEventContentBlockStart:
@@ -138,7 +138,7 @@ func (o *toolUseObserver) observeEvent(event []byte) {
 		}
 		o.haveLast = true
 		o.lastIndex = gjson.GetBytes(data, "index").Int()
-		o.last = lastToolUse{Name: gjson.GetBytes(data, "content_block.name").String()}
+		o.last = LastToolUse{Name: gjson.GetBytes(data, "content_block.name").String()}
 		if input := gjson.GetBytes(data, "content_block.input"); input.Exists() && input.Raw != "{}" {
 			o.last.InputBytes = len(input.Raw)
 		}
@@ -157,20 +157,20 @@ func (o *toolUseObserver) observeEvent(event []byte) {
 	}
 }
 
-func (o *toolUseObserver) terminal() (lastToolUse, bool) {
+func (o *ToolUseObserver) Terminal() (LastToolUse, bool) {
 	if o == nil {
-		return lastToolUse{}, false
+		return LastToolUse{}, false
 	}
 	if o.jsonMode && !o.overflow {
 		o.parseJSONBody()
 	}
 	if o.stopReason != toolUseStopReason || !o.haveLast || o.last.Name == "" {
-		return lastToolUse{}, false
+		return LastToolUse{}, false
 	}
 	return o.last, true
 }
 
-func (o *toolUseObserver) parseJSONBody() {
+func (o *ToolUseObserver) parseJSONBody() {
 	if !gjson.ValidBytes(o.jsonBody) {
 		return
 	}
@@ -180,7 +180,7 @@ func (o *toolUseObserver) parseJSONBody() {
 			return true
 		}
 		o.haveLast = true
-		o.last = lastToolUse{
+		o.last = LastToolUse{
 			Name:       block.Get("name").String(),
 			InputBytes: len(block.Get("input").Raw),
 		}

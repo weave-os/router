@@ -946,13 +946,6 @@ func (s *Service) anthropicNativeAttempt(
 	}
 }
 
-func (s *Service) maybeRepinOnRefusal(ctx context.Context, strategy router.Strategy, obs *refusalObserver, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision) {
-	if obs == nil || !obs.refused {
-		return
-	}
-	s.repinOffRefusingModel(ctx, strategy, sessionKey, role, served, obs.category, "")
-}
-
 func (s *Service) repinOffRefusingModel(ctx context.Context, strategy router.Strategy, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision, category, avoidProvider string) {
 	if s.pinStore == nil {
 		return

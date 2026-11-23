@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/respobserve"
 	"weave-os/router/internal/translate"
 )
 
@@ -112,11 +113,11 @@ func proxyClassifierWithRefusalRescue(ctx context.Context, proxy classifierProxy
 	}
 	servedResp := &bufferedResponse{header: make(http.Header)}
 	err := proxy(served, prep, servedResp)
-	if err != nil || !detectRefusalSignal(servedResp.body.Bytes()) {
+	if err != nil || !respobserve.DetectRefusalSignal(servedResp.body.Bytes()) {
 		return served, servedResp.replay(w, err)
 	}
 	log := observability.FromContext(ctx)
-	category := refusalCategory(servedResp.body.Bytes())
+	category := respobserve.RefusalCategory(servedResp.body.Bytes())
 	for _, target := range rescue.targets {
 		fallbackPrep, ok := rescue.prepare(prep, target)
 		if !ok {
@@ -130,7 +131,7 @@ func proxyClassifierWithRefusalRescue(ctx context.Context, proxy classifierProxy
 				"from_model", served.Model, "to_model", target.decision.Model, "refusal_category", category)
 			continue
 		}
-		if fallbackErr != nil || fallbackResp.status != http.StatusOK || detectRefusalSignal(fallbackResp.body.Bytes()) {
+		if fallbackErr != nil || fallbackResp.status != http.StatusOK || respobserve.DetectRefusalSignal(fallbackResp.body.Bytes()) {
 			log.Info("classifier refusal not rescued on fallback model",
 				"from_model", served.Model, "to_model", target.decision.Model, "refusal_category", category, "fallback_err", fallbackErr)
 			break
