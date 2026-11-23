@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"weave-os/router/internal/credentials"
-
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 )
