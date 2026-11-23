@@ -21,7 +21,7 @@ func proxyServices(proxySvc *proxy.Service) server.Services {
 		ModelPreparer:             proxySvc,
 		ClassifierThreads:         proxySvc,
 		ClassifierThreadAdmission: proxySvc,
-		AllowedModelsHeader:       proxySvc,
+		AllowedModelsHeader:       ingress.New(0),
 		ParseAllowedModelsHeader: func(raw string, installationAllowed []string) (any, error) {
 			return proxy.ParseAllowedModelsHeader(raw, installationAllowed)
 		},

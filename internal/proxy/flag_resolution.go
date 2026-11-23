@@ -9,10 +9,6 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-func (s *Service) ResolveAllowedModelsHeader(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyAllowedModelsHeader, s.ingress.AllowedModelsHeader)
-}
-
 func (s *Service) ResolveTransientRateLimit(ctx context.Context) bool {
 	return s.throttling.RateLimit.Transient(ctx)
 }
