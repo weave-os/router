@@ -14,22 +14,12 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-func (s *Service) WithInferencePlans(plans *policy.PlanResolver) *Service {
-	s.engine.SetPlans(plans)
-	return s
-}
-
 func (s *Service) inferencePlans() (*policy.PlanResolver, error) {
 	return s.engine.ResolvePlans()
 }
 
 func (s *Service) inferenceExecutor() (*dispatch.Executor, error) {
 	return s.engine.ResolveExecutor(s.clock)
-}
-
-func (s *Service) WithInferenceDeployment(config policy.DeploymentPolicyConfig) *Service {
-	s.engine.SetDeployment(config)
-	return s
 }
 
 func (s *Service) InferencePolicyRegistry() policy.Registry {

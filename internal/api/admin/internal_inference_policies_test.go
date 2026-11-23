@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"weave-os/router/internal/api/admin"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/server/middleware"
@@ -27,16 +29,16 @@ func inferencePoliciesEngine(t *testing.T) *gin.Engine {
 	plans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
 		catalog.RoutingTargetSet(available), available, func(model catalog.Model) string { return model.ID }, policy.ProviderPolicy{}))
 	require.NoError(t, err)
-	proxySvc := upstreamModelsProxyService(map[string]providers.Client{
+	proxySvc := proxy.WithDeps(upstreamModelsProxyService(map[string]providers.Client{
 		providers.ProviderAnthropic: &modelListingClient{},
 		providers.ProviderOpenAI:    &modelListingClient{},
-	}).WithInferencePlans(plans).WithInferenceDeployment(policy.DeploymentPolicyConfig{
+	}), proxy.Deps{Dispatch: &dispatch.Config{Plans: plans, Deployment: policy.DeploymentPolicyConfig{
 		AvailableProviders: available,
 		TargetOverrides: []policy.PurposeTargetOverride{{
 			Purpose: policy.PurposeSubAgentDispatch,
 			Target:  policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: "claude-haiku-4-5", Provider: providers.ProviderAnthropic},
 		}},
-	})
+	}}})
 	engine := gin.New()
 	group := engine.Group("/internal/v1", middleware.WithInternalServiceAuth(inspectionToken))
 	group.GET("/inference-policies", admin.InternalInferencePoliciesHandler(proxySvc))

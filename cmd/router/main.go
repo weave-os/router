@@ -985,12 +985,27 @@ func main() {
 		panic("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT names a classifier whose judge is not configured")
 	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
+	inferenceDeployment.RoutableModels = servedModels
 
 	proxySvc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(providerMap), telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry), hmm.ServingPorts()), proxy.Deps{
 		Telemetry: proxy.TelemetryDeps{Clock: time.Now, SessionTurnClock: sessionTurnClock, ContentCapture: captureMode, ContentCaptureMaxBytes: captureMaxBytes, Billing: billingSvc, Flags: &proxy.TelemetryFlags{
 			TurnSignalCapture: turnSignalCaptureEnabled, NativeAnthropicResponseSignals: nativeAnthropicResponseSignals, NativeOpenAIResponseSignals: nativeOpenAIResponseSignals}},
 		BYOKOnly: byokOnly, DeploymentKeyedProviders: deploymentEligible,
-	}).WithTranslationMetrics(otel.NewTranslationMetrics()).
+		Dispatch: &dispatch.Config{
+			Rescue: dispatch.RescueConfig{
+				SiblingFailover: siblingFailover, EarlyStopRedo: earlyStopRedo, CyberRefusalRepin: cyberRefusalRepin, CyberRefusalRetry: cyberRefusalRetry,
+				CyberRefusalFallbackModel: cyberRefusalFallbackModel, AnthropicServerSideFallback: anthropicServerSideFallback,
+			},
+			ArmDemotion: dispatch.ArmDemotionPolicy{CommittedStream: committedStreamArmDemotion, RescuedFailure: rescuedFailureArmDemotion},
+			Throttling: dispatch.Throttling{
+				Overload:  dispatch.NewOverloadBreaker(providerOverloaded, breaker.New(breaker.Defaults(), nil)),
+				RateLimit: dispatch.NewRateLimitPolicy(transientRateLimit, rateLimitCooldownSeconds),
+			},
+			Executor: inferenceExecutor, Plans: inferencePlans, Deployment: inferenceDeployment,
+			TranslationCompatibilityMode: dispatch.TranslationCompatibilityMode(translationCompatibilityMode),
+			TranslationMetrics:           otel.NewTranslationMetrics(),
+		},
+	}).
 		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithExternalKeyUsageRecorder(authSvc).
 		WithCodexExtraCredits(allowCodexCredits).
@@ -1001,7 +1016,6 @@ func main() {
 		WithQwenEscalation(qwenEscalationJudge).
 		WithEscalationConfiguration(llmEscalationStore, authSvc.InvalidateInstallation, escalationJudgeActiveEnabled).
 		WithEscalationShadowDefault(escalationShadowDefault).
-		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
 		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: router.StrategyHMM, Router: hmmRouter, Unavailable: hmm.ErrHMMUnavailable,
@@ -1030,16 +1044,7 @@ func main() {
 		WithExplicitUtilityHardPin(hardPinOverrideConfigured).
 		WithSubAgentOverride(subAgentProvider, subAgentModel).
 		WithContinuityConfig(continuityConfig).
-		WithCyberRefusalRepin(cyberRefusalRepin).
-		WithCyberRefusalRetry(cyberRefusalRetry).
-		WithCyberRefusalFallbackModel(cyberRefusalFallbackModel).
-		WithAnthropicServerSideFallback(anthropicServerSideFallback).
-		WithSiblingFailover(siblingFailover).
 		WithOpenAIResponsesBroad(openAIResponsesBroad).
-		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
-		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
-		WithTransientRateLimit(transientRateLimit, rateLimitCooldownSeconds).
-		WithProviderOverloaded(providerOverloaded, breaker.New(breaker.Defaults(), nil)).
 		WithIngress(ingressFormatsFor(allowedModelsHeader)).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMConfig(hmmConfig).
@@ -1050,7 +1055,6 @@ func main() {
 		WithCCOrchestrationToolsCrossVendor(ccOrchToolsCrossVendor).
 		WithCCTaskToolsCrossVendor(ccTaskToolsCrossVendor).
 		WithCCAutonomySystemAppend(ccAutonomySystemAppend).
-		WithEarlyStopRedo(earlyStopRedo).
 		WithCCWorkspaceSystemAppend(ccWorkspaceSystemAppend).
 		WithBandSwap(bandSwapEnabled).
 		WithGlobalAutomaticExclusions(repo.GlobalAutomaticExclusions).
@@ -1061,12 +1065,11 @@ func main() {
 		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel())
-	inferenceDeployment.RoutableModels = servedModels
 	if err := configureAtomicClassifier(proxySvc, pool, availableProviders); err != nil {
 		logger.Error("Failed to configure atomic classifier", "err", err)
 		panic(err)
 	}
-	proxySvc = withRoutingPolicy(proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment), inferencePlans)
+	proxySvc = withRoutingPolicy(proxySvc, inferencePlans)
 	if subscriptionRuntime != nil {
 		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
 	}

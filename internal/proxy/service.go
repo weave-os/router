@@ -781,14 +781,6 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 	return s.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: r, Unavailable: router.ErrHMMUnavailable})
 }
 
-func (s *Service) WithTranslationCompatibilityMode(mode TranslationCompatibilityMode) *Service {
-	switch mode {
-	case TranslationCompatibilityOff, TranslationCompatibilityShadow, TranslationCompatibilityEnforce:
-		s.translationCompatibilityMode = mode
-	}
-	return s
-}
-
 func (s *Service) WithScopedSearchRequirement(enabled bool, decayTurns int) *Service {
 	s.scopedSearchRequirement = enabled
 	if decayTurns > 0 {
@@ -802,55 +794,8 @@ func (s *Service) WithContinuityConfig(cfg continuity.Config) *Service {
 	return s
 }
 
-func (s *Service) WithCyberRefusalRepin(enabled bool) *Service {
-	s.rescueConfig.CyberRefusalRepin = enabled
-	return s
-}
-
-func (s *Service) WithCyberRefusalRetry(enabled bool) *Service {
-	s.rescueConfig.CyberRefusalRetry = enabled
-	return s
-}
-
-func (s *Service) WithAnthropicServerSideFallback(enabled bool) *Service {
-	s.rescueConfig.AnthropicServerSideFallback = enabled
-	return s
-}
-
-func (s *Service) WithSiblingFailover(enabled bool) *Service {
-	s.rescueConfig.SiblingFailover = enabled
-	return s
-}
-
 func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
 	s.openAIResponsesBroad = enabled
-	return s
-}
-
-func (s *Service) WithCommittedStreamArmDemotion(enabled bool) *Service {
-	s.armDemotion.CommittedStream = enabled
-	return s
-}
-
-func (s *Service) WithRescuedFailureArmDemotion(enabled bool) *Service {
-	s.armDemotion.RescuedFailure = enabled
-	return s
-}
-
-func (s *Service) WithTransientRateLimit(enabled bool, cooldownSeconds int) *Service {
-	s.throttling.RateLimit = dispatch.NewRateLimitPolicy(enabled, cooldownSeconds)
-	return s
-}
-
-func (s *Service) WithRetrySleep(sleep func(context.Context, time.Duration) error) *Service {
-	s.engine.SetRetrySleep(sleep)
-	return s
-}
-
-func (s *Service) WithCyberRefusalFallbackModel(model string) *Service {
-	if strings.TrimSpace(model) != "" {
-		s.rescueConfig.CyberRefusalFallbackModel = strings.TrimSpace(model)
-	}
 	return s
 }
 
@@ -900,11 +845,6 @@ func (s *Service) WithCCTaskToolsCrossVendor(enabled bool) *Service {
 
 func (s *Service) WithCCAutonomySystemAppend(enabled bool) *Service {
 	s.ccAutonomySystemAppend = enabled
-	return s
-}
-
-func (s *Service) WithEarlyStopRedo(mode flags.EarlyStopRedoMode) *Service {
-	s.rescueConfig.EarlyStopRedo = mode
 	return s
 }
 
@@ -1013,11 +953,6 @@ func (s *Service) baselineFor(ctx context.Context, requested string) string {
 		}
 	}
 	return s.routing.DefaultBaselineModel()
-}
-
-func (s *Service) WithInferenceExecutor(executor *dispatch.Executor) *Service {
-	s.engine.SetExecutor(executor)
-	return s
 }
 
 func (s *Service) InferenceExecutor() *dispatch.Executor {
@@ -1136,11 +1071,6 @@ func (s *Service) newTelemetryRecorder() telemetry.Recorder {
 		return nil
 	}
 	return s.turnTelemetry.emitter.NewRecorder()
-}
-
-func (s *Service) WithTranslationMetrics(metrics telemetry.TranslationMetrics) *Service {
-	s.translationMetrics = metrics
-	return s
 }
 
 func (s *Service) WithCodexExtraCredits(enabled bool) *Service {
