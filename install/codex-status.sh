@@ -32,6 +32,11 @@ export PATH="$PATH:$HOME/.weave/bin"
 # WEAVE_CODEX_STATUS_URL at their own helper source. The common
 # WEAVE_STATUSLINE_UPDATE and WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS variables
 # remain accepted as aliases for users who configure both clients together.
+#
+# Fetched-code surface 3 (inventory in install.sh, "uninstall delegation"):
+# the downloaded body replaces this hook and runs on the next Codex lifecycle
+# event. It is gated only by shape checks (bash shebang, at least 1024 bytes),
+# with no digest or signature.
 weave_self_refresh() {
   # The published helper may predate classifier lifecycle forwarding. Do not
   # replace the hook implementation underneath an opted-in session.

@@ -38,6 +38,8 @@ const uninstallIdx = args.indexOf("--uninstall");
 const isUninstall = uninstallIdx !== -1;
 if (isUninstall) args.splice(uninstallIdx, 1);
 
+// Only the scripts bundled in this package run; nothing is downloaded and
+// executed here (see the fetched-code surface list in install.sh).
 const scriptName = isUninstall ? "uninstall.sh" : "install.sh";
 const script = path.join(__dirname, scriptName);
 

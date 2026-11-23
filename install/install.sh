@@ -1663,6 +1663,20 @@ EOF
 #   1. Sibling file next to install.sh on disk (npm tarball / git checkout).
 #   2. WEAVE_UNINSTALL_URL override (self-hosters who fork).
 #   3. Default: raw.githubusercontent.com canonical copy (curl|sh path).
+#
+# Fetched-code surfaces. Every path under install/ that downloads bytes and
+# runs them, or writes them where a later run executes them, is listed here and
+# carries a matching "Fetched-code surface N" comment at its fetch site:
+#   1. cc-statusline.sh weave_self_refresh: replaces the statusline script
+#      (also reached off-schedule through weave_refresh_on_price_miss).
+#   2. cc-statusline.sh weave_sync_commands: rewrites .claude/commands/*.md.
+#   3. codex-status.sh weave_self_refresh: replaces the Codex lifecycle hook.
+#   4. The fetched uninstaller below: `exec bash -c` on the downloaded body.
+# This file embeds 1-3 verbatim in its heredocs. uninstall.sh downloads no
+# code; its BASH_EXECUTION_STRING re-run reuses the body fetched by 4. npm's
+# bin.js runs only the scripts bundled beside it. Every other download is data
+# parsed by jq, or the jq binary pinned by SHA-256 in ensure_jq. A new path
+# that runs downloaded bytes belongs on this list and must verify them first.
 for arg in "$@"; do
   if [ "$arg" = "--uninstall" ]; then
     cleaned_args=()
@@ -1678,6 +1692,8 @@ for arg in "$@"; do
       fi
     fi
 
+    # Fetched-code surface 4: the downloaded body runs after only a `#!`
+    # prefix check, with no digest or signature.
     require_cmd curl "https://curl.se"
     url="${WEAVE_UNINSTALL_URL:-https://raw.githubusercontent.com/weave-os/router/main/install/uninstall.sh}"
     # Pull the body into memory and exec via `bash -c` so we never touch
@@ -5591,6 +5607,11 @@ export PATH="$PATH:$HOME/.weave/bin"
 # WEAVE_CODEX_STATUS_URL at their own helper source. The common
 # WEAVE_STATUSLINE_UPDATE and WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS variables
 # remain accepted as aliases for users who configure both clients together.
+#
+# Fetched-code surface 3 (inventory in install.sh, "uninstall delegation"):
+# the downloaded body replaces this hook and runs on the next Codex lifecycle
+# event. It is gated only by shape checks (bash shebang, at least 1024 bytes),
+# with no digest or signature.
 weave_self_refresh() {
   # The published helper may predate classifier lifecycle forwarding. Do not
   # replace the hook implementation underneath an opted-in session.
@@ -7235,6 +7256,11 @@ fi
 # periodic check's budget. $2=1 drops the stamp again if the download fails, for
 # callers recovering from a known-bad state where waiting out the full interval
 # on a transient network error is worse than retrying next turn.
+#
+# Fetched-code surface 1 (inventory in install.sh, "uninstall delegation"):
+# the downloaded body replaces this script and runs on the next turn. It is
+# gated only by shape checks (bash shebang, at least 1024 bytes), with no
+# digest or signature.
 weave_self_refresh() {
   local stamp_suffix="${1:-}"
   local retry_on_fail="${2:-0}"
@@ -7376,6 +7402,10 @@ weave_render_command() {
   printf '%s' "${body//\{\{SCOPE\}\}/$2}"
 }
 
+# Fetched-code surface 2 (inventory in install.sh, "uninstall delegation"):
+# downloaded commands/*.md bodies overwrite installed wrappers that Claude Code
+# runs as prompts. They are gated only by a `---` first line and the baseline
+# comparison, with no digest or signature.
 weave_sync_commands() {
   [ "${WEAVE_STATUSLINE_UPDATE:-1}" = "0" ] && return 0
   [ "${WEAVE_COMMANDS_UPDATE:-1}" = "0" ] && return 0

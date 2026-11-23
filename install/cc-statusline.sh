@@ -114,6 +114,11 @@ fi
 # periodic check's budget. $2=1 drops the stamp again if the download fails, for
 # callers recovering from a known-bad state where waiting out the full interval
 # on a transient network error is worse than retrying next turn.
+#
+# Fetched-code surface 1 (inventory in install.sh, "uninstall delegation"):
+# the downloaded body replaces this script and runs on the next turn. It is
+# gated only by shape checks (bash shebang, at least 1024 bytes), with no
+# digest or signature.
 weave_self_refresh() {
   local stamp_suffix="${1:-}"
   local retry_on_fail="${2:-0}"
@@ -255,6 +260,10 @@ weave_render_command() {
   printf '%s' "${body//\{\{SCOPE\}\}/$2}"
 }
 
+# Fetched-code surface 2 (inventory in install.sh, "uninstall delegation"):
+# downloaded commands/*.md bodies overwrite installed wrappers that Claude Code
+# runs as prompts. They are gated only by a `---` first line and the baseline
+# comparison, with no digest or signature.
 weave_sync_commands() {
   [ "${WEAVE_STATUSLINE_UPDATE:-1}" = "0" ] && return 0
   [ "${WEAVE_COMMANDS_UPDATE:-1}" = "0" ] && return 0
