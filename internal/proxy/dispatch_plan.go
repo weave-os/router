@@ -40,8 +40,8 @@ func (s *Service) InspectInferencePlan(request policy.InspectionRequest) (policy
 
 func (s *Service) afterSubscriptionRotationBudget(ctx context.Context, decision router.Decision, subscriptionAttempts int, rotationErr error) error {
 	observability.FromContext(ctx).Warn("Subscription admission budget spent; refusing unproven paid recovery", "model", decision.Model, "provider", decision.Provider, "budget_ms", subscriptionRotationBudget.Milliseconds(), "subscription_account_attempt", subscriptionAttempts, "err", rotationErr)
-	if forcedClaudeClientAppRefused(ctx, decision, nil) {
-		return errors.Join(subscriptionClientAppRefusal(ctx), rotationErr)
+	if credentials.ForcedClaudeClientAppRefused(ctx, decision, nil) {
+		return errors.Join(credentials.SubscriptionClientAppRefusal(ctx), rotationErr)
 	}
 	if errors.Is(rotationErr, credentials.ErrSubscriptionPoolUnavailable) {
 		return rotationErr

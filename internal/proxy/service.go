@@ -1081,7 +1081,7 @@ func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy route
 		}
 		return router.Decision{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, unavailable)
 	}
-	if s.strategyPorts.Ownership.Owns(strategy) && req.ConversationMessages != nil && !hasTextUserBoundary(req.ConversationMessages) {
+	if s.strategyPorts.Ownership.Owns(strategy) && req.ConversationMessages != nil && !routingpolicy.HasTextUserBoundary(req.ConversationMessages) {
 		req.Unscorable = true
 	}
 	return registered.router.Route(ctx, req)
@@ -1262,7 +1262,7 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 
 func (s *Service) openAIPaidCredentialAvailable(ctx context.Context, headers http.Header) bool {
 	if billing.WeaveCreditsDeniedFromContext(ctx) {
-		return usableBYOK(ctx, providers.ProviderOpenAI) != nil
+		return credentials.UsableBYOK(ctx, providers.ProviderOpenAI) != nil
 	}
 	return s.credentials.HasOpenAIInfrastructureCredential(ctx, headers, s.engine.Clients().Has)
 }
@@ -1273,7 +1273,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 	enabledProviders map[string]struct{},
 	excluded map[string]struct{},
 ) map[string]struct{} {
-	_, codexAvailable := subscriptionServableProviders(ctx, headers)[providers.ProviderOpenAI]
+	_, codexAvailable := credentials.SubscriptionServableProviders(ctx, headers)[providers.ProviderOpenAI]
 	if !codexAvailable || (!paidFallbackForbiddenFor(ctx, providers.ProviderOpenAI) && s.openAIPaidCredentialAvailable(ctx, headers)) {
 		return excluded
 	}

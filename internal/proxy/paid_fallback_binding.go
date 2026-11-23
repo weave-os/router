@@ -26,13 +26,13 @@ func stepPaidFallbackBinding(observations ...paidFallbackObservation) subscripti
 }
 
 func paidFallbackBinding(ctx context.Context) subscriptionlane.Binding {
-	enterpriseSeat := claudeEnterpriseTurn(ctx)
+	enterpriseSeat := credentials.ClaudeEnterpriseTurn(ctx)
 	return stepPaidFallbackBinding(
 		paidFallbackObservation{subscriptionStateModelsEnabled(ctx), subscriptionlane.IncludedLaneEntered},
 		paidFallbackObservation{credentials.SubscriptionAPIOnly(ctx), subscriptionlane.IncludedLaneExhausted},
 		paidFallbackObservation{enterpriseSeat, subscriptionlane.EnterpriseSeatBound},
-		paidFallbackObservation{enterpriseSeat && claudeEnterpriseCapRescue(ctx), subscriptionlane.EnterpriseCapRefused},
-		paidFallbackObservation{pickedModelOnOwnPlan(ctx), subscriptionlane.OwnPlanPicked},
+		paidFallbackObservation{enterpriseSeat && credentials.ClaudeEnterpriseCapRescue(ctx), subscriptionlane.EnterpriseCapRefused},
+		paidFallbackObservation{credentials.PickedModelOnOwnPlan(ctx), subscriptionlane.OwnPlanPicked},
 		paidFallbackObservation{credentials.SubscriptionAttemptOnly(ctx), subscriptionlane.SubscriptionAttemptStarted},
 	)
 }
@@ -43,8 +43,8 @@ func paidFallbackBindingForModel(ctx context.Context, model string) subscription
 	return stepPaidFallbackBinding(
 		paidFallbackObservation{includedLane, subscriptionlane.IncludedLaneEntered},
 		paidFallbackObservation{includedLane && (credentials.SubscriptionAPIOnly(ctx) || exhaustedSetModel), subscriptionlane.IncludedLaneExhausted},
-		paidFallbackObservation{claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}), subscriptionlane.EnterpriseSeatBound},
-		paidFallbackObservation{pickedModelOnOwnPlan(ctx), subscriptionlane.OwnPlanPicked},
+		paidFallbackObservation{credentials.ClaudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}), subscriptionlane.EnterpriseSeatBound},
+		paidFallbackObservation{credentials.PickedModelOnOwnPlan(ctx), subscriptionlane.OwnPlanPicked},
 		paidFallbackObservation{credentials.SubscriptionAttemptOnly(ctx), subscriptionlane.SubscriptionAttemptStarted},
 	)
 }

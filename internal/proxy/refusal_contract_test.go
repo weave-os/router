@@ -29,12 +29,12 @@ func TestRefusalContract_Dispatch(t *testing.T) {
 		clientError   bool
 	}{
 		{err: eligibility.ErrModelIneligible, kind: ingress.DispatchErrorProductIneligible, status: http.StatusForbidden, clientError: true},
-		{err: proxy.ErrSubscriptionClientAppRefused, kind: ingress.DispatchErrorSubscriptionClientAppRefused, status: http.StatusForbidden, clientError: true},
+		{err: credentials.ErrSubscriptionClientAppRefused, kind: ingress.DispatchErrorSubscriptionClientAppRefused, status: http.StatusForbidden, clientError: true},
 		{err: credentials.ErrSpendCapSubscriptionUnavailable, kind: ingress.DispatchErrorSpendCapReached, status: http.StatusPaymentRequired, noClientRetry: true},
 		{err: credentials.ErrCreditsExhaustedSubscriptionUnavailable, kind: ingress.DispatchErrorCreditsExhausted, status: http.StatusPaymentRequired, noClientRetry: true},
 		{err: credentials.ErrSubscriptionUnavailableForTurn, kind: ingress.DispatchErrorSubscriptionUnavailableForTurn, status: http.StatusPaymentRequired, noClientRetry: true},
 		{err: credentials.ErrWeaveCreditsDisabled, kind: ingress.DispatchErrorWeaveCreditsDisabled, status: http.StatusPaymentRequired, noClientRetry: true},
-		{err: proxy.ErrClaudeEnterpriseSubscriptionUnavailable, kind: ingress.DispatchErrorClaudeEnterpriseOnly, status: http.StatusPaymentRequired, noClientRetry: true},
+		{err: credentials.ErrClaudeEnterpriseSubscriptionUnavailable, kind: ingress.DispatchErrorClaudeEnterpriseOnly, status: http.StatusPaymentRequired, noClientRetry: true},
 		{err: credentials.ErrSubscriptionPoolExhausted, kind: ingress.DispatchErrorSubscriptionPoolExhausted, status: http.StatusTooManyRequests, retryAfter: true},
 		{err: credentials.ErrSubscriptionPoolThrottled, kind: ingress.DispatchErrorSubscriptionPoolThrottled, status: http.StatusTooManyRequests, retryAfter: true},
 		{err: credentials.ErrSubscriptionPoolUnavailable, kind: ingress.DispatchErrorSubscriptionPoolUnavailable, status: http.StatusServiceUnavailable, retryAfter: true},

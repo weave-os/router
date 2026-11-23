@@ -27,7 +27,7 @@ func codexPlanSpentForTurn(ctx context.Context, headers http.Header, observer *u
 			return false
 		}
 	}
-	return isSubscriptionPoolError(err) && ownLoginSpent
+	return credentials.IsSubscriptionPoolError(err) && ownLoginSpent
 }
 
 func dropFailedIncludedModels(includedModels []string, failed string, excluded map[string]struct{}, planSpent bool) ([]string, map[string]struct{}) {
@@ -46,12 +46,12 @@ func dropFailedIncludedModels(includedModels []string, failed string, excluded m
 }
 
 func emptyPaidPoolErr(ctx context.Context, includedFailure error, now time.Time) error {
-	if includedFailure == nil && seatsThrottled(ctx, subscriptions.ProviderCodex, now) {
+	if includedFailure == nil && credentials.SeatsThrottled(ctx, subscriptions.ProviderCodex, now) {
 		return credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolThrottled)
 	}
 	return includedFailureOr(includedFailure, router.ErrAllowlistEmptiesPool)
 }
 
 func codexSeatsCoverOrThrottled(ctx context.Context, covered bool, now time.Time) bool {
-	return covered || seatsThrottled(ctx, subscriptions.ProviderCodex, now)
+	return covered || credentials.SeatsThrottled(ctx, subscriptions.ProviderCodex, now)
 }

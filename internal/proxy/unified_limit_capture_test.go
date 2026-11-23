@@ -2,103 +2,17 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 )
-
-func TestUnifiedLimitHeadersFrom_NoCaptureInstalled(t *testing.T) {
-	// No capture holder installed → must return nil, not panic.
-	assert.Nil(t, UnifiedLimitHeadersFrom(context.Background()))
-}
-
-func TestCaptureUnifiedLimitHeaders_RecordsOnSubscriptionCredential(t *testing.T) {
-	ctx := withUnifiedLimitCapture(context.Background())
-	ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
-		APIKey: []byte("sk-ant-oat01-live"), Source: requestcontext.SourceSubscription, OAuth: true,
-	})
-
-	resp := http.Header{}
-	resp.Set("anthropic-ratelimit-unified-status", "allowed")
-	resp.Set("anthropic-ratelimit-unified-overage-status", "rejected")
-	resp.Set("content-type", "application/json") // must NOT leak into the captured set
-
-	captureUnifiedLimitHeaders(ctx, resp)
-
-	got := UnifiedLimitHeadersFrom(ctx)
-	require.NotNil(t, got)
-	assert.Equal(t, "allowed", got["anthropic-ratelimit-unified-status"])
-	assert.Equal(t, "rejected", got["anthropic-ratelimit-unified-overage-status"])
-	if _, ok := got["content-type"]; ok {
-		t.Errorf("non-unified header leaked into capture: %v", got)
-	}
-}
-
-func TestCaptureUnifiedLimitHeaders_SkipsNonOAuthCredential(t *testing.T) {
-	// BYOK/deployment-key call must not be recorded — headers describe a different account's quota.
-	ctx := withUnifiedLimitCapture(context.Background())
-	ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
-		APIKey: []byte("sk-ant-api-deployment"), Source: requestcontext.SourceBYOK, OAuth: false,
-	})
-
-	resp := http.Header{}
-	resp.Set("anthropic-ratelimit-unified-status", "allowed")
-	captureUnifiedLimitHeaders(ctx, resp)
-
-	assert.Nil(t, UnifiedLimitHeadersFrom(ctx), "non-OAuth credential must not be captured")
-}
-
-func TestCaptureUnifiedLimitHeaders_NoCredentialsResolved(t *testing.T) {
-	ctx := withUnifiedLimitCapture(context.Background())
-	resp := http.Header{}
-	resp.Set("anthropic-ratelimit-unified-status", "allowed")
-	captureUnifiedLimitHeaders(ctx, resp) // no CredentialsContextKey set at all
-
-	assert.Nil(t, UnifiedLimitHeadersFrom(ctx))
-}
-
-func TestCaptureUnifiedLimitHeaders_NoUnifiedHeadersPresent(t *testing.T) {
-	// Subscription response with no unified headers must leave capture nil, not empty-but-non-nil.
-	ctx := withUnifiedLimitCapture(context.Background())
-	ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
-		APIKey: []byte("sk-ant-oat01-live"), Source: requestcontext.SourceSubscription, OAuth: true,
-	})
-	captureUnifiedLimitHeaders(ctx, http.Header{"Content-Type": {"application/json"}})
-
-	assert.Nil(t, UnifiedLimitHeadersFrom(ctx))
-}
-
-func TestUnifiedLimitHeadersJSON(t *testing.T) {
-	t.Run("nothing captured -> nil (NULL column)", func(t *testing.T) {
-		ctx := withUnifiedLimitCapture(context.Background())
-		assert.Nil(t, unifiedLimitHeadersJSON(ctx))
-	})
-
-	t.Run("captured set round-trips through JSON", func(t *testing.T) {
-		ctx := withUnifiedLimitCapture(context.Background())
-		ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
-			APIKey: []byte("sk-ant-oat01-live"), Source: requestcontext.SourceSubscription, OAuth: true,
-		})
-		resp := http.Header{}
-		resp.Set("anthropic-ratelimit-unified-status", "allowed")
-		resp.Set("anthropic-ratelimit-unified-5h-utilization", "0.42")
-		captureUnifiedLimitHeaders(ctx, resp)
-
-		b := unifiedLimitHeadersJSON(ctx)
-		require.NotNil(t, b)
-		var got map[string]string
-		require.NoError(t, json.Unmarshal(b, &got))
-		assert.Equal(t, "allowed", got["anthropic-ratelimit-unified-status"])
-		assert.Equal(t, "0.42", got["anthropic-ratelimit-unified-5h-utilization"])
-	})
-}
 
 // Capture must work when s.credentials.UsageObserver is nil — the Phase 0 dogfooding
 // scenario before subsidy-aware routing is enabled.
@@ -118,7 +32,7 @@ func TestWithUsageObserver_CapturesRawHeadersEvenWithoutSubsidyObserver(t *testi
 	resp.Set("anthropic-ratelimit-unified-overage-disabled-reason", "org_level_disabled")
 	providers.ObserveUpstreamHeaders(callCtx, resp)
 
-	got := UnifiedLimitHeadersFrom(ctx)
+	got := credentials.UnifiedLimitHeadersFrom(ctx)
 	require.NotNil(t, got, "raw headers must be captured independent of the subsidy observer")
 	assert.Equal(t, "allowed", got["anthropic-ratelimit-unified-status"])
 	assert.Equal(t, "org_level_disabled", got["anthropic-ratelimit-unified-overage-disabled-reason"])
@@ -130,52 +44,7 @@ func TestWithUsageObserver_NoopWhenNothingToObserve(t *testing.T) {
 	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 	ctx := context.Background()
 	got := s.withUsageObserver(ctx, http.Header{}) // no Authorization at all
-	assert.Nil(t, UnifiedLimitHeadersFrom(got), "no subscription token present -> capture never installed")
-}
-
-func TestCaptureUnifiedLimitHeaders_RecordsCodexHeadersOnCodexSubscription(t *testing.T) {
-	ctx := withUnifiedLimitCapture(context.Background())
-	ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
-		APIKey: []byte("eyJhbGciOi.codex.jwt"), Source: requestcontext.SourceCodexSubscription, OAuth: true,
-	})
-
-	resp := http.Header{}
-	resp.Set("x-codex-primary-used-percent", "42")
-	resp.Set("x-codex-secondary-used-percent", "7")
-	resp.Set("x-codex-parent-thread-id", "thread_123")
-	captureUnifiedLimitHeaders(ctx, resp)
-
-	assert.Equal(t, map[string]string{
-		"x-codex-primary-used-percent":   "42",
-		"x-codex-secondary-used-percent": "7",
-	}, CodexLimitHeadersFrom(ctx))
-	assert.Nil(t, UnifiedLimitHeadersFrom(ctx))
-
-	b := codexLimitHeadersJSON(ctx)
-	require.NotNil(t, b)
-	var got map[string]string
-	require.NoError(t, json.Unmarshal(b, &got))
-	assert.Equal(t, "42", got["x-codex-primary-used-percent"])
-}
-
-func TestCaptureUnifiedLimitHeaders_LastAttemptReplacesOtherFamily(t *testing.T) {
-	ctx := withUnifiedLimitCapture(context.Background())
-	claudeCtx := context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
-		APIKey: []byte("sk-ant-oat01-live"), Source: requestcontext.SourceSubscription, OAuth: true,
-	})
-	claudeResp := http.Header{}
-	claudeResp.Set("anthropic-ratelimit-unified-status", "rejected")
-	captureUnifiedLimitHeaders(claudeCtx, claudeResp)
-
-	codexCtx := context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
-		APIKey: []byte("eyJhbGciOi.codex.jwt"), Source: requestcontext.SourceCodexSubscription, OAuth: true,
-	})
-	codexResp := http.Header{}
-	codexResp.Set("x-codex-primary-used-percent", "10")
-	captureUnifiedLimitHeaders(codexCtx, codexResp)
-
-	assert.Nil(t, unifiedLimitHeadersJSON(ctx), "the Codex attempt served the turn, so the Claude reading must not persist")
-	assert.Equal(t, "10", CodexLimitHeadersFrom(ctx)["x-codex-primary-used-percent"])
+	assert.Nil(t, credentials.UnifiedLimitHeadersFrom(got), "no subscription token present -> capture never installed")
 }
 
 func TestWithUsageObserver_CapturesCodexHeadersForDirectCodexLogin(t *testing.T) {
@@ -194,5 +63,5 @@ func TestWithUsageObserver_CapturesCodexHeadersForDirectCodexLogin(t *testing.T)
 	resp.Set("x-codex-primary-used-percent", "55")
 	providers.ObserveUpstreamHeaders(callCtx, resp)
 
-	assert.Equal(t, "55", CodexLimitHeadersFrom(ctx)["x-codex-primary-used-percent"])
+	assert.Equal(t, "55", credentials.CodexLimitHeadersFrom(ctx)["x-codex-primary-used-percent"])
 }

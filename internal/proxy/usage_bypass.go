@@ -214,7 +214,7 @@ func (s *Service) bypassToAnthropic(
 		Model:    feats.Model,
 		Reason:   reason,
 	}
-	if err := productEligibilityRefusal(ctx, entitlement.ModelBoundaryFromContext(ctx), decision.Model); err != nil {
+	if err := credentials.ProductEligibilityRefusal(ctx, entitlement.ModelBoundaryFromContext(ctx), decision.Model); err != nil {
 		return err
 	}
 	setDecisionHeaders(w.Header(), decision)
@@ -226,8 +226,8 @@ func (s *Service) bypassToAnthropic(
 	}
 
 	ctx, telemetryCtx := resolveBypassCredentialsForTelemetry(s, ctx, decision.Provider, decision.Model, r.Header)
-	if claudeEnterpriseOnly(ctx) && !credentials.ServedOnSubscription(ctx) {
-		return claudeEnterpriseRefusal(ctx)
+	if credentials.ClaudeEnterpriseOnly(ctx) && !credentials.ServedOnSubscription(ctx) {
+		return credentials.ClaudeEnterpriseRefusal(ctx)
 	}
 	outputReserve := max(contextWindowOutputReserve, feats.MaxTokens)
 	opts := translate.EmitOptions{
@@ -304,7 +304,7 @@ func (s *Service) bypassToAnthropic(
 	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) && bypassMayReroute(ctx, proxyErr) {
 		return errBypassRetryable
 	}
-	if !claudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.credentials.AnthropicFallbackKeyAvailable(ctx) &&
+	if !credentials.ClaudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || credentials.AnthropicSubscriptionThirdPartyRefused(proxyErr)) && s.credentials.AnthropicFallbackKeyAvailable(ctx) &&
 		(!billing.SubscriptionOnlyFromContext(ctx) || credentials.LinkedFirst(ctx)) {
 		return errBypassRetryable
 	}
@@ -410,8 +410,8 @@ func (s *Service) bypassToAnthropic(
 			CredentialKeyPrefix:    credentialKeyPrefix,
 			CredentialKeySuffix:    credentialKeySuffix,
 			CredentialSource:       credSource,
-			UnifiedLimitHeaders:    unifiedLimitHeadersJSON(ctx),
-			CodexLimitHeaders:      codexLimitHeadersJSON(ctx),
+			UnifiedLimitHeaders:    credentials.UnifiedLimitHeadersJSON(ctx),
+			CodexLimitHeaders:      credentials.CodexLimitHeadersJSON(ctx),
 		}
 		applyBlindExperimentTelemetry(ctx, &telemetryParams, &routingpolicy.TurnRoute{Decision: decision, UsageBypass: true})
 		applyPolicyPinTelemetry(ctx, &telemetryParams, nil)

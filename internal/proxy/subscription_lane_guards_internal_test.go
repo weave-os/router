@@ -37,10 +37,10 @@ func TestForcedClaudeClientAppRefusalIgnoresTurnsOnTheCallersOwnCredential(t *te
 	ctx := context.WithValue(context.Background(), credentials.ManagedSubscriptionUsageContextKey{}, usage)
 	forced := router.Decision{Reason: translate.ReasonUserForceModel}
 
-	assert.True(t, forcedClaudeClientAppRefused(ctx, forced, nil))
-	assert.False(t, forcedClaudeClientAppRefused(ctx, forced, &requestcontext.Credentials{OAuth: true}), "the caller's own OAuth login is not standing in for refusing seats")
-	assert.False(t, forcedClaudeClientAppRefused(ctx, forced, &requestcontext.Credentials{Source: requestcontext.SourceBYOK}), "a customer key is not standing in for refusing seats")
-	assert.False(t, forcedClaudeClientAppRefused(ctx, router.Decision{Reason: "cluster"}, nil), "routed turns need pool-wide funding authorization instead")
+	assert.True(t, credentials.ForcedClaudeClientAppRefused(ctx, forced, nil))
+	assert.False(t, credentials.ForcedClaudeClientAppRefused(ctx, forced, &requestcontext.Credentials{OAuth: true}), "the caller's own OAuth login is not standing in for refusing seats")
+	assert.False(t, credentials.ForcedClaudeClientAppRefused(ctx, forced, &requestcontext.Credentials{Source: requestcontext.SourceBYOK}), "a customer key is not standing in for refusing seats")
+	assert.False(t, credentials.ForcedClaudeClientAppRefused(ctx, router.Decision{Reason: "cluster"}, nil), "routed turns need pool-wide funding authorization instead")
 }
 
 func TestCustomerFundingCountsOnlyTheCustomersOwnCredentials(t *testing.T) {
@@ -65,11 +65,11 @@ func TestRejectedOwnCodexLoginOutranksALaterRateLimit(t *testing.T) {
 func TestEnterpriseCapRescueNeedsAUsableAnthropicKey(t *testing.T) {
 	refused := context.WithValue(context.Background(), credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
 
-	assert.False(t, claudeEnterpriseCapRescue(refused), "with no customer key the cap has nothing to rescue onto")
+	assert.False(t, credentials.ClaudeEnterpriseCapRescue(refused), "with no customer key the cap has nothing to rescue onto")
 	keyed := context.WithValue(refused, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok"), FundingPriority: auth.FundingPriorityPlanFirst},
 	})
-	assert.True(t, claudeEnterpriseCapRescue(keyed))
+	assert.True(t, credentials.ClaudeEnterpriseCapRescue(keyed))
 }
 
 func TestUnleasableSeatsDoNotHoldPaidFallbackEvenWhileEnabled(t *testing.T) {

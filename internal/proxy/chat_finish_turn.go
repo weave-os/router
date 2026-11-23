@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
@@ -280,8 +281,8 @@ func chatTelemetryRow(ctx context.Context, s *Service, t *chatFinishedTurn, usag
 		UserPrompt:               &t.inboundUserPromptOpenAI,
 		ErrorClass:               classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks),
 		FailureOwner:             turnFailureOwnerAfterFinish(ctx, t.proxyErr, classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), t.respSummary.UpstreamFinishReason),
-		UnifiedLimitHeaders:      unifiedLimitHeadersJSON(ctx),
-		CodexLimitHeaders:        codexLimitHeadersJSON(ctx),
+		UnifiedLimitHeaders:      credentials.UnifiedLimitHeadersJSON(ctx),
+		CodexLimitHeaders:        credentials.CodexLimitHeadersJSON(ctx),
 	}
 }
 

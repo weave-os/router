@@ -144,7 +144,7 @@ func (t *messagesTurnDispatch) bindAndGate(ctx context.Context) (context.Context
 				return ctx, credentials.SubscriptionOnlyUnavailable(ctx)
 			}
 			ctx = released
-		case !servedOnCustomerKey(ctx) && t.s.anthropicSubscriptionObservedExhausted(ctx, t.r.Header) && !credentials.ClaudeSubscriptionSuppressed(ctx):
+		case !credentials.ServedOnCustomerKey(ctx) && t.s.anthropicSubscriptionObservedExhausted(ctx, t.r.Header) && !credentials.ClaudeSubscriptionSuppressed(ctx):
 			t.log.Info("Subscription-only request cannot be served on the subscription; refusing",
 				"requested_model", t.feats.Model, "external_id", t.facts.ExternalID, "decision_provider", t.decision.Provider)
 			return ctx, credentials.SubscriptionOnlyUnavailable(ctx)

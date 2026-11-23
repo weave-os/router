@@ -26,7 +26,7 @@ func (f planBindingFacts) context() context.Context {
 		ctx = context.WithValue(ctx, credentials.SubscriptionAPIOnlyKey{}, true)
 	}
 	if f.enterpriseSeat {
-		ctx = context.WithValue(enterpriseOnlyContext(ctx), claudeEnterpriseTurnKey{}, true)
+		ctx = context.WithValue(enterpriseOnlyContext(ctx), credentials.ClaudeEnterpriseTurnKey{}, true)
 	}
 	if f.capRefused {
 		ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
@@ -35,7 +35,7 @@ func (f planBindingFacts) context() context.Context {
 		})
 	}
 	if f.ownPlan {
-		ctx = context.WithValue(ctx, pickedModelOnOwnPlanContextKey{}, true)
+		ctx = context.WithValue(ctx, credentials.PickedModelOnOwnPlanContextKey{}, true)
 	}
 	if f.subscriptionAttempt {
 		ctx = context.WithValue(ctx, credentials.SubscriptionOnlyAttemptKey{}, true)

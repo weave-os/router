@@ -93,8 +93,8 @@ func TestPlanFirstAnthropicKeyKeepsEnterprisePlanInPlay(t *testing.T) {
 	planFirst := enterpriseOnlyContext(fundingPriorityCtx(ctx, providers.ProviderAnthropic, auth.FundingPriorityPlanFirst))
 	keyFirst := enterpriseOnlyContext(fundingPriorityCtx(ctx, providers.ProviderAnthropic, auth.FundingPriorityKeyFirst))
 
-	assert.True(t, claudeEnterpriseOnly(planFirst))
-	assert.False(t, claudeEnterpriseOnly(keyFirst))
+	assert.True(t, credentials.ClaudeEnterpriseOnly(planFirst))
+	assert.False(t, credentials.ClaudeEnterpriseOnly(keyFirst))
 }
 
 func TestKeyFirstOpenAIKeyHidesCodexPlan(t *testing.T) {

@@ -31,7 +31,7 @@ func TestLinkedClaudeSeatConnectedIgnoresSeatsThatCannotLease(t *testing.T) {
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			ctx := credentials.WithManagedSubscriptionCandidates(context.Background(), scenario.seats)
-			assert.Equal(t, scenario.want, linkedClaudeSeatConnected(ctx))
+			assert.Equal(t, scenario.want, credentials.LinkedClaudeSeatConnected(ctx))
 		})
 	}
 }

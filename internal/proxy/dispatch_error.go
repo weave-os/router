@@ -46,7 +46,7 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 		return refusalClass(ingress.DispatchErrorProductIneligible, refusal.ProductIneligible,
 			"This model is not included in your plan. Pick a model your plan covers.",
 			"warn", "Rejected request: model is not eligible for the caller's product"), true
-	case errors.Is(err, ErrSubscriptionClientAppRefused):
+	case errors.Is(err, credentials.ErrSubscriptionClientAppRefused):
 		return refusalClass(ingress.DispatchErrorSubscriptionClientAppRefused, refusal.SubscriptionClientAppRefused,
 			"Anthropic only lets Claude Code use Claude subscription plan limits, so this app can't use them for the forced Claude model. Use Claude Code, add extra usage at claude.ai/settings/usage, or pick a non-Claude model.",
 			"warn", "Rejected forced Claude turn: subscriptions refused third-party client"), true
@@ -56,7 +56,7 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 		return refusalClass(ingress.DispatchErrorWeaveCreditsDisabled, refusal.WeaveCreditsDisabled,
 			"Weave credits are turned off for your organization, and none of your plans or provider API keys can serve this request. Connect a provider key or plan for this model, or allow Weave credits in settings.",
 			"warn", "Request refused: Weave credits disabled and no customer funding source"), true
-	case errors.Is(err, ErrClaudeEnterpriseSubscriptionUnavailable):
+	case errors.Is(err, credentials.ErrClaudeEnterpriseSubscriptionUnavailable):
 		return refusalClass(ingress.DispatchErrorClaudeEnterpriseOnly, refusal.ClaudeEnterpriseOnly,
 			"Claude Enterprise-only billing is enabled, but no usable Claude account can serve this request. Connect or reconnect a Claude account, or turn off Enterprise-only billing in settings.",
 			"warn", "Claude Enterprise-only request refused"), true

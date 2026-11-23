@@ -40,13 +40,13 @@ func TestSubscriptionFundingAuthorizationDecisionOrder(t *testing.T) {
 	unverifiedClaudeTurnWithKeyFirstGoogle := func() context.Context {
 		ctx := context.WithValue(ctxWithExternalKeys(&auth.ExternalAPIKey{Provider: providers.ProviderGoogle, Plaintext: []byte("synthetic-google-key"), FundingPriority: auth.FundingPriorityKeyFirst}), requestcontext.InstallationIDContextKey{}, routerKeyedInstallationID)
 		ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
-		return withClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()})
+		return credentials.WithClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()})
 	}
 	picked := func(ctx context.Context) context.Context {
 		ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 		return withPickedModelFunding(auth.WithClientModelPassthrough(ctx), true, providers.ProviderAnthropic)
 	}
-	require.True(t, pickedModelOnOwnPlan(picked(creditFallback())), "the picked-model cases need a pick served on the caller's own plan")
+	require.True(t, credentials.PickedModelOnOwnPlan(picked(creditFallback())), "the picked-model cases need a pick served on the caller's own plan")
 	for _, tc := range []struct {
 		name      string
 		ctx       context.Context
@@ -57,17 +57,17 @@ func TestSubscriptionFundingAuthorizationDecisionOrder(t *testing.T) {
 	}{
 		{name: "credits denied refuses before Claude Enterprise", ctx: billing.WithWeaveCreditsDenied(enterpriseOnlyContext(context.Background())), target: claudeOpus, wantIs: credentials.ErrWeaveCreditsDisabled, wantErr: "weave credits are disabled and no customer plan or provider key can serve this request"},
 		{name: "credits denied refuses a key-first BYOK row that is not the attempt credential", ctx: billing.WithWeaveCreditsDenied(ctxWithExternalKeys(keyFirstAnthropic)), target: claudeOpus, wantIs: credentials.ErrWeaveCreditsDisabled, wantErr: "weave credits are disabled and no customer plan or provider key can serve this request"},
-		{name: "credits denied passes a customer-funded attempt on to Claude Enterprise", ctx: billing.WithWeaveCreditsDenied(enterpriseOnlyContext(context.Background())), callCreds: byokCreds, target: claudeOpus, wantIs: ErrClaudeEnterpriseSubscriptionUnavailable, wantErr: "enterprise-only Claude billing requires a usable Claude subscription"},
-		{name: "Claude Enterprise refuses an OAuth credential the quota-proof exemption would admit", ctx: enterpriseOnlyContext(context.Background()), callCreds: codexOAuth, target: claudeOpus, wantIs: ErrClaudeEnterpriseSubscriptionUnavailable, wantErr: "enterprise-only Claude billing requires a usable Claude subscription"},
+		{name: "credits denied passes a customer-funded attempt on to Claude Enterprise", ctx: billing.WithWeaveCreditsDenied(enterpriseOnlyContext(context.Background())), callCreds: byokCreds, target: claudeOpus, wantIs: credentials.ErrClaudeEnterpriseSubscriptionUnavailable, wantErr: "enterprise-only Claude billing requires a usable Claude subscription"},
+		{name: "Claude Enterprise refuses an OAuth credential the quota-proof exemption would admit", ctx: enterpriseOnlyContext(context.Background()), callCreds: codexOAuth, target: claudeOpus, wantIs: credentials.ErrClaudeEnterpriseSubscriptionUnavailable, wantErr: "enterprise-only Claude billing requires a usable Claude subscription"},
 		{name: "Claude Enterprise admits its own subscription credential", ctx: enterpriseOnlyContext(context.Background()), callCreds: claudeOAuth, target: claudeOpus},
-		{name: "Claude Enterprise turn refuses a paid rescue on another provider", ctx: withClaudeEnterpriseTurn(enterpriseOnlyContext(context.Background()), router.Decision{Provider: claudeOpus.Provider, Model: claudeOpus.CatalogID}), target: gemini, wantIs: ErrClaudeEnterpriseSubscriptionUnavailable, wantErr: "enterprise-only Claude billing requires a usable Claude subscription"},
+		{name: "Claude Enterprise turn refuses a paid rescue on another provider", ctx: credentials.WithClaudeEnterpriseTurn(enterpriseOnlyContext(context.Background()), router.Decision{Provider: claudeOpus.Provider, Model: claudeOpus.CatalogID}), target: gemini, wantIs: credentials.ErrClaudeEnterpriseSubscriptionUnavailable, wantErr: "enterprise-only Claude billing requires a usable Claude subscription"},
 		{name: "quota-proof exemption admits an OAuth attempt before the unverified-plan guard", ctx: unverifiedPlan(), callCreds: claudeOAuth, target: claudeOpus},
 		{name: "quota-proof exemption admits an OAuth attempt before subscription API authorization", ctx: credentials.WithManagedSubscriptionCandidates(creditFallback(), seat(auth.SubscriptionAccountStateActive)), callCreds: claudeOAuth, target: claudeOpus},
 		{name: "BYOK-first admits a key-first rescue provider before the unverified-plan guard", ctx: unverifiedClaudeTurnWithKeyFirstGoogle(), target: gemini},
 		{name: "BYOK-first admits before the picked-model refusal", ctx: picked(withClaudeCreditFallback(ctxWithExternalKeys(keyFirstAnthropic))), target: claudeOpus},
 		{name: "BYOK-first admits before subscription API authorization", ctx: credentials.WithManagedSubscriptionCandidates(withClaudeCreditFallback(ctxWithExternalKeys(keyFirstAnthropic)), seat(auth.SubscriptionAccountStateActive)), target: claudeOpus},
 		{name: "unverified plan refuses paid Claude", ctx: unverifiedPlan(), target: claudeOpus, wantIs: credentials.ErrSubscriptionPoolUnavailable, wantErr: "subscription account pool unavailable: Claude subscription plan could not be verified before paid fallback"},
-		{name: "unverified Claude turn refuses an incompatible provider", ctx: withClaudeEnterpriseTurn(unverifiedPlan(), router.Decision{Provider: claudeOpus.Provider, Model: claudeOpus.CatalogID}), target: gemini, wantIs: credentials.ErrSubscriptionPoolUnavailable, wantErr: "subscription account pool unavailable: Claude subscription plan could not be verified before paid fallback"},
+		{name: "unverified Claude turn refuses an incompatible provider", ctx: credentials.WithClaudeEnterpriseTurn(unverifiedPlan(), router.Decision{Provider: claudeOpus.Provider, Model: claudeOpus.CatalogID}), target: gemini, wantIs: credentials.ErrSubscriptionPoolUnavailable, wantErr: "subscription account pool unavailable: Claude subscription plan could not be verified before paid fallback"},
 		{name: "unverified plan refuses before the picked-model refusal", ctx: picked(unverifiedPlan()), target: claudeOpus, wantIs: credentials.ErrSubscriptionPoolUnavailable, wantErr: "subscription account pool unavailable: Claude subscription plan could not be verified before paid fallback"},
 		{name: "an incompatible target is admitted before the picked-model refusal", ctx: picked(creditFallback()), target: gemini},
 		{name: "picked model on its own plan refuses before subscription API authorization", ctx: picked(credentials.WithManagedSubscriptionCandidates(creditFallback(), seat(auth.SubscriptionAccountStateExhausted))), target: claudeOpus, wantIs: credentials.ErrSubscriptionPoolUnavailable, wantErr: "subscription account pool unavailable: picked model runs on the caller's own plan"},
