@@ -28,7 +28,7 @@ func registerDiscovery(t *testing.T, features server.Features) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	sources := map[router.Strategy]policy.RosterSource{router.StrategyHMM: fixtureClusterRoster{}}
-	server.RegisterWithFeatures(engine, nil, nil, nil, server.DeploymentModeSelfHosted, nil, nil, sources, nil, features)
+	server.RegisterWithFeatures(engine, nil, server.Services{}, nil, server.DeploymentModeSelfHosted, nil, nil, sources, nil, features)
 	return engine
 }
 
@@ -54,7 +54,7 @@ func TestHMMRosterRouteRequiresCatalogProjection(t *testing.T) {
 func TestHMMRosterRouteRequiresRosterSources(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	server.RegisterWithFeatures(engine, nil, nil, nil, server.DeploymentModeSelfHosted, nil, nil, nil, nil, server.Features{RosterCatalogID: func(arm string) string { return arm }})
+	server.RegisterWithFeatures(engine, nil, server.Services{}, nil, server.DeploymentModeSelfHosted, nil, nil, nil, nil, server.Features{RosterCatalogID: func(arm string) string { return arm }})
 	assert.NotContains(t, routeSet(engine), "GET /v1/router/hmm-roster")
 }
 

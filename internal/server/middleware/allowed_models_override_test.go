@@ -39,7 +39,9 @@ func runAllowedModelsMiddlewareWithDefault(t *testing.T, installation *auth.Inst
 		}
 		c.Next()
 	})
-	engine.Use(middleware.WithAllowedModelsOverride(stubAllowedModelsGate(deploymentDefault)))
+	engine.Use(middleware.WithAllowedModelsOverride(stubAllowedModelsGate(deploymentDefault), func(raw string, installationAllowed []string) (any, error) {
+		return proxy.ParseAllowedModelsHeader(raw, installationAllowed)
+	}))
 	var observed proxy.RequestAllowedModels
 	var ok bool
 	engine.POST("/v1/messages", func(c *gin.Context) {

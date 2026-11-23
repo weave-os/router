@@ -38,7 +38,7 @@ func TestMaxServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testing.T) 
 		})
 		engine.Use(
 			middleware.WithRouterStrategyDefault(router.Strategy("cluster"), allRegisteredLive, router.StrategyHMM, router.Strategy("rl")),
-			middleware.WithAllowedModelsOverride(planOwnedAllowedModelsGate{}),
+			middleware.WithAllowedModelsOverride(planOwnedAllowedModelsGate{}, nil),
 			middleware.WithRoutingKnobsOverride(),
 			middleware.WithForceEffortOverride(),
 			middleware.WithPolicyPinOverride(),

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -17,7 +16,9 @@ type AllowedModelsHeaderGate interface {
 	ResolveAllowedModelsHeader(ctx context.Context) bool
 }
 
-func WithAllowedModelsOverride(gate AllowedModelsHeaderGate) gin.HandlerFunc {
+type AllowedModelsHeaderParser func(raw string, installationAllowed []string) (any, error)
+
+func WithAllowedModelsOverride(gate AllowedModelsHeaderGate, parse AllowedModelsHeaderParser) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context()); managed && entitlement.PlanHasServingProfile(entitlement.Plan(identity.Plan)) {
 			c.Next()
@@ -39,7 +40,7 @@ func WithAllowedModelsOverride(gate AllowedModelsHeaderGate) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "allowed_models_header_not_authorized"})
 			return
 		}
-		subset, err := proxy.ParseAllowedModelsHeader(raw, installation.AllowedModels)
+		subset, err := parse(raw, installation.AllowedModels)
 		if err != nil {
 			observability.FromGin(c).Warn("Allowed-models override rejected", "installation_id", installation.ID, "err", err)
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "allowed_models_header_invalid", "message": err.Error()})

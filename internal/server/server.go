@@ -22,10 +22,8 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/feedback"
-	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation/floor"
@@ -67,8 +65,8 @@ const (
 	DeploymentModeManaged    DeploymentMode = "managed"
 )
 
-func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service) {
-	RegisterWithFeatures(engine, authSvc, proxySvc, hmmModels, mode, nil, readinessChecker, hmmRosterSources, analyticsSvc, Features{ErrorVocab: ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage}})
+func Register(engine *gin.Engine, authSvc *auth.Service, services Services, hmmModels admin.HMMRosterSource, mode DeploymentMode, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service) {
+	RegisterWithFeatures(engine, authSvc, services, hmmModels, mode, nil, readinessChecker, hmmRosterSources, analyticsSvc, Features{})
 }
 
 const deploymentDefaultStrategy = router.StrategyHMMEmbedding
@@ -104,7 +102,6 @@ type Features struct {
 	DefaultStrategy          router.Strategy
 	InternalServiceToken     string
 	Admin                    admin.Config
-	ErrorVocab               ingress.ErrorVocabulary
 	ContentCaptureMode       capture.Mode
 	TelemetryQueries         turnrecord.Queries
 	FeedbackLinks            *feedback.Links
@@ -129,7 +126,7 @@ func (f Features) defaultStrategy() router.Strategy {
 	return f.DefaultStrategy
 }
 
-func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, features Features) {
+func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, services Services, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, features Features) {
 	engine.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Expose-Headers", strings.Join([]string{
 			requestcontext.HeaderRouterDecision,
@@ -173,8 +170,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	}
 	discovery := engine.Group("", discoveryMiddleware...)
 	if features.ServingAdmission != nil && mode == DeploymentModeManaged {
-		discovery.POST("/v1/router/models/:model/prepare", middleware.WithTimeout(modelPreparationTimeout), classifierapi.PrepareModelHandler(proxySvc))
-		discovery.GET("/v1/router/models/:model/prepare/:operation", middleware.WithTimeout(modelPreparationTimeout), classifierapi.PrepareModelHandler(proxySvc))
+		discovery.POST("/v1/router/models/:model/prepare", middleware.WithTimeout(modelPreparationTimeout), classifierapi.PrepareModelHandler(services.ModelPreparer))
+		discovery.GET("/v1/router/models/:model/prepare/:operation", middleware.WithTimeout(modelPreparationTimeout), classifierapi.PrepareModelHandler(services.ModelPreparer))
 	}
 	if features.ServingAdmission != nil {
 		discovery.GET("/v1/test-plan/validate", middleware.WithTimeout(catalogModelsTimeout), admin.TestPlanValidationHandler)
@@ -186,8 +183,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	engine.GET("/startupz", middleware.WithTimeout(startupTimeout), admin.StartupHandler(features.StartupDatabasePing))
 
 	engine.GET("/v1/version", middleware.WithTimeout(healthTimeout), admin.VersionHandler(features.PolicyStatus))
-	var routingCatalog admin.RoutingCatalog = proxy.NewRoutingCatalog(proxySvc)
-	registeredStrategies, strategyAvailability := registeredStrategyAvailability(proxySvc, routingCatalog)
+	routingCatalog := services.RoutingCatalog
+	registeredStrategies, strategyAvailability := registeredStrategyAvailability(routingCatalog)
 	defaultStrategy := middleware.NormalizeRouterStrategyDefault(features.defaultStrategy(), registeredStrategies...)
 	discovery.GET(
 		"/v1/router/policies",
@@ -209,14 +206,14 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			internalGroup.POST("/test-plans/prepare", admin.InternalTestPlanPrepareHandler(features.TestPlans))
 			internalGroup.DELETE("/test-plans/launches/:id", admin.InternalTestPlanRevokeHandler(features.TestPlans))
 		}
-		internalGroup.POST("/provider-keys/models", admin.InternalListUpstreamModelsHandler(authSvc, proxy.DispatchEngine(proxySvc)))
+		internalGroup.POST("/provider-keys/models", admin.InternalListUpstreamModelsHandler(authSvc, services.UpstreamModels))
 		internalGroup.POST("/session-issuers", admin.InternalRegisterSessionIssuerHandler(authSvc))
 		internalGroup.DELETE("/session-issuers/:installationID/:kid", admin.InternalRevokeSessionIssuerHandler(authSvc))
 		registerInternalSubscriptions(engine, internalGroup, authSvc, features, internalToken)
 
-		internalGroup.GET("/inference-policies", admin.InternalInferencePoliciesHandler(proxy.DispatchEngine(proxySvc)))
-		internalGroup.GET("/inference-policies/deployment", admin.InternalInferenceDeploymentHandler(proxy.DispatchEngine(proxySvc)))
-		internalGroup.POST("/inference-policies/resolve", admin.InternalInferenceResolveHandler(proxy.DispatchEngine(proxySvc)))
+		internalGroup.GET("/inference-policies", admin.InternalInferencePoliciesHandler(services.InferencePlans))
+		internalGroup.GET("/inference-policies/deployment", admin.InternalInferenceDeploymentHandler(services.InferencePlans))
+		internalGroup.POST("/inference-policies/resolve", admin.InternalInferenceResolveHandler(services.InferencePlans))
 		if features.TaskDomainPreview != nil {
 			internalGroup.POST("/task-domain/preview", admin.InternalTaskDomainPreviewHandler(features.TaskDomainPreview))
 		}
@@ -226,7 +223,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission))
 	threadHandlers := []gin.HandlerFunc{middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission)}
 	threadHandlers = append(threadHandlers, servingAdmissionMiddleware...)
-	threadHandlers = append(threadHandlers, classifierapi.StartThreadHandler(proxySvc))
+	threadHandlers = append(threadHandlers, classifierapi.StartThreadHandler(services.ClassifierThreads))
 	engine.POST("/v1/router/threads", threadHandlers...)
 	adminAuthed.Use(servingAdmissionMiddleware...)
 	adminAuthed.GET("/validate", admin.ValidateHandler)
@@ -267,8 +264,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		mgmt.POST("/provider-keys", admin.UpsertExternalKeyHandler(authSvc, hmmModels, features.Admin))
 		mgmt.PUT("/provider-keys/:id/model-aliases", admin.UpdateExternalKeyAliasesHandler(authSvc, hmmModels))
 		mgmt.PUT("/provider-keys/:id/funding-priority", admin.UpdateExternalKeyFundingPriorityHandler(authSvc))
-		mgmt.GET("/provider-keys/:id/models", admin.ListUpstreamModelsHandler(authSvc, proxy.DispatchEngine(proxySvc)))
-		mgmt.POST("/provider-keys/discover-models", admin.DiscoverModelsHandler(proxy.DispatchEngine(proxySvc)))
+		mgmt.GET("/provider-keys/:id/models", admin.ListUpstreamModelsHandler(authSvc, services.UpstreamModels))
+		mgmt.POST("/provider-keys/discover-models", admin.DiscoverModelsHandler(services.UpstreamModels))
 		mgmt.DELETE("/provider-keys/:id", admin.DeleteExternalKeyHandler(authSvc))
 		mgmt.GET("/config", admin.ConfigHandler(features.Admin))
 		mgmt.GET("/onboarding", admin.OnboardingHandler(authSvc))
@@ -309,15 +306,15 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	messagesMiddleware = append(messagesMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(), middleware.WithFlagOverridesHeader(authSvc),
-		middleware.WithAllowedModelsOverride(proxySvc),
+		middleware.WithAllowedModelsOverride(services.AllowedModelsHeader, services.ParseAllowedModelsHeader),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
 	messagesMiddleware = append(messagesMiddleware, policyPinMiddleware...)
-	messagesMiddleware = append(messagesMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
+	messagesMiddleware = append(messagesMiddleware, middleware.WithClassifierThread(services.ClassifierThreadAdmission, strategyAvailability))
 	messagesGroup := engine.Group("", messagesMiddleware...)
-	messagesGroup.POST("/v1/messages", anthropicapi.MessagesHandler(proxySvc, authSvc, features.ErrorVocab))
-	messagesGroup.POST("/v1/route/handoff", anthropicapi.PrepareHandoffHandler(proxySvc, authSvc, features.ErrorVocab))
+	messagesGroup.POST("/v1/messages", anthropicapi.MessagesHandler(services.Messages, authSvc, services.ErrorVocab))
+	messagesGroup.POST("/v1/route/handoff", anthropicapi.PrepareHandoffHandler(services.Messages, authSvc, services.ErrorVocab))
 
 	chatCompletionMiddleware := []gin.HandlerFunc{
 		middleware.WithTimingEntry(),
@@ -339,20 +336,20 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	chatCompletionMiddleware = append(chatCompletionMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(), middleware.WithFlagOverridesHeader(authSvc),
-		middleware.WithAllowedModelsOverride(proxySvc),
+		middleware.WithAllowedModelsOverride(services.AllowedModelsHeader, services.ParseAllowedModelsHeader),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
-	chatCompletionMiddleware = append(chatCompletionMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
+	chatCompletionMiddleware = append(chatCompletionMiddleware, middleware.WithClassifierThread(services.ClassifierThreadAdmission, strategyAvailability))
 	chatCompletionWithoutPolicyPin := append([]gin.HandlerFunc(nil), chatCompletionMiddleware...)
 	chatCompletionMiddleware = append(chatCompletionMiddleware, policyPinMiddleware...)
 	chatCompletionGroup := engine.Group("", chatCompletionMiddleware...)
-	chatCompletionGroup.POST("/v1/chat/completions", openaiapi.ChatCompletionHandler(proxySvc, authSvc, features.ErrorVocab))
+	chatCompletionGroup.POST("/v1/chat/completions", openaiapi.ChatCompletionHandler(services.ChatCompletions, authSvc, services.ErrorVocab))
 	chatCompletionWithoutPolicyPinGroup := engine.Group("", chatCompletionWithoutPolicyPin...)
-	chatCompletionWithoutPolicyPinGroup.POST("/v1/responses", openaiapi.ResponsesHandler(proxySvc, authSvc, features.ErrorVocab))
-	chatCompletionWithoutPolicyPinGroup.POST("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler(proxySvc, authSvc, features.ErrorVocab))
+	chatCompletionWithoutPolicyPinGroup.POST("/v1/responses", openaiapi.ResponsesHandler(services.Responses, authSvc, services.ErrorVocab))
+	chatCompletionWithoutPolicyPinGroup.POST("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler(services.GenerateContent, authSvc, services.ErrorVocab))
 
-	registerClientPassthroughRoutes(engine, authSvc, proxySvc, byokRequiresOptIn, servingAdmissionMiddleware, features)
+	registerClientPassthroughRoutes(engine, authSvc, services, byokRequiresOptIn, servingAdmissionMiddleware, features)
 
 	sessionCostGroup := engine.Group("",
 		middleware.WithTimeout(sessionCostTimeout),
@@ -380,14 +377,14 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	routeMiddleware = append(routeMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(), middleware.WithFlagOverridesHeader(authSvc),
-		middleware.WithAllowedModelsOverride(proxySvc),
+		middleware.WithAllowedModelsOverride(services.AllowedModelsHeader, services.ParseAllowedModelsHeader),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
 	routeMiddleware = append(routeMiddleware, policyPinMiddleware...)
-	routeMiddleware = append(routeMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
+	routeMiddleware = append(routeMiddleware, middleware.WithClassifierThread(services.ClassifierThreadAdmission, strategyAvailability))
 	routeGroup := engine.Group("", routeMiddleware...)
-	routeGroup.POST("/v1/route", anthropicapi.RouteHandler(proxySvc))
+	routeGroup.POST("/v1/route", anthropicapi.RouteHandler(services.Router))
 
 	previewMiddleware := []gin.HandlerFunc{
 		middleware.WithTimingEntry(),
@@ -399,13 +396,13 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	previewMiddleware = append(previewMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(), middleware.WithFlagOverridesHeader(authSvc),
-		middleware.WithAllowedModelsOverride(proxySvc),
+		middleware.WithAllowedModelsOverride(services.AllowedModelsHeader, services.ParseAllowedModelsHeader),
 		middleware.WithRoutingKnobsOverride(),
 	)
 	previewMiddleware = append(previewMiddleware, policyPinMiddleware...)
-	previewMiddleware = append(previewMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
+	previewMiddleware = append(previewMiddleware, middleware.WithClassifierThread(services.ClassifierThreadAdmission, strategyAvailability))
 	previewGroup := engine.Group("", previewMiddleware...)
-	previewGroup.POST("/v1/route/preview", anthropicapi.PreviewRouteHandler(proxySvc))
+	previewGroup.POST("/v1/route/preview", anthropicapi.PreviewRouteHandler(services.RoutePreviewer))
 
 	if analyticsSvc != nil {
 		analyticsGroup := engine.Group("/v1/analytics",
@@ -428,8 +425,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	}
 }
 
-func registeredStrategyAvailability(proxySvc *proxy.Service, catalog admin.PolicyCatalogSource) ([]router.Strategy, middleware.StrategyAvailability) {
-	if proxySvc == nil {
+func registeredStrategyAvailability(catalog admin.PolicyCatalogSource) ([]router.Strategy, middleware.StrategyAvailability) {
+	if catalog == nil {
 		return nil, nil
 	}
 	return catalog.RegisteredStrategies(), catalog.PolicyStrategyAvailable

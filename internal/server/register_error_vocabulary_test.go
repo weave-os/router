@@ -32,7 +32,7 @@ func TestRegisterDefaultErrorVocabularyClassifiesDispatchErrors(t *testing.T) {
 	authSvc := auth.NewService(nil, subscriptionBudgetKeys{}, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).WithCredentialSubjectLookup(subscriptionBudgetOwners{})
 	proxySvc := proxy.WithStrategyPorts(proxy.NewService(unroutableRouter{}, dispatch.NewClients(nil), nil, nil, false, "", "", nil), hmm.ServingPorts())
 	engine := gin.New()
-	server.Register(engine, authSvc, proxySvc, nil, server.DeploymentModeManaged, nil, nil, nil)
+	server.Register(engine, authSvc, proxyServices(proxySvc), nil, server.DeploymentModeManaged, nil, nil, nil)
 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(`[]`))
 	request.Header.Set("Authorization", "Bearer rk_synthetic")

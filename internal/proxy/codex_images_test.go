@@ -37,7 +37,7 @@ func newCodexImagesUpstream(t *testing.T, quota string, images http.HandlerFunc)
 }
 
 func TestCodexImageRequest_ForwardsWithCallerOAuth(t *testing.T) {
-	for _, operation := range []string{proxy.CodexImageGenerations, proxy.CodexImageEdits} {
+	for _, operation := range []string{ingress.CodexImageGenerations, ingress.CodexImageEdits} {
 		t.Run(operation, func(t *testing.T) {
 			upstream := newCodexImagesUpstream(t, allowedCodexQuota, func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodPost, r.Method)
@@ -85,7 +85,7 @@ func TestCodexImageRequest_RelaysUpstreamError(t *testing.T) {
 	headers.Set("ChatGPT-Account-ID", "account-123")
 	rec := httptest.NewRecorder()
 
-	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(context.Background(), headers, proxy.CodexImageGenerations, []byte(`{}`), rec)
+	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(context.Background(), headers, ingress.CodexImageGenerations, []byte(`{}`), rec)
 
 	var statusErr *providers.UpstreamStatusError
 	require.ErrorAs(t, err, &statusErr)
@@ -105,7 +105,7 @@ func TestCodexImageRequest_EnforcesIncludedQuotaGate(t *testing.T) {
 	headers.Set("Authorization", "Bearer subscription-token")
 	headers.Set("ChatGPT-Account-ID", "account-123")
 
-	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(context.Background(), headers, proxy.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
+	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(context.Background(), headers, ingress.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
 
 	var quotaErr *providers.UpstreamErrorResponse
 	require.ErrorAs(t, err, &quotaErr)
@@ -139,7 +139,7 @@ func TestCodexImageRequest_ForwardsCallerAPIKeyToOpenAI(t *testing.T) {
 			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 			rec := httptest.NewRecorder()
 
-			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(tc.ctx, tc.headers, proxy.CodexImageEdits, []byte(`{"model":"gpt-image-2"}`), rec)
+			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(tc.ctx, tc.headers, ingress.CodexImageEdits, []byte(`{"model":"gpt-image-2"}`), rec)
 
 			require.NoError(t, err)
 			assert.Equal(t, http.StatusOK, rec.Code)
@@ -167,7 +167,7 @@ func TestCodexImageRequest_RequiresCallerOwnCredential(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(tc.ctx, tc.headers, proxy.CodexImageGenerations, []byte(`{}`), httptest.NewRecorder())
+			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(tc.ctx, tc.headers, ingress.CodexImageGenerations, []byte(`{}`), httptest.NewRecorder())
 			require.ErrorIs(t, err, tc.want)
 		})
 	}
@@ -236,7 +236,7 @@ func TestCodexImageRequest_ServesOnLinkedCodexSubscription(t *testing.T) {
 			ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "00000000-0000-0000-0000-000000000001")
 			ctx = credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{{ID: "seat-1", Provider: auth.SubscriptionProvider(subscriptions.ProviderCodex), Enabled: true}})
 
-			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(ctx, http.Header{"X-Weave-Router-Key": {"rk-synthetic"}}, proxy.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
+			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(ctx, http.Header{"X-Weave-Router-Key": {"rk-synthetic"}}, ingress.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
 
 			if tc.status == http.StatusOK {
 				require.NoError(t, err)
@@ -282,7 +282,7 @@ func TestCodexImageRequest_FallsBackToSavedKeyWhenLinkedCodexQuotaIsSpent(t *tes
 	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-synthetic-byok")}})
 	ctx = credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{{ID: "seat-1", Provider: auth.SubscriptionProvider(subscriptions.ProviderCodex), Enabled: true}})
 
-	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(ctx, http.Header{}, proxy.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
+	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(ctx, http.Header{}, ingress.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
 
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer sk-synthetic-byok", gotKey)
