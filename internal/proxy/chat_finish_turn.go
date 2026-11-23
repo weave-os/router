@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
@@ -48,7 +49,7 @@ type chatFinishedTurn struct {
 	actPricing              catalog.Pricing
 	effortServed            dispatch.EffortResolution
 	fastServed              bool
-	contentCap              *captureWriter
+	contentCap              *capture.Writer
 	marker                  string
 	responsesPreludeBuf     *preludeBuffer
 	preludeBuf              *preludeBuffer
