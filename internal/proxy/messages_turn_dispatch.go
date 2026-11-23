@@ -22,6 +22,7 @@ import (
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/telemetry/respobserve"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/translate/toolcheck"
 	providerusage "weave-os/router/internal/usage"
@@ -81,7 +82,7 @@ type messagesTurnDispatch struct {
 	refusalObs              *respobserve.RefusalObserver
 	toolUseObs              *respobserve.ToolUseObserver
 	earlyStop               *dispatch.EarlyStopGate
-	streamCut               *streamCutObserver
+	streamCut               *dispatch.StreamCutObserver
 	proxyStart              time.Time
 	inferenceParentCtx      context.Context
 	inferenceSpan           trace.Span
@@ -121,7 +122,7 @@ func dispatchMessagesTurn(ctx, credentialCtx context.Context, t *messagesTurnDis
 	t.prepareSinks(ctx, clientSink)
 	t.proxyStart = t.s.clock.Now()
 	t.inferenceParentCtx = ctx
-	ctx, t.inferenceSpan = startInferenceSpan(ctx, t.decision, clientSessionIDForRequest(ctx, t.env))
+	ctx, t.inferenceSpan = spans.StartInferenceSpan(ctx, t.decision, clientSessionIDForRequest(ctx, t.env))
 	defer t.inferenceSpan.End()
 	fundingCtx := t.prepareAttempt(ctx, credentialCtx)
 	ctx, err = t.dispatchAttempts(ctx, fundingCtx)
@@ -172,8 +173,8 @@ func (t *messagesTurnDispatch) prepareSinks(ctx context.Context, clientSink http
 	t.earlyStop = dispatch.NewEarlyStopGate(t.sink, t.log)
 	t.sink = t.earlyStop
 	t.preludeBuf.OnDiscard = t.earlyStop.ResetAttempt
-	t.streamCut = newStreamCutObserver(t.s.clock.Now)
-	t.streamCut.describeRequest(len(t.body), t.env)
+	t.streamCut = dispatch.NewStreamCutObserver(t.s.clock.Now)
+	t.streamCut.DescribeRequest(len(t.body), t.env)
 }
 
 func (t *messagesTurnDispatch) prepareAttempt(ctx, credentialCtx context.Context) context.Context {
@@ -250,7 +251,7 @@ func (t *messagesTurnDispatch) dispatchAttempts(ctx, fundingCtx context.Context)
 	}
 	attempt, attemptBuildErr := buildAttempt(t.decision, t.opts, t.marker, fundingCtx)
 	if attemptBuildErr != nil && !translate.IsIntrinsicallyIncompatible(attemptBuildErr) {
-		finishInferenceSpan(t.inferenceSpan, t.decision, t.decision.Provider, -1, attemptBuildErr)
+		spans.FinishInferenceSpan(t.inferenceSpan, t.decision, t.decision.Provider, -1, attemptBuildErr)
 		return ctx, attemptBuildErr
 	}
 
@@ -282,7 +283,7 @@ func (t *messagesTurnDispatch) dispatchAttempts(ctx, fundingCtx context.Context)
 		AgentShadowMode: t.agentShadowMode,
 
 		EarlyStop:                 t.earlyStop,
-		NoteStreamCut:             t.streamCut.noteCut,
+		NoteStreamCut:             t.streamCut.NoteCut,
 		AttemptBuildErr:           attemptBuildErr,
 		AnthropicTierAttempt:      boundTierAttempt(t.anthropicTierAttemptFor, t.recordFastServed),
 		Extractor:                 &t.extractor,
@@ -324,8 +325,8 @@ func (t *messagesTurnDispatch) settle(ctx context.Context) context.Context {
 	}
 
 	t.proxyMs = t.s.clock.Now().Sub(t.proxyStart).Milliseconds()
-	finishInferenceSpan(t.inferenceSpan, t.decision, t.finalProvider, t.winnerIdx, t.proxyErr)
-	ctx = restoreParentSpan(ctx, t.inferenceParentCtx)
+	spans.FinishInferenceSpan(t.inferenceSpan, t.decision, t.finalProvider, t.winnerIdx, t.proxyErr)
+	ctx = spans.RestoreParentSpan(ctx, t.inferenceParentCtx)
 	return ctx
 }
 

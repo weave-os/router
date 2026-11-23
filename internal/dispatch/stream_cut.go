@@ -1,4 +1,4 @@
-package proxy
+package dispatch
 
 import (
 	"context"
@@ -17,26 +17,26 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-type streamFailureClass string
+type StreamFailureClass string
 
 const (
-	streamFailureUpstreamEOF            streamFailureClass = "upstream_eof"
-	streamFailureUpstreamReset          streamFailureClass = "upstream_reset"
-	streamFailureIdleWatchdog           streamFailureClass = "idle_watchdog"
-	streamFailureOutputStallWatchdog    streamFailureClass = "output_stall_watchdog"
-	streamFailureSlowThroughputWatchdog streamFailureClass = "slow_throughput_watchdog"
-	streamFailureUpstreamErrorFrame     streamFailureClass = "upstream_error_frame"
-	streamFailureUpstreamIncomplete     streamFailureClass = "upstream_incomplete"
-	streamFailureUpstreamEmpty          streamFailureClass = "upstream_empty"
-	streamFailureUpstreamTimeout        streamFailureClass = "upstream_timeout"
-	streamFailureClientCanceled         streamFailureClass = "client_canceled"
-	streamFailureDeadline               streamFailureClass = "deadline"
-	streamFailureOther                  streamFailureClass = "other"
+	StreamFailureUpstreamEOF            StreamFailureClass = "upstream_eof"
+	StreamFailureUpstreamReset          StreamFailureClass = "upstream_reset"
+	StreamFailureIdleWatchdog           StreamFailureClass = "idle_watchdog"
+	StreamFailureOutputStallWatchdog    StreamFailureClass = "output_stall_watchdog"
+	StreamFailureSlowThroughputWatchdog StreamFailureClass = "slow_throughput_watchdog"
+	StreamFailureUpstreamErrorFrame     StreamFailureClass = "upstream_error_frame"
+	StreamFailureUpstreamIncomplete     StreamFailureClass = "upstream_incomplete"
+	StreamFailureUpstreamEmpty          StreamFailureClass = "upstream_empty"
+	StreamFailureUpstreamTimeout        StreamFailureClass = "upstream_timeout"
+	StreamFailureClientCanceled         StreamFailureClass = "client_canceled"
+	StreamFailureDeadline               StreamFailureClass = "deadline"
+	StreamFailureOther                  StreamFailureClass = "other"
 )
 
 const streamCutCarryCap = 64 * 1024
 
-type streamCutObserver struct {
+type StreamCutObserver struct {
 	inner http.ResponseWriter
 	now   func() time.Time
 
@@ -64,18 +64,18 @@ type streamCutSnapshot struct {
 	lastEvent          string
 	blocksCompleted    int
 	outputBlockStarted bool
-	class              streamFailureClass
+	class              StreamFailureClass
 	retryable          bool
 }
 
-func newStreamCutObserver(now func() time.Time) *streamCutObserver {
+func NewStreamCutObserver(now func() time.Time) *StreamCutObserver {
 	if now == nil {
 		now = time.Now
 	}
-	return &streamCutObserver{now: now}
+	return &StreamCutObserver{now: now}
 }
 
-func (o *streamCutObserver) describeRequest(requestBytes int, env *translate.RequestEnvelope) {
+func (o *StreamCutObserver) DescribeRequest(requestBytes int, env *translate.RequestEnvelope) {
 	if o == nil {
 		return
 	}
@@ -83,7 +83,7 @@ func (o *streamCutObserver) describeRequest(requestBytes int, env *translate.Req
 	o.thinking = reasoningRequested(env)
 }
 
-func (o *streamCutObserver) attach(inner http.ResponseWriter) http.ResponseWriter {
+func (o *StreamCutObserver) Attach(inner http.ResponseWriter) http.ResponseWriter {
 	if o == nil {
 		return inner
 	}
@@ -96,17 +96,17 @@ func (o *streamCutObserver) attach(inner http.ResponseWriter) http.ResponseWrite
 	return o
 }
 
-func (o *streamCutObserver) Header() http.Header { return o.inner.Header() }
+func (o *StreamCutObserver) Header() http.Header { return o.inner.Header() }
 
-func (o *streamCutObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
+func (o *StreamCutObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
 
-func (o *streamCutObserver) Flush() {
+func (o *StreamCutObserver) Flush() {
 	if f, ok := o.inner.(http.Flusher); ok {
 		f.Flush()
 	}
 }
 
-func (o *streamCutObserver) ArmOutputProgress(mark func()) bool {
+func (o *StreamCutObserver) ArmOutputProgress(mark func()) bool {
 	arm, ok := o.inner.(providers.OutputProgressArmer)
 	if !ok {
 		return false
@@ -114,7 +114,7 @@ func (o *streamCutObserver) ArmOutputProgress(mark func()) bool {
 	return arm.ArmOutputProgress(mark)
 }
 
-func (o *streamCutObserver) ArmReasoningProgress(mark func()) bool {
+func (o *StreamCutObserver) ArmReasoningProgress(mark func()) bool {
 	arm, ok := o.inner.(providers.ReasoningProgressArmer)
 	if !ok {
 		return false
@@ -122,7 +122,7 @@ func (o *streamCutObserver) ArmReasoningProgress(mark func()) bool {
 	return arm.ArmReasoningProgress(mark)
 }
 
-func (o *streamCutObserver) Write(p []byte) (int, error) {
+func (o *StreamCutObserver) Write(p []byte) (int, error) {
 	if o.streaming && len(p) > 0 {
 		o.lastFrame = o.now()
 		o.scan(p)
@@ -130,7 +130,7 @@ func (o *streamCutObserver) Write(p []byte) (int, error) {
 	return o.inner.Write(p)
 }
 
-func (o *streamCutObserver) noteCut(err error) {
+func (o *StreamCutObserver) NoteCut(err error) {
 	if o == nil || err == nil || o.cut {
 		return
 	}
@@ -143,13 +143,13 @@ func (o *streamCutObserver) noteCut(err error) {
 		lastEvent:          o.lastEvent,
 		blocksCompleted:    o.blocksCompleted,
 		outputBlockStarted: o.outputBlockStarted,
-		class:              classifyStreamFailure(err, o.lastEvent),
+		class:              ClassifyStreamFailure(err, o.lastEvent),
 	}
 	o.cutSnapshot.retryable = streamCutReplayRetryable(o.cutSnapshot.class, err)
 	o.cutClassSeen = true
 }
 
-func (o *streamCutObserver) completionLogFields() []any {
+func (o *StreamCutObserver) CompletionLogFields() []any {
 	if !o.cutClassSeen {
 		return nil
 	}
@@ -176,17 +176,17 @@ func reasoningRequested(env *translate.RequestEnvelope) bool {
 	return kind != "" && kind != translate.ReasoningDisabled
 }
 
-func streamCutReplayRetryable(class streamFailureClass, err error) bool {
+func streamCutReplayRetryable(class StreamFailureClass, err error) bool {
 	switch class {
-	case streamFailureClientCanceled, streamFailureDeadline:
+	case StreamFailureClientCanceled, StreamFailureDeadline:
 		return false
 	default:
 	}
-	status := upstreamStatus(err)
+	status := providers.UpstreamStatus(err)
 	return status == 0 || providers.IsRetryableStatus(status)
 }
 
-func (o *streamCutObserver) scan(p []byte) {
+func (o *StreamCutObserver) scan(p []byte) {
 	buf := p
 	if len(o.carry) > 0 {
 		o.carry = append(o.carry, p...)
@@ -221,37 +221,37 @@ func (o *streamCutObserver) scan(p []byte) {
 	o.carry = append(o.carry[:0], buf...)
 }
 
-func classifyStreamFailure(err error, lastEvent string) streamFailureClass {
+func ClassifyStreamFailure(err error, lastEvent string) StreamFailureClass {
 	switch {
 	case err == nil:
-		return streamFailureOther
+		return StreamFailureOther
 	case errors.Is(err, providers.ErrUpstreamIdleTimeout):
-		return streamFailureIdleWatchdog
+		return StreamFailureIdleWatchdog
 	case errors.Is(err, providers.ErrUpstreamOutputStall):
-		return streamFailureOutputStallWatchdog
+		return StreamFailureOutputStallWatchdog
 	case errors.Is(err, providers.ErrUpstreamSlowThroughput):
-		return streamFailureSlowThroughputWatchdog
+		return StreamFailureSlowThroughputWatchdog
 	case errors.Is(err, translate.ErrStreamIncomplete):
-		return streamFailureUpstreamIncomplete
+		return StreamFailureUpstreamIncomplete
 	case errors.Is(err, translate.ErrStreamEmpty):
-		return streamFailureUpstreamEmpty
+		return StreamFailureUpstreamEmpty
 	case errors.Is(err, context.Canceled):
-		return streamFailureClientCanceled
+		return StreamFailureClientCanceled
 	case providers.IsResponseHeaderTimeout(err):
-		return streamFailureUpstreamTimeout
+		return StreamFailureUpstreamTimeout
 	case errors.Is(err, context.DeadlineExceeded):
-		return streamFailureDeadline
+		return StreamFailureDeadline
 	case isNetTimeout(err):
-		return streamFailureUpstreamTimeout
+		return StreamFailureUpstreamTimeout
 	case errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.EPIPE), errors.Is(err, net.ErrClosed),
 		providers.IsHTTP2ConnectionLoss(err):
-		return streamFailureUpstreamReset
+		return StreamFailureUpstreamReset
 	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
-		return streamFailureUpstreamEOF
+		return StreamFailureUpstreamEOF
 	case isUpstreamStatusFailure(err), lastEvent == ingress.StreamErrorEvent:
-		return streamFailureUpstreamErrorFrame
+		return StreamFailureUpstreamErrorFrame
 	default:
-		return streamFailureOther
+		return StreamFailureOther
 	}
 }
 

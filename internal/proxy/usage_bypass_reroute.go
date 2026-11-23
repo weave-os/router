@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/translate"
 )
 
@@ -23,9 +24,9 @@ func reloadUsageBypassSession(ctx context.Context, s *Service, strategy router.S
 }
 
 func rerouteAfterUsageBypass(ctx context.Context, s *Service, log *slog.Logger, strategy router.Strategy, req router.Request, routeRes *routingpolicy.TurnRoute) error {
-	rerouteCtx, rerouteSpan := startRoutingSpan(ctx, strategy, req)
+	rerouteCtx, rerouteSpan := spans.StartRoutingSpan(ctx, strategy, req)
 	decision, err := s.routeFor(rerouteCtx, strategy, req)
-	finishRoutingSpan(rerouteSpan, decision, err)
+	spans.FinishRoutingSpan(rerouteSpan, decision, err)
 	if err != nil {
 		log.Error("Reroute after usage-bypass failure failed", "err", err)
 		return err

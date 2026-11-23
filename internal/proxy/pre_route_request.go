@@ -28,9 +28,9 @@ func prefilterTurn(ctx context.Context, s *Service, in turnPrefilterInput) (int,
 	prefiltered := candidates.Prefilter(candidates.PrefilterRequest{
 		Envelope: in.env, ImageCount: in.feats.ImageCount, OutputReserve: outputReserve, Eligibility: in.eligibility,
 		Excluded: baseExcluded, Available: s.routing.AvailableModels(),
-		AdvisorExclusions: advisorExclusions(in.env, s.routableUniverse()), ExcludeAdvisorOutranking: in.excludeAdvisorOutranking,
+		AdvisorExclusions: candidates.AdvisorExclusions(in.env, s.routableUniverse()), ExcludeAdvisorOutranking: in.excludeAdvisorOutranking,
 	})
-	logPrefilter(in.log, in.env, in.feats.ImageCount, outputReserve, prefiltered)
+	candidates.LogPrefilter(in.log, in.env, in.feats.ImageCount, outputReserve, prefiltered)
 	return outputReserve, prefiltered
 }
 
@@ -74,7 +74,7 @@ func preRouteRequest(ctx context.Context, s *Service, in preRouteRequestInput) r
 		CustomBindings:               in.eligibility.CustomBindings,
 		GatewayProviders:             in.gatewayProviders,
 		SubscriptionProviders:        s.selectableSubscriptionProviders(ctx, in.header),
-		Candidates:                   prefilteredCandidates(ctx, in.prefiltered.Excluded, in.prefiltered),
+		Candidates:                   candidates.PrefilteredCandidates(in.prefiltered.Excluded, allowedModelsForRequest(ctx), in.prefiltered),
 		PreferredModels:              preferredModelsForRequest(ctx),
 		RoutingKnobs:                 routingKnobsForRequest(ctx),
 		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),

@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/translate"
 )
@@ -16,7 +17,7 @@ func setDecisionHeaders(h http.Header, decision router.Decision) {
 	h.Set(requestcontext.HeaderRouterDecision, decision.Reason)
 	h.Set(requestcontext.HeaderRouterProvider, decision.Provider)
 	h.Set(requestcontext.HeaderRouterModel, decision.Model)
-	h.Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	h.Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(candidates.ContextWindow(decision.Model, decision.Provider)))
 }
 
 func anthropicStreamSink(w http.ResponseWriter, keepaliveInterval time.Duration, footer func() string) (http.ResponseWriter, *streamCostWriter, func()) {

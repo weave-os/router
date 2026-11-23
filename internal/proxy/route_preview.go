@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/translate"
 )
 
@@ -96,7 +97,7 @@ func (s *Service) anthropicRoutingRequest(
 		s.routing.AvailableModels(),
 	)
 	excluded, _ = candidates.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.routing.AvailableModels())
-	excluded, _ = excludeAdvisorOutrankingModels(env, excluded, s.routableUniverse())
+	excluded, _ = candidates.ExcludeAdvisorOutrankingModels(env, excluded, s.routableUniverse())
 
 	organizationID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 	installationID := ""
@@ -156,9 +157,9 @@ func (s *Service) Route(ctx context.Context, req router.Request) (router.Decisio
 }
 
 func routeWithSpan(ctx context.Context, s *Service, strategy router.Strategy, req router.Request) (router.Decision, error) {
-	routeCtx, span := startRoutingSpan(ctx, strategy, req)
+	routeCtx, span := spans.StartRoutingSpan(ctx, strategy, req)
 	decision, err := s.routeFor(routeCtx, strategy, req)
-	finishRoutingSpan(span, decision, err)
+	spans.FinishRoutingSpan(span, decision, err)
 	return decision, err
 }
 

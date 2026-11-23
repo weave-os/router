@@ -37,9 +37,9 @@ func TestReasoningReplayScope_DistinguishesUpstreams(t *testing.T) {
 	}
 	ctx := requestcontext.WithCredentials(context.Background(), base)
 	decision := router.Decision{Provider: "openai_compat", Model: "grok-4-fast"}
-	want := svc.reasoningReplayScope(ctx, decision)
+	want := svc.engine.ReasoningReplayScope(ctx, decision)
 	require.NotEmpty(t, want)
-	assert.Equal(t, want, svc.reasoningReplayScope(ctx, decision), "same upstream keeps the scope stable across turns")
+	assert.Equal(t, want, svc.engine.ReasoningReplayScope(ctx, decision), "same upstream keeps the scope stable across turns")
 
 	for name, tc := range map[string]struct {
 		creds    requestcontext.Credentials
@@ -77,7 +77,7 @@ func TestReasoningReplayScope_DistinguishesUpstreams(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			creds := tc.creds
-			got := svc.reasoningReplayScope(requestcontext.WithCredentials(context.Background(), &creds), tc.decision)
+			got := svc.engine.ReasoningReplayScope(requestcontext.WithCredentials(context.Background(), &creds), tc.decision)
 			assert.NotEqual(t, want, got)
 		})
 	}
@@ -90,7 +90,7 @@ func TestReasoningReplayScope_SurvivesWorkloadIdentityTokenRefresh(t *testing.T)
 	svc := reasoningScopeService(t, nil)
 	decision := router.Decision{Provider: "openai_compat", Model: "grok-4.6"}
 	scopeFor := func(bearer string) string {
-		return svc.reasoningReplayScope(requestcontext.WithCredentials(context.Background(), &requestcontext.Credentials{
+		return svc.engine.ReasoningReplayScope(requestcontext.WithCredentials(context.Background(), &requestcontext.Credentials{
 			APIKey:      []byte(bearer),
 			Source:      requestcontext.SourceBYOK,
 			BaseURL:     cortexBaseURL,
@@ -108,7 +108,7 @@ func TestReasoningReplayScope_NormalizesEndpoint(t *testing.T) {
 	svc := reasoningScopeService(t, nil)
 	decision := router.Decision{Provider: "openai_compat", Model: "grok-4.6"}
 	scopeFor := func(baseURL string) string {
-		return svc.reasoningReplayScope(requestcontext.WithCredentials(context.Background(), &requestcontext.Credentials{
+		return svc.engine.ReasoningReplayScope(requestcontext.WithCredentials(context.Background(), &requestcontext.Credentials{
 			Source:      requestcontext.SourceBYOK,
 			BaseURL:     baseURL,
 			PrincipalID: "external-key:key-a",
@@ -130,7 +130,7 @@ func TestReasoningReplayScope_DeploymentKeyedTurnsAreDistinct(t *testing.T) {
 		svc := reasoningScopeService(t, map[string]providers.Client{
 			providers.ProviderOpenRouter: openaicompat.NewClient(apiKey, baseURL),
 		})
-		return svc.reasoningReplayScope(requestcontext.WithCredentials(context.Background(), nil), decision)
+		return svc.engine.ReasoningReplayScope(requestcontext.WithCredentials(context.Background(), nil), decision)
 	}
 
 	deploymentA := scopeFor("key-a", cortexBaseURL)
@@ -140,7 +140,7 @@ func TestReasoningReplayScope_DeploymentKeyedTurnsAreDistinct(t *testing.T) {
 		"a second deployment's key is a second upstream account")
 	assert.NotEqual(t, deploymentA, scopeFor("key-a", "https://acct-b.snowflakecomputing.com/api/v2/cortex/v1"))
 
-	byok := reasoningScopeService(t, nil).reasoningReplayScope(requestcontext.WithCredentials(context.Background(),
+	byok := reasoningScopeService(t, nil).engine.ReasoningReplayScope(requestcontext.WithCredentials(context.Background(),
 		&requestcontext.Credentials{Source: requestcontext.SourceBYOK, BaseURL: cortexBaseURL, PrincipalID: "external-key:key-a"}), decision)
 	assert.NotEqual(t, deploymentA, byok)
 }
@@ -150,7 +150,7 @@ func TestReasoningReplayScope_DeploymentKeyedTurnsAreDistinct(t *testing.T) {
 func TestReasoningReplayScope_DoesNotLeakCredential(t *testing.T) {
 	svc := reasoningScopeService(t, nil)
 	creds := &requestcontext.Credentials{APIKey: []byte("sk-secret-value"), AccountID: []byte("acct-secret")}
-	scope := svc.reasoningReplayScope(requestcontext.WithCredentials(context.Background(), creds),
+	scope := svc.engine.ReasoningReplayScope(requestcontext.WithCredentials(context.Background(), creds),
 		router.Decision{Provider: "openai", Model: "gpt-5.5"})
 
 	assert.NotContains(t, scope, "sk-secret-value")
@@ -173,7 +173,7 @@ func TestReasoningReplayScope_SurvivesManagedSubscriptionTokenRefresh(t *testing
 		require.NoError(t, err)
 		require.True(t, managed)
 		defer lease.Release()
-		return svc.reasoningReplayScope(ctx, decision)
+		return svc.engine.ReasoningReplayScope(ctx, decision)
 	}
 
 	assert.Equal(t, scopeFor("token-a", "chatgpt-1"), scopeFor("token-b", "chatgpt-1"))

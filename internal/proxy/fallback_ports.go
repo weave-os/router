@@ -6,6 +6,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
@@ -17,8 +18,8 @@ func fallbackFor(s *Service) dispatch.Fallback {
 		Credentials: rescueCredentialPort{s},
 		Bindings:    rescueRoutingPort{s},
 		Diagnostics: fallbackDiagnostics{s},
-		Plans:       s.inferencePlans,
-		Executor:    s.inferenceExecutor,
+		Plans:       s.engine.ResolvePlans,
+		Executor:    func() (*dispatch.Executor, error) { return s.engine.ResolveExecutor(s.clock) },
 		Now:         s.clock.Now,
 	}
 }
@@ -37,7 +38,7 @@ func (subscriptionCoverage) StateModelsEnabled(ctx context.Context) bool {
 }
 
 func (subscriptionCoverage) CoversWhenInactive(ctx context.Context, model string) bool {
-	_, allowed := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]
+	_, allowed := candidates.ModelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]
 	return allowed
 }
 
@@ -127,5 +128,5 @@ func (fallbackDiagnostics) AttributeTerminal(trace *dispatch.AttemptTrace, err e
 }
 
 func (d fallbackDiagnostics) RecordOverloadOutcome(ctx context.Context, model, provider string, committed bool, err error) {
-	d.s.recordOverloadOutcome(ctx, model, provider, committed, err)
+	d.s.throttling.Overload.RecordOutcome(ctx, overloadOrg(ctx), model, provider, committed, err)
 }

@@ -13,10 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Service) overloadOpenModels(ctx context.Context) map[string]struct{} {
-	return s.throttling.Overload.OpenModels(ctx, overloadOrg(ctx))
-}
-
 func overloadOrg(ctx context.Context) string {
 	if id := requestcontext.InstallationIDFromContext(ctx); id != uuid.Nil {
 		return id.String()
@@ -39,12 +35,12 @@ func (s *Service) claimOverloadProbe(ctx context.Context, req router.Request) (b
 	})
 }
 
-func (s *Service) withTurnOverloadProbe(ctx context.Context, res routingpolicy.TurnRoute) context.Context {
+func withTurnOverloadProbe(ctx context.Context, overload dispatch.OverloadBreaker, res routingpolicy.TurnRoute) context.Context {
 	if res.OverloadProbe == nil {
 		return ctx
 	}
 	if res.Decision.Model != res.OverloadProbe.Model {
-		s.throttling.Overload.ReleaseProbe(*res.OverloadProbe)
+		overload.ReleaseProbe(*res.OverloadProbe)
 		return ctx
 	}
 	return withOverloadProbe(ctx, *res.OverloadProbe)
@@ -54,10 +50,6 @@ func (s *Service) overloadProbeRescuable(ctx context.Context, req router.Request
 	return req.TranslationRequirements.Endpoint != router.EndpointGeminiGenerate &&
 		!auth.RoutingPassthroughFrom(ctx) &&
 		s.siblingRescueAllowed(ctx, len(s.gatewayProvidersForRequest(ctx)) > 0)
-}
-
-func (s *Service) recordOverloadOutcome(ctx context.Context, model, provider string, committed bool, err error) {
-	s.throttling.Overload.RecordOutcome(ctx, overloadOrg(ctx), model, provider, committed, err)
 }
 
 func withOverloadProbe(ctx context.Context, probe breaker.Probe) context.Context {

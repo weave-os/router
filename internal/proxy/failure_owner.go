@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -26,7 +27,7 @@ func classifyFailureOwner(in failureOwnerInput) turnrecord.FailureOwner {
 	if err == nil {
 		return ""
 	}
-	if isUpstreamWatchdogError(err) || isStreamTerminalMissing(err) || providers.IsUpstreamCyberPolicyRefusal(err) {
+	if isUpstreamWatchdogError(err) || dispatch.IsStreamTerminalMissing(err) || providers.IsUpstreamCyberPolicyRefusal(err) {
 		return turnrecord.FailureOwnerProvider
 	}
 	if errors.Is(err, context.Canceled) || isOwnLoginRejection(err) {
@@ -62,7 +63,7 @@ func classifyFailureOwner(in failureOwnerInput) turnrecord.FailureOwner {
 	if status != 0 {
 		return upstreamStatusOwner(status, err, in.BodyTranslated, in.CustomerCredential)
 	}
-	return streamFailureOwner(classifyStreamFailure(err, ""))
+	return streamFailureOwner(dispatch.ClassifyStreamFailure(err, ""))
 }
 
 func upstreamStatusOwner(status int, err error, bodyTranslated, customerCredential bool) turnrecord.FailureOwner {
@@ -89,13 +90,13 @@ func upstreamStatusOwner(status int, err error, bodyTranslated, customerCredenti
 	}
 }
 
-func streamFailureOwner(class streamFailureClass) turnrecord.FailureOwner {
+func streamFailureOwner(class dispatch.StreamFailureClass) turnrecord.FailureOwner {
 	switch class {
-	case streamFailureUpstreamEOF, streamFailureUpstreamReset, streamFailureIdleWatchdog,
-		streamFailureOutputStallWatchdog, streamFailureSlowThroughputWatchdog, streamFailureUpstreamErrorFrame,
-		streamFailureUpstreamIncomplete, streamFailureUpstreamEmpty, streamFailureUpstreamTimeout, streamFailureDeadline:
+	case dispatch.StreamFailureUpstreamEOF, dispatch.StreamFailureUpstreamReset, dispatch.StreamFailureIdleWatchdog,
+		dispatch.StreamFailureOutputStallWatchdog, dispatch.StreamFailureSlowThroughputWatchdog, dispatch.StreamFailureUpstreamErrorFrame,
+		dispatch.StreamFailureUpstreamIncomplete, dispatch.StreamFailureUpstreamEmpty, dispatch.StreamFailureUpstreamTimeout, dispatch.StreamFailureDeadline:
 		return turnrecord.FailureOwnerProvider
-	case streamFailureClientCanceled:
+	case dispatch.StreamFailureClientCanceled:
 		return turnrecord.FailureOwnerClient
 	default:
 		return turnrecord.FailureOwnerUnknown
@@ -130,7 +131,7 @@ func dispatchErrorKindOwner(kind ingress.DispatchErrorKind) turnrecord.FailureOw
 }
 
 func turnFailureOwnerAfterFinish(ctx context.Context, err error, class turnrecord.TurnErrorClass, upstreamFinishReason string) turnrecord.FailureOwner {
-	if upstreamFinishReason != "" && isStreamTerminalMissing(err) {
+	if upstreamFinishReason != "" && dispatch.IsStreamTerminalMissing(err) {
 		return turnrecord.FailureOwnerRouter
 	}
 	return turnFailureOwnerFor(ctx, err, class)

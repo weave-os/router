@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/subscriptionlane"
 )
 
@@ -39,7 +40,7 @@ func paidFallbackBinding(ctx context.Context) subscriptionlane.Binding {
 
 func paidFallbackBindingForModel(ctx context.Context, model string) subscriptionlane.Binding {
 	includedLane := subscriptionStateModelsEnabled(ctx)
-	_, exhaustedSetModel := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]
+	_, exhaustedSetModel := candidates.ModelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]
 	return stepPaidFallbackBinding(
 		paidFallbackObservation{includedLane, subscriptionlane.IncludedLaneEntered},
 		paidFallbackObservation{includedLane && (credentials.SubscriptionAPIOnly(ctx) || exhaustedSetModel), subscriptionlane.IncludedLaneExhausted},

@@ -1,4 +1,4 @@
-package proxy
+package dispatch
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"weave-os/router/internal/router"
 )
 
-func (s *Service) reasoningReplayScope(ctx context.Context, d router.Decision) string {
+func (e *Engine) ReasoningReplayScope(ctx context.Context, d router.Decision) string {
 	h := sha256.New()
 	write := func(part string) {
 		h.Write([]byte(part))
@@ -30,7 +30,7 @@ func (s *Service) reasoningReplayScope(ctx context.Context, d router.Decision) s
 	creds := requestcontext.CredentialsFromContext(ctx)
 	if creds == nil {
 		write("deployment")
-		return digest(s.deploymentPrincipal(d.Provider))
+		return digest(e.deploymentPrincipal(d.Provider))
 	}
 	write(creds.Source)
 	principal, secret := creds.UpstreamPrincipal()
@@ -41,11 +41,11 @@ func (s *Service) reasoningReplayScope(ctx context.Context, d router.Decision) s
 	return digest("")
 }
 
-func (s *Service) deploymentPrincipal(provider string) string {
-	if s == nil {
+func (e *Engine) deploymentPrincipal(provider string) string {
+	if e == nil {
 		return ""
 	}
-	client, err := s.engine.Clients().Client(provider)
+	client, err := e.Clients().Client(provider)
 	if err != nil {
 		return ""
 	}

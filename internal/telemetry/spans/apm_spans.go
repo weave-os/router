@@ -1,9 +1,10 @@
-package proxy
+package spans
 
 import (
 	"context"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 
 	"go.opentelemetry.io/otel"
@@ -14,11 +15,11 @@ import (
 
 const proxyTracerName = "weave-os/router/internal/proxy"
 
-var proxyFlowTracer = otel.Tracer(proxyTracerName)
+var FlowTracer = otel.Tracer(proxyTracerName)
 
-func startRoutingSpan(ctx context.Context, strategy router.Strategy, req router.Request) (context.Context, trace.Span) {
+func StartRoutingSpan(ctx context.Context, strategy router.Strategy, req router.Request) (context.Context, trace.Span) {
 	ctx = observability.WithClientSessionID(ctx, req.ClientSessionID)
-	return proxyFlowTracer.Start(ctx, "router.routing",
+	return FlowTracer.Start(ctx, "router.routing",
 		trace.WithAttributes(
 			attribute.String("client.session_id", req.ClientSessionID),
 			attribute.String("requested.model", req.RequestedModel),
@@ -29,7 +30,7 @@ func startRoutingSpan(ctx context.Context, strategy router.Strategy, req router.
 	)
 }
 
-func finishRoutingSpan(span trace.Span, decision router.Decision, err error) {
+func FinishRoutingSpan(span trace.Span, decision router.Decision, err error) {
 	span.SetAttributes(
 		attribute.String("decision.model", decision.Model),
 		attribute.String("decision.provider", decision.Provider),
@@ -38,9 +39,9 @@ func finishRoutingSpan(span trace.Span, decision router.Decision, err error) {
 	finishFlowSpan(span, err)
 }
 
-func startInferenceSpan(ctx context.Context, decision router.Decision, clientSessionID string) (context.Context, trace.Span) {
+func StartInferenceSpan(ctx context.Context, decision router.Decision, clientSessionID string) (context.Context, trace.Span) {
 	ctx = observability.WithClientSessionID(ctx, clientSessionID)
-	return proxyFlowTracer.Start(ctx, "router.inference",
+	return FlowTracer.Start(ctx, "router.inference",
 		trace.WithAttributes(
 			attribute.String("client.session_id", clientSessionID),
 			attribute.String("decision.model", decision.Model),
@@ -50,7 +51,7 @@ func startInferenceSpan(ctx context.Context, decision router.Decision, clientSes
 	)
 }
 
-func finishInferenceSpan(span trace.Span, decision router.Decision, provider string, attempt int, err error) {
+func FinishInferenceSpan(span trace.Span, decision router.Decision, provider string, attempt int, err error) {
 	span.SetAttributes(
 		attribute.String("served.model", decision.Model),
 		attribute.String("served.provider", provider),
@@ -58,7 +59,7 @@ func finishInferenceSpan(span trace.Span, decision router.Decision, provider str
 	if attempt >= 0 {
 		span.SetAttributes(attribute.Int("upstream.binding_index", attempt))
 	}
-	if status := upstreamStatus(err); status != 0 {
+	if status := providers.UpstreamStatus(err); status != 0 {
 		span.SetAttributes(attribute.Int("upstream.status_code", status))
 	}
 	finishFlowSpan(span, err)
@@ -74,6 +75,6 @@ func finishFlowSpan(span trace.Span, err error) {
 	span.End()
 }
 
-func restoreParentSpan(ctx, parent context.Context) context.Context {
+func RestoreParentSpan(ctx, parent context.Context) context.Context {
 	return trace.ContextWithSpan(ctx, trace.SpanFromContext(parent))
 }

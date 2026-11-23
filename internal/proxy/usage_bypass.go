@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry/respobserve"
@@ -23,6 +24,7 @@ import (
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
@@ -221,7 +223,7 @@ func (s *Service) bypassToAnthropic(
 		ModelSwitched:            modelSwitched,
 		FastMode:                 fastModeForAttempt(ctx, decision.Model, decision.Provider),
 	}
-	prep, emitErr := prepareAnthropicForTurn(env, r.Header, opts, turnType)
+	prep, emitErr := routingpolicy.PrepareAnthropicForTurn(env, r.Header, opts, turnType)
 	if emitErr != nil {
 		log.Error("Failed to emit Anthropic body on usage-bypass path", "err", emitErr)
 		return fmt.Errorf("emit bypass body: %w", emitErr)
@@ -254,16 +256,16 @@ func (s *Service) bypassToAnthropic(
 		streamCost.source = extractor.UsageFacts
 	}
 
-	var terminal *streamTerminalObserver
+	var terminal *dispatch.StreamTerminalObserver
 	if env.Stream() {
-		terminal = newStreamTerminalObserver(respW, nativeStreamAnthropic)
+		terminal = dispatch.NewStreamTerminalObserver(respW, dispatch.NativeStreamAnthropic)
 		respW = terminal
 	}
 	preludeBuf.Seal()
 
 	proxyStart := s.clock.Now()
 	inferenceParentCtx := ctx
-	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
+	ctx, inferenceSpan := spans.StartInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
 	passiveRefusal := respobserve.NewPassiveRefusalObserver(respW)
 	toolNames := translate.NewAnthropicToolNameWriter(passiveRefusal, prep.ResponseToolNames)
 	decision, proxyErr := proxyClassifierWithRefusalRescue(ctx, func(d router.Decision, prep providers.PreparedRequest, out http.ResponseWriter) error {
@@ -271,10 +273,10 @@ func (s *Service) bypassToAnthropic(
 	}, decision, prep, newClassifierRefusalRescue(ctx, newClassifierRescuePolicy(ctx, s), turnType, decision, env, r.Header, opts), toolNames)
 	proxyErr = finalizeAfterProxy(proxyErr, toolNames.Finalize)
 	if proxyErr == nil && terminal != nil {
-		proxyErr = terminal.streamErr()
+		proxyErr = terminal.StreamErr()
 	}
-	finishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
-	ctx = restoreParentSpan(ctx, inferenceParentCtx)
+	spans.FinishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
+	ctx = spans.RestoreParentSpan(ctx, inferenceParentCtx)
 	var upstreamErr *providers.UpstreamErrorResponse
 	recordSubscriptionModelOutcome(s, ctx, decision.Provider, decision.Model, proxyErr)
 	if proxyErr != nil {

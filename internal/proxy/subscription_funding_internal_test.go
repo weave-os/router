@@ -69,7 +69,7 @@ func TestSubscriptionFundingPaidDispatchRequiresQuotaProof(t *testing.T) {
 				buf := newPreludeBuffer(rec)
 				in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 				in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
-				_, err := svc.dispatchWithFallback(ctx, in)
+				_, err := fallbackFor(svc).Dispatch(ctx, in)
 				if tc.allowed {
 					require.NoError(t, err)
 					require.Equal(t, 1, upstream.calls)
@@ -91,7 +91,7 @@ func TestSubscriptionFundingFinalOAuthLeaseIsAllowed(t *testing.T) {
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
-	_, err := svc.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(svc).Dispatch(ctx, in)
 	require.NoError(t, err)
 	require.Equal(t, "included answer", rec.Body.String())
 }
@@ -117,7 +117,7 @@ func TestSubscriptionRecoveryDoesNotExpandAdmissionSnapshot(t *testing.T) {
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
-	_, err := svc.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(svc).Dispatch(ctx, in)
 	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
 	require.Zero(t, upstream.calls)
 }
@@ -131,7 +131,7 @@ func TestSubscriptionLeaseOutsideSnapshotFallsThroughToAdmittedSeat(t *testing.T
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
-	_, err := svc.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(svc).Dispatch(ctx, in)
 	require.NoError(t, err)
 	require.Equal(t, 1, upstream.calls)
 	require.Equal(t, "admitted answer", rec.Body.String())
@@ -147,7 +147,7 @@ func TestSubscriptionLeaseOutsideSnapshotBlocksPaidRecovery(t *testing.T) {
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
-	_, err := svc.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(svc).Dispatch(ctx, in)
 	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
 	require.NotErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	require.Zero(t, upstream.calls, "an unproven unadmitted seat must not authorize paid recovery")
@@ -165,7 +165,7 @@ func TestSubscriptionFundingLiveQuotaProofAllowsAPIWithoutObserver(t *testing.T)
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel}
-	_, err := svc.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(svc).Dispatch(ctx, in)
 	require.NoError(t, err)
 	require.Equal(t, 2, upstream.calls)
 	require.Equal(t, []string{"seat"}, leaser.exhaustedIDs)
@@ -184,7 +184,7 @@ func TestSubscriptionFundingProviderFailureAuthorizesPaidRescue(t *testing.T) {
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
-	_, err := svc.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(svc).Dispatch(ctx, in)
 	require.NoError(t, err)
 	require.Equal(t, 2, upstream.calls, "the plan attempt fails, the paid attempt serves")
 	require.Contains(t, rec.Body.String(), "paid rescue answer")
@@ -203,7 +203,7 @@ func TestSubscriptionFundingOperationalFailuresNeverAuthorizeAPI(t *testing.T) {
 			buf := newPreludeBuffer(rec)
 			in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 			in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
-			_, err := svc.dispatchWithFallback(ctx, in)
+			_, err := fallbackFor(svc).Dispatch(ctx, in)
 			require.Error(t, err)
 			require.ErrorIs(t, err, failure, "rotation must retain the actual upstream failure")
 			require.Equal(t, 1, upstream.calls)
@@ -311,7 +311,7 @@ func TestSubscriptionFundingPaidOverageIsQuotaProof(t *testing.T) {
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
-	_, err := svc.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(svc).Dispatch(ctx, in)
 	require.NoError(t, err)
 	require.Equal(t, 1, upstream.calls)
 	require.Equal(t, "paid answer", rec.Body.String())

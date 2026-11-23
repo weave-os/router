@@ -1,4 +1,4 @@
-package proxy
+package dispatch
 
 import (
 	"bytes"
@@ -13,11 +13,11 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-type nativeStreamProtocol uint8
+type NativeStreamProtocol uint8
 
 const (
-	nativeStreamAnthropic nativeStreamProtocol = iota
-	nativeStreamOpenAIChat
+	NativeStreamAnthropic NativeStreamProtocol = iota
+	NativeStreamOpenAIChat
 )
 
 const (
@@ -25,9 +25,9 @@ const (
 	anthropicMessageStopEvent  = "message_stop"
 )
 
-type streamTerminalObserver struct {
+type StreamTerminalObserver struct {
 	inner           http.ResponseWriter
-	protocol        nativeStreamProtocol
+	protocol        NativeStreamProtocol
 	buf             bytes.Buffer
 	framing         sse.Scanner
 	state           ingress.StreamTerminalState
@@ -35,15 +35,15 @@ type streamTerminalObserver struct {
 	finishedChoices map[int64]struct{}
 }
 
-func newStreamTerminalObserver(inner http.ResponseWriter, protocol nativeStreamProtocol) *streamTerminalObserver {
-	return &streamTerminalObserver{inner: inner, protocol: protocol}
+func NewStreamTerminalObserver(inner http.ResponseWriter, protocol NativeStreamProtocol) *StreamTerminalObserver {
+	return &StreamTerminalObserver{inner: inner, protocol: protocol}
 }
 
-func (o *streamTerminalObserver) Header() http.Header { return o.inner.Header() }
+func (o *StreamTerminalObserver) Header() http.Header { return o.inner.Header() }
 
-func (o *streamTerminalObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
+func (o *StreamTerminalObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
 
-func (o *streamTerminalObserver) Write(p []byte) (int, error) {
+func (o *StreamTerminalObserver) Write(p []byte) (int, error) {
 	o.state.NoteWrite(p)
 	o.buf.Write(p)
 	for {
@@ -61,13 +61,13 @@ func (o *streamTerminalObserver) Write(p []byte) (int, error) {
 	return o.inner.Write(p)
 }
 
-func (o *streamTerminalObserver) Flush() {
+func (o *StreamTerminalObserver) Flush() {
 	if f, ok := o.inner.(http.Flusher); ok {
 		f.Flush()
 	}
 }
 
-func (o *streamTerminalObserver) ArmOutputProgress(mark func()) bool {
+func (o *StreamTerminalObserver) ArmOutputProgress(mark func()) bool {
 	arm, ok := o.inner.(providers.OutputProgressArmer)
 	if !ok {
 		return false
@@ -75,7 +75,7 @@ func (o *streamTerminalObserver) ArmOutputProgress(mark func()) bool {
 	return arm.ArmOutputProgress(mark)
 }
 
-func (o *streamTerminalObserver) ArmReasoningProgress(mark func()) bool {
+func (o *StreamTerminalObserver) ArmReasoningProgress(mark func()) bool {
 	arm, ok := o.inner.(providers.ReasoningProgressArmer)
 	if !ok {
 		return false
@@ -83,7 +83,7 @@ func (o *streamTerminalObserver) ArmReasoningProgress(mark func()) bool {
 	return arm.ArmReasoningProgress(mark)
 }
 
-func (o *streamTerminalObserver) streamErr() error {
+func (o *StreamTerminalObserver) StreamErr() error {
 	if o.buf.Len() > 0 {
 		rest := o.buf.Bytes()
 		o.buf.Reset()
@@ -95,17 +95,17 @@ func (o *streamTerminalObserver) streamErr() error {
 			o.state.NoteFrame(rest, eventType, payload)
 		}
 	}
-	if o.protocol == nativeStreamOpenAIChat && len(o.finishedChoices) > 0 && len(o.openChoices) == 0 {
+	if o.protocol == NativeStreamOpenAIChat && len(o.finishedChoices) > 0 && len(o.openChoices) == 0 {
 		o.state.MarkEnded()
 	}
 	return o.state.Err()
 }
 
-func (o *streamTerminalObserver) observeEvent(event []byte) {
+func (o *StreamTerminalObserver) observeEvent(event []byte) {
 	eventType, payload := sse.ParseEvent(event)
 	o.state.NoteFrame(event, eventType, payload)
 	switch o.protocol {
-	case nativeStreamAnthropic:
+	case NativeStreamAnthropic:
 		kind := string(eventType)
 		if kind == "" {
 			kind = gjson.GetBytes(payload, "type").String()
@@ -116,7 +116,7 @@ func (o *streamTerminalObserver) observeEvent(event []byte) {
 		case anthropicMessageStopEvent, ingress.StreamErrorEvent:
 			o.state.MarkEnded()
 		}
-	case nativeStreamOpenAIChat:
+	case NativeStreamOpenAIChat:
 		if len(payload) == 0 {
 			return
 		}
@@ -133,7 +133,7 @@ func (o *streamTerminalObserver) observeEvent(event []byte) {
 	}
 }
 
-func (o *streamTerminalObserver) observeChatChoices(payload []byte) {
+func (o *StreamTerminalObserver) observeChatChoices(payload []byte) {
 	gjson.GetBytes(payload, "choices").ForEach(func(_, choice gjson.Result) bool {
 		index := choice.Get("index").Int()
 		if choice.Get("finish_reason").String() != "" {
@@ -154,13 +154,13 @@ func (o *streamTerminalObserver) observeChatChoices(payload []byte) {
 	})
 }
 
-func isStreamTerminalMissing(err error) bool {
+func IsStreamTerminalMissing(err error) bool {
 	return errors.Is(err, translate.ErrStreamIncomplete) || errors.Is(err, translate.ErrStreamEmpty)
 }
 
 var (
-	_ http.ResponseWriter              = (*streamTerminalObserver)(nil)
-	_ http.Flusher                     = (*streamTerminalObserver)(nil)
-	_ providers.OutputProgressArmer    = (*streamTerminalObserver)(nil)
-	_ providers.ReasoningProgressArmer = (*streamTerminalObserver)(nil)
+	_ http.ResponseWriter              = (*StreamTerminalObserver)(nil)
+	_ http.Flusher                     = (*StreamTerminalObserver)(nil)
+	_ providers.OutputProgressArmer    = (*StreamTerminalObserver)(nil)
+	_ providers.ReasoningProgressArmer = (*StreamTerminalObserver)(nil)
 )

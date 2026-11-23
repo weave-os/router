@@ -1,6 +1,6 @@
-package proxy
+package routingpolicy
 
-func mergeClusterOverrides(key, user map[string][]string) map[string][]string {
+func MergeClusterOverrides(key, user map[string][]string) map[string][]string {
 	if len(key) == 0 && len(user) == 0 {
 		return nil
 	}

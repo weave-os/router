@@ -1,22 +1,20 @@
-package proxy
+package candidates
 
 import (
-	"context"
 	"log/slog"
 	"strings"
 
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/translate"
 )
 
-func advisorExclusions(env *translate.RequestEnvelope, routable map[string]struct{}) func(map[string]struct{}) (map[string]struct{}, []string) {
+func AdvisorExclusions(env *translate.RequestEnvelope, routable map[string]struct{}) func(map[string]struct{}) (map[string]struct{}, []string) {
 	return func(excluded map[string]struct{}) (map[string]struct{}, []string) {
-		return excludeAdvisorOutrankingModels(env, excluded, routable)
+		return ExcludeAdvisorOutrankingModels(env, excluded, routable)
 	}
 }
 
-func logPrefilter(log *slog.Logger, env *translate.RequestEnvelope, imageCount, outputReserve int, prefiltered candidates.Prefiltered) {
+func LogPrefilter(log *slog.Logger, env *translate.RequestEnvelope, imageCount, outputReserve int, prefiltered Prefiltered) {
 	if len(prefiltered.UnsignedHistory) > 0 {
 		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
 			"excluded_models", strings.Join(prefiltered.UnsignedHistory, ","),
@@ -45,14 +43,14 @@ func logPrefilter(log *slog.Logger, env *translate.RequestEnvelope, imageCount, 
 	}
 }
 
-func prefilteredCandidates(ctx context.Context, excluded map[string]struct{}, prefiltered candidates.Prefiltered) router.Candidates {
+func PrefilteredCandidates(excluded, allowed map[string]struct{}, prefiltered Prefiltered) router.Candidates {
 	return router.Candidates{
 		ExcludedModels:                excluded,
-		AllowedModels:                 allowedModelsForRequest(ctx),
+		AllowedModels:                 allowed,
 		SafetyExcludedModels:          prefiltered.Safety,
 		ContextWindowExcludedModels:   prefiltered.ContextWindowOnly,
-		ImageLimitExcludedModels:      modelSet(prefiltered.ImageLimited),
-		UnsignedHistoryExcludedModels: modelSet(prefiltered.UnsignedHistory),
-		OverflowAdmittedModels:        modelSet(prefiltered.OverflowAdmitted),
+		ImageLimitExcludedModels:      ModelSet(prefiltered.ImageLimited),
+		UnsignedHistoryExcludedModels: ModelSet(prefiltered.UnsignedHistory),
+		OverflowAdmittedModels:        ModelSet(prefiltered.OverflowAdmitted),
 	}
 }
