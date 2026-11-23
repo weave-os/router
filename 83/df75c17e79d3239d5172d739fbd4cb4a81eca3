@@ -1,0 +1,51 @@
+cmd/router/main.go
+  s_0e1de158f24bda::t_54021bb5fcaeb2 594-596,598-599
+db/migrations/0122_codex-provider-user-identity.down.sql
+  s_0e1de158f24bda::t_8fd57ec1e84a1e 1-20
+db/migrations/0122_codex-provider-user-identity.up.sql
+  s_0e1de158f24bda::t_39f88190984198 1-28
+db/queries/model_router_subscription_accounts.sql
+  s_0e1de158f24bda::t_3d89384a7cbd25 1-3,16,19-21,28,41,46,49,51-52,54-55,61,63,71,77,93,118,124-125,245,329,335-336
+docs/SUBSCRIPTION_ROUTING.md
+  s_0e1de158f24bda::t_a2f90a41f70ba4 42-70
+internal/api/subscriptions/accounts_test.go
+  s_0e1de158f24bda::t_c24039403dcc61 60,100,129-134
+internal/auth/onboarding_test.go
+  s_0e1de158f24bda::t_44193049c1b33e 181
+internal/auth/service.go
+  s_0e1de158f24bda::t_004dffa0db1054 71-91,123-128
+internal/auth/subscription.go
+  s_0e1de158f24bda::t_4bb02e80959cb9 95,110,117-127,146,162,235-249,257,433
+internal/auth/subscription_test.go
+  s_0e1de158f24bda::t_a887adb7831d6f 21,66,88,194-222
+internal/postgres/subscription_repo.go
+  s_0e1de158f24bda::t_e57410a6afebc4 60,64,67,80,304,345,349,352,360,456,463-469
+internal/subscriptions/oauth.go
+  s_0e1de158f24bda::t_45da13fde9616d 15,44,153-158,253-293
+internal/subscriptions/oauth_test.go
+  s_0e1de158f24bda::t_dbefb642c8552a 134-167
+internal/subscriptions/runtime.go
+  s_0e1de158f24bda::t_ebd34205b02719 295
+internal/subscriptions/runtime_test.go
+  s_0e1de158f24bda::t_579c2068cf4045 149,152,159,302,312,1029-1046
+scripts/subscription_enrollment_check/codex_identity_test.go
+  s_0e1de158f24bda::t_7758805bc25792 1-97
+scripts/subscription_enrollment_check/enrollment_test.go
+  s_0e1de158f24bda::t_45f9e124c70441 6,31,91-94,142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "83df75c17e79d3239d5172d739fbd4cb4a81eca3",
+  "prompts": {},
+  "sessions": {
+    "s_0e1de158f24bda": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10f70-ce92-7123-bd9a-002ae9d5867f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

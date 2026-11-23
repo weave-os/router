@@ -1,0 +1,19 @@
+internal/router/catalog/catalog.go
+  s_a17fa2eade940a::t_b2c900609ea94e 465
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "7ff3bf9307035aa75b89fc6cf208333343c270fb",
+  "prompts": {},
+  "sessions": {
+    "s_a17fa2eade940a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c9d1d2d-14e5-42e3-b056-1a0e24a30a41",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

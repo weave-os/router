@@ -1,0 +1,19 @@
+internal/providers/httputil/egress.go
+  s_be83665a9c67ee::t_b93493bbdd90a9 50-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "4e55b9bf1c099d9933b9444fdb70275b5d9476c4",
+  "prompts": {},
+  "sessions": {
+    "s_be83665a9c67ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a54788da-e07e-4620-9dae-099cf1589dcc",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

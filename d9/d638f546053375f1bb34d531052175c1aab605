@@ -1,0 +1,21 @@
+scripts/subscription_verification_check/refresh_subscription_verification_test.go
+  s_5184255b00bb11::t_8db506d6f7856a 161,180,193
+  s_5184255b00bb11::t_a1956b4d03d694 189-192,194-196,207-213,232,235-242,250
+  s_5184255b00bb11::t_a915ed256324e6 264-267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d9d638f546053375f1bb34d531052175c1aab605",
+  "prompts": {},
+  "sessions": {
+    "s_5184255b00bb11": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13253-bc94-77f2-9506-bf359f389866",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
