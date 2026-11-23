@@ -23,7 +23,7 @@ func TestSwitchedAttemptOptionsResolveNewTargetEffortWithoutChangingOriginal(t *
 		AppendAutonomySystem: true,
 	}
 	target := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.5", Effort: "xhigh"}
-	opts, effort := switchedAttemptOptions(context.Background(), base, target, false, svc.resolveEffort)
+	opts, effort := dispatch.SwitchedAttemptOptions(context.Background(), base, target, false, svc.resolveEffort)
 	assert.Equal(t, target.Model, opts.TargetModel)
 	assert.Equal(t, target.Provider, opts.TargetProvider)
 	assert.Equal(t, router.Lookup(target.Model), opts.Capabilities)

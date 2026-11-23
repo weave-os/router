@@ -172,7 +172,7 @@ type rescueAttemptPort struct{ svc effortResolver }
 var _ dispatch.RescueAttempts = rescueAttemptPort{}
 
 func (p rescueAttemptPort) SwitchedOptions(ctx context.Context, base translate.EmitOptions, target router.Decision, escalate bool) (translate.EmitOptions, dispatch.EffortResolution) {
-	return switchedAttemptOptions(ctx, base, target, escalate, p.svc.resolveEffort)
+	return dispatch.SwitchedAttemptOptions(ctx, base, target, escalate, p.svc.resolveEffort)
 }
 
 func (rescueAttemptPort) FastMode(ctx context.Context, model, provider string) bool {

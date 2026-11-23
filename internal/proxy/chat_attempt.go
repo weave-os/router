@@ -171,9 +171,9 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			if surface == surfaceChat && deps.isResponses {
 				deps.responsesWriter.SetUsageSource((*deps.extractor).UsageFacts)
 			}
-			var chatTerminal *streamTerminalObserver
+			var chatTerminal *dispatch.StreamTerminalObserver
 			if surface == surfaceChat && !deps.isResponses && deps.env.Stream() {
-				chatTerminal = newStreamTerminalObserver(proxyWriter, nativeStreamOpenAIChat)
+				chatTerminal = dispatch.NewStreamTerminalObserver(proxyWriter, dispatch.NativeStreamOpenAIChat)
 				proxyWriter = chatTerminal
 			}
 			if deps.preludeBuf != nil {
@@ -193,7 +193,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				}
 			}
 			if err == nil && chatTerminal != nil {
-				err = chatTerminal.streamErr()
+				err = chatTerminal.StreamErr()
 			}
 			if err != nil && surface != surfaceResponsesNative && deps.env.Stream() && deps.preludeBuf.Committed() {
 				_ = emitOpenAISSEErrorEvent(deps.sink, attributeStreamError(actx, d.Provider, err))
@@ -213,7 +213,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				if err == nil && deps.env.Stream() {
 					err = nativeTerminal.Err()
 				}
-				if isStreamTerminalMissing(err) {
+				if dispatch.IsStreamTerminalMissing(err) {
 					refusalGate.Abandon()
 				}
 				if nativeTerminal.Observed() && nativeTerminal.Signals().OutputLimitReached {
@@ -316,8 +316,8 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			return finalize, rawErr
 		}
 		return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
-			retry := geminiToolModeAttempt{log: deps.log, buffer: deps.preludeBuf, env: deps.env, headers: deps.request.Header, opts: targetOpts}
-			return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
+			retry := dispatch.GeminiToolModeAttempt{Log: deps.log, Buffer: deps.preludeBuf, Env: deps.env, Headers: deps.request.Header, Opts: targetOpts}
+			return retry.Dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
 				return dispatchGemini(actx, d, p, prepared)
 			})
 		}, nil

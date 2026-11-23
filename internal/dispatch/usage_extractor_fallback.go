@@ -1,4 +1,4 @@
-package proxy
+package dispatch
 
 import (
 	"net/http"
@@ -12,7 +12,7 @@ type fallbackUsageResponseWriter struct {
 	extractor *telemetry.UsageExtractor
 }
 
-func newFallbackUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
+func NewFallbackUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
 	extractor := telemetry.NewUsageExtractor(provider)
 	return extractor, &fallbackUsageResponseWriter{inner: inner, extractor: extractor}
 }

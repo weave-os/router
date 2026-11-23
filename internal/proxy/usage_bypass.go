@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/routingpolicy"
 
@@ -253,9 +254,9 @@ func (s *Service) bypassToAnthropic(
 		streamCost.source = extractor.UsageFacts
 	}
 
-	var terminal *streamTerminalObserver
+	var terminal *dispatch.StreamTerminalObserver
 	if env.Stream() {
-		terminal = newStreamTerminalObserver(respW, nativeStreamAnthropic)
+		terminal = dispatch.NewStreamTerminalObserver(respW, dispatch.NativeStreamAnthropic)
 		respW = terminal
 	}
 	preludeBuf.Seal()
@@ -270,7 +271,7 @@ func (s *Service) bypassToAnthropic(
 	}, decision, prep, newClassifierRefusalRescue(ctx, newClassifierRescuePolicy(ctx, s), turnType, decision, env, r.Header, opts), toolNames)
 	proxyErr = finalizeAfterProxy(proxyErr, toolNames.Finalize)
 	if proxyErr == nil && terminal != nil {
-		proxyErr = terminal.streamErr()
+		proxyErr = terminal.StreamErr()
 	}
 	finishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
 	ctx = restoreParentSpan(ctx, inferenceParentCtx)

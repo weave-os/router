@@ -80,7 +80,7 @@ type messagesTurnDispatch struct {
 	refusalObs              *refusalObserver
 	toolUseObs              *toolUseObserver
 	earlyStop               *dispatch.EarlyStopGate
-	streamCut               *streamCutObserver
+	streamCut               *dispatch.StreamCutObserver
 	proxyStart              time.Time
 	inferenceParentCtx      context.Context
 	inferenceSpan           trace.Span
@@ -171,8 +171,8 @@ func (t *messagesTurnDispatch) prepareSinks(ctx context.Context, clientSink http
 	t.earlyStop = dispatch.NewEarlyStopGate(t.sink, t.log)
 	t.sink = t.earlyStop
 	t.preludeBuf.OnDiscard = t.earlyStop.ResetAttempt
-	t.streamCut = newStreamCutObserver(t.s.clock.Now)
-	t.streamCut.describeRequest(len(t.body), t.env)
+	t.streamCut = dispatch.NewStreamCutObserver(t.s.clock.Now)
+	t.streamCut.DescribeRequest(len(t.body), t.env)
 }
 
 func (t *messagesTurnDispatch) prepareAttempt(ctx, credentialCtx context.Context) context.Context {
@@ -281,7 +281,7 @@ func (t *messagesTurnDispatch) dispatchAttempts(ctx, fundingCtx context.Context)
 		AgentShadowMode: t.agentShadowMode,
 
 		EarlyStop:                 t.earlyStop,
-		NoteStreamCut:             t.streamCut.noteCut,
+		NoteStreamCut:             t.streamCut.NoteCut,
 		AttemptBuildErr:           attemptBuildErr,
 		AnthropicTierAttempt:      boundTierAttempt(t.anthropicTierAttemptFor, t.recordFastServed),
 		Extractor:                 &t.extractor,
