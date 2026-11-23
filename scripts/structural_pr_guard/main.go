@@ -23,11 +23,13 @@ var protectedPrefixes = []string{
 var protectedFiles = []string{
 	"internal/proxy/testdata/paid_fallback_rules.golden",
 	"internal/proxy/golden_test.go",
-	"internal/proxy/conformance_golden_test.go",
+	"internal/proxy/conformance_test.go",
+	"internal/proxy/paid_fallback_rules_internal_test.go",
 }
 
 var protectedGlobs = []string{
 	"internal/proxy/golden_*_test.go",
+	"internal/proxy/conformance_*_test.go",
 }
 
 func main() {
