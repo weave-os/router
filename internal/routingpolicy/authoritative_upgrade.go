@@ -25,14 +25,14 @@ func (t AuthoritativeTurn) UpgradeDecision(pin sessionpin.Pin, res TurnRoute) *A
 	if mode == flags.AuthoritativeUpgradePolicyScore && !t.Settings.UpgradeGate {
 		mode = flags.AuthoritativeUpgradePolicyOff
 	}
-	upgradeShadow := t.Settings.HMMConfig.UpgradeShadow
+	upgradeShadowConfig := t.Settings.HMMConfig.UpgradeShadow
 	decision := &AuthoritativeUpgradeDecision{
 		Mode:            mode,
 		PinModel:        pin.Model,
 		PinProvider:     pin.Provider,
 		PinTier:         catalog.TierFor(pin.Model),
 		RequestedTier:   res.RequestedTier,
-		MarginThreshold: upgradeShadow.MarginThreshold,
+		MarginThreshold: upgradeShadowConfig.MarginThreshold,
 	}
 	decision.Evidence = continuity.UpgradeEvidence{
 		HasPin:         pin.Model != "",
@@ -67,11 +67,11 @@ func (t AuthoritativeTurn) UpgradeDecision(pin sessionpin.Pin, res TurnRoute) *A
 		if !pin.FirstPinnedAt.IsZero() {
 			age := PinAge(pin, t.Now())
 			decision.PinAgeSec = &age
-			decision.Evidence.StalePin = upgradeShadow.StalePinAfter > 0 && t.Now().Sub(pin.FirstPinnedAt) >= upgradeShadow.StalePinAfter
+			decision.Evidence.StalePin = upgradeShadowConfig.StalePinAfter > 0 && t.Now().Sub(pin.FirstPinnedAt) >= upgradeShadowConfig.StalePinAfter
 		}
 	}
-	if upgradeShadow.StalePinAfter > 0 {
-		seconds := int64(upgradeShadow.StalePinAfter.Seconds())
+	if upgradeShadowConfig.StalePinAfter > 0 {
+		seconds := int64(upgradeShadowConfig.StalePinAfter.Seconds())
 		decision.StalePinAfterSec = &seconds
 	}
 	votes := 0
