@@ -43,7 +43,7 @@ func (p rescueCredentialPort) RecordSubscriptionUnavailable(ctx context.Context,
 }
 
 func (p rescueCredentialPort) SubscriptionPoolUnavailable(ctx context.Context, provider, model string) bool {
-	return p.s.subscriptionPoolUnavailable(ctx, provider, model)
+	return p.s.credentials.SubscriptionPoolUnavailable(ctx, provider, model)
 }
 
 func (p rescueCredentialPort) SubscriptionAlternativeDecisions(ctx context.Context, req router.Request, selected router.Decision) []router.Decision {

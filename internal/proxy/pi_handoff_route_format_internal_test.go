@@ -30,7 +30,7 @@ var (
 
 func TestPiHandoffRouteTokenFormatIsStable(t *testing.T) {
 	route := populatedHandoffRoute(t)
-	svc := &Service{lifecycle: &conversation.Lifecycle{}, clock: func() time.Time { return piHandoffFixtureMinted }}
+	svc := wireCredentialPorts(&Service{lifecycle: &conversation.Lifecycle{}, clock: func() time.Time { return piHandoffFixtureMinted }})
 	svc.lifecycle.SetPiHandoffSecret(piHandoffFixtureSecret)
 	claims := conversation.HandoffClaims{
 		Purpose: conversation.HandoffContinuation, APIKeyID: "fixture-key", SessionID: "fixture-session",

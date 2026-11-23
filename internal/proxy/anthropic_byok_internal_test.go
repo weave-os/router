@@ -113,7 +113,7 @@ func TestAnthropicBYOKDisablesSubscriptionBypass(t *testing.T) {
 				require.False(t, engaged, "subscription bypass must not relabel BYOK traffic as subscription-funded")
 			}
 			require.NotContains(t, subscriptionProvidersForRequest(ctx), providers.ProviderAnthropic)
-			require.False(t, credentials.PickedModelOnOwnPlan(fundOnOwnPlan(ctx, providers.ProviderAnthropic)))
+			require.False(t, credentials.PickedModelOnOwnPlan(credentials.FundOnOwnPlan(ctx, providers.ProviderAnthropic)))
 		})
 	}
 }

@@ -30,17 +30,12 @@ func subscriptionOwnerFromContext(ctx context.Context) auth.SubscriptionOwner {
 	return auth.SubscriptionOwner{APIKeyID: requestcontext.APIKeyIDFromContext(ctx)}
 }
 
-func managedSubscriptionEnrollmentUnavailable(ctx context.Context) bool {
-	unavailable, _ := ctx.Value(credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}).(bool)
-	return unavailable
-}
-
 func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
 	if credentials.ByokFirst(ctx, provider) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 	poolProvider, eligible := credentials.ManagedSubscriptionProviderFromUpstream(provider, model)
-	if eligible && managedSubscriptionEnrollmentUnavailable(ctx) {
+	if eligible && credentials.ManagedSubscriptionEnrollmentUnavailable(ctx) {
 		if creds := credentials.CredentialsFromContext(ctx); creds != nil && creds.OAuth && s.supportsSubscriptionTransport(provider) {
 			return ctx, subscriptions.Lease{}, false, nil
 		}

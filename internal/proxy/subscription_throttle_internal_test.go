@@ -50,10 +50,10 @@ func requireThrottledRefusal(t *testing.T, err error) {
 // sees a retryable 429 instead of a 503 outage.
 func TestAuthorizeSubscriptionAPI_RateLimitedPoolRefusesAs429(t *testing.T) {
 	now := time.Now()
-	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
 	ctx := throttleTestContext(activeCodexAccount("seat-1"), activeCodexAccount("seat-2"))
 	authorize := func() error {
-		return svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{})
+		return svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{})
 	}
 
 	require.True(t, svc.recordManagedSubscriptionFailure(ctx, providers.ProviderOpenAI, codexCoveredModel, subscriptions.Lease{AccountID: "seat-1"}, codexRateLimitedErr()))
@@ -72,43 +72,43 @@ func TestAuthorizeSubscriptionAPI_RateLimitedPoolRefusesAs429(t *testing.T) {
 
 func TestAuthorizeSubscriptionAPI_PersistedCooldownCountsAsThrottle(t *testing.T) {
 	now := time.Now()
-	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }})
 	cooldownUntil := now.Add(time.Minute)
 	cooling := activeCodexAccount("seat-cooling")
 	cooling.State = auth.SubscriptionAccountStateCooldown
 	cooling.CooldownUntil = &cooldownUntil
 
-	requireThrottledRefusal(t, svc.authorizeSubscriptionAPI(throttleTestContext(cooling), subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
+	requireThrottledRefusal(t, svc.credentials.AuthorizeSubscriptionAPI(throttleTestContext(cooling), subscriptions.ProviderCodex, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{}))
 
 	cooling.CredentialRejections = 1
-	require.NoError(t, svc.authorizeSubscriptionAPI(throttleTestContext(cooling), subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}), "a 401/403 cooldown is a credential fault, not a rate limit, and the seat cannot serve")
+	require.NoError(t, svc.credentials.AuthorizeSubscriptionAPI(throttleTestContext(cooling), subscriptions.ProviderCodex, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{}), "a 401/403 cooldown is a credential fault, not a rate limit, and the seat cannot serve")
 }
 
 // A seat or caller-plan throttle would fail the turn, so Weave credits fund
 // it, with or without a caller login.
 func TestAuthorizeSubscriptionAPI_LongThrottleFundsCredits(t *testing.T) {
 	now := time.Now()
-	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }})
 	callerCreds := &requestcontext.Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}
 	ctx := credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{activeCodexAccount("seat-1")})
 	credentials.RecordManagedThrottle(ctx, "seat-1", now.Add(time.Hour))
-	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
+	require.NoError(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{}))
 	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, callerCreds, codexRateLimitedErr())
-	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{}))
+	require.NoError(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", credentials.ClientAppRefusalFunding{}))
 
 	short := credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{activeCodexAccount("seat-1")})
 	credentials.RecordManagedThrottle(short, "seat-1", now.Add(10*time.Second))
-	require.NoError(t, svc.authorizeSubscriptionAPI(short, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}), "outside the subscription-state lane no seat wait is coming, so a short throttle pays too")
-	requireThrottledRefusal(t, svc.authorizeSubscriptionAPI(billing.WithWeaveCreditsDenied(short), subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
+	require.NoError(t, svc.credentials.AuthorizeSubscriptionAPI(short, subscriptions.ProviderCodex, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{}), "outside the subscription-state lane no seat wait is coming, so a short throttle pays too")
+	requireThrottledRefusal(t, svc.credentials.AuthorizeSubscriptionAPI(billing.WithWeaveCreditsDenied(short), subscriptions.ProviderCodex, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{}))
 }
 
 func TestAuthorizeSubscriptionAPI_UnknownCallerQuotaKeeps503(t *testing.T) {
 	now := time.Now()
-	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }})
 	ctx := throttleTestContext(activeCodexAccount("seat-1"))
 	credentials.RecordManagedThrottle(ctx, "seat-1", now.Add(time.Minute))
 
-	err := svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{})
+	err := svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", credentials.ClientAppRefusalFunding{})
 	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable, "paid fallback stays blocked")
 	require.NotErrorIs(t, err, credentials.ErrSubscriptionPoolThrottled, "the caller's own plan has no rate-limit evidence")
 }
@@ -117,15 +117,15 @@ func TestAuthorizeSubscriptionAPI_UnknownCallerQuotaKeeps503(t *testing.T) {
 // seat the refusal is attributed to the throttle.
 func TestAuthorizeSubscriptionAPI_ExhaustionStillAuthorizesPaidFallback(t *testing.T) {
 	now := time.Now()
-	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }})
 	ctx := throttleTestContext(activeCodexAccount("seat-spent"), activeCodexAccount("seat-throttled"))
 	credentials.RecordManagedQuotaProof(ctx, "seat-spent", now.Add(time.Hour))
 
 	credentials.RecordManagedThrottle(ctx, "seat-throttled", now.Add(time.Minute))
-	requireThrottledRefusal(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
+	requireThrottledRefusal(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{}))
 
 	credentials.RecordManagedQuotaProof(ctx, "seat-throttled", now.Add(time.Hour))
-	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
+	require.NoError(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{}))
 }
 
 // Incident 2026-11-13: every Codex seat was exhausted, reconnect-required, or
@@ -133,7 +133,7 @@ func TestAuthorizeSubscriptionAPI_ExhaustionStillAuthorizesPaidFallback(t *testi
 // leased, so they must not hold paid fallback hostage as "quota unknown".
 func TestAuthorizeSubscriptionAPI_CredentialRejectedCooldownDoesNotBlockPaidFallback(t *testing.T) {
 	now := time.Now()
-	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }})
 	cooldownUntil := now.Add(2 * time.Hour)
 	exhaustedUntil := now.Add(5 * 24 * time.Hour)
 
@@ -151,11 +151,11 @@ func TestAuthorizeSubscriptionAPI_CredentialRejectedCooldownDoesNotBlockPaidFall
 	reconnect.State = auth.SubscriptionAccountStateReconnectRequired
 
 	ctx := throttleTestContext(deadToken, spent, reconnect)
-	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
+	require.NoError(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{}))
 
 	expired := now.Add(-time.Minute)
 	deadToken.CooldownUntil = &expired
-	err := svc.authorizeSubscriptionAPI(throttleTestContext(deadToken, spent, reconnect), subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{})
+	err := svc.credentials.AuthorizeSubscriptionAPI(throttleTestContext(deadToken, spent, reconnect), subscriptions.ProviderCodex, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{})
 	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable, "once the credential cooldown lapses the seat may refresh and serve again")
 }
 
@@ -165,10 +165,10 @@ func TestAuthorizeSubscriptionAPI_CredentialRejectedCooldownDoesNotBlockPaidFall
 // a 503.
 func TestAuthorizeSubscriptionAPI_RateLimitedCallerPlanRefusesAs429(t *testing.T) {
 	now := time.Now()
-	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }})
 	callerCreds := &requestcontext.Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}
 	authorize := func(ctx context.Context) error {
-		return svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{})
+		return svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", credentials.ClientAppRefusalFunding{})
 	}
 
 	pooled := throttleTestContext(activeCodexAccount("seat-1"))
@@ -188,18 +188,18 @@ func TestAuthorizeSubscriptionAPI_RateLimitedCallerPlanRefusesAs429(t *testing.T
 
 func TestAuthorizeSubscriptionAPI_CallerQuotaExhaustionStillAuthorizesPaidFallback(t *testing.T) {
 	now := time.Now()
-	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }})
 	ctx := throttleTestContext()
 	quotaExhaustedErr := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"usage_limit_reached","message":"limit"}}`)}
 	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, &requestcontext.Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}, quotaExhaustedErr)
-	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{}))
+	require.NoError(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", credentials.ClientAppRefusalFunding{}))
 }
 
 // A rate limit on the caller's own plan is the customer's capacity, so the
 // refused turn must not count against router or provider reliability.
 func TestCallerPlanRateLimitRefusalIsClientOwned(t *testing.T) {
 	now := time.Now()
-	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }})
 	resetAt := now.Add(5 * 24 * time.Hour)
 	spentSeat := func(id string) *auth.SubscriptionAccount {
 		seat := activeCodexAccount(id)
@@ -210,14 +210,14 @@ func TestCallerPlanRateLimitRefusalIsClientOwned(t *testing.T) {
 	ctx := throttleTestContext(spentSeat("seat-1"), spentSeat("seat-2"))
 	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, &requestcontext.Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}, codexRateLimitedErr())
 
-	refusal := svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{})
+	refusal := svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", credentials.ClientAppRefusalFunding{})
 	requireThrottledRefusal(t, refusal)
 	turnErr := fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, refusal)
 	require.Equal(t, turnrecord.FailureOwnerClient, turnFailureOwnerFor(ctx, turnErr, turnrecord.TurnErrorOther))
 
 	pooled := throttleTestContext(activeCodexAccount("seat-1"))
 	credentials.RecordManagedThrottle(pooled, "seat-1", now.Add(time.Minute))
-	managedRefusal := svc.authorizeSubscriptionAPI(pooled, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{})
+	managedRefusal := svc.credentials.AuthorizeSubscriptionAPI(pooled, subscriptions.ProviderCodex, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{})
 	requireThrottledRefusal(t, managedRefusal)
 	require.Equal(t, turnrecord.FailureOwnerProvider, turnFailureOwnerFor(pooled, fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, managedRefusal), turnrecord.TurnErrorOther), "a managed pool throttled by the provider is the provider's rate limit")
 }

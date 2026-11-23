@@ -175,7 +175,7 @@ func TestResolvedOAuthRemainsAvailableWithoutManagedCapacity(t *testing.T) {
 		}, false},
 		{"explicit own-plan pick", func(ctx context.Context) context.Context {
 			ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
-			return fundOnOwnPlan(ctx, providers.ProviderAnthropic)
+			return credentials.FundOnOwnPlan(ctx, providers.ProviderAnthropic)
 		}, true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {

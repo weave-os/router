@@ -23,7 +23,7 @@ import (
 )
 
 func TestSessionHoldRequiresAnUnavailablePoolMark(t *testing.T) {
-	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: time.Now}
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: time.Now})
 	ctx := context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
 
 	svc.holdSessionOffSubscriptionPool(ctx, providers.ProviderOpenAI, stateCodexModel)
@@ -74,13 +74,13 @@ func TestEnterpriseCapRescueNeedsAUsableAnthropicKey(t *testing.T) {
 
 func TestUnleasableSeatsDoNotHoldPaidFallbackEvenWhileEnabled(t *testing.T) {
 	now := time.Now()
-	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }})
 	reconnect := activeCodexAccount("seat-reconnect")
 	reconnect.State = auth.SubscriptionAccountStateReconnectRequired
 	disabled := activeCodexAccount("seat-disabled")
 	disabled.State = auth.SubscriptionAccountStateDisabled
 
-	assert.NoError(t, svc.authorizeSubscriptionAPI(throttleTestContext(reconnect, disabled), subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}),
+	assert.NoError(t, svc.credentials.AuthorizeSubscriptionAPI(throttleTestContext(reconnect, disabled), subscriptions.ProviderCodex, inference.Target{}, "", "", credentials.ClientAppRefusalFunding{}),
 		"a seat that can never be leased can never prove exhaustion either")
 }
 
