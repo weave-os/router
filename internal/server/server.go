@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
@@ -31,6 +32,7 @@ import (
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/trafficcapture"
 
 	"github.com/gin-gonic/gin"
@@ -99,6 +101,8 @@ type Features struct {
 	DefaultStrategy          router.Strategy
 	InternalServiceToken     string
 	Admin                    admin.Config
+	TelemetryQueries         turnrecord.Queries
+	FeedbackLinks            *feedback.Links
 }
 
 func (f Features) defaultStrategy() router.Strategy {
@@ -234,16 +238,16 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		authPublic.GET("/me", admin.MeHandler(authSvc, features.Admin))
 
 		metrics := engine.Group("/admin/v1", middleware.WithTimeout(adminTimeout), middleware.WithAdminOrAuth(authSvc, byokRequiresOptIn))
-		metrics.GET("/metrics/summary", admin.MetricsSummaryHandler(proxySvc))
-		metrics.GET("/metrics/timeseries", admin.MetricsTimeseriesHandler(proxySvc))
-		metrics.GET("/metrics/details", admin.MetricsDetailsHandler(proxySvc))
-		metrics.GET("/metrics/model-breakdown", admin.MetricsModelBreakdownHandler(proxySvc))
-		metrics.GET("/metrics/series", admin.MetricsSeriesHandler(proxySvc))
-		metrics.GET("/metrics/report-summary", admin.MetricsReportSummaryHandler(proxySvc))
-		metrics.GET("/metrics/people", admin.MetricsPeopleHandler(proxySvc))
-		metrics.GET("/metrics/drill-down", admin.MetricsDrillDownHandler(proxySvc))
-		metrics.GET("/metrics/individuals", admin.MetricsIndividualsHandler(proxySvc))
-		metrics.GET("/subscription-pool", admin.SubscriptionPoolHandler(proxySvc, features.SubscriptionPoolsEnabled, time.Now))
+		metrics.GET("/metrics/summary", admin.MetricsSummaryHandler(features.TelemetryQueries))
+		metrics.GET("/metrics/timeseries", admin.MetricsTimeseriesHandler(features.TelemetryQueries))
+		metrics.GET("/metrics/details", admin.MetricsDetailsHandler(features.TelemetryQueries))
+		metrics.GET("/metrics/model-breakdown", admin.MetricsModelBreakdownHandler(features.TelemetryQueries))
+		metrics.GET("/metrics/series", admin.MetricsSeriesHandler(features.TelemetryQueries))
+		metrics.GET("/metrics/report-summary", admin.MetricsReportSummaryHandler(features.TelemetryQueries))
+		metrics.GET("/metrics/people", admin.MetricsPeopleHandler(features.TelemetryQueries))
+		metrics.GET("/metrics/drill-down", admin.MetricsDrillDownHandler(features.TelemetryQueries))
+		metrics.GET("/metrics/individuals", admin.MetricsIndividualsHandler(features.TelemetryQueries))
+		metrics.GET("/subscription-pool", admin.SubscriptionPoolHandler(features.TelemetryQueries, features.SubscriptionPoolsEnabled, time.Now))
 
 		mgmt := engine.Group("/admin/v1", middleware.WithTimeout(adminTimeout), middleware.WithAdminOnly(authSvc))
 		mgmt.GET("/keys", admin.ListAPIKeysHandler(authSvc))
@@ -346,7 +350,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithReadKey(authSvc),
 		middleware.WithInstallationRateLimit(middleware.SessionCostRequestsPerMinute, time.Now),
 	)
-	sessionCostGroup.GET("/v1/sessions/:session_id/cost", admin.SessionCostHandler(proxySvc))
+	sessionCostGroup.GET("/v1/sessions/:session_id/cost", admin.SessionCostHandler(features.TelemetryQueries))
 
 	routeMiddleware := []gin.HandlerFunc{
 		middleware.WithTimeout(routeTimeout),
@@ -405,11 +409,11 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		analyticsGroup.GET("/schema", analyticsapi.SchemaHandler())
 	}
 
-	if proxySvc.FeedbackEnabled() {
+	if features.FeedbackLinks.Enabled() {
 		feedbackGroup := engine.Group("/v1/feedback", middleware.WithTimeout(feedbackTimeout))
-		feedbackGroup.GET("/link/:token", feedbackapi.GetContextHandler(proxySvc))
-		feedbackGroup.POST("/link", feedbackapi.SubmitHandler(proxySvc))
-		feedbackGroup.GET("/rate", feedbackapi.RateHandler(proxySvc))
+		feedbackGroup.GET("/link/:token", feedbackapi.GetContextHandler(features.FeedbackLinks))
+		feedbackGroup.POST("/link", feedbackapi.SubmitHandler(features.FeedbackLinks))
+		feedbackGroup.GET("/rate", feedbackapi.RateHandler(features.FeedbackLinks))
 		feedbackGroup.GET("/assets/wooly-wave.png", feedbackapi.WoolyWaveHandler())
 		feedbackGroup.GET("/assets/weave.svg", feedbackapi.WeaveLogoHandler())
 	}
