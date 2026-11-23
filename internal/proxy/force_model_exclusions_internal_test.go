@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -61,7 +62,7 @@ func TestForceModelCommand_RejectsSoleProviderExcluded(t *testing.T) {
 	rec := httptest.NewRecorder()
 	require.NoError(t, (forceModelCommands{svc}).handle(
 		excludedProvidersCtx(providers.ProviderAnthropic), rec, env,
-		translate.ForceModelResult{Model: "opus"}, sessionTarget{Strategy: router.StrategyFromContext(excludedProvidersCtx(providers.ProviderAnthropic)), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
+		translate.ForceModelResult{Model: "opus"}, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(excludedProvidersCtx(providers.ProviderAnthropic)), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
 
@@ -84,7 +85,7 @@ func TestForceModelCommand_RejectsExcludedModel(t *testing.T) {
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	require.NoError(t, (forceModelCommands{svc}).handle(ctx, rec, env,
-		translate.ForceModelResult{Model: "opus"}, sessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
+		translate.ForceModelResult{Model: "opus"}, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
 
@@ -104,7 +105,7 @@ func TestForceModelCommand_AllowsWhenOneBindingSurvives(t *testing.T) {
 	rec := httptest.NewRecorder()
 	require.NoError(t, (forceModelCommands{svc}).handle(
 		excludedProvidersCtx(providers.ProviderOpenRouter), rec, env,
-		translate.ForceModelResult{Model: multiBindingModel}, sessionTarget{Strategy: router.StrategyFromContext(excludedProvidersCtx(providers.ProviderOpenRouter)), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
+		translate.ForceModelResult{Model: multiBindingModel}, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(excludedProvidersCtx(providers.ProviderOpenRouter)), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
 
@@ -125,7 +126,7 @@ func TestForceModelCommand_RejectsWhenEveryBindingExcluded(t *testing.T) {
 	rec := httptest.NewRecorder()
 	require.NoError(t, (forceModelCommands{svc}).handle(
 		excludedProvidersCtx(providers.ProviderBedrock, providers.ProviderOpenRouter),
-		rec, env, translate.ForceModelResult{Model: multiBindingModel}, sessionTarget{Strategy: router.StrategyFromContext(excludedProvidersCtx(providers.ProviderBedrock, providers.ProviderOpenRouter)), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
+		rec, env, translate.ForceModelResult{Model: multiBindingModel}, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(excludedProvidersCtx(providers.ProviderBedrock, providers.ProviderOpenRouter)), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
 
@@ -146,7 +147,7 @@ func TestForceModelCommand_SessionStrikeOutDoesNotReject(t *testing.T) {
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	require.NoError(t, (forceModelCommands{svc}).handle(ctx, rec, env,
-		translate.ForceModelResult{Model: "opus"}, sessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
+		translate.ForceModelResult{Model: "opus"}, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
 
@@ -228,7 +229,7 @@ func TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects(t *testing.T) {
 		Provider:    providers.ProviderAnthropic,
 		Model:       "claude-opus-5",
 		Reason:      translate.ReasonUserForceModel,
-		PinnedUntil: pinNeverExpires,
+		PinnedUntil: routingpolicy.PinNeverExpires,
 	}, found: true}
 	svc := withHMMPorts(NewService(fr, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
@@ -290,7 +291,7 @@ func TestForceModelCommand_AllowsWhenAnotherKeyedBindingServes(t *testing.T) {
 	rec := httptest.NewRecorder()
 	require.NoError(t, (forceModelCommands{svc}).handle(
 		excludedProvidersCtx(providers.ProviderAnthropic), rec, env,
-		translate.ForceModelResult{Model: "opus"}, sessionTarget{Strategy: router.StrategyFromContext(excludedProvidersCtx(providers.ProviderAnthropic)), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
+		translate.ForceModelResult{Model: "opus"}, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(excludedProvidersCtx(providers.ProviderAnthropic)), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
 
@@ -314,7 +315,7 @@ func TestForceModelCommand_RejectsDeploymentExcludedModel(t *testing.T) {
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	require.NoError(t, (forceModelCommands{svc}).handle(context.Background(), rec, env,
-		translate.ForceModelResult{Model: "opus"}, sessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
+		translate.ForceModelResult{Model: "opus"}, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
 
@@ -330,7 +331,7 @@ func TestTurnLoop_ForcedPinFollowsSurvivingBinding(t *testing.T) {
 		Provider:    providers.ProviderAnthropic,
 		Model:       "claude-opus-5",
 		Reason:      translate.ReasonUserForceModel,
-		PinnedUntil: pinNeverExpires,
+		PinnedUntil: routingpolicy.PinNeverExpires,
 	}, found: true}
 	svc := withHMMPorts(NewService(fr, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
@@ -365,7 +366,7 @@ func TestTurnLoop_StrikeExemptionCoversRemappedBinding(t *testing.T) {
 		Provider:          providers.ProviderAnthropic,
 		Model:             "claude-opus-5",
 		Reason:            translate.ReasonUserForceModel,
-		PinnedUntil:       pinNeverExpires,
+		PinnedUntil:       routingpolicy.PinNeverExpires,
 		DisabledProviders: []string{providers.ProviderAnthropicGateway},
 	}, found: true}
 	svc := withHMMPorts(NewService(fr, dispatch.NewClients(nil), nil, store, false,
@@ -399,7 +400,7 @@ func TestTurnLoop_HardPinnedTurnForcedPinFollowsSurvivingBinding(t *testing.T) {
 		Provider:    providers.ProviderAnthropic,
 		Model:       "claude-opus-5",
 		Reason:      translate.ReasonUserForceModel,
-		PinnedUntil: pinNeverExpires,
+		PinnedUntil: routingpolicy.PinNeverExpires,
 	}, found: true}
 	svc := withHMMPorts(NewService(fr, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).

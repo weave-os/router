@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -22,7 +23,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 	proxyErr error,
 	finalProvider string,
 	decisionReason string,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role string,
 	pinRole string,
 ) {

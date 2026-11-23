@@ -24,6 +24,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rosterdata"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -172,7 +173,7 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 	parentKey := deriveSessionKeyForRequest(rootCtx, root, "synthetic-api-key")
 	forceKey := deriveForceModelSessionKeyForRequest(rootCtx, root, "synthetic-api-key", parentKey)
 	forced := sessionpin.Pin{SessionKey: forceKey, Role: forceModelSessionRole, Model: codexRoutingSol.String(),
-		Provider: providers.ProviderOpenAI, Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires, ForcedThreadKey: sessionKeyHex(parentKey)}
+		Provider: providers.ProviderOpenAI, Reason: translate.ReasonUserForceModel, PinnedUntil: routingpolicy.PinNeverExpires, ForcedThreadKey: sessionKeyHex(parentKey)}
 	require.NoError(t, store.Upsert(rootCtx, forced))
 	for _, test := range []struct {
 		ctx  context.Context

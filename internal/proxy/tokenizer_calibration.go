@@ -61,7 +61,7 @@ func (s *Service) recordTokenizerObservation(ctx context.Context, res routingpol
 		return
 	}
 	cal := res.TokenizerCalibration.Observe(family, prompt, res.ContextEstimate, s.clock.Now())
-	if err := store.UpdateTokenizerCalibration(context.WithoutCancel(ctx), res.SessionKey, role, strategyForTurnLoopResult(res), cal); err != nil {
+	if err := store.UpdateTokenizerCalibration(context.WithoutCancel(ctx), res.SessionKey, role, routingpolicy.StrategyForTurnRoute(res), cal); err != nil {
 		observability.FromContext(ctx).Error("tokenizer calibration writeback failed", "err", err)
 	}
 }

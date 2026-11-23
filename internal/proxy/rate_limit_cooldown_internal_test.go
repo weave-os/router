@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -67,7 +68,7 @@ func strikeRescuedPrimary(svc *Service, ctx context.Context, err error) (string,
 		true,
 		false,
 		err,
-		rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"), sessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
+		rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"), routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 

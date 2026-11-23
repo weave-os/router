@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -13,7 +14,7 @@ type turnCommands struct {
 	s                    *Service
 	w                    http.ResponseWriter
 	env                  *translate.RequestEnvelope
-	target               sessionTarget
+	target               routingpolicy.SessionTarget
 	forceModelSessionKey [sessionpin.SessionKeyLen]byte
 	inputTokens          int
 	requestedModel       string

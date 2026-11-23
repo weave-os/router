@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -108,7 +109,7 @@ func requestedAllowedModelsForTelemetry(ctx context.Context) []string {
 }
 
 func telemetryDecisionReason(ctx context.Context, reason string) string {
-	if _, ok := requestAllowedModelsFromContext(ctx); !ok || isUserForcedReason(reason) {
+	if _, ok := requestAllowedModelsFromContext(ctx); !ok || routingpolicy.IsUserForcedReason(reason) {
 		return reason
 	}
 	return AllowlistOverrideReasonPrefix + reason

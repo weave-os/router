@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/sse"
 )
 
@@ -208,7 +209,7 @@ func (g *cyberRefusalGate) discardHeld() {
 func (s *Service) cyberRefusalRetryTarget(
 	ctx context.Context,
 	failed router.Decision,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role string,
 	est, sigSavings, outputReserve int,
 ) (router.Decision, bool) {
@@ -239,7 +240,7 @@ func (s *Service) cyberRefusalFallback(
 	model = s.rescueConfig.CyberRefusalFallbackModelFor(ctx)
 	if s.pinStore != nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
 		if existing, found, err := s.pinStore.Get(context.WithoutCancel(ctx), sessionKey, role); err == nil && found &&
-			pinMatchesEffectiveStrategy(strategy, existing) && existing.PairedModel != "" &&
+			routingpolicy.PinMatchesEffectiveStrategy(strategy, existing) && existing.PairedModel != "" &&
 			!providerAvoided(providerForModel(existing.PairedProvider, existing.PairedModel), avoidProvider) {
 			model, provider = existing.PairedModel, existing.PairedProvider
 		}

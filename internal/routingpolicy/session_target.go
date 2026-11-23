@@ -1,4 +1,4 @@
-package proxy
+package routingpolicy
 
 import (
 	"github.com/google/uuid"
@@ -7,7 +7,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-type sessionTarget struct {
+type SessionTarget struct {
 	Strategy       router.Strategy
 	InstallationID uuid.UUID
 	SessionKey     [sessionpin.SessionKeyLen]byte

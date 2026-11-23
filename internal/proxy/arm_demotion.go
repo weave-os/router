@@ -14,13 +14,14 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 )
 
 type sessionArmDemoter struct {
 	s       *Service
-	target  sessionTarget
+	target  routingpolicy.SessionTarget
 	role    string
 	pinRole string
 }
@@ -29,7 +30,7 @@ func (d sessionArmDemoter) DemoteArm(ctx context.Context, model string, reason s
 	return d.s.demoteArmForSession(ctx, model, reason, cooldownUntil, upstreamStatus, d.target, d.role, d.pinRole)
 }
 
-func sessionArmDemoterFor(s *Service, target sessionTarget, role, pinRole string) dispatch.SessionArmDemoter {
+func sessionArmDemoterFor(s *Service, target routingpolicy.SessionTarget, role, pinRole string) dispatch.SessionArmDemoter {
 	if s.pinStore == nil || target.InstallationID == uuid.Nil || target.SessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return nil
 	}
@@ -43,7 +44,7 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 	proxyErr error,
 	model string,
 	decisionReason string,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role string,
 	pinRole string,
 ) string {
@@ -58,7 +59,7 @@ func (s *Service) maybeStrikeArmAfterRescuedFailure(
 	hardPinned bool,
 	primaryErr error,
 	primary router.Decision,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role string,
 	pinRole string,
 ) (string, sessionpin.DemotionReason) {
@@ -79,7 +80,7 @@ func (s *Service) maybeDemoteArmAfterUnrescuedStall(
 	rescueRan, committed, hardPinned bool,
 	stallErr error,
 	failed router.Decision,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role, pinRole string,
 ) string {
 	return s.armDemotion.AfterUnrescuedStall(ctx, rescueRan, committed, dispatch.ArmFailure{
@@ -95,7 +96,7 @@ func (s *Service) maybeDemoteArmAfterRescuedFailure(
 	hardPinned bool,
 	primaryErr error,
 	primary router.Decision,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 ) string {
 	model, _ := s.maybeStrikeArmAfterRescuedFailure(ctx, rescueRan, hardPinned, primaryErr, primary, target, sessionpin.DefaultRole, sessionpin.DefaultRole)
 	return model
@@ -107,7 +108,7 @@ func (s *Service) demoteArmForSession(
 	reason sessionpin.DemotionReason,
 	cooldownUntil time.Time,
 	primaryStatus int,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role string,
 	pinRole string,
 ) bool {

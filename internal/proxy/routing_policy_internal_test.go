@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -94,10 +95,10 @@ func TestRoutingPolicyPreservesExplicitForcedModel(t *testing.T) {
 					pins.getFound = true
 					pins.getPin = sessionpin.Pin{
 						Model: catalog.ModelIDClaudeHaiku45.String(), Provider: providers.ProviderAnthropic,
-						Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires,
+						Reason: translate.ReasonUserForceModel, PinnedUntil: routingpolicy.PinNeverExpires,
 					}
 					if tc.cleared {
-						pins.getPin.Reason = userUnforcedReason
+						pins.getPin.Reason = routingpolicy.ReasonUserUnforced
 					}
 				}
 				routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}

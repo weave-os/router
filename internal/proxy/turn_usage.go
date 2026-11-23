@@ -34,7 +34,7 @@ func (s *Service) recordTurnUsage(ctx context.Context, res routingpolicy.TurnRou
 		return
 	}
 	usage := sessionpin.Usage{
-		Strategy:            strategyForTurnLoopResult(res),
+		Strategy:            routingpolicy.StrategyForTurnRoute(res),
 		InputTokens:         in,
 		CachedReadTokens:    cacheRead,
 		CachedWriteTokens:   cacheCreation,
@@ -47,8 +47,8 @@ func (s *Service) recordTurnUsage(ctx context.Context, res routingpolicy.TurnRou
 		SessionEverSwitched: res.SessionEverSwitched,
 	}
 	role := res.PinRole
-	if isUserForcedReason(res.Decision.Reason) {
-		role = forceModelHistoryRole(role)
+	if routingpolicy.IsUserForcedReason(res.Decision.Reason) {
+		role = routingpolicy.ForceModelHistoryRole(role)
 	}
 	if role == "" {
 		role = sessionpin.DefaultRole

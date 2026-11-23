@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/switchpolicy"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
@@ -100,7 +101,7 @@ func TestAgreementShadowForceUnforceBeforeToolResultBreaksVotes(t *testing.T) {
 		t.Fatalf("fixture did not establish the pre-command vote: %+v", before)
 	}
 	for _, command := range []translate.ForceModelResult{{Model: agreementSol}, {Clear: true}} {
-		if err := (forceModelCommands{svc}).handle(ctx, httptest.NewRecorder(), typedCommandEnv(t, "/fm sol"), command, sessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: installationID, SessionKey: threadKey}, controlKey, 1); err != nil {
+		if err := (forceModelCommands{svc}).handle(ctx, httptest.NewRecorder(), typedCommandEnv(t, "/fm sol"), command, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: installationID, SessionKey: threadKey}, controlKey, 1); err != nil {
 			t.Fatal(err)
 		}
 		postCommandContinuation(svc, router.StrategyFromContext(ctx)).Grant(ctx, installationID, threadKey, sessionpin.DefaultRole)
@@ -146,7 +147,7 @@ func TestAgreementShadowRejectedAndFailedCommandsKeepHistory(t *testing.T) {
 			if failed {
 				model = agreementSol
 			}
-			err := (forceModelCommands{svc}).handle(ctx, httptest.NewRecorder(), typedCommandEnv(t, "/fm sol"), translate.ForceModelResult{Model: model}, sessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: uuid.MustParse(p.InstallationID), SessionKey: threadKey}, [sessionpin.SessionKeyLen]byte{2}, 1)
+			err := (forceModelCommands{svc}).handle(ctx, httptest.NewRecorder(), typedCommandEnv(t, "/fm sol"), translate.ForceModelResult{Model: model}, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: uuid.MustParse(p.InstallationID), SessionKey: threadKey}, [sessionpin.SessionKeyLen]byte{2}, 1)
 			if (err != nil) != failed {
 				t.Fatalf("unexpected command result: %v", err)
 			}

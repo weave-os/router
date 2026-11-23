@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"time"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandswap"
@@ -19,8 +18,8 @@ func (s *Service) recordSwitchHistory(ctx context.Context, res routingpolicy.Tur
 	if servedModel == "" || res.InstallationID == uuid.Nil || res.SessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return
 	}
-	strategy := strategyForTurnLoopResult(res)
-	role, usageRecorded := s.strategyPorts.History.RecordTurnHistory(strategyContext(ctx, strategy), routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).HistoryRows(), continuity.TurnHistoryRecord{
+	strategy := routingpolicy.StrategyForTurnRoute(res)
+	role, usageRecorded := s.strategyPorts.History.RecordTurnHistory(routingpolicy.StrategyContext(ctx, strategy), routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).HistoryRows(), continuity.TurnHistoryRecord{
 		SessionKey:     res.SessionKey,
 		InstallationID: res.InstallationID,
 		PinRole:        res.PinRole,
@@ -93,5 +92,3 @@ func isAuthoritativePinHoldMismatch(res routingpolicy.TurnRoute, served router.D
 		return false
 	}
 }
-
-func pinAge(p sessionpin.Pin, now time.Time) int64 { return routingpolicy.PinAge(p, now) }

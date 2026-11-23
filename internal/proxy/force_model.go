@@ -309,10 +309,10 @@ func (s *Service) clearLegacyForceModelPins(
 		if err != nil {
 			return fmt.Errorf("load legacy force-model pin for role %q: %w", role, err)
 		}
-		if !found || !isUserForcedReason(pin.Reason) {
+		if !found || !routingpolicy.IsUserForcedReason(pin.Reason) {
 			continue
 		}
-		if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, userUnforcedReason); err != nil {
+		if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, routingpolicy.ReasonUserUnforced); err != nil {
 			return err
 		}
 	}
@@ -390,7 +390,7 @@ func (f forceModelCommands) handle(
 	w http.ResponseWriter,
 	env *translate.RequestEnvelope,
 	cmd translate.ForceModelResult,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {

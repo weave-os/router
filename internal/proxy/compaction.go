@@ -32,7 +32,7 @@ func (s *Service) routeCompaction(
 	req router.Request,
 	res routingpolicy.TurnRoute,
 	reqHeaders http.Header,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	forceModelFound bool,
 	forceModelPin sessionpin.Pin,
 ) (routingpolicy.TurnRoute, error) {

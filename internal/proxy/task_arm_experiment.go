@@ -99,7 +99,7 @@ func (turn *taskArmTurn) observeControl(control routingpolicy.TurnRoute) bool {
 	if !turn.assigned {
 		return false
 	}
-	if isUserForcedReason(control.Decision.Reason) {
+	if routingpolicy.IsUserForcedReason(control.Decision.Reason) {
 		*turn = taskArmTurn{}
 		return false
 	}
@@ -115,7 +115,7 @@ func policyPinHonoured(ctx context.Context) bool {
 }
 
 func servedPolicyGroup(res routingpolicy.TurnRoute) string {
-	if group := decisionPolicyGroup(res.Decision); group != "" || !res.StickyHit {
+	if group := routingpolicy.DecisionPolicyGroup(res.Decision); group != "" || !res.StickyHit {
 		return group
 	}
 	return res.PinPolicyGroup

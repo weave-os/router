@@ -1,7 +1,8 @@
-package proxy
+package routingpolicy
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"weave-os/router/internal/observability"
@@ -9,10 +10,9 @@ import (
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/routingpolicy"
 )
 
-func serveForceModelPin(ctx context.Context, req *router.Request, res *routingpolicy.TurnRoute, forceModelPin, forceHistory sessionpin.Pin, sessionPins routingpolicy.SessionPins, now time.Time) (served bool, tierFloor catalog.Tier) {
+func ServeForceModelPinTurn(ctx context.Context, req *router.Request, res *TurnRoute, forceModelPin, forceHistory sessionpin.Pin, sessionPins SessionPins, now time.Time) (served bool, tierFloor catalog.Tier) {
 	log := observability.FromContext(ctx)
 	verdict := candidates.JudgeForceModelPin(forceModelPin, *req)
 	if verdict.PastContextEstimate {
@@ -23,7 +23,7 @@ func serveForceModelPin(ctx context.Context, req *router.Request, res *routingpo
 	}
 	if verdict.Serve {
 		res.PinModel = forceModelPin.Model
-		res.PinAgeSec = pinAge(forceModelPin, now)
+		res.PinAgeSec = PinAge(forceModelPin, now)
 		res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
 			(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
 		res.ServeForceModelPin(forceModelPin)
@@ -33,14 +33,14 @@ func serveForceModelPin(ctx context.Context, req *router.Request, res *routingpo
 	res.ForcedPinDropped = true
 	res.ForcedPinDropReason = verdict.DropReason
 	res.ForcedPinModel = forceModelPin.Model
-	log.Info("Forced session pin dropped for this turn", "pin_model", forceModelPin.Model, "pin_provider", forceModelPin.Provider, "drop_reason", res.ForcedPinDropReason, "enabled_providers", sortedEnabledKeys(req.EnabledProviders), "role", res.PinRole)
+	log.Info("Forced session pin dropped for this turn", "pin_model", forceModelPin.Model, "pin_provider", forceModelPin.Provider, "drop_reason", res.ForcedPinDropReason, "enabled_providers", SortedEnabledKeys(req.EnabledProviders), "role", res.PinRole)
 	if verdict.ExcludeModel {
 		req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, forceModelPin.Model)
 	}
 	return false, verdict.TierFloor
 }
 
-func serveUserForcedPin(ctx context.Context, req *router.Request, res *routingpolicy.TurnRoute, pin sessionpin.Pin, sessionPins routingpolicy.SessionPins) (served bool, tierFloor catalog.Tier) {
+func ServeUserForcedPinTurn(ctx context.Context, req *router.Request, res *TurnRoute, pin sessionpin.Pin, sessionPins SessionPins) (served bool, tierFloor catalog.Tier) {
 	verdict := candidates.JudgeUserForcedPin(pin, *req)
 	if verdict.Serve {
 		decision := pin.Decision()
@@ -51,7 +51,7 @@ func serveUserForcedPin(ctx context.Context, req *router.Request, res *routingpo
 		sessionPins.Refresh(ctx, res.InstallationID, res.SessionKey, pin, res.PinRole, decision)
 		return true, catalog.TierUnknown
 	}
-	observability.FromContext(ctx).Info("Forced session pin dropped for this turn", "pin_model", pin.Model, "pin_provider", pin.Provider, "pin_reason", pin.Reason, "drop_reason", verdict.DropReason, "enabled_providers", sortedEnabledKeys(req.EnabledProviders), "role", res.PinRole)
+	observability.FromContext(ctx).Info("Forced session pin dropped for this turn", "pin_model", pin.Model, "pin_provider", pin.Provider, "pin_reason", pin.Reason, "drop_reason", verdict.DropReason, "enabled_providers", SortedEnabledKeys(req.EnabledProviders), "role", res.PinRole)
 	res.ForcedPinDropped = true
 	res.ForcedPinDropReason = verdict.DropReason
 	res.ForcedPinModel = pin.Model
@@ -59,4 +59,16 @@ func serveUserForcedPin(ctx context.Context, req *router.Request, res *routingpo
 		req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, pin.Model)
 	}
 	return false, verdict.TierFloor
+}
+
+func SortedEnabledKeys(m map[string]struct{}) []string {
+	if len(m) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

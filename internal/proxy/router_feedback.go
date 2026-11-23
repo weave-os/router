@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -37,7 +38,7 @@ func (p routerFeedbackPorts) ServedModel(ctx context.Context, strategy router.St
 	pin := sessionpin.Pin{}
 	if storedPin, found, err := p.s.pinStore.Get(ctx, sessionKey, role); err != nil {
 		observability.FromContext(ctx).Error("/router-feedback: pin lookup failed", "err", err)
-	} else if found && pinMatchesEffectiveStrategy(strategy, storedPin) {
+	} else if found && routingpolicy.PinMatchesEffectiveStrategy(strategy, storedPin) {
 		pin = storedPin
 	}
 	forceHistory := p.s.loadForceModelHistory(ctx, sessionKey, role)
@@ -93,7 +94,7 @@ type routerFeedbackCommand struct {
 	w           http.ResponseWriter
 	env         *translate.RequestEnvelope
 	cmd         translate.RouterFeedbackResult
-	target      sessionTarget
+	target      routingpolicy.SessionTarget
 	inputTokens int
 	synthetic   bool
 }

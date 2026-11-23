@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -120,7 +121,7 @@ func TestCommandOutcomesAcrossSurfaces(t *testing.T) {
 							continue
 						}
 						if command.transition == translate.PinCleared {
-							assert.Equal(t, userUnforcedReason, pin.Reason)
+							assert.Equal(t, routingpolicy.ReasonUserUnforced, pin.Reason)
 						} else {
 							assert.Equal(t, "claude-opus-5-5", pin.Model)
 						}
@@ -151,7 +152,7 @@ func TestCommandOutcomeRequiresPersistence(t *testing.T) {
 	env := forceCommandEnv(t)
 	for _, command := range []translate.ForceModelResult{{Model: "opus"}, {Clear: true}} {
 		rec := httptest.NewRecorder()
-		err := (forceModelCommands{svc}).handle(context.Background(), rec, env, command, sessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, [sessionpin.SessionKeyLen]byte{2}, 1)
+		err := (forceModelCommands{svc}).handle(context.Background(), rec, env, command, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, [sessionpin.SessionKeyLen]byte{2}, 1)
 		require.Error(t, err)
 		assert.Empty(t, rec.Header().Get(translate.RouterCommandHeader))
 		assert.Empty(t, rec.Body.String())
@@ -165,9 +166,9 @@ func TestLoopStopsPreserveHistoricalForcePin(t *testing.T) {
 		rec := httptest.NewRecorder()
 		var err error
 		if repetition {
-			err = loopBreakForTest(svc, sessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic).textRepetition(context.Background(), rec, env, 3, "synthetic", 1)
+			err = loopBreakForTest(svc, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic).textRepetition(context.Background(), rec, env, 3, "synthetic", 1)
 		} else {
-			err = loopBreakForTest(svc, sessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic).noProgress(context.Background(), rec, env, 3, 1, translate.ReasonUserForceModel)
+			err = loopBreakForTest(svc, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic).noProgress(context.Background(), rec, env, 3, 1, translate.ReasonUserForceModel)
 		}
 		require.NoError(t, err)
 		outcome := readCommandOutcome(t, rec)
@@ -185,7 +186,7 @@ func TestAcknowledgmentWriteFailureDoesNotUndoPin(t *testing.T) {
 	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	key := [sessionpin.SessionKeyLen]byte{2}
-	err := (forceModelCommands{svc}).handle(context.Background(), &commandWriteFailure{httptest.NewRecorder()}, forceCommandEnv(t), translate.ForceModelResult{Model: "opus"}, sessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, key, 1)
+	err := (forceModelCommands{svc}).handle(context.Background(), &commandWriteFailure{httptest.NewRecorder()}, forceCommandEnv(t), translate.ForceModelResult{Model: "opus"}, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, key, 1)
 	require.Error(t, err)
 	pin, found, err := store.Get(context.Background(), key, forceModelSessionRole)
 	require.NoError(t, err)

@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -173,7 +174,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 	stickyHit bool,
 	proxyErr error,
 	decisionReason string,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role string,
 ) {
 	if !stickyHit || s.pinStore == nil || target.InstallationID == uuid.Nil {

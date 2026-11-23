@@ -90,7 +90,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	outcome, err := conversation.CommandDispatch{
 		Source:                  chatCommandSource{RequestEnvelope: env, routing: routingEnvelopeForRequest(ctx, env)},
-		Handlers:                turnCommands{s: s, w: w, env: env, target: sessionTarget{Strategy: strategy, InstallationID: facts.InstallationID, SessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
+		Handlers:                turnCommands{s: s, w: w, env: env, target: routingpolicy.SessionTarget{Strategy: strategy, InstallationID: facts.InstallationID, SessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
 		Protocol:                "ProxyOpenAIChatCompletion",
 		ForceModelEnabled:       s.pinStore != nil,
 		ForceModelContinuesTurn: func(cmd translate.ForceModelResult) bool { return conversation.AgentForceModelContinuesTurn(ctx, cmd) },

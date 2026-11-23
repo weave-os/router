@@ -64,6 +64,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/routingpolicy/overrides"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
@@ -601,7 +602,7 @@ func main() {
 
 	var hardPinResolver proxy.HardPinResolver
 	if !hardPinOverrideConfigured {
-		hardPinResolver = proxy.CatalogUtilityHardPin
+		hardPinResolver = overrides.CatalogUtilityHardPin
 		logger.Info("Hard-pin resolver wired (per-request catalog utility target, applies excluded_models)", "default_model", policy.UtilityHardPinDefaultModel, "byok_only", byokOnly)
 	} else {
 		logger.Info("Hard-pin resolver not wired: ROUTER_HARD_PIN_MODEL operator override is set and absolute by design", "model", hardPinModel)

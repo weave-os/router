@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 )
 
 // These are opt-in acceptance requirements for a proposed policy, not claims
@@ -30,7 +31,7 @@ func TestRecoveryAcceptanceRescued502HasBoundedWithdrawal(t *testing.T) {
 	svc := newRateLimitTestService(store, true, 45)
 	primary := router.Decision{Provider: providers.ProviderOpenAIGateway, Model: catalog.ModelGPT6Luna}
 	model, _ := svc.maybeStrikeArmAfterRescuedFailure(context.Background(), true, false,
-		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, primary, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, primary, routingpolicy.SessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
