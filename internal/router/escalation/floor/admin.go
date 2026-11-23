@@ -32,12 +32,6 @@ func (a *Admin) switchyardJudgeReady() bool { return a.SwitchyardJudge != nil }
 
 func (a *Admin) qwenJudgeReady() bool { return a.QwenJudge != nil }
 
-func (a *Admin) invalidateSelection(installationID string) {
-	if a.InvalidateSelection != nil {
-		a.InvalidateSelection(installationID)
-	}
-}
-
 func (a *Admin) EscalationDashboard(ctx context.Context, filter escalationdashboard.Filter) (escalationdashboard.Snapshot, error) {
 	if a.Dashboard == nil {
 		return escalationdashboard.Snapshot{}, ErrEscalationJudgeUnavailable
@@ -165,7 +159,9 @@ func (a *Admin) UpdateEscalationSelection(ctx context.Context, installationID st
 	if err != nil {
 		return selection, err
 	}
-	a.invalidateSelection(installationID)
+	if a.InvalidateSelection != nil {
+		a.InvalidateSelection(installationID)
+	}
 	return a.withEscalationReadiness(selection), nil
 }
 
