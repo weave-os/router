@@ -1,22 +1,32 @@
 package admin
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/llmescalation"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
-func InternalEscalationDashboardHandler(service *proxy.Service) gin.HandlerFunc {
+type EscalationAdmin interface {
+	EscalationDashboard(ctx context.Context, filter escalationdashboard.Filter) (escalationdashboard.Snapshot, error)
+	ListLLMEscalationSessions(ctx context.Context, installationID string, limit, offset int32) (floor.LLMEscalationSnapshot, error)
+	GetLLMEscalationSession(ctx context.Context, installationID, encodedScope string) (floor.LLMEscalationDetail, bool, error)
+	EscalationSelection(ctx context.Context, installationID string) (llmescalation.Selection, error)
+	UpdateEscalationSelection(ctx context.Context, installationID string, update llmescalation.SelectionUpdate) (llmescalation.Selection, error)
+}
+
+func InternalEscalationDashboardHandler(service EscalationAdmin) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		filter, ok := escalationDashboardFilter(c)
 		if !ok {
@@ -69,7 +79,7 @@ func validEscalationDashboardFilter(filter escalationdashboard.Filter) bool {
 	return validService && validMode && validOutcome
 }
 
-func InternalLLMEscalationSessionsHandler(service *proxy.Service) gin.HandlerFunc {
+func InternalLLMEscalationSessionsHandler(service EscalationAdmin) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installationID := strings.TrimSpace(c.Query("installation_id"))
 		if installationID != "" {
@@ -93,7 +103,7 @@ func InternalLLMEscalationSessionsHandler(service *proxy.Service) gin.HandlerFun
 	}
 }
 
-func InternalLLMEscalationSessionHandler(service *proxy.Service) gin.HandlerFunc {
+func InternalLLMEscalationSessionHandler(service EscalationAdmin) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installationID := strings.TrimSpace(c.Query("installation_id"))
 		if _, err := uuid.Parse(installationID); err != nil {
@@ -118,7 +128,7 @@ func InternalLLMEscalationSessionHandler(service *proxy.Service) gin.HandlerFunc
 	}
 }
 
-func InternalEscalationConfigurationHandler(service *proxy.Service) gin.HandlerFunc {
+func InternalEscalationConfigurationHandler(service EscalationAdmin) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installationID := c.Param("installationID")
 		if _, err := uuid.Parse(installationID); err != nil {
@@ -134,7 +144,7 @@ func InternalEscalationConfigurationHandler(service *proxy.Service) gin.HandlerF
 	}
 }
 
-func InternalUpdateEscalationConfigurationHandler(service *proxy.Service) gin.HandlerFunc {
+func InternalUpdateEscalationConfigurationHandler(service EscalationAdmin) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installationID := c.Param("installationID")
 		if _, err := uuid.Parse(installationID); err != nil {
@@ -172,7 +182,7 @@ func internalEscalationError(c *gin.Context, err error) {
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Escalation configuration changed."})
 	case errors.Is(err, flags.ErrInvalidValue):
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid escalation configuration."})
-	case errors.Is(err, proxy.ErrEscalationJudgeUnavailable):
+	case errors.Is(err, floor.ErrEscalationJudgeUnavailable):
 		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": "Escalation judge is unavailable."})
 	case errors.Is(err, escalationdashboard.ErrInvalidCursor):
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid escalation dashboard cursor."})
