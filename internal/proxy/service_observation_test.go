@@ -351,13 +351,13 @@ func TestProxyMessages_RecordsPolicyObservation(t *testing.T) {
 		},
 	}
 	telem := newCaptureTelemetry()
-	svc := proxy.WithStrategyPorts(proxy.NewService(
+	svc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
 		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
-		telem), hmm.ServingPorts()).
-		WithContentCapture(capture.Hashed, 0, nil)
+		telem), hmm.ServingPorts()),
+		proxy.Deps{Telemetry: proxy.TelemetryDeps{ContentCapture: capture.Hashed}})
 
 	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installID)
 	ctx = context.WithValue(ctx, requestcontext.PolicyTrainingAllowedContextKey{}, true)
@@ -693,12 +693,12 @@ func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
 				}
 			}}
 			telem := newCaptureTelemetry()
-			svc := proxy.WithStrategyPorts(proxy.NewService(
+			svc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: decision},
 				dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: provider}),
 				nil, nil, false,
-				providers.ProviderAnthropic, "claude-opus-4-7", telem), hmm.ServingPorts()).
-				WithNativeAnthropicResponseSignals(tt.enabled)
+				providers.ProviderAnthropic, "claude-opus-4-7", telem), hmm.ServingPorts()),
+				proxy.Deps{Telemetry: proxy.TelemetryDeps{Flags: &proxy.TelemetryFlags{TurnSignalCapture: true, NativeAnthropicResponseSignals: tt.enabled, NativeOpenAIResponseSignals: true}}})
 
 			ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installID)
 			rec := httptest.NewRecorder()
@@ -880,12 +880,12 @@ func TestProxyOpenAIChatCompletion_NativeChatResponseSignals(t *testing.T) {
 				_, _ = w.Write([]byte("data: [DONE]\n\n"))
 			}}
 			telem := newCaptureTelemetry()
-			svc := proxy.WithStrategyPorts(proxy.NewService(
+			svc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4.1"}},
 				dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 				nil, nil, false,
-				providers.ProviderOpenAI, "gpt-4.1", telem), hmm.ServingPorts()).
-				WithNativeOpenAIResponseSignals(tt.enabled)
+				providers.ProviderOpenAI, "gpt-4.1", telem), hmm.ServingPorts()),
+				proxy.Deps{Telemetry: proxy.TelemetryDeps{Flags: &proxy.TelemetryFlags{TurnSignalCapture: true, NativeAnthropicResponseSignals: true, NativeOpenAIResponseSignals: tt.enabled}}})
 
 			ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installID)
 			rec := httptest.NewRecorder()
@@ -965,12 +965,12 @@ func TestProxyOpenAIResponses_NativeResponseSignals(t *testing.T) {
 				}
 			}}
 			telem := newCaptureTelemetry()
-			svc := proxy.WithStrategyPorts(proxy.NewService(
+			svc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna"}},
 				dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 				nil, nil, false,
-				providers.ProviderOpenAI, "gpt-5.6-sol", telem), hmm.ServingPorts()).
-				WithNativeOpenAIResponseSignals(tt.enabled)
+				providers.ProviderOpenAI, "gpt-5.6-sol", telem), hmm.ServingPorts()),
+				proxy.Deps{Telemetry: proxy.TelemetryDeps{Flags: &proxy.TelemetryFlags{TurnSignalCapture: true, NativeAnthropicResponseSignals: true, NativeOpenAIResponseSignals: tt.enabled}}})
 
 			ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installID)
 			rec := httptest.NewRecorder()
