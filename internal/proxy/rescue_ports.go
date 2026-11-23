@@ -26,9 +26,7 @@ func rescuePortsFor(s *Service) dispatch.RescuePorts {
 		Attempts:    rescueAttemptPort{s},
 		Overflow:    rescueOverflowPort{s},
 		Render:      rescueRenderPort{},
-		Dispatch: func(ctx context.Context, in dispatch.FailoverInputs) (int, error) {
-			return fallbackFor(s).Dispatch(ctx, in)
-		},
+		Dispatch:    fallbackFor(s).Dispatch,
 	}
 }
 
