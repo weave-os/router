@@ -93,7 +93,7 @@ func (c CodexImages) forwardOnLinkedSubscription(ctx context.Context, forwarder 
 		return false, nil
 	}
 	owner := subscriptionOwnerFromContext(ctx)
-	lease, present, err := svc.credentials.ManagedSubscriptions.Lease(ctx, owner, subscriptions.ProviderCodex, ClientIdentityFrom(ctx).SessionID)
+	lease, present, err := svc.credentials.ManagedSubscriptions.Lease(ctx, owner, subscriptions.ProviderCodex, requestcontext.ClientIdentityFrom(ctx).SessionID)
 	if err != nil && !errors.Is(err, subscriptions.ErrNoAvailableAccount) {
 		return true, errors.Join(credentials.ErrSubscriptionPoolUnavailable, err)
 	}
@@ -151,7 +151,7 @@ func recordCodexImageUsage(ctx context.Context, svc *Service, model string, star
 	latency := svc.clock.Now().Sub(started).Milliseconds()
 	params := turnrecord.InsertTelemetryParams{
 		InstallationID:     installationID.String(),
-		APIKeyID:           apiKeyIDFromContext(ctx),
+		APIKeyID:           requestcontext.APIKeyIDFromContext(ctx),
 		RequestID:          requestID,
 		SpanType:           "router.upstream",
 		TraceID:            requestID,

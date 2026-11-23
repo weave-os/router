@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -47,6 +48,6 @@ func admitTurn(ctx context.Context, s turnAdmissionServices, clock auth.Clock, r
 	ctx = s.withUsageObserver(ctx, r.Header)
 	ctx = withTurnFailures(ctx)
 	ctx, rateLimit := s.withRateLimitTurn(ctx)
-	turn := admittedTurn{rateLimit: rateLimit, start: clock.Now(), facts: requestFactsFrom(ctx, r.Header)}
+	turn := admittedTurn{rateLimit: rateLimit, start: clock.Now(), facts: credentials.RequestFactsFrom(ctx, r.Header)}
 	return telemetry.WithRecorder(ctx, s.newTelemetryRecorder()), turn, nil
 }

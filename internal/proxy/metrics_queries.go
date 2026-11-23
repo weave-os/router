@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
 
@@ -21,7 +22,7 @@ var (
 )
 
 func (s *Service) SessionCost(ctx context.Context, installationID, sessionID string) (turnrecord.SessionCost, error) {
-	if sessionID == "" || len(sessionID) > MaxClientIdentifierLen {
+	if sessionID == "" || len(sessionID) > requestcontext.MaxClientIdentifierLen {
 		return turnrecord.SessionCost{}, ErrInvalidSessionID
 	}
 	if s.turnTelemetry.repo == nil {

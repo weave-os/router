@@ -136,7 +136,7 @@ func (t *chatTurnDispatch) bindAndGate(ctx context.Context) (context.Context, er
 func (t *chatTurnDispatch) prepareSinks(ctx, credentialCtx context.Context) (context.Context, error) {
 	clientSink := t.w
 	if _, isResponses := t.w.(*translate.ResponsesWriter); t.env.Stream() && !isResponses {
-		if footer := t.s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, t.routeRes.TurnType, t.footerEchoed); footer != "" {
+		if footer := t.s.feedbackFooter(ctx, requestcontext.ClientIdentityFrom(ctx).ClientApp, t.routeRes.TurnType, t.footerEchoed); footer != "" {
 			clientSink = translate.NewOpenAIRoutingFooterWriter(t.w, footer)
 		}
 	}

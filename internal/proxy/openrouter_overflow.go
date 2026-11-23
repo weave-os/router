@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 )
@@ -71,7 +72,7 @@ func (s *Service) openRouterOverflowBindings(ctx context.Context, target router.
 	if !ok {
 		return nil
 	}
-	if !binding.AcceptsImageCount(requestImageCountFromContext(ctx)) {
+	if !binding.AcceptsImageCount(requestcontext.RequestImageCountFromContext(ctx)) {
 		return nil
 	}
 	if _, excluded := s.excludedProvidersForRequest(ctx)[providers.ProviderOpenRouter]; excluded {

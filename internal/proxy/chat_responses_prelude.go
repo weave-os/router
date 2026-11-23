@@ -90,7 +90,7 @@ func (p *chatResponsesPrelude) selectProtocol(ctx context.Context, d chatRespons
 	}
 	responsesPreludeWillEmit = d.stream && !initialNativeResponses && (d.bindingCount <= 1 || d.marker != "")
 	if initialNativeResponses {
-		responsesPreludeWillEmit = d.stream && supportsResponsesTerminalSurfaces(d.facts.Client.ClientApp) && d.marker != ""
+		responsesPreludeWillEmit = d.stream && requestcontext.SupportsResponsesTerminalSurfaces(d.facts.Client.ClientApp) && d.marker != ""
 	}
 	return initialNativeResponses, responsesPreludeWillEmit
 }
@@ -104,7 +104,7 @@ func (p *chatResponsesPrelude) wrapResponsesNotice(ctx context.Context, d chatRe
 	rw.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
 		p.responsesPreludeBuf = newPreludeBuffer(inner)
 		preludeNotice := d.notice
-		if initialNativeResponses && !supportsResponsesTerminalSurfaces(d.facts.Client.ClientApp) {
+		if initialNativeResponses && !requestcontext.SupportsResponsesTerminalSurfaces(d.facts.Client.ClientApp) {
 			preludeNotice.Text = ""
 		}
 		noticeSink, prepareErr := p.responsesNotices.prepare(ctx, p.responsesPreludeBuf, p.responsesPreludeBuf, translate.FormatOpenAIResponses, d.stream, preludeNotice)
@@ -122,7 +122,7 @@ func (p *chatResponsesPrelude) wrapResponsesNotice(ctx context.Context, d chatRe
 
 func (p *chatResponsesPrelude) startResponses(ctx context.Context, d chatResponsesPreludeDeps, initialNativeResponses, responsesPreludeWillEmit bool) error {
 	if initialNativeResponses {
-		p.responseSwitch.native(supportsResponsesTerminalSurfaces(d.facts.Client.ClientApp) &&
+		p.responseSwitch.native(requestcontext.SupportsResponsesTerminalSurfaces(d.facts.Client.ClientApp) &&
 			(d.marker != "" || d.svc.feedbackFooter(ctx, d.facts.Client.ClientApp, d.turnType, d.footerEchoed) != ""))
 	}
 	if !responsesPreludeWillEmit {
@@ -145,7 +145,7 @@ func (p *chatResponsesPrelude) markerSinkFor(ctx context.Context, d chatResponse
 	openAIPrelude := &requestNoticeStream{now: d.svc.clock.Now}
 	return func(notice translate.RouterNotice) (http.ResponseWriter, error) {
 		if isResponses || responseSwitch.passthrough() {
-			if isResponses && responsesPreludeBuf != nil && notice.Kind == translate.NoticeSubscriptionReconnect && (!responseSwitch.passthrough() || supportsResponsesTerminalSurfaces(d.facts.Client.ClientApp)) {
+			if isResponses && responsesPreludeBuf != nil && notice.Kind == translate.NoticeSubscriptionReconnect && (!responseSwitch.passthrough() || requestcontext.SupportsResponsesTerminalSurfaces(d.facts.Client.ClientApp)) {
 				return sink, responsesNotices.deliver(notice)
 			}
 			return sink, nil

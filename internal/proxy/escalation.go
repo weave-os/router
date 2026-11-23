@@ -54,7 +54,7 @@ func (s *Service) escalationFacts(ctx context.Context, env *translate.RequestEnv
 		APIKeyID:            apiKeyID,
 		CredentialIdentity:  sessionCredentialIdentity(ctx, apiKeyID),
 		ExcludedProviders:   installationExcludedProvidersFromContext(ctx),
-		CodexClient:         ClientIdentityFrom(ctx).ClientApp == requestcontext.ClientAppCodex,
+		CodexClient:         requestcontext.ClientIdentityFrom(ctx).ClientApp == requestcontext.ClientAppCodex,
 		RetainReason:        s.effectiveCaptureMode(ctx) == CaptureFull,
 	}
 }
