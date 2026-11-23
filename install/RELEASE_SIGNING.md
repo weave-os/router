@@ -78,6 +78,45 @@ sha256sum -c install/MANIFEST
 A `MANIFEST` on a branch between releases may lag the scripts it lists. Only
 the copy at a signed release tag is authoritative.
 
+## Release source and the main-branch alias
+
+`cc-statusline.sh` and `codex-status.sh` download replacements only from an
+immutable release tag. Each copy carries `WEAVE_RELEASE_TAG`, the tag of the
+release it belongs to, stamped by the release pipeline. A refresh:
+
+1. Downloads the copy of the same script on `main` and reads its
+   `WEAVE_RELEASE_TAG="router-vX.Y.Z"` line. That copy is never executed; only
+   the tag name is used, and it must be a well-formed `router-vX.Y.Z` tag.
+2. Stops if that tag is not strictly newer than its own, so a refresh never
+   moves to an older release.
+3. Downloads `install/MANIFEST`, `install/MANIFEST.sig.b64` and the script
+   from `raw.githubusercontent.com/weave-os/router/<tag>/`, verifies them as
+   described above, and swaps the script in only if every check passes.
+
+Anyone who can write to `main` can change the advertised tag, but only to
+another tag that is newer than the installed one and that carries a
+`MANIFEST` signed with the release key. The signature, not the tag, is the
+trust boundary. When `WEAVE_STATUSLINE_URL` or `WEAVE_CODEX_STATUS_URL`
+overrides the source, the advertised tag is not read: the script is fetched
+from that URL, `MANIFEST` and `MANIFEST.sig.b64` from the same directory, and
+the same verification applies.
+
+Release operations must keep these invariants:
+
+- **The main-branch copies stay manifest-aware, indefinitely.** Copies
+  installed before signed releases still fetch
+  `main/install/cc-statusline.sh` and `main/install/codex-status.sh` directly
+  and apply only shape checks. The copies on `main` are how they move onto the
+  verified, tag-pinned flow at their normal refresh interval, so those paths
+  must never be removed, redirected or replaced with a script that skips
+  verification.
+- **`WEAVE_RELEASE_TAG` on `main` names the newest signed release.** Stamp it
+  in both scripts when a release is signed, and only after the tag's
+  `MANIFEST.sig.b64` verifies. A tag without a valid signature makes every
+  client skip the update.
+- **Release tags are never moved or reused.** Clients treat the contents at a
+  tag as fixed.
+
 ## Key rotation
 
 Clients trust only the key embedded in the copy they are running. To rotate,

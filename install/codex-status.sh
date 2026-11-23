@@ -109,6 +109,45 @@ weave_verify_file() {
   [[ "$got" =~ ^[0-9a-f]{64}$ && "$got" == "$want" ]]
 }
 
+# ---------- pinned release source ----------
+#
+# The self-refresh downloads only from an immutable release tag, never from a
+# mutable branch. WEAVE_RELEASE_TAG is the release this copy belongs to and is
+# stamped by the release pipeline. The copy on main carries the newest signed
+# release's tag, so a refresh reads that line from main to learn which tag to
+# fetch, refuses any tag that is not strictly newer than its own (no
+# downgrades), and then downloads MANIFEST, MANIFEST.sig.b64 and the script
+# from that tag. The tag only picks where to download from; the signature over
+# MANIFEST is the trust boundary. See install/RELEASE_SIGNING.md.
+WEAVE_RELEASE_TAG="router-v0.2.39"
+WEAVE_RELEASE_REPO_URL="https://raw.githubusercontent.com/weave-os/router"
+
+# weave_release_tag_newer <candidate> <floor>: succeeds when both are
+# router-vX.Y.Z tags and <candidate> is strictly newer than <floor>.
+weave_release_tag_newer() {
+  local re='^router-v([0-9]{1,9})\.([0-9]{1,9})\.([0-9]{1,9})$' a b i
+  [[ "${1:-}" =~ $re ]] || return 1
+  a=("${BASH_REMATCH[@]:1}")
+  [[ "${2:-}" =~ $re ]] || return 1
+  b=("${BASH_REMATCH[@]:1}")
+  for i in 0 1 2; do
+    (( 10#${a[i]} > 10#${b[i]} )) && return 0
+    (( 10#${a[i]} < 10#${b[i]} )) && return 1
+  done
+  return 1
+}
+
+# weave_release_advertised_tag <file>: print the WEAVE_RELEASE_TAG assignment
+# found in a downloaded copy of this script, if it is a well-formed tag.
+weave_release_advertised_tag() {
+  local tag
+  [ -f "${1:-}" ] || return 1
+  tag="$(sed -n 's/^WEAVE_RELEASE_TAG="\(router-v[0-9.]*\)"$/\1/p' "$1" 2>/dev/null)" || return 1
+  tag="${tag%%$'\n'*}"
+  [[ "$tag" =~ ^router-v[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$ ]] || return 1
+  printf '%s\n' "$tag"
+}
+
 # ---------- background self-refresh ----------
 #
 # Codex runs this helper on SessionStart and after every turn. Once per
@@ -117,15 +156,21 @@ weave_verify_file() {
 # download is detached and swapped atomically; the current hook always
 # finishes against the copy it started with.
 #
+# Downloads come from the newest signed release tag (see "pinned release
+# source" above) and are swapped in only after the signed MANIFEST verifies.
+#
 # Set WEAVE_CODEX_STATUS_UPDATE=0 to disable it. Self-hosters can point
-# WEAVE_CODEX_STATUS_URL at their own helper source. The common
-# WEAVE_STATUSLINE_UPDATE and WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS variables
-# remain accepted as aliases for users who configure both clients together.
+# WEAVE_CODEX_STATUS_URL at their own helper source; MANIFEST and
+# MANIFEST.sig.b64 are then read from the same directory and must still verify
+# under the embedded key. The common WEAVE_STATUSLINE_UPDATE and
+# WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS variables remain accepted as aliases
+# for users who configure both clients together.
 #
 # Fetched-code surface 3 (inventory in install.sh, "uninstall delegation"):
 # the downloaded body replaces this hook and runs on the next Codex lifecycle
-# event. It is gated only by shape checks (bash shebang, at least 1024 bytes),
-# with no digest or signature.
+# event. It is swapped in only after weave_verify_manifest accepts the fetched
+# MANIFEST and weave_verify_file matches the body to its row; on any failure
+# the installed copy is left as it is.
 weave_self_refresh() {
   # The published helper may predate classifier lifecycle forwarding. Do not
   # replace the hook implementation underneath an opted-in session.
@@ -165,14 +210,45 @@ weave_self_refresh() {
   # download. A failed download consumes the interval; the next hook retries.
   : >"$stamp" 2>/dev/null || return 0
 
-  local url="${WEAVE_CODEX_STATUS_URL:-https://raw.githubusercontent.com/weave-os/router/main/install/codex-status.sh}"
   local tmp="${self}.tmp.$$"
   (
+    # Detach stdin so curl can't accidentally consume it, and silence all
+    # output so nothing leaks into the client's display.
     exec </dev/null
-    if curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null \
+    local base url outcome=fail
+    if [ -n "${WEAVE_CODEX_STATUS_URL:-}" ]; then
+      url="$WEAVE_CODEX_STATUS_URL"
+      base="${url%/*}"
+    else
+      base=""
+      if curl -fsSL --max-time 15 "$WEAVE_RELEASE_REPO_URL/main/install/codex-status.sh" -o "$tmp.channel" 2>/dev/null; then
+        local tag
+        tag="$(weave_release_advertised_tag "$tmp.channel")" || tag=""
+        if weave_release_tag_newer "$tag" "$WEAVE_RELEASE_TAG"; then
+          base="$WEAVE_RELEASE_REPO_URL/$tag/install"
+        else
+          outcome=current
+        fi
+      fi
+      rm -f "$tmp.channel"
+      url="$base/codex-status.sh"
+    fi
+    # Verify before anything touches $self: the MANIFEST signature under the
+    # embedded key, then this body's SHA-256 against its MANIFEST row. The
+    # shape checks stay as a second line of defence.
+    if [ -n "$base" ] \
+       && curl -fsSL --max-time 15 "$base/MANIFEST" -o "$tmp.MANIFEST" 2>/dev/null \
+       && curl -fsSL --max-time 15 "$base/MANIFEST.sig.b64" -o "$tmp.MANIFEST.sig.b64" 2>/dev/null \
+       && curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null \
+       && weave_verify_manifest "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" \
+       && weave_verify_file "$tmp.MANIFEST" "install/codex-status.sh" "$tmp" \
        && [ -s "$tmp" ] \
        && head -n 1 "$tmp" | grep -q '^#!.*bash' \
        && [ "$(wc -c <"$tmp")" -ge 1024 ]; then
+      outcome=verified
+    fi
+    rm -f "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64"
+    if [ "$outcome" = "verified" ]; then
       if cmp -s "$tmp" "$self"; then
         rm -f "$tmp"
       else
