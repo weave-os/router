@@ -41,7 +41,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	}
 	poolProvider, eligible := credentials.ManagedSubscriptionProviderFromUpstream(provider, model)
 	if eligible && managedSubscriptionEnrollmentUnavailable(ctx) {
-		if credentials := credentials.CredentialsFromContext(ctx); credentials != nil && credentials.OAuth && s.supportsSubscriptionTransport(provider) {
+		if creds := credentials.CredentialsFromContext(ctx); creds != nil && creds.OAuth && s.supportsSubscriptionTransport(provider) {
 			return ctx, subscriptions.Lease{}, false, nil
 		}
 		return ctx, subscriptions.Lease{}, true, credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)
