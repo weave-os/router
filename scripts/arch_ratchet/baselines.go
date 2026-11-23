@@ -180,61 +180,88 @@ func collectGoAllowlists(counts baselineCounts, payload []byte) error {
 			continue
 		}
 		for _, spec := range gen.Specs {
-			collectAllowlist(counts, spec, goAllowlistNames)
+			if err := collectAllowlist(counts, spec, goAllowlistNames); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func collectAllowlist(counts baselineCounts, spec ast.Spec, names []string) {
+func collectAllowlist(counts baselineCounts, spec ast.Spec, names []string) error {
 	value, ok := spec.(*ast.ValueSpec)
 	if !ok {
-		return
+		return nil
 	}
 	for i, name := range value.Names {
-		if i >= len(value.Values) || !slices.Contains(names, name.Name) {
+		if !slices.Contains(names, name.Name) {
 			continue
 		}
-		literal, ok := value.Values[i].(*ast.CompositeLit)
+		if i >= len(value.Values) {
+			return fmt.Errorf("%s: want a composite literal initializer", name.Name)
+		}
+		literal, ok := ast.Unparen(value.Values[i]).(*ast.CompositeLit)
 		if !ok {
-			continue
+			return fmt.Errorf("%s: want a composite literal initializer, got %s", name.Name, types.ExprString(value.Values[i]))
 		}
 		entries := counts[name.Name]
 		if entries == nil {
 			entries = map[string]int{}
 		}
 		for _, element := range literal.Elts {
-			key, count := allowlistEntry(element)
+			key, count, err := allowlistEntry(element)
+			if err != nil {
+				return fmt.Errorf("%s: %w", name.Name, err)
+			}
 			entries[key] += count
 		}
 		counts[name.Name] = entries
 	}
+	return nil
 }
 
-func allowlistEntry(element ast.Expr) (string, int) {
+func allowlistEntry(element ast.Expr) (string, int, error) {
 	pair, ok := element.(*ast.KeyValueExpr)
 	if !ok {
-		return literalText(element), 1
+		key, err := constantString(element)
+		return key, 1, err
 	}
-	if value := constantOf(pair.Value); value != nil && value.Kind() == constant.Int {
-		if count, exact := constant.Int64Val(value); exact {
-			return literalText(pair.Key), int(count)
-		}
+	key, err := constantString(pair.Key)
+	if err != nil {
+		return "", 0, err
 	}
-	return literalText(pair.Key), 1
+	value, err := constantOf(pair.Value)
+	if err != nil {
+		return "", 0, err
+	}
+	if value.Kind() != constant.Int {
+		return key, 1, nil
+	}
+	count, exact := constant.Int64Val(value)
+	if !exact {
+		return "", 0, fmt.Errorf("count %s overflows int64", value)
+	}
+	return key, int(count), nil
 }
 
-func literalText(expression ast.Expr) string {
-	if value := constantOf(expression); value != nil && value.Kind() == constant.String {
-		return constant.StringVal(value)
+func constantString(expression ast.Expr) (string, error) {
+	value, err := constantOf(expression)
+	if err != nil {
+		return "", err
 	}
-	return types.ExprString(expression)
+	if value.Kind() != constant.String {
+		return "", fmt.Errorf("key %s is not a string constant", types.ExprString(expression))
+	}
+	return constant.StringVal(value), nil
 }
 
-func constantOf(expression ast.Expr) constant.Value {
+func constantOf(expression ast.Expr) (constant.Value, error) {
 	evaluated, err := types.Eval(token.NewFileSet(), nil, token.NoPos, types.ExprString(expression))
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("evaluate %s as a self-contained constant: %w", types.ExprString(expression), err)
 	}
-	return evaluated.Value
+	if evaluated.Value == nil {
+		return nil, fmt.Errorf("%s is not a constant", types.ExprString(expression))
+	}
+	return evaluated.Value, nil
 }

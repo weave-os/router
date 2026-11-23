@@ -41,8 +41,8 @@ Measurement rules (pinned in `ratchet_test.go`):
   and package), the inference-boundary baseline (exception count per `kind`), and the
   `envReadAllowlist`, `proxyImportAllowlist` and `strategyFromContextSites` literals
   in any Go file of `internal/architecture` (a `map[string]int` contributes its
-  values; any other map or slice counts one per entry; keys and counts are evaluated
-  as Go constants). A raised count or a new key fails unless `ratchet_exceptions.json`
+  values; any other map or slice counts one per entry; keys and counts must be
+  self-contained Go constants, or the run fails). A raised count or a new key fails unless `ratchet_exceptions.json`
   holds a `baseline_growth` exception for the subject `<file>#<group>/<key>` (the Go
   allowlists use `internal/architecture#<variable>/<key>`, so moving one between
   files keeps it checked) with a `max` at or above the new count and a reason. A group absent at the merge base is a new

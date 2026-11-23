@@ -611,3 +611,30 @@ func TestRunKeepsCheckingAllowlistsThatMoveOrChangeSpelling(t *testing.T) {
 	assert.Equal(t, "internal/architecture#envReadAllowlist/internal/a", result.violations[0].subject)
 	assert.Equal(t, 2, result.violations[0].after)
 }
+
+func TestRunRejectsAllowlistsItCannotCount(t *testing.T) {
+	for name, literal := range map[string]string{
+		"parenthesized literal": `(map[string]int{"internal/a": 1})`,
+		"named constant key":    `map[string]int{someKey: 1}`,
+		"named constant count":  `map[string]int{"internal/a": someCount}`,
+		"non-literal value":     `buildAllowlist()`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			root, git := newTempGitRepo(t)
+			path := filepath.Join(root, "internal/architecture/env_ownership_test.go")
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+			require.NoError(t, os.WriteFile(path, []byte("package architecture_test\n\nvar envReadAllowlist = map[string]int{\"internal/a\": 1}\n"), 0o600))
+			git("init", "-q", "-b", "main")
+			git("add", ".")
+			git("commit", "-q", "-m", "base")
+
+			require.NoError(t, os.WriteFile(path, []byte("package architecture_test\n\nvar envReadAllowlist = "+literal+"\n"), 0o600))
+			_, err := run(t.Context(), repo{root: root}, "main")
+			if name == "parenthesized literal" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorContains(t, err, "envReadAllowlist")
+		})
+	}
+}
