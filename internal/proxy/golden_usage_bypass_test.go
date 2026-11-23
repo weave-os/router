@@ -33,7 +33,7 @@ func usageBypassGoldenCtx(threshold float64) func(context.Context) context.Conte
 	return func(ctx context.Context) context.Context {
 		ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, usageBypassGoldenToken)
 		ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: false}})
-		return context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
+		return context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	}
 }
 

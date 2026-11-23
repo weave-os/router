@@ -78,7 +78,7 @@ func bypassFixture(t *testing.T, seedUtil float64) (*proxy.Service, *fakeRouter,
 func bypassCtx(threshold float64) context.Context {
 	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: false}})
-	return context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{
+	return context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
 	})
@@ -163,7 +163,7 @@ func TestUsageBypass_CodexSubscriptionPreservesRequestedModel(t *testing.T) {
 	threshold := 0.80
 	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, codexToken)
 	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "account-1")
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
 	})
@@ -200,7 +200,7 @@ func TestUsageBypass_NoSubscription_EngagesRouting(t *testing.T) {
 	svc, fr, _ := bypassFixture(t, 0.20)
 	rec, req, body := bypassRequest(t)
 	threshold := 0.80
-	ctx := context.WithValue(context.Background(), requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
 	})
@@ -279,7 +279,7 @@ func TestUsageBypass_MaxedOutModel_EngagesRouting(t *testing.T) {
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	threshold := 0.80
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	rec, req, body := bypassRequest(t)
 
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
@@ -314,7 +314,7 @@ func TestUsageBypass_ToolResult_BeatsStalePin(t *testing.T) {
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	threshold := 0.80
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 
 	toolResultBody := []byte(`{"model":"` + bypassRequestedMdl + `","messages":[` +
 		`{"role":"user","content":"do it"},` +
@@ -356,7 +356,7 @@ func TestUsageBypass_SessionDemotedModel_EngagesRouting(t *testing.T) {
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	threshold := 0.80
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	rec, req, body := bypassRequest(t)
 
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
@@ -845,7 +845,7 @@ func TestUsageBypass_HealthyHighOutputKeepsBypassEligible(t *testing.T) {
 		WithUsageObserver(obs)
 	ctx := context.WithValue(authedCtx(uuid.NewString()), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	threshold := 0.80
-	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	rec, req, body := bypassRequest(t)
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
 	assert.Equal(t, bypassRequestedMdl, rec.Header().Get(requestcontext.HeaderRouterModel))

@@ -15,13 +15,6 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
-const (
-	routePathMessages        = "/v1/messages"
-	routePathPiHandoff       = "/v1/route/handoff"
-	routePathChatCompletions = "/v1/chat/completions"
-	routePathResponses       = "/v1/responses"
-)
-
 func codexSubscriptionCanAttemptModel(model string) bool {
 	return requestcontext.CodexSubscriptionCanAttemptModel(model)
 }
@@ -103,9 +96,9 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 	}
 	codex, anthropic := presentSubscriptionTokens(ctx, headers)
 	switch routePath {
-	case routePathMessages, routePathPiHandoff:
+	case requestcontext.RoutePathMessages, requestcontext.RoutePathPiHandoff:
 		return anthropic != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude)
-	case routePathChatCompletions, routePathResponses:
+	case requestcontext.RoutePathChatCompletions, requestcontext.RoutePathResponses:
 		return codex != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex)
 	default:
 		return false
