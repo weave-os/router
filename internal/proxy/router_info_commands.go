@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 )
 
@@ -19,7 +20,7 @@ func (c routerInfoCommands) session(
 	env *translate.RequestEnvelope,
 	inputTokens int,
 ) error {
-	identity := ClientIdentityFrom(ctx)
+	identity := requestcontext.ClientIdentityFrom(ctx)
 	ack := newCommandAcknowledgment(translate.CommandRouterSession)
 	ack.sessionID, ack.clientApp = identity.SessionID, identity.ClientApp
 
@@ -50,7 +51,7 @@ func (c routerInfoCommands) models(
 
 	ack := newCommandAcknowledgment(translate.CommandRouterModels)
 	ack.routable, ack.excluded, ack.automaticExcluded = routable, excluded, automaticExcluded
-	ack.clientApp = ClientIdentityFrom(ctx).ClientApp
+	ack.clientApp = requestcontext.ClientIdentityFrom(ctx).ClientApp
 	return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 }
 
@@ -63,6 +64,6 @@ func (c routerInfoCommands) listModels(
 	models := conversation.ListForceableModels(ctx, forceModelNames(), forceModelResolver(c))
 	ack := newCommandAcknowledgment(translate.CommandListModels)
 	ack.forceable = models
-	ack.clientApp = ClientIdentityFrom(ctx).ClientApp
+	ack.clientApp = requestcontext.ClientIdentityFrom(ctx).ClientApp
 	return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 }

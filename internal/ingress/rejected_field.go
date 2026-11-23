@@ -1,4 +1,4 @@
-package proxy
+package ingress
 
 import (
 	"github.com/tidwall/gjson"
@@ -6,7 +6,7 @@ import (
 	"weave-os/router/internal/providers"
 )
 
-func rejectedFieldUnchanged(err error, inbound, sent []byte) bool {
+func RejectedFieldUnchanged(err error, inbound, sent []byte) bool {
 	path := providers.UpstreamRejectedField(err)
 	if path == "" || sent == nil {
 		return false

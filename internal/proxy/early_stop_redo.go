@@ -69,7 +69,7 @@ func lowerTierCandidates(target string, candidates []string) []string {
 func (s *Service) earlyStopRedoMode(ctx context.Context, routeRes dispatch.RescueTurn, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode {
 	mode := s.rescueConfig.EarlyStopRedoMode(ctx)
 	if mode == flags.EarlyStopRedoOff || !streaming || agentShadow ||
-		ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppClaudeCode ||
+		requestcontext.ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppClaudeCode ||
 		routeRes.TurnType != turntype.ToolResult ||
 		routeRes.HardPinned || routeRes.CallerModelPassthrough || routeRes.UsageBypass ||
 		strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) {

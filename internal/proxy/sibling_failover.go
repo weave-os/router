@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	candidatefilter "weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
@@ -83,7 +84,7 @@ func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, c
 		candidateProviders = failed.Metadata.CandidateProviders
 	}
 	automaticExcluded := s.rescueExcludedModels(ctx)
-	imageCount := requestImageCountFromContext(ctx)
+	imageCount := requestcontext.RequestImageCountFromContext(ctx)
 	providerFor := func(id string) (string, bool) {
 		return siblingProvider(id, candidateProviders, available, imageCount)
 	}
@@ -100,7 +101,7 @@ func (s *Service) rescueWalkOrReadmitCooling(
 	providerFor func(id string) (string, bool),
 ) []router.Decision {
 	var skipped []string
-	decisions := walkRescueCandidates(failed, candidates, reason, requestImageCountFromContext(ctx), excludedModels, automaticExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor, func(model string, why rescueSkipReason) {
+	decisions := walkRescueCandidates(failed, candidates, reason, requestcontext.RequestImageCountFromContext(ctx), excludedModels, automaticExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor, func(model string, why rescueSkipReason) {
 		skipped = append(skipped, model+":"+string(why))
 	})
 	if len(skipped) > 0 {
@@ -175,7 +176,7 @@ func (s *Service) readmissionWalk(
 			readmitExcluded[model] = struct{}{}
 		}
 	}
-	return walkRescueCandidates(failed, pool, reason, requestImageCountFromContext(ctx), excludedModels, readmitExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor, nil)
+	return walkRescueCandidates(failed, pool, reason, requestcontext.RequestImageCountFromContext(ctx), excludedModels, readmitExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor, nil)
 }
 
 func rosterRescueAdmits(failed router.Decision, model string) bool {

@@ -55,7 +55,7 @@ func (s *Service) feedbackFooter(ctx context.Context, clientApp string, tt turnt
 	if tt != turntype.MainLoop && tt != turntype.ToolResult {
 		return ""
 	}
-	if echoedInConversation || isHeadlessClientUserAgent(ClientIdentityFrom(ctx).UserAgent) {
+	if echoedInConversation || isHeadlessClientUserAgent(requestcontext.ClientIdentityFrom(ctx).UserAgent) {
 		return ""
 	}
 	if clientApp == requestcontext.ClientAppCodex {
