@@ -65,9 +65,9 @@ func TestClassifyDispatchError_ContextOverflowIsNative(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, cls.Status, name)
 		assert.True(t, strings.HasPrefix(cls.Message, "prompt is too long"), "Claude Code and opencode key compaction off this wording")
 		assert.True(t, cls.Kind.IsClientError(), name)
-		assert.Equal(t, "context_length_exceeded", OpenAIErrorCode(cls.Kind))
+		assert.Equal(t, "context_length_exceeded", ingress.OpenAIErrorCode(cls.Kind))
 	}
-	assert.Empty(t, OpenAIErrorCode(ingress.DispatchErrorUpstreamStatus))
+	assert.Empty(t, ingress.OpenAIErrorCode(ingress.DispatchErrorUpstreamStatus))
 }
 
 func TestFlushHelpersLeaveOverflowToHandler(t *testing.T) {

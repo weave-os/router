@@ -11,7 +11,6 @@ import (
 
 	"github.com/tidwall/sjson"
 
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/ingress"
@@ -39,11 +38,6 @@ func committed(b *dispatch.PreludeBuffer) bool {
 }
 
 const subscriptionRotationBudget = 10 * time.Second
-
-func (s *Service) WithClock(clock auth.Clock) *Service {
-	s.clock = clock
-	return s
-}
 
 func (s *Service) shouldFailover(ctx context.Context) bool {
 	if s.credentials.BYOKOnly {
@@ -175,7 +169,7 @@ func anthropicErrorFrameBody(cls ingress.DispatchErrorClass) []byte {
 }
 
 func openAIErrorFrameBody(cls ingress.DispatchErrorClass) []byte {
-	code := OpenAIErrorCode(cls.Kind)
+	code := ingress.OpenAIErrorCode(cls.Kind)
 	if code == "" {
 		code = "upstream_error"
 	}

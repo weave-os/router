@@ -263,11 +263,11 @@ func TestAbandonBillingWithCanceledRequestErrors(t *testing.T) {
 }
 
 func abandonedBillingService(provider, model string, upstream *fakeProvider, repo *capturingBillingRepo) *proxy.Service {
-	return proxy.WithStrategyPorts(proxy.NewService(
+	return proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: provider, Model: model}},
 		dispatch.NewClients(map[string]providers.Client{provider: upstream}),
-		nil, nil, false, provider, model, nil), hmm.ServingPorts()).
-		WithBillingService(billing.NewService(repo))
+		nil, nil, false, provider, model, nil), hmm.ServingPorts()),
+		proxy.Deps{Telemetry: proxy.TelemetryDeps{Billing: billing.NewService(repo)}})
 }
 
 func writeAbandonedBillingAnthropicStream(w http.ResponseWriter) {

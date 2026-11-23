@@ -203,7 +203,8 @@ func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
 			primary := &failingClient{err: tc.err}
 			sibling := &anthropicServingClient{}
 			repo := &auxBillingRepo{}
-			svc := codexOverloadService(primary, sibling, true).WithBillingService(billing.NewService(repo))
+			svc := codexOverloadService(primary, sibling, true)
+			svc.billing = billing.NewService(repo)
 
 			body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 			rec := httptest.NewRecorder()
