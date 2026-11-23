@@ -100,7 +100,7 @@ func chatTurnUsageFor(ctx context.Context, s *Service, t *chatFinishedTurn) chat
 		setRouterCostHeaders(t.w.Header(), routerResponseCostFromPricing(t.actPricing, t.decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
 	}
 
-	if t.respSummary.StopReason == "" && s.ResolveNativeOpenAIResponseSignals(ctx) {
+	if t.respSummary.StopReason == "" && s.turnTelemetry.flags.resolveNativeOpenAIResponseSignals(ctx) {
 		if finishReason, toolCalls, observed := t.extractor.OpenAIChatResponse(); observed {
 			t.respSummary.UpstreamFinishReason = finishReason
 			t.respSummary.StopReason = finishReason

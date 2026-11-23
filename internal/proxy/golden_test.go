@@ -160,13 +160,12 @@ func newGoldenHarness(t *testing.T, sc goldenScenario) *goldenHarness {
 	require.NoError(t, err)
 
 	rt := &goldenRouter{decisions: sc.decisions, err: sc.routeErr, noCandidateErr: sc.noCandidateErr, rec: h.rec}
-	svc := proxy.WithStrategyPorts(proxy.NewService(rt, dispatch.NewClients(providerMap), nil, h.pins, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", h.telemetry), hmm.ServingPorts()).
-		WithClock(h.clock.Now).
+	svc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(rt, dispatch.NewClients(providerMap), nil, h.pins, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", h.telemetry), hmm.ServingPorts()),
+		proxy.Deps{Telemetry: proxy.TelemetryDeps{Clock: h.clock.Now, Billing: billing.NewService(&goldenBilling{rec: h.rec})}}).
 		WithDeploymentKeyedProviders(available).
 		WithProviderOverloaded(false, breaker.New(breaker.Defaults(), h.clock.Now)).
 		WithRetrySleep(h.clock.Sleep).
-		WithBillingService(billing.NewService(&goldenBilling{rec: h.rec})).
 		WithInferenceExecutor(executor).
 		WithInferencePlans(plans).
 		WithInferenceDeployment(policy.DeploymentPolicyConfig{AvailableProviders: available})

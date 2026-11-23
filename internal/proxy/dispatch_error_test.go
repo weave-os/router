@@ -493,7 +493,7 @@ func TestClassifyDispatchError_SidecarOversizedBodyIsContextOverflowNotHMMUnavai
 	require.True(t, ok)
 	assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
-	assert.Equal(t, "context_length_exceeded", proxy.OpenAIErrorCode(cls.Kind))
+	assert.Equal(t, "context_length_exceeded", ingress.OpenAIErrorCode(cls.Kind))
 	assert.False(t, cls.RetryAfter)
 }
 
