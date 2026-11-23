@@ -13,10 +13,10 @@ type aliasDeps struct {
 	svc proxyref.ServiceRef
 }
 
-type S = proxy.Service
+type proxyServiceAlias = proxy.Service
 
 type pointerAliasDeps struct {
-	svc *S
+	svc *proxyServiceAlias
 }
 
 var (
