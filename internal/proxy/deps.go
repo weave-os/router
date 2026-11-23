@@ -18,6 +18,7 @@ type Deps struct {
 	Conversation             conversation.Config
 	Ingress                  *ingress.Formats
 	Escalation               EscalationDeps
+	Routing                  *RoutingDeps
 	BYOKOnly                 bool
 	DeploymentKeyedProviders map[string]struct{}
 	Dispatch                 *dispatch.Config
@@ -36,6 +37,11 @@ type EscalationDeps struct {
 	SwitchyardActive bool
 }
 
+type RoutingDeps struct {
+	PrefixTrimFreeSwitch bool
+	EffortEscalation     bool
+}
+
 func WithDeps(s *Service, deps Deps) *Service {
 	s.clock = deps.Telemetry.Clock
 	s.turnTelemetry.turnClock = deps.Telemetry.SessionTurnClock
@@ -51,6 +57,9 @@ func WithDeps(s *Service, deps Deps) *Service {
 		s.ingress = *deps.Ingress
 	}
 	s.escalationHelper().WithSwitchyardActive(deps.Escalation.SwitchyardActive)
+	if deps.Routing != nil {
+		s.routing = s.routing.WithPrefixTrimFreeSwitch(deps.Routing.PrefixTrimFreeSwitch).WithEffortEscalation(deps.Routing.EffortEscalation)
+	}
 	s.credentials.BYOKOnly = deps.BYOKOnly
 	s.credentials.KeyedProviders = maps.Clone(deps.DeploymentKeyedProviders)
 	if deps.Dispatch != nil {

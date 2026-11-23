@@ -934,7 +934,7 @@ func TestTurnLoop_PrefixTrimKillSwitchPreservesWarmStay(t *testing.T) {
 	store.pin = warmOpusPin()
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
 	sz := &fakeSummarizer{summary: "Prior conversation summary."}
-	svc := newPinSvc(fr, store).WithSummarizer(sz).WithPrefixTrimFreeSwitch(false).EditContinuityConfig(func(c *continuity.Config) {
+	svc := proxy.WithPrefixTrimFreeSwitch(newPinSvc(fr, store).WithSummarizer(sz), false).EditContinuityConfig(func(c *continuity.Config) {
 		c.Planner = planner.EVConfig{ThresholdUSD: 0.001, ExpectedRemainingTurns: 3}
 	})
 	ctx := authedCtx(uuid.New().String())

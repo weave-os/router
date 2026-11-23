@@ -454,7 +454,7 @@ func (s *Service) runTurnLoop(
 		sessionKey, installationID, res.PinRole,
 		feats.MessageCount, len(env.AssistantToolCallSignatures()),
 	)
-	prefixBroken := s.ResolvePrefixTrimFreeSwitch(ctx) && res.PrefixTrimmed
+	prefixBroken := s.routing.ResolvePrefixTrimFreeSwitch(ctx) && res.PrefixTrimmed
 	res.PrefixBroken = prefixBroken
 	if res.PrefixTrimmed {
 		log.Info("turnloop detected client history trim",
