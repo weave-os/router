@@ -82,3 +82,15 @@ func StrategyUnavailableError(strategy Strategy) error {
 		return ErrStrategyUnavailable
 	}
 }
+
+func IsStableHMMStrategy(strategy Strategy) bool {
+	return strategy == StrategyHMM || strategy == StrategyHMMEmbedding
+}
+
+func HMMRosterLane(raw string) (Strategy, bool) {
+	strategy := NormalizeStrategy(raw)
+	if strategy == "" || strategy == StrategyHMMEmbedding {
+		strategy = StrategyHMM
+	}
+	return strategy, strategy == StrategyHMM || strategy == StrategyHMMBeta
+}
