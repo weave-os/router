@@ -3,12 +3,12 @@ package proxy
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/telemetry/respobserve"
 
 	"github.com/google/uuid"
 
@@ -29,25 +29,6 @@ func TestPinNeverExpires_OutlivesAnyIdleGapWithinPostgresRange(t *testing.T) {
 	}
 	if pinNeverExpires.Year() > 9999 {
 		t.Fatalf("pinNeverExpires = %v, want a four-digit year inside the Postgres timestamp range", pinNeverExpires)
-	}
-}
-
-func TestRefusalObserver_CatchesSignalSplitDeepIntoPreviousChunk(t *testing.T) {
-	signal := `"stop_reason":"refusal"`
-	split := len(signal) - 3
-	rec := httptest.NewRecorder()
-	obs := newRefusalObserver(rec)
-	if _, err := obs.Write([]byte(`data: {"type":"message_delta","delta":{` + strings.Repeat(" ", 256) + signal[:split])); err != nil {
-		t.Fatalf("write 1: %v", err)
-	}
-	if obs.refused {
-		t.Fatal("refusal detected before the signal completed")
-	}
-	if _, err := obs.Write([]byte(signal[split:] + `}}`)); err != nil {
-		t.Fatalf("write 2: %v", err)
-	}
-	if !obs.refused {
-		t.Fatal("refusal split across writes was not detected")
 	}
 }
 
@@ -100,7 +81,7 @@ func TestMaybeRepinOnRefusal_WritesAfterRequestCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(repinCtx())
 	cancel()
 
-	s.maybeRepinOnRefusal(ctx, router.StrategyFromContext(ctx), &refusalObserver{refused: true}, [sessionpin.SessionKeyLen]byte{7, 8, 9}, "main_loop",
+	s.maybeRepinOnRefusal(ctx, router.StrategyFromContext(ctx), &respobserve.RefusalObserver{Refused: true}, [sessionpin.SessionKeyLen]byte{7, 8, 9}, "main_loop",
 		router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"})
 
 	if len(store.ctxErrs) != 1 {
@@ -162,28 +143,6 @@ func TestCacheCreation1hPtr_NullWithoutCacheCreation(t *testing.T) {
 	got := cacheCreation1hPtr(100, 0)
 	if got == nil || *got != 0 {
 		t.Fatalf("cacheCreation1hPtr(100, 0) = %v, want a measured zero", got)
-	}
-}
-
-func TestRefusalCategory_RejectsOverlongValue(t *testing.T) {
-	if got := refusalCategory([]byte(`"category":"` + strings.Repeat("a", 65) + `"`)); got != "" {
-		t.Fatalf("refusalCategory accepted a %d-byte value", len(got))
-	}
-}
-
-func TestRefusalObserver_CategoryBeforeOverlapWindowIsKept(t *testing.T) {
-	obs := newRefusalObserver(httptest.NewRecorder())
-	if _, err := obs.Write([]byte(`data: {"category":"cyber"` + strings.Repeat(" ", 4*refusalScanOverlap))); err != nil {
-		t.Fatalf("write 1: %v", err)
-	}
-	if _, err := obs.Write([]byte(`,"stop_reason":"refusal"}`)); err != nil {
-		t.Fatalf("write 2: %v", err)
-	}
-	if !obs.refused {
-		t.Fatal("refusal not detected")
-	}
-	if obs.category != "cyber" {
-		t.Fatalf("category = %q, want cyber from the earlier chunk", obs.category)
 	}
 }
 
