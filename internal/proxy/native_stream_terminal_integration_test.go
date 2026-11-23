@@ -68,7 +68,7 @@ func nativeSurfaceService(provider *fakeProvider, providerName, model string) *p
 		&fakeRouter{decision: router.Decision{Provider: providerName, Model: model, Reason: "test"}},
 		dispatch.NewClients(map[string]providers.Client{providerName: provider}),
 		nil, nil, false, providerName, model, nil), hmm.ServingPorts()).
-		WithOpenAIResponsesBroad(providerName == providers.ProviderOpenAI).
+		WithIngress(responsesBroadFormats(providerName == providers.ProviderOpenAI)).
 		WithRetrySleep(noRetrySleep)
 }
 

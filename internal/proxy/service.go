@@ -41,7 +41,6 @@ import (
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/timing"
 	"weave-os/router/internal/translate"
-	"weave-os/router/internal/websearch"
 
 	"github.com/google/uuid"
 )
@@ -52,8 +51,6 @@ type Service struct {
 	strategies                   map[router.Strategy]registeredStrategy
 	engine                       *dispatch.Engine
 	translationCompatibilityMode TranslationCompatibilityMode
-	scopedSearchRequirement      bool
-	searchRequirementDecayTurns  int
 	searchUse                    *searchUseTracker
 	turnTelemetry                turnTelemetry
 	translationMetrics           telemetry.TranslationMetrics
@@ -61,7 +58,6 @@ type Service struct {
 	escalation                   *floor.Helper
 	lifecycle                    *conversation.Lifecycle
 	prefixTrimFreeSwitch         bool
-	escapeNormalize              bool
 	captureMode                  capture.Mode
 	captureMaxBytes              int
 	redactor                     capture.Redactor
@@ -69,21 +65,14 @@ type Service struct {
 	credentials                  credentials.Brokerage
 	strategyServing
 
-	rescueConfig            dispatch.RescueConfig
-	openAIResponsesBroad    bool
-	armDemotion             dispatch.ArmDemotionPolicy
-	throttling              dispatch.Throttling
-	ingress                 ingress.Formats
-	effortEscalation        bool
-	ccOrchToolsCrossVendor  bool
-	ccTaskToolsCrossVendor  bool
-	ccAutonomySystemAppend  bool
-	ccWorkspaceSystemAppend bool
+	rescueConfig     dispatch.RescueConfig
+	armDemotion      dispatch.ArmDemotionPolicy
+	throttling       dispatch.Throttling
+	ingress          ingress.Formats
+	effortEscalation bool
 
-	webSearch     websearch.Executor
-	billing       *billing.Service
-	clock         auth.Clock
-	feedbackLinks *feedbackLinks
+	billing *billing.Service
+	clock   auth.Clock
 }
 
 type registeredStrategy struct {
@@ -665,9 +654,7 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 		pinStore:                     pinStore,
 		lifecycle:                    conversation.NewLifecycle(),
 		searchUse:                    newSearchUseTracker(),
-		searchRequirementDecayTurns:  DefaultSearchRequirementDecayTurns,
 		prefixTrimFreeSwitch:         true,
-		ccOrchToolsCrossVendor:       true,
 		strategyServing:              strategyServing{continuityConfig: continuity.DefaultConfig(), hmmConfig: continuity.DefaultAuthoritativeConfig()},
 		rescueConfig: dispatch.RescueConfig{
 			SiblingFailover:             true,
@@ -676,7 +663,6 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 			CyberRefusalFallbackModel:   "claude-sonnet-5",
 			AnthropicServerSideFallback: true,
 		},
-		openAIResponsesBroad: true,
 	}
 	s.routing = routingpolicy.New(nil).WithHardPins(overrides.HardPins{Explore: hardPinExplore, Provider: hardPinProvider, Model: hardPinModel})
 	s.escalationHelper()
@@ -690,14 +676,6 @@ func (s *Service) WithTranslationCompatibilityMode(mode TranslationCompatibility
 	switch mode {
 	case TranslationCompatibilityOff, TranslationCompatibilityShadow, TranslationCompatibilityEnforce:
 		s.translationCompatibilityMode = mode
-	}
-	return s
-}
-
-func (s *Service) WithScopedSearchRequirement(enabled bool, decayTurns int) *Service {
-	s.scopedSearchRequirement = enabled
-	if decayTurns > 0 {
-		s.searchRequirementDecayTurns = decayTurns
 	}
 	return s
 }
@@ -724,11 +702,6 @@ func (s *Service) WithAnthropicServerSideFallback(enabled bool) *Service {
 
 func (s *Service) WithSiblingFailover(enabled bool) *Service {
 	s.rescueConfig.SiblingFailover = enabled
-	return s
-}
-
-func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
-	s.openAIResponsesBroad = enabled
 	return s
 }
 
@@ -783,38 +756,13 @@ func (s *Service) WithPrefixTrimFreeSwitch(enabled bool) *Service {
 	return s
 }
 
-func (s *Service) WithEscapeNormalize(enabled bool) *Service {
-	s.escapeNormalize = enabled
-	return s
-}
-
 func (s *Service) WithEffortEscalation(enabled bool) *Service {
 	s.effortEscalation = enabled
 	return s
 }
 
-func (s *Service) WithCCOrchestrationToolsCrossVendor(enabled bool) *Service {
-	s.ccOrchToolsCrossVendor = enabled
-	return s
-}
-
-func (s *Service) WithCCTaskToolsCrossVendor(enabled bool) *Service {
-	s.ccTaskToolsCrossVendor = enabled
-	return s
-}
-
-func (s *Service) WithCCAutonomySystemAppend(enabled bool) *Service {
-	s.ccAutonomySystemAppend = enabled
-	return s
-}
-
 func (s *Service) WithEarlyStopRedo(mode flags.EarlyStopRedoMode) *Service {
 	s.rescueConfig.EarlyStopRedo = mode
-	return s
-}
-
-func (s *Service) WithCCWorkspaceSystemAppend(enabled bool) *Service {
-	s.ccWorkspaceSystemAppend = enabled
 	return s
 }
 
@@ -848,11 +796,6 @@ func forcedReasoningEffort(model string, escalate bool) string {
 	default:
 		return ""
 	}
-}
-
-func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
-	s.webSearch = ex
-	return s
 }
 
 func (s *Service) WithAvailableModels(models map[string]struct{}) *Service {

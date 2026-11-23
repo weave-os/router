@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Service) workspaceSystemAppendApplies(ctx context.Context, body []byte, env *translate.RequestEnvelope, tt turntype.TurnType) bool {
-	return claudeCodeSystemAppendApplies(ctx, s.ResolveCCWorkspaceSystemAppend(ctx), body, tt, env.HasWorkspaceSystemText)
+	return claudeCodeSystemAppendApplies(ctx, s.ingress.WorkspaceSystemAppend(ctx), body, tt, env.HasWorkspaceSystemText)
 }
 
 func workspaceAppendFired(opts translate.EmitOptions, servedProvider string) bool {
