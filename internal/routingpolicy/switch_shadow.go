@@ -32,7 +32,7 @@ func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate continuit
 		ModelCaches:          gate.HMMHistory.ModelCaches,
 	}
 	verdict := DecideSwitch(input)
-	fresh := FreshCacheView(input)
+	freshCache := FreshCacheView(input)
 	observability.FromContext(ctx).Info("router.switch_shadow",
 		"installation_id", res.InstallationID.String(),
 		"role", res.PinRole,
@@ -57,10 +57,10 @@ func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate continuit
 		"move_value_usd", verdict.Economics.MoveValueUSD,
 		"horizon_turns", verdict.Economics.HorizonTurns,
 		"downgrade", verdict.Economics.Downgrade,
-		"fresh_cache_known", fresh.Known,
-		"fresh_messages_since_served", fresh.MessagesSinceServed,
-		"fresh_seconds_since_served", int(fresh.SinceServed/time.Second),
-		"fresh_cache_ttl_seconds", int(fresh.TTL/time.Second),
+		"fresh_cache_known", freshCache.Known,
+		"fresh_messages_since_served", freshCache.MessagesSinceServed,
+		"fresh_seconds_since_served", int(freshCache.SinceServed/time.Second),
+		"fresh_cache_ttl_seconds", int(freshCache.TTL/time.Second),
 		"cache_write_ttl_seconds", int(input.CacheWriteTTL/time.Second),
 		"tracked_model_caches", len(input.ModelCaches),
 	)

@@ -120,7 +120,7 @@ func expectedTurnUSD(model string, outlook CacheOutlook, tokens, outputTokens in
 		return 0, false
 	}
 	price = price.ForInputTokens(tokens)
-	in := price.InputUSDPer1M / 1e6
+	inputUSD := price.InputUSDPer1M / 1e6
 	if writeTTL <= 0 {
 		writeTTL = providers.CacheTTLFor(m.PrimaryProvider())
 	}
@@ -128,7 +128,7 @@ func expectedTurnUSD(model string, outlook CacheOutlook, tokens, outputTokens in
 	if writeTTL >= time.Hour {
 		writeMultiplier = price.EffectiveCacheWrite1hMultiplier(m.PrimaryProvider())
 	}
-	return outlook.ReadTokens*in*price.EffectiveCacheReadMultiplier() +
-		outlook.WriteTokens*in*writeMultiplier +
+	return outlook.ReadTokens*inputUSD*price.EffectiveCacheReadMultiplier() +
+		outlook.WriteTokens*inputUSD*writeMultiplier +
 		float64(outputTokens)*price.OutputUSDPer1M/1e6, true
 }
