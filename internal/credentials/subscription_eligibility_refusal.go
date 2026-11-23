@@ -3,6 +3,7 @@ package credentials
 import (
 	"context"
 	"errors"
+
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/eligibility"
