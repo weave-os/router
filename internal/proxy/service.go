@@ -666,34 +666,10 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 	if r == nil {
 		return s
 	}
-	return s.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: r, Unavailable: router.ErrHMMUnavailable})
+	return registerPolicyStrategy(s, policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: r, Unavailable: router.ErrHMMUnavailable})
 }
 
-func (s *Service) WithContinuityConfig(cfg continuity.Config) *Service {
-	s.continuityConfig = cfg
-	return s
-}
-
-func (s *Service) WithHMMConfig(cfg continuity.AuthoritativeConfig) *Service {
-	s.hmmConfig = cfg
-	return s
-}
-
-func (s *Service) WithPolicyDeadlineFallback(enabled bool) *Service {
-	deadline := s.routing.Deadline()
-	deadline.Fallback = enabled
-	s.routing = s.routing.WithDeadline(deadline)
-	return s
-}
-
-func (s *Service) WithPolicyDeadlineDefaultModel(model string) *Service {
-	deadline := s.routing.Deadline()
-	deadline.DefaultModel = model
-	s.routing = s.routing.WithDeadline(deadline)
-	return s
-}
-
-func (s *Service) WithBandSwap(enabled bool) *Service {
+func withBandSwap(s *Service, enabled bool) *Service {
 	if !enabled {
 		s.bandSwap = nil
 		return s
@@ -725,40 +701,9 @@ func forcedReasoningEffort(model string, escalate bool) string {
 	}
 }
 
-func (s *Service) WithAvailableModels(models map[string]struct{}) *Service {
-	s.routing = s.routing.WithAvailableModels(models)
-	return s
-}
-
 type HardPinRequest = overrides.HardPinRequest
 
 type HardPinResolver = overrides.HardPinResolver
-
-func (s *Service) WithExplicitUtilityHardPin(enabled bool) *Service {
-	hardPins := s.routing.HardPins()
-	hardPins.ExplicitUtility = enabled
-	s.routing = s.routing.WithHardPins(hardPins)
-	return s
-}
-
-func (s *Service) WithHardPinResolver(resolver HardPinResolver) *Service {
-	hardPins := s.routing.HardPins()
-	hardPins.Resolver = resolver
-	s.routing = s.routing.WithHardPins(hardPins)
-	return s
-}
-
-func (s *Service) WithDefaultBaselineModel(model string) *Service {
-	s.routing = s.routing.WithDefaultBaselineModel(model)
-	return s
-}
-
-func (s *Service) WithSubAgentOverride(provider, model string) *Service {
-	hardPins := s.routing.HardPins()
-	hardPins.SubAgentProvider, hardPins.SubAgentModel = provider, model
-	s.routing = s.routing.WithHardPins(hardPins)
-	return s
-}
 
 func clientRequestedModel(ctx context.Context, requested string) string {
 	if !router.IsRoutingModel(requested) {
@@ -794,23 +739,8 @@ func (s *Service) InferenceExecutor() *dispatch.Executor {
 	return s.engine.Executor()
 }
 
-func (s *Service) WithExcludedModelsOverride(models []string) *Service {
-	s.routing = s.routing.WithExcludedModelsOverride(models)
-	return s
-}
-
-func (s *Service) WithRoutingPolicy(p *routingpolicy.Policy) *Service {
-	s.routing = s.routing.WithPlansFrom(p)
-	return s
-}
-
 func (s *Service) HasExcludedModelsOverride() bool {
 	return s.routing.ExcludedModelsOverride() != nil
-}
-
-func (s *Service) WithGlobalAutomaticExclusions(store candidates.GlobalAutomaticExclusionStore) *Service {
-	s.routing = s.routing.WithGlobalAutomaticExclusions(store)
-	return s
 }
 
 func (s *Service) RoutableModels() map[string]struct{} {
@@ -907,7 +837,7 @@ func (s *Service) Clients() *dispatch.Clients {
 	return s.engine.Clients()
 }
 
-func (s *Service) WithPolicyStrategy(spec policy.StrategySpec) *Service {
+func registerPolicyStrategy(s *Service, spec policy.StrategySpec) *Service {
 	if spec.Strategy == "" {
 		return s
 	}
@@ -971,23 +901,6 @@ func (s *Service) RegisteredStrategies() []router.Strategy {
 	}
 	sort.Slice(strategies, func(i, j int) bool { return strategies[i] < strategies[j] })
 	return strategies
-}
-
-func (s *Service) WithHMMRouter(r router.Router) *Service {
-	return s.WithPolicyStrategy(policy.StrategySpec{
-		Strategy:    router.StrategyHMM,
-		Router:      r,
-		Unavailable: router.ErrHMMUnavailable,
-		Capabilities: policy.Capabilities{
-			SchemaVersion:            policy.SchemaVersionV1,
-			ReportsOutcomes:          true,
-			ReportsFeedback:          true,
-			HonorsPreferredModels:    true,
-			HonorsQualityPriceBias:   true,
-			SupportsDebugRouteDetail: true,
-			SupportsShadow:           true,
-		},
-	})
 }
 
 func (s *Service) routeFor(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {

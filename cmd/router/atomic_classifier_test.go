@@ -22,10 +22,12 @@ import (
 
 func TestAtomicClassifierStartupIsOptInAndFailsClosed(t *testing.T) {
 	t.Setenv("ROUTER_LLM_CLASSIFIER_CONFIG", "")
-	require.NoError(t, configureAtomicClassifier(nil, nil, nil))
+	_, _, err := configureAtomicClassifier(nil, nil)
+	require.NoError(t, err)
 	t.Setenv("ROUTER_SERVING_TARGET", "prod/stable")
 	t.Setenv("ROUTER_LLM_CLASSIFIER_CONFIG", "/must-not-read")
-	require.ErrorContains(t, configureAtomicClassifier(nil, nil, nil), "managed Modal release integration")
+	_, _, err = configureAtomicClassifier(nil, nil)
+	require.ErrorContains(t, err, "managed Modal release integration")
 	t.Setenv("ROUTER_SERVING_TARGET", "")
 	t.Setenv("ROUTER_LLM_CLASSIFIER_BEARER", strings.Repeat("b", 32))
 	t.Setenv("ROUTER_LLM_CLASSIFIER_SIGNING_KEY", strings.Repeat("s", 32))
@@ -64,8 +66,8 @@ func TestAtomicClassifierStartupIsOptInAndFailsClosed(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "classifier.json")
 			require.NoError(t, os.WriteFile(path, configBytes, 0600))
 			t.Setenv("ROUTER_LLM_CLASSIFIER_CONFIG", path)
-			service := &proxy.Service{}
-			err = configureAtomicClassifier(service, nil, map[string]struct{}{model.PrimaryProvider(): {}})
+			sessions, specs, err := configureAtomicClassifier(nil, map[string]struct{}{model.PrimaryProvider(): {}})
+			service := proxy.WithDeps(&proxy.Service{}, proxy.Deps{Routing: &proxy.RoutingDeps{ClassifierSessions: sessions, Strategies: specs}})
 			if test.wantError {
 				require.Error(t, err)
 				require.False(t, service.PolicyStrategyAvailable(router.StrategyLLMClassifier))

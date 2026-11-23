@@ -6,34 +6,12 @@ import (
 	"slices"
 	"weave-os/router/internal/routingpolicy"
 
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalation/floor"
-	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 )
-
-func (s *Service) WithEscalation(store escalation.Store, observer escalation.Observer) *Service {
-	s.escalationHelper().WithXGB(store, observer)
-	return s
-}
-
-func (s *Service) WithLLMEscalation(store llmescalation.Store, judge llmescalation.Judge) *Service {
-	s.escalationHelper().WithLLM(store, judge)
-	return s
-}
-
-func (s *Service) WithQwenEscalation(judge llmescalation.Judge) *Service {
-	s.escalationHelper().WithQwen(judge)
-	return s
-}
-
-func (s *Service) WithEscalationShadowDefault(classifier flags.EscalationClassifier) *Service {
-	s.escalationHelper().WithShadowDefault(classifier)
-	return s
-}
 
 func (s *Service) escalationHelper() *floor.Helper {
 	if s.escalation == nil {

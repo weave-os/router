@@ -63,6 +63,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
@@ -989,6 +990,12 @@ func main() {
 		panic("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT names a classifier whose judge is not configured")
 	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
+	classifierSessions, classifierSpecs, err := configureAtomicClassifier(pool, availableProviders)
+	if err != nil {
+		logger.Error("Failed to configure atomic classifier", "err", err)
+		panic(err)
+	}
+	excludedModels := excludedModelsFromEnv()
 	inferenceDeployment.RoutableModels = servedModels
 
 	ingressFormats := ingressFormatsFor(allowedModelsHeader, scopedSearchRequirement, searchRequirementDecayTurns, cortexWebSearch(logger))
@@ -1011,7 +1018,18 @@ func main() {
 			TurnSignalCapture: turnSignalCaptureEnabled, NativeAnthropicResponseSignals: nativeAnthropicResponseSignals, NativeOpenAIResponseSignals: nativeOpenAIResponseSignals}},
 		Conversation: conversation.Config{Summarizer: summarizer, CompactionHandoverSummarizer: compactionHandoverSz, RouterFeedbackStore: repo.Telemetry, SessionStrategies: sessionStrategyStore,
 			FeedbackLinks: feedbackLinks, PiHandoffSecret: config.GetOr("ROUTER_PI_HANDOFF_SECRET", ""), TextRepetitionBreak: &textRepetitionBreakEnabled},
-		Routing: &proxy.RoutingDeps{PrefixTrimFreeSwitch: &prefixTrimFreeSwitch, EffortEscalation: effortEscalation},
+		Routing: &proxy.RoutingDeps{PrefixTrimFreeSwitch: &prefixTrimFreeSwitch, EffortEscalation: effortEscalation, AvailableModels: servedModels, DefaultBaselineModel: resolveDefaultBaselineModel(), ExcludedModels: excludedModels,
+			HardPinResolver: hardPinResolver, ExplicitUtilityHardPin: hardPinOverrideConfigured, SubAgentProvider: subAgentProvider, SubAgentModel: subAgentModel,
+			Deadline: routingpolicy.PolicyDeadline{Fallback: policyDeadlineFallback, DefaultModel: policyDeadlineDefaultModel}, GlobalAutomaticExclusions: repo.GlobalAutomaticExclusions,
+			Plans: inferencePlans, Continuity: &continuityConfig, HMM: &hmmConfig, BandSwap: bandSwapEnabled, ClassifierSessions: classifierSessions,
+			Strategies: append(append([]policy.StrategySpec{
+				{Strategy: router.StrategyHMM, Router: hmmRouter, Unavailable: hmm.ErrHMMUnavailable, Capabilities: hmmCapabilities},
+				{Strategy: router.StrategyHMMEmbedding, Router: hmmEmbeddingRouter, Unavailable: hmm.ErrHMMUnavailable, Capabilities: hmmCapabilities},
+				{Strategy: router.StrategyHMMBeta, Router: hmmBetaRouter, Unavailable: hmm.ErrHMMUnavailable, Capabilities: hmmBetaCapabilities},
+				{Strategy: router.StrategyHMMQwen, Router: hmmQwenRouter, Unavailable: hmm.ErrHMMUnavailable, Capabilities: hmmCapabilities},
+				{Strategy: router.StrategyDecisionModel, Router: buildDecisionModelRouter(logger), Unavailable: decisionmodel.ErrUnavailable, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}},
+			}, classifierSpecs...), configuredPolicySpecs...),
+			Escalation: &proxy.RoutingEscalation{Store: escalationStore, Observer: escalationObserver, LLMStore: llmEscalationStore, LLMJudge: escalationJudge, QwenJudge: qwenEscalationJudge, ShadowDefault: escalationShadowDefault}},
 		Ingress: &ingressFormats, Escalation: proxy.EscalationDeps{SwitchyardActive: escalationJudgeActiveEnabled}, BYOKOnly: byokOnly, DeploymentKeyedProviders: deploymentEligible,
 		Credentials: &credentials.Brokerage{ExternalKeyUsage: authSvc, UsageObserver: usageObserver, ClaudePlans: subscriptions.NewPlanResolver(anthropicClient, time.Now), CodexExtraCredits: allowCodexCredits,
 			ManagedSubscriptions: managedSubscriptionLeaser(subscriptionRuntime), PassthroughEligible: passthroughEligible, ExcludedProvidersOverride: excludedProvidersFromEnv(logger)},
@@ -1023,49 +1041,8 @@ func main() {
 				RateLimit: dispatch.NewRateLimitPolicy(transientRateLimit, rateLimitCooldownSeconds)},
 			Executor: inferenceExecutor, Plans: inferencePlans, Deployment: inferenceDeployment,
 			TranslationCompatibilityMode: dispatch.TranslationCompatibilityMode(translationCompatibilityMode), TranslationMetrics: otel.NewTranslationMetrics()},
-	}).
-		WithEscalation(escalationStore, escalationObserver).
-		WithLLMEscalation(llmEscalationStore, escalationJudge).
-		WithQwenEscalation(qwenEscalationJudge).
-		WithEscalationShadowDefault(escalationShadowDefault).
-		WithPolicyStrategy(policy.StrategySpec{
-			Strategy: router.StrategyHMM, Router: hmmRouter, Unavailable: hmm.ErrHMMUnavailable,
-			Capabilities: hmmCapabilities,
-		}).
-		WithPolicyStrategy(policy.StrategySpec{
-			Strategy: router.StrategyHMMEmbedding, Router: hmmEmbeddingRouter, Unavailable: hmm.ErrHMMUnavailable,
-			Capabilities: hmmCapabilities,
-		}).
-		WithPolicyStrategy(policy.StrategySpec{
-			Strategy: router.StrategyHMMBeta, Router: hmmBetaRouter, Unavailable: hmm.ErrHMMUnavailable,
-			Capabilities: hmmBetaCapabilities,
-		}).
-		WithPolicyStrategy(policy.StrategySpec{
-			Strategy: router.StrategyHMMQwen, Router: hmmQwenRouter, Unavailable: hmm.ErrHMMUnavailable,
-			Capabilities: hmmCapabilities,
-		}).
-		WithPolicyStrategy(policy.StrategySpec{
-			Strategy: router.StrategyDecisionModel, Router: buildDecisionModelRouter(logger), Unavailable: decisionmodel.ErrUnavailable,
-			Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true},
-		}).
-		WithHardPinResolver(hardPinResolver).
-		WithExplicitUtilityHardPin(hardPinOverrideConfigured).
-		WithSubAgentOverride(subAgentProvider, subAgentModel).
-		WithContinuityConfig(continuityConfig).
-		WithHMMConfig(hmmConfig).
-		WithPolicyDeadlineFallback(policyDeadlineFallback).
-		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
-		WithBandSwap(bandSwapEnabled).
-		WithGlobalAutomaticExclusions(repo.GlobalAutomaticExclusions).
-		WithAvailableModels(servedModels).
-		WithDefaultBaselineModel(resolveDefaultBaselineModel())
-	if err := configureAtomicClassifier(proxySvc, pool, availableProviders); err != nil {
-		logger.Error("Failed to configure atomic classifier", "err", err)
-		panic(err)
-	}
-	proxySvc = withRoutingPolicy(proxySvc, inferencePlans)
+	})
 	for _, spec := range configuredPolicySpecs {
-		proxySvc = proxySvc.WithPolicyStrategy(spec)
 		logger.Info("Generic policy sidecar wired", "strategy", spec.Strategy, "candidate_models", len(routingTargets))
 	}
 	logger.Info("Effort escalation configured", "enabled", effortEscalation)
@@ -1086,16 +1063,8 @@ func main() {
 		}
 	}
 
-	if excludedRaw := strings.TrimSpace(config.GetOr("ROUTER_EXCLUDED_MODELS", "")); excludedRaw != "" {
-		parts := strings.Split(excludedRaw, ",")
-		cleaned := make([]string, 0, len(parts))
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				cleaned = append(cleaned, trimmed)
-			}
-		}
-		proxySvc = proxySvc.WithExcludedModelsOverride(cleaned)
-		logger.Info("Model exclusion override active", "excluded_models", cleaned)
+	if excludedModels != nil {
+		logger.Info("Model exclusion override active", "excluded_models", excludedModels)
 	}
 
 	trafficCapture, err := newTrafficCaptureFromEnvironment()

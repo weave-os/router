@@ -46,8 +46,9 @@ func TestClassifierThreadHTTPContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	installation := uuid.New()
 	store := &threadEndpointStore{}
-	svc := &proxy.Service{}
-	require.NoError(t, svc.WithClassifierSessions(proxy.ClassifierSessionConfig{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64), SelectionPolicySHA256: strings.Repeat("b", 64), SigningKey: []byte(strings.Repeat("k", 32)), InstallationIDs: []uuid.UUID{installation}}, store, unusedThreadClassifier{}))
+	sessions, err := proxy.NewClassifierSessions(proxy.ClassifierSessionConfig{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64), SelectionPolicySHA256: strings.Repeat("b", 64), SigningKey: []byte(strings.Repeat("k", 32)), InstallationIDs: []uuid.UUID{installation}}, store, unusedThreadClassifier{})
+	require.NoError(t, err)
+	svc := proxy.WithDeps(&proxy.Service{}, proxy.Deps{Routing: &proxy.RoutingDeps{ClassifierSessions: sessions}})
 	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installation.String())
 	ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "test-credential")
 	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
