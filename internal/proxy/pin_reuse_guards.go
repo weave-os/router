@@ -58,7 +58,7 @@ func dropPinRuledOutLastTurn(ctx context.Context, s *Service, env *translate.Req
 		}
 	}
 
-	if tp.found && advisorRejectsModel(env, tp.pin.Model) {
+	if tp.found && candidates.AdvisorRejectsModel(env, tp.pin.Model) {
 		log.Info("Session pin dropped: the request's advisor tool cannot advise the pinned model",
 			"pin_model", tp.pin.Model,
 			"advisor_model", env.AdvisorToolModel(),
@@ -76,7 +76,7 @@ func screenPinContextWindow(ctx context.Context, s *Service, env *translate.Requ
 				outputReserveForPin = feats.MaxTokens
 			}
 			pinTokenEstimate := env.ContextOverflowTokenEstimate()
-			if modelStripsAnthropicSignatures(tp.pin.Model) {
+			if candidates.StripsAnthropicSignatures(tp.pin.Model) {
 				pinTokenEstimate -= env.SignatureTokenSavings()
 			}
 			if projected, ok := res.TokenizerCalibration.ProjectedPrompt(tokenizerFamilyFor(tp.pin.Provider), res.ContextEstimate); ok && projected > pinTokenEstimate {

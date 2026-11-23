@@ -171,7 +171,7 @@ func TestClaudeEnterpriseOnlyManagedFailureCannotBuyPaidRescue(t *testing.T) {
 	buffer := newPreludeBuffer(recorder)
 	in := plannedInputs(t.Context(), recorder, buffer, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
-	_, err := service.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(service).Dispatch(ctx, in)
 	require.Error(t, err)
 	require.Equal(t, 1, upstream.calls)
 	require.NotContains(t, recorder.Body.String(), "paid rescue")

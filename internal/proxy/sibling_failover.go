@@ -116,7 +116,7 @@ func (s *Service) rescueWalkOrReadmitCooling(
 	if len(decisions) > 0 || reason != ReasonSiblingFailover {
 		return decisions
 	}
-	if overloaded := slices.Sorted(maps.Keys(s.overloadOpenModels(ctx))); len(overloaded) > 0 {
+	if overloaded := slices.Sorted(maps.Keys(s.throttling.Overload.OpenModels(ctx, overloadOrg(ctx)))); len(overloaded) > 0 {
 		if decisions = s.readmissionWalk(ctx, failed, candidates, overloaded, reason, excludedModels, est, sigSavings, outputReserve, providerFor); len(decisions) > 0 {
 			return decisions
 		}
@@ -171,7 +171,7 @@ func (s *Service) readmissionWalk(
 		}
 	}
 	readmitExcluded = candidatefilter.MergeExcludedModels(readmitExcluded, s.controlPlaneExcludedModels(ctx))
-	for model := range s.overloadOpenModels(ctx) {
+	for model := range s.throttling.Overload.OpenModels(ctx, overloadOrg(ctx)) {
 		if !slices.Contains(readmit, model) {
 			readmitExcluded[model] = struct{}{}
 		}
@@ -352,7 +352,7 @@ func siblingFitsContext(cortexGateways map[string]struct{}, model, provider stri
 		return true
 	}
 	needed := est + outputReserve
-	if sigSavings > 0 && modelStripsAnthropicSignatures(model) {
+	if sigSavings > 0 && candidatefilter.StripsAnthropicSignatures(model) {
 		needed -= sigSavings
 	}
 	return needed <= gatewayContextWindow(cortexGateways, model, provider)

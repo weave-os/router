@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/telemetry/capture"
+	"weave-os/router/internal/telemetry/respobserve"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,7 @@ func TestResponseWritersEscapeHTMLWithoutChangingJSON(t *testing.T) {
 	wrappers := map[string]func(http.ResponseWriter) http.ResponseWriter{
 		"capture":  func(w http.ResponseWriter) http.ResponseWriter { return capture.NewWriter(w, 4096) },
 		"prelude":  func(w http.ResponseWriter) http.ResponseWriter { b := newPreludeBuffer(w); b.Seal(); return b },
-		"refusal":  func(w http.ResponseWriter) http.ResponseWriter { return newRefusalObserver(w) },
+		"refusal":  func(w http.ResponseWriter) http.ResponseWriter { return respobserve.NewRefusalObserver(w) },
 		"terminal": func(w http.ResponseWriter) http.ResponseWriter { return ingress.NewResponsesTerminalObserver(w) },
 		"cost":     func(w http.ResponseWriter) http.ResponseWriter { return newStreamCostWriter(w) },
 		"usage": func(w http.ResponseWriter) http.ResponseWriter {

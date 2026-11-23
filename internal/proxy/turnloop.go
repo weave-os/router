@@ -275,16 +275,7 @@ func (s *Service) runTurnLoop(
 	if installationID != uuid.Nil {
 		req.InstallationID = installationID.String()
 	}
-	res = routingpolicy.TurnRoute{
-		ContextEstimate:             env.ContextOverflowTokenEstimate(),
-		TranslationEnabledProviders: req.EnabledProviders,
-		InstallationID:              installationID,
-		Strategy:                    strategy,
-		TurnType:                    turntype.Detect(env, feats, subAgentHint, openCodeCaller(requestcontext.ClientIdentityFrom(ctx))),
-		PinTier:                     "miss",
-		RequestedTier:               catalog.TierFor(feats.Model),
-		StripThinkingBlocks:         stripsThinkingHistory(ctx),
-	}
+	res = newTurnRoute(ctx, env, feats, req.EnabledProviders, installationID, strategy, subAgentHint)
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
 		s.authoritativePerTurnSelection(ctx, strategy)
 	if !isolatedSearch {

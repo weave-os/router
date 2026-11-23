@@ -74,7 +74,7 @@ func TestDispatchRefusesAnIneligibleDecisionUnderEveryLaneMark(t *testing.T) {
 			in := plannedInputs(ctx, rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 			in.InitialDecision = router.Decision{Model: catalog.ModelIDClaudeOpus48.String(), Provider: providers.ProviderAnthropic}
 
-			_, err := svc.dispatchWithFallback(entitlement.WithProductScope(ctx, entitlement.PlanMax), in)
+			_, err := fallbackFor(svc).Dispatch(entitlement.WithProductScope(ctx, entitlement.PlanMax), in)
 
 			require.ErrorIs(t, err, eligibility.ErrModelIneligible)
 			assert.Equal(t, refusal.ProductIneligible.Contract(), classifiedRefusal(t, err))

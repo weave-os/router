@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
 )
@@ -39,11 +40,11 @@ func TestSubscriptionStatePoolOverloadHoldsSessionOffModel(t *testing.T) {
 		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel, stateClaudeModel})
 		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 		ctx = requestcontext.WithTurnFailures(ctx)
-		req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})}
+		req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: candidates.ModelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})}
 		rec := httptest.NewRecorder()
 		buffer := newPreludeBuffer(rec)
 		var winner router.Decision
-		_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+		_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 			Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
 			SubscriptionStateWinnerProvider: new(string),
 			InitialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},

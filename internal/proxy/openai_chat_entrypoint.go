@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry/capture"
+	"weave-os/router/internal/telemetry/iolog"
 	"weave-os/router/internal/translate"
 )
 
@@ -140,7 +141,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	if s.effectiveCaptureMode(ctx) != capture.Off {
-		logInboundRequestDiagnostics(log, env)
+		iolog.LogInboundRequestDiagnostics(log, env)
 	}
 
 	subAgentHint := r.Header.Get("x-weave-subagent-type")
@@ -193,7 +194,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
 	ctx = withPickedModelFunding(ctx, routeRes.CallerModelPassthrough, routeRes.Decision.Provider)
 	ctx = withCodexPickFunding(ctx, routeRes.Decision.Model, routeRes.Decision.Provider)
-	ctx = s.withTurnOverloadProbe(ctx, routeRes)
+	ctx = withTurnOverloadProbe(ctx, s.throttling.Overload, routeRes)
 	ctx = withRouteSessionState(ctx, routeRes)
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision

@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/policy"
@@ -149,7 +150,7 @@ func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.Resolut
 		return policy.ResolvedPlan{}, errors.New("handover: summarizer has no plan resolver or executor")
 	}
 	if subscriptionStateModelsEnabled(ctx) {
-		paidCtx := context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
+		paidCtx := context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, candidates.ModelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
 		allowed := allowedModelsForRequest(paidCtx)
 		request.RouterRequest.Candidates.ExcludedModels = cloneStringSet(request.RouterRequest.Candidates.ExcludedModels)
 		if request.RouterRequest.Candidates.ExcludedModels == nil {

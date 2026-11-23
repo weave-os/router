@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -146,7 +147,7 @@ func TestFundingNoticeDoesNotEstablishProviderFacts(t *testing.T) {
 	caps := translate.NoticeCapabilities{Format: translate.FormatAnthropic, Streaming: true, Presentation: translate.NoticeText, Eager: true}
 	delivery := translate.NewNoticeDelivery(context.Background(), translate.NewProtocolNoticeSink(buffer, caps), caps)
 	extractor := otel.NewUsageExtractor(delivery, providers.ProviderAnthropic)
-	terminal := newStreamTerminalObserver(extractor, nativeStreamAnthropic)
+	terminal := dispatch.NewStreamTerminalObserver(extractor, dispatch.NativeStreamAnthropic)
 	terminal.Header().Set("Content-Type", "text/event-stream")
 	terminal.WriteHeader(http.StatusOK)
 	_, err := delivery.Deliver(translate.NewRouterNotice(translate.NoticeFundingWarning, subscriptionSpendCapWarningMarkerCodex, "synthetic-model", ""))
@@ -160,7 +161,7 @@ func TestFundingNoticeDoesNotEstablishProviderFacts(t *testing.T) {
 	input, output := extractor.Tokens()
 	assert.Zero(t, input)
 	assert.Zero(t, output)
-	require.ErrorIs(t, terminal.streamErr(), translate.ErrStreamEmpty)
+	require.ErrorIs(t, terminal.StreamErr(), translate.ErrStreamEmpty)
 	assert.False(t, buffer.Committed())
 	buffer.Seal()
 	_, err = terminal.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"provider answer\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
@@ -169,7 +170,7 @@ func TestFundingNoticeDoesNotEstablishProviderFacts(t *testing.T) {
 	input, output = extractor.Tokens()
 	assert.Equal(t, 7, input)
 	assert.Equal(t, 2, output)
-	require.NoError(t, terminal.streamErr())
+	require.NoError(t, terminal.StreamErr())
 	assert.True(t, buffer.Committed())
 }
 

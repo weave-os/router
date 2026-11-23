@@ -85,7 +85,7 @@ func poolRefusalPins() map[string]poolRefusalPin {
 		},
 		"rotation budget spent while the pool is unavailable": {
 			err: func(ctx context.Context) error {
-				return svc.afterSubscriptionRotationBudget(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-5"}, 1, credentials.ErrSubscriptionPoolUnavailable)
+				return afterSubscriptionRotationBudget(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-5"}, 1, credentials.ErrSubscriptionPoolUnavailable)
 			},
 			sentinel: credentials.ErrSubscriptionPoolUnavailable, kind: refusal.SubscriptionPoolUnavailable,
 			text: "subscription account pool unavailable",

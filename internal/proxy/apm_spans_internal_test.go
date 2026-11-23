@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -55,9 +56,9 @@ func TestProxyMessagesEmitsHighLevelFlowSpans(t *testing.T) {
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
 
-	previousTracer := proxyFlowTracer
-	proxyFlowTracer = provider.Tracer("test")
-	t.Cleanup(func() { proxyFlowTracer = previousTracer })
+	previousTracer := spans.FlowTracer
+	spans.FlowTracer = provider.Tracer("test")
+	t.Cleanup(func() { spans.FlowTracer = previousTracer })
 
 	routerImpl := &flowSpanRouter{}
 	providerImpl := &flowSpanProvider{}
@@ -98,9 +99,9 @@ func TestProxyOpenAITranslationErrorMarksInferenceSpanFailed(t *testing.T) {
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
 
-	previousTracer := proxyFlowTracer
-	proxyFlowTracer = provider.Tracer("test")
-	t.Cleanup(func() { proxyFlowTracer = previousTracer })
+	previousTracer := spans.FlowTracer
+	spans.FlowTracer = provider.Tracer("test")
+	t.Cleanup(func() { spans.FlowTracer = previousTracer })
 
 	routerImpl := &flowSpanRouter{decision: router.Decision{
 		Provider: providers.ProviderGoogle,

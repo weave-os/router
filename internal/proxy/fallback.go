@@ -25,10 +25,6 @@ type preludeBuffer = dispatch.PreludeBuffer
 
 func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer { return dispatch.NewPreludeBuffer(w) }
 
-func (s *Service) dispatchWithFallback(ctx context.Context, in dispatch.FailoverInputs) (winnerIdx int, err error) {
-	return fallbackFor(s).Dispatch(ctx, in)
-}
-
 func committed(b *dispatch.PreludeBuffer) bool {
 	if b == nil {
 		return false

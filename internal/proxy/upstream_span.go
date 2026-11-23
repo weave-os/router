@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/telemetry/respobserve"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -36,7 +37,7 @@ type upstreamSpan struct {
 	taskArm             taskArmTurn
 	sessionKey          [sessionpin.SessionKeyLen]byte
 	respSummary         translate.ResponseSummary
-	refusal             *refusalObserver
+	refusal             *respobserve.RefusalObserver
 	extractor           *telemetry.UsageExtractor
 	inputTokens         int
 	outputTokens        int
@@ -118,8 +119,8 @@ func upstreamSpanAttrs(ctx context.Context, clock auth.Clock, span upstreamSpan)
 	}
 	if span.refusal != nil {
 		builder.
-			Bool("upstream.refusal", span.refusal.refused).
-			String("upstream.refusal_category", span.refusal.category)
+			Bool("upstream.refusal", span.refusal.Refused).
+			String("upstream.refusal_category", span.refusal.Category)
 	}
 	builder.
 		Int64("usage.input_tokens", int64(span.inputTokens)).

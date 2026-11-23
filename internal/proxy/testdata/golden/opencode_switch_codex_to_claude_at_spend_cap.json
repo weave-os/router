@@ -324,7 +324,9 @@
           "role": "default_force_hist",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 2,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "gpt-5.6-sol",
             "ServedProvider": "openai",
             "Strategy": "hmm_embedding"
@@ -806,6 +808,12 @@
             "LastOutputTokens": 7,
             "LastServedModel": "gpt-5.6-sol",
             "Model": "claude-haiku-4-5",
+            "ModelCaches": {
+              "gpt-5.6-sol": {
+                "MessageCount": 2,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "anthropic",
             "Reason": "force_model_history",
             "Role": "default_force_hist",
@@ -818,8 +826,10 @@
           "role": "default_force_hist",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 6,
             "OutputTokens": 7,
             "PriorServedModel": "gpt-5.6-sol",
+            "PromptTokens": 12,
             "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "anthropic",
             "Strategy": "hmm_embedding"
