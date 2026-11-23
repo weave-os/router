@@ -28,6 +28,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/taskdomain"
 	"weave-os/router/internal/server/middleware"
@@ -107,6 +108,18 @@ type Features struct {
 	ContentCaptureMode       capture.Mode
 	TelemetryQueries         turnrecord.Queries
 	FeedbackLinks            *feedback.Links
+	EscalationAdmin          admin.EscalationAdmin
+}
+
+func registerInternalEscalation(internalGroup *gin.RouterGroup, escalationAdmin admin.EscalationAdmin) {
+	if escalationAdmin == nil {
+		escalationAdmin = &floor.Admin{}
+	}
+	internalGroup.GET("/escalation/sessions", admin.InternalLLMEscalationSessionsHandler(escalationAdmin))
+	internalGroup.GET("/escalation/dashboard", admin.InternalEscalationDashboardHandler(escalationAdmin))
+	internalGroup.GET("/escalation/sessions/:scope", admin.InternalLLMEscalationSessionHandler(escalationAdmin))
+	internalGroup.GET("/escalation/config/:installationID", admin.InternalEscalationConfigurationHandler(escalationAdmin))
+	internalGroup.PUT("/escalation/config/:installationID", admin.InternalUpdateEscalationConfigurationHandler(escalationAdmin))
 }
 
 func (f Features) defaultStrategy() router.Strategy {
@@ -211,11 +224,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		if features.TaskDomainPreview != nil {
 			internalGroup.POST("/task-domain/preview", admin.InternalTaskDomainPreviewHandler(features.TaskDomainPreview))
 		}
-		internalGroup.GET("/escalation/sessions", admin.InternalLLMEscalationSessionsHandler(proxySvc))
-		internalGroup.GET("/escalation/dashboard", admin.InternalEscalationDashboardHandler(proxySvc))
-		internalGroup.GET("/escalation/sessions/:scope", admin.InternalLLMEscalationSessionHandler(proxySvc))
-		internalGroup.GET("/escalation/config/:installationID", admin.InternalEscalationConfigurationHandler(proxySvc))
-		internalGroup.PUT("/escalation/config/:installationID", admin.InternalUpdateEscalationConfigurationHandler(proxySvc))
+		registerInternalEscalation(internalGroup, features.EscalationAdmin)
 	}
 
 	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission))

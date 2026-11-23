@@ -1,20 +1,26 @@
 package anthropic
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RouteHandler(svc *proxy.Service) gin.HandlerFunc {
+type AnthropicRouter interface {
+	RouteAnthropicRequest(ctx context.Context, body []byte, headers http.Header) (router.Decision, error)
+}
+
+func RouteHandler(svc AnthropicRouter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
@@ -33,7 +39,7 @@ func RouteHandler(svc *proxy.Service) gin.HandlerFunc {
 		ctx := c.Request.Context()
 		decision, routeErr := svc.RouteAnthropicRequest(ctx, body, c.Request.Header)
 		if routeErr != nil {
-			if errors.Is(routeErr, proxy.ErrRequestNotJSONObject) {
+			if errors.Is(routeErr, ingress.ErrRequestNotJSONObject) {
 				writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Request body must be a JSON object.")
 				return
 			}
@@ -60,7 +66,11 @@ func RouteHandler(svc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-func PreviewRouteHandler(svc *proxy.Service) gin.HandlerFunc {
+type RoutePreviewer interface {
+	PreviewAnthropicRoute(ctx context.Context, body []byte, headers http.Header) (policy.PreviewResult, error)
+}
+
+func PreviewRouteHandler(svc RoutePreviewer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		installation := middleware.InstallationFrom(c)
@@ -88,7 +98,7 @@ func PreviewRouteHandler(svc *proxy.Service) gin.HandlerFunc {
 
 		result, previewErr := svc.PreviewAnthropicRoute(c.Request.Context(), body, c.Request.Header)
 		if previewErr != nil {
-			if errors.Is(previewErr, proxy.ErrRequestNotJSONObject) {
+			if errors.Is(previewErr, ingress.ErrRequestNotJSONObject) {
 				writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Request body must be a JSON object.")
 				return
 			}
