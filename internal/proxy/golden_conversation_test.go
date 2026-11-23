@@ -182,6 +182,26 @@ func goldenContinuationScenarios() []goldenScenario {
 	return []goldenScenario{grant, noPin, forced, expired}
 }
 
+func clientTrimScenario(name string) goldenScenario {
+	long := []string{conversationUser(goldenConversationOpening)}
+	for i := range 6 {
+		long = append(long, conversationAssistant(fmt.Sprintf("step %d done", i)), conversationUser(fmt.Sprintf("next step %d", i)))
+	}
+	short := []string{conversationUser(goldenConversationOpening), conversationAssistant("Summary: parser split into lexer and grammar."), conversationUser("keep going")}
+	return goldenScenario{
+		name: goldenConversationPrefix + name, ingress: ingressAnthropic,
+		decisions: []router.Decision{decision(providers.ProviderFireworks, goldenCompatModel)},
+		upstreams: map[string][]goldenStep{
+			providers.ProviderFireworks: {compatOK(false, "first"), compatOK(false, "second")},
+			providers.ProviderAnthropic: {anthropicOK(false, "never")},
+		},
+		requests: []goldenRequest{
+			{body: conversationBody(false, long...), decorateContext: goldenSessionCtx},
+			{body: conversationBody(false, short...), decorateContext: goldenSessionCtx},
+		},
+	}
+}
+
 const goldenHandoffSecret = "golden-handoff-secret-0123456789abcdef"
 
 func handoffScenario(name string, requests ...goldenRequest) goldenScenario {
@@ -218,6 +238,7 @@ func goldenHandoverScenarios() []goldenScenario {
 	body := fmt.Sprintf(`{"model":%q,"max_tokens":1024,"stream":false,"metadata":{"user_id":"pi:golden"},"messages":[%s]}`,
 		goldenAnthropicModel, conversationUser(goldenConversationOpening))
 	return []goldenScenario{
+		clientTrimScenario("client_trim_keeps_compacted_history"),
 		handoffScenario("handoff_prepare_then_resume_skips_reclassify",
 			goldenRequest{body: body, decorateContext: handoffCtx(true), noTelemetry: true},
 			goldenRequest{decorateContext: handoffCtx(false), bodyFrom: func(prev []byte) string { return withHandoffToken(body, prev) }}),
