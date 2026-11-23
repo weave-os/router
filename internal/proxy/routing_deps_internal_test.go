@@ -10,7 +10,7 @@ import (
 )
 
 func TestWithDepsRoutingPrefixTrimFreeSwitch(t *testing.T) {
-	disabled := false
+	prefixTrimFreeSwitchOff := false
 	for name, tc := range map[string]struct {
 		routing        *RoutingDeps
 		wantPrefixTrim bool
@@ -18,7 +18,7 @@ func TestWithDepsRoutingPrefixTrimFreeSwitch(t *testing.T) {
 	}{
 		"nil routing keeps the defaults":       {routing: nil, wantPrefixTrim: true},
 		"unset switch keeps prefix trim on":    {routing: &RoutingDeps{EffortEscalation: true}, wantPrefixTrim: true, wantEffort: true},
-		"explicit false turns prefix trim off": {routing: &RoutingDeps{PrefixTrimFreeSwitch: &disabled}, wantPrefixTrim: false},
+		"explicit false turns prefix trim off": {routing: &RoutingDeps{PrefixTrimFreeSwitch: &prefixTrimFreeSwitchOff}, wantPrefixTrim: false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			svc := WithDeps(NewService(nil, dispatch.NewClients(nil), nil, nil, false, "", "", nil), Deps{Routing: tc.routing})
