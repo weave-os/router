@@ -108,7 +108,7 @@ type hardPinnedTurnServing struct {
 }
 
 func (t *hardPinnedTurnServing) resolve(ctx context.Context) (routingpolicy.TurnRoute, error) {
-	spec, _ := t.s.InferencePolicyRegistry().Spec(utilityPurposes[t.res.TurnType])
+	spec, _ := t.s.engine.InferencePolicyRegistry().Spec(utilityPurposes[t.res.TurnType])
 	_, err := overrides.Resolve(spec.OverridePrecedence, map[policy.OverrideSource][]overrides.Resolver{
 		policy.OverrideSourceRequest: {
 			func() (bool, error) { return t.serveForcedPin(ctx), nil },

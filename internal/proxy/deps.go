@@ -64,3 +64,10 @@ func applyDispatchConfig(s *Service, cfg dispatch.Config) {
 	s.engine.SetDeployment(cfg.Deployment)
 	s.translationMetrics = cfg.TranslationMetrics
 }
+
+func DispatchEngine(s *Service) *dispatch.Engine {
+	if s == nil {
+		return nil
+	}
+	return s.engine
+}
