@@ -17,7 +17,7 @@ type internalUpstreamModelsRequest struct {
 	KeyID          string `json:"key_id" binding:"required"`
 }
 
-func InternalListUpstreamModelsHandler(authSvc *auth.Service, models dispatch.UpstreamModelLister) gin.HandlerFunc {
+func InternalListUpstreamModelsHandler(authSvc *auth.Service, lister dispatch.UpstreamModelLister) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req internalUpstreamModelsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -45,7 +45,7 @@ func InternalListUpstreamModelsHandler(authSvc *auth.Service, models dispatch.Up
 			return
 		}
 		creds := credentials.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[key.Provider]
-		models, err := models.ListUpstreamModels(c.Request.Context(), key.Provider, creds)
+		models, err := lister.ListUpstreamModels(c.Request.Context(), key.Provider, creds)
 		if err != nil {
 			abortForListingError(c, key.Provider, key.ID, err)
 			return

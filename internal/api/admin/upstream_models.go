@@ -19,7 +19,7 @@ type discoverModelsRequest struct {
 	BaseURL  *string `json:"base_url"`
 }
 
-func DiscoverModelsHandler(models dispatch.UpstreamModelLister) gin.HandlerFunc {
+func DiscoverModelsHandler(lister dispatch.UpstreamModelLister) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req discoverModelsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -36,7 +36,7 @@ func DiscoverModelsHandler(models dispatch.UpstreamModelLister) gin.HandlerFunc 
 			key.BaseURL = *baseURL
 		}
 		creds := credentials.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[req.Provider]
-		models, err := models.ListUpstreamModels(c.Request.Context(), req.Provider, creds)
+		models, err := lister.ListUpstreamModels(c.Request.Context(), req.Provider, creds)
 		if err != nil {
 			abortForListingError(c, req.Provider, "", err)
 			return
@@ -45,7 +45,7 @@ func DiscoverModelsHandler(models dispatch.UpstreamModelLister) gin.HandlerFunc 
 	}
 }
 
-func ListUpstreamModelsHandler(authSvc *auth.Service, models dispatch.UpstreamModelLister) gin.HandlerFunc {
+func ListUpstreamModelsHandler(authSvc *auth.Service, lister dispatch.UpstreamModelLister) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
@@ -75,7 +75,7 @@ func ListUpstreamModelsHandler(authSvc *auth.Service, models dispatch.UpstreamMo
 			return
 		}
 		creds := credentials.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[key.Provider]
-		models, err := models.ListUpstreamModels(c.Request.Context(), key.Provider, creds)
+		models, err := lister.ListUpstreamModels(c.Request.Context(), key.Provider, creds)
 		if err != nil {
 			abortForListingError(c, key.Provider, key.ID, err)
 			return
