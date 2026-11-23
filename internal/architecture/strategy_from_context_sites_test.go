@@ -35,9 +35,9 @@ func TestStrategyFromContextSitesRejectNewCaller(t *testing.T) {
 	require.Equal(t, []string{"internal/architecture/testdata/atomization/proxy_hmm.selectedGroup"}, fixture)
 
 	assert.Equal(t, []string{"+ internal/architecture/testdata/atomization/proxy_hmm.selectedGroup"}, unexpectedStrategyFromContextSites(append(slices.Clone(sites), fixture...)))
-	values := strategyFromContextCallSites(loadTypedPackages(t, root, atomizationFixturePackage+"strategy_from_context_value"))
-	require.Equal(t, []string{"internal/architecture/testdata/atomization/strategy_from_context_value.readStrategy", "internal/architecture/testdata/atomization/strategy_from_context_value.selectedVia"}, values)
-	assert.Equal(t, []string{"+ internal/architecture/testdata/atomization/strategy_from_context_value.readStrategy", "+ internal/architecture/testdata/atomization/strategy_from_context_value.selectedVia"}, unexpectedStrategyFromContextSites(append(slices.Clone(sites), values...)))
+	valueSites := strategyFromContextCallSites(loadTypedPackages(t, root, atomizationFixturePackage+"strategy_from_context_value"))
+	require.Equal(t, []string{"internal/architecture/testdata/atomization/strategy_from_context_value.readStrategy", "internal/architecture/testdata/atomization/strategy_from_context_value.selectedVia"}, valueSites)
+	assert.Equal(t, []string{"+ internal/architecture/testdata/atomization/strategy_from_context_value.readStrategy", "+ internal/architecture/testdata/atomization/strategy_from_context_value.selectedVia"}, unexpectedStrategyFromContextSites(append(slices.Clone(sites), valueSites...)))
 	assert.Equal(t, []string{"+ internal/proxy.withTurnClassifierInput"}, unexpectedStrategyFromContextSites(append(slices.Clone(sites), "internal/proxy.withTurnClassifierInput")))
 	assert.Equal(t, []string{"- internal/proxy.(*Service).Route"}, unexpectedStrategyFromContextSites(slices.DeleteFunc(slices.Clone(sites), func(site string) bool { return site == "internal/proxy.(*Service).Route" })))
 }
@@ -87,29 +87,23 @@ func strategyFromContextCallSites(loaded []*packages.Package) []string {
 // names a var/const/type block declares, so a package-level function value
 // such as `var read = router.StrategyFromContext` is a site too.
 func declSiteName(info *types.Info, decl ast.Decl) string {
-	var names []string
-	switch decl := decl.(type) {
-	case *ast.FuncDecl:
-		return funcDeclName(info, decl)
-	case *ast.GenDecl:
-		names = genDeclNames(decl)
+	if fn, ok := decl.(*ast.FuncDecl); ok {
+		return funcDeclName(info, fn)
 	}
-	return strings.Join(names, ",")
-}
-
-func genDeclNames(decl *ast.GenDecl) []string {
 	var names []string
-	for _, spec := range decl.Specs {
-		switch spec := spec.(type) {
-		case *ast.ValueSpec:
-			for _, name := range spec.Names {
-				names = append(names, name.Name)
+	if gen, ok := decl.(*ast.GenDecl); ok {
+		for _, spec := range gen.Specs {
+			switch spec := spec.(type) {
+			case *ast.ValueSpec:
+				for _, name := range spec.Names {
+					names = append(names, name.Name)
+				}
+			case *ast.TypeSpec:
+				names = append(names, spec.Name.Name)
 			}
-		case *ast.TypeSpec:
-			names = append(names, spec.Name.Name)
 		}
 	}
-	return names
+	return strings.Join(names, ",")
 }
 
 func funcDeclName(info *types.Info, fn *ast.FuncDecl) string {
