@@ -236,7 +236,7 @@ func (s *Service) bypassToAnthropic(
 		Capabilities:             router.Lookup(decision.Model),
 		IncludeStreamUsage:       s.usageRequired(),
 		EnableExtendedContext:    shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserve),
-		EnableServerSideFallback: s.ResolveAnthropicServerSideFallback(ctx),
+		EnableServerSideFallback: s.rescueConfig.AnthropicServerSideFallbackEnabled(ctx),
 		ModelSwitched:            modelSwitched,
 		FastMode:                 fastModeForAttempt(ctx, decision.Model, decision.Provider),
 	}

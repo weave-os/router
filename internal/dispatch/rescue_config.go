@@ -22,3 +22,23 @@ func (c RescueConfig) EarlyStopRedoMode(ctx context.Context) flags.EarlyStopRedo
 	}
 	return mode
 }
+
+func (c RescueConfig) SiblingFailoverEnabled(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeySiblingFailover, c.SiblingFailover)
+}
+
+func (c RescueConfig) CyberRefusalRepinEnabled(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyCyberRefusalRepin, c.CyberRefusalRepin)
+}
+
+func (c RescueConfig) CyberRefusalRetryEnabled(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyCyberRefusalRetry, c.CyberRefusalRetry)
+}
+
+func (c RescueConfig) CyberRefusalFallbackModelFor(ctx context.Context) string {
+	return flags.StringOr(ctx, flags.KeyCyberRefusalFallback, c.CyberRefusalFallbackModel)
+}
+
+func (c RescueConfig) AnthropicServerSideFallbackEnabled(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAnthropicServerFallback, c.AnthropicServerSideFallback)
+}

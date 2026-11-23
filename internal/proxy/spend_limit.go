@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
@@ -39,7 +40,7 @@ func (s *Service) checkUserMonthlySpendLimit(ctx context.Context, headers http.H
 	}
 	if result.LimitReached() {
 		laneCtx, lane := s.billing.TripSubscriptionLane(ctx, subscriptionlane.UserSpendLimitGate.Tripped(
-			RequestPresentsCoveringSubscription(ctx, headers, routePath)))
+			credentials.RequestPresentsCoveringSubscription(ctx, headers, routePath)))
 		if _, refused := lane.Refusal(); !refused {
 			observability.FromContext(ctx).Info("Engineer monthly cap reached but subscription covers the route: serving subscription-only",
 				"organization_id", orgID,

@@ -13,11 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Service) WithProviderOverloaded(enabled bool, registry *breaker.Registry) *Service {
-	s.throttling.Overload = dispatch.NewOverloadBreaker(enabled, registry)
-	return s
-}
-
 func (s *Service) overloadOpenModels(ctx context.Context) map[string]struct{} {
 	return s.throttling.Overload.OpenModels(ctx, overloadOrg(ctx))
 }

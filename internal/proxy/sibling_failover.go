@@ -333,7 +333,7 @@ func (s *Service) gatewaySiblingAllowed(ctx context.Context, sibling router.Deci
 }
 
 func (s *Service) siblingRescueAllowed(ctx context.Context, gatewayHeld bool) bool {
-	return !credentials.ClaudeEnterpriseTurn(ctx) && s.ResolveSiblingFailover(ctx) &&
+	return !credentials.ClaudeEnterpriseTurn(ctx) && s.rescueConfig.SiblingFailoverEnabled(ctx) &&
 		(s.shouldFailover(ctx) || s.subscriptionSiblingAllowed(ctx) || gatewayHeld) &&
 		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
 }

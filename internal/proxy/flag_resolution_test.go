@@ -25,17 +25,14 @@ func newFlagTestService() *proxy.Service {
 
 func TestResolversFallBackToDeploymentDefault(t *testing.T) {
 	svc := newFlagTestService().
-		WithTextRepetitionBreak(false).
-		WithSiblingFailover(false)
+		WithTextRepetitionBreak(false)
 
 	ctx := context.Background()
 	assert.False(t, svc.ResolveTextRepetitionBreakEnabled(ctx))
-	assert.False(t, svc.ResolveSiblingFailover(ctx))
 }
 
 func TestPerOrgOverrideBeatsDeploymentDefault(t *testing.T) {
 	svc := newFlagTestService().
-		WithSiblingFailover(false).
 		WithTextRepetitionBreak(true)
 
 	ctx := flags.WithOverrides(context.Background(), flags.Overrides{
@@ -45,21 +42,6 @@ func TestPerOrgOverrideBeatsDeploymentDefault(t *testing.T) {
 		},
 	})
 
-	assert.True(t, svc.ResolveSiblingFailover(ctx), "org override should turn a default-off flag on")
-
 	// An unoverridden flag on the same context keeps its deployment default.
 	assert.True(t, svc.ResolveTextRepetitionBreakEnabled(ctx))
-}
-
-func TestStringFlagOverride(t *testing.T) {
-	svc := newFlagTestService().
-		WithCyberRefusalRepin(true).
-		WithCyberRefusalFallbackModel("claude-sonnet-5")
-
-	assert.Equal(t, "claude-sonnet-5", svc.ResolveCyberRefusalFallbackModel(context.Background()))
-
-	ctx := flags.WithOverrides(context.Background(), flags.Overrides{
-		Strings: map[flags.Key]string{flags.KeyCyberRefusalFallback: "claude-opus-5"},
-	})
-	assert.Equal(t, "claude-opus-5", svc.ResolveCyberRefusalFallbackModel(ctx))
 }

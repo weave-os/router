@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -39,8 +39,8 @@ func billingGatedAllowanceChain(
 		c.Set("router_api_key", subscriberAPIKey())
 		withInstallation(c, "org_precedence")
 	})
-	engine.Use(middleware.WithSubscriberAllowance(allowanceSvc, proxy.RequestPresentsCoveringSubscription))
-	engine.Use(middleware.WithBalanceCheck(billing.NewService(repo), billing.MinBalanceMicros, proxy.RequestHasCustomerFunding))
+	engine.Use(middleware.WithSubscriberAllowance(allowanceSvc, credentials.RequestPresentsCoveringSubscription))
+	engine.Use(middleware.WithBalanceCheck(billing.NewService(repo), billing.MinBalanceMicros, credentials.RequestHasCustomerFunding))
 	engine.POST("/v1/messages", serve)
 	return engine
 }

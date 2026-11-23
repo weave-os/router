@@ -11,7 +11,6 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -36,7 +35,7 @@ func TestPiHandoffAtOrgMonthlySpendCap(t *testing.T) {
 			engine.POST("/v1/route/handoff", func(c *gin.Context) {
 				withInstallation(c, "org-test")
 				c.Next()
-			}, middleware.WithOrgMonthlySpendCap(svc, proxy.RequestHasCustomerFunding), func(c *gin.Context) {
+			}, middleware.WithOrgMonthlySpendCap(svc, credentials.RequestHasCustomerFunding), func(c *gin.Context) {
 				reason, ok := billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
 				assert.True(t, ok)
 				assert.Equal(t, billing.SubscriptionOnlySpendCapReached, reason)
@@ -68,7 +67,7 @@ func runOrgMonthlyCap(t *testing.T, externalID string, repo *stubBillingRepo) (*
 		if externalID != "" {
 			withInstallation(c, externalID)
 		}
-		middleware.WithOrgMonthlySpendCap(svc, proxy.RequestHasCustomerFunding)(c)
+		middleware.WithOrgMonthlySpendCap(svc, credentials.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -134,7 +133,7 @@ func runOrgMonthlyCapSub(t *testing.T, setInstall func(*gin.Context), authHeader
 	subOnly := false
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		setInstall(c)
-		middleware.WithOrgMonthlySpendCap(svc, proxy.RequestHasCustomerFunding)(c)
+		middleware.WithOrgMonthlySpendCap(svc, credentials.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -196,7 +195,7 @@ func TestOrgMonthlySpendCap_OverridePassesThrough(t *testing.T) {
 		withInstallation(c, "org-override")
 		ctx := context.WithValue(c.Request.Context(), billing.HasOverrideContextKey, true)
 		c.Request = c.Request.WithContext(ctx)
-		middleware.WithOrgMonthlySpendCap(svc, proxy.RequestHasCustomerFunding)(c)
+		middleware.WithOrgMonthlySpendCap(svc, credentials.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -241,7 +240,7 @@ func TestOrgMonthlySpendCap_KeyOnlyCallerAtCap(t *testing.T) {
 			engine.GET("/v1/messages", func(c *gin.Context) {
 				withInstallation(c, "org-keys")
 				c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), credentials.ExternalAPIKeysContextKey{}, keys))
-				middleware.WithOrgMonthlySpendCap(svc, proxy.RequestHasCustomerFunding)(c)
+				middleware.WithOrgMonthlySpendCap(svc, credentials.RequestHasCustomerFunding)(c)
 				if c.IsAborted() {
 					return
 				}

@@ -177,8 +177,8 @@ func TestCoveringSubscriptionMustMatchTheRouteFamily(t *testing.T) {
 	codexBearer.Set("Authorization", "Bearer eyJhbGciOi.codex.jwt")
 	codexBearer.Set("ChatGPT-Account-ID", "acct-abc-123")
 
-	assert.True(t, RequestPresentsCoveringSubscription(context.Background(), codexBearer, requestcontext.RoutePathResponses))
-	assert.False(t, RequestPresentsCoveringSubscription(context.Background(), codexBearer, requestcontext.RoutePathMessages),
+	assert.True(t, credentials.RequestPresentsCoveringSubscription(context.Background(), codexBearer, requestcontext.RoutePathResponses))
+	assert.False(t, credentials.RequestPresentsCoveringSubscription(context.Background(), codexBearer, requestcontext.RoutePathMessages),
 		"a Codex login cannot serve Messages, so it must not exempt a prepaid turn there")
 }
 

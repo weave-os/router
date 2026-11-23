@@ -55,36 +55,6 @@ func restrictToProviders(enabled, allowed map[string]struct{}) map[string]struct
 	return out
 }
 
-func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Header, routePath string) bool {
-	if credentials.SubscriptionFundingOutOfPlayForRequest(ctx) {
-		return false
-	}
-	codex, anthropic := credentials.PresentSubscriptionTokens(ctx, headers)
-	switch routePath {
-	case requestcontext.RoutePathMessages, requestcontext.RoutePathPiHandoff:
-		return anthropic != "" || credentials.ManagedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude)
-	case requestcontext.RoutePathChatCompletions, requestcontext.RoutePathResponses:
-		return codex != "" || credentials.ManagedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex)
-	default:
-		return false
-	}
-}
-
-func RequestHasCustomerFunding(ctx context.Context, headers http.Header, routePath string, byokFeeOwed bool) bool {
-	if RequestPresentsCoveringSubscription(ctx, headers, routePath) {
-		return true
-	}
-	if byokFeeOwed {
-		return false
-	}
-	for provider := range credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)) {
-		if credentials.UsableBYOK(ctx, provider) != nil {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) context.Context {
 	ctx = s.withClaudeSubscriptionProfile(ctx, headers)
 	codexTok, anthroTok := credentials.PresentSubscriptionTokens(ctx, headers)

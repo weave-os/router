@@ -265,7 +265,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		SessionAffinity:                   sessionAffinityHint(routeRes.SessionKey),
 		ModelSwitched:                     routeRes.ModelSwitched(),
 		EnableExtendedContext:             shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserve),
-		EnableServerSideFallback:          s.ResolveAnthropicServerSideFallback(ctx),
+		EnableServerSideFallback:          s.rescueConfig.AnthropicServerSideFallbackEnabled(ctx),
 		KeepCrossVendorOrchestrationTools: flags.BoolOr(ctx, flags.KeyCCOrchToolsCrossVendor, s.ingress.CCOrchToolsCrossVendor),
 		KeepCrossVendorTaskTools:          s.ingress.TaskToolsCrossVendor(ctx),
 		AppendAutonomySystem:              s.autonomySystemAppendApplies(ctx, body, env, routeRes.TurnType),

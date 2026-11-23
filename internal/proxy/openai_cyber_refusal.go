@@ -216,7 +216,7 @@ func (s *Service) cyberRefusalRetryTarget(
 	if !ok {
 		return router.Decision{}, false
 	}
-	for _, model := range []string{repinTarget, s.ResolveCyberRefusalFallbackModel(ctx)} {
+	for _, model := range []string{repinTarget, s.rescueConfig.CyberRefusalFallbackModelFor(ctx)} {
 		if model == "" || model == failed.Model ||
 			!modelPermittedByAllowlist(ctx, model) || !modelInRequestSubset(ctx, model) {
 			continue
@@ -236,7 +236,7 @@ func (s *Service) cyberRefusalFallback(
 	served router.Decision,
 	avoidProvider string,
 ) (model, provider string, ok bool) {
-	model = s.ResolveCyberRefusalFallbackModel(ctx)
+	model = s.rescueConfig.CyberRefusalFallbackModelFor(ctx)
 	if s.pinStore != nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
 		if existing, found, err := s.pinStore.Get(context.WithoutCancel(ctx), sessionKey, role); err == nil && found &&
 			pinMatchesEffectiveStrategy(strategy, existing) && existing.PairedModel != "" &&
