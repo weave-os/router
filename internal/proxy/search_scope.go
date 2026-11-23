@@ -12,8 +12,6 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2/expirable"
 )
 
-const DefaultSearchRequirementDecayTurns = 3
-
 type searchUseTracker struct {
 	mu    sync.Mutex
 	cache *lru.LRU[string, int]
@@ -43,12 +41,12 @@ func (t *searchUseTracker) observe(key string, recency, decayTurns int) bool {
 }
 
 func (s *Service) scopeSearchRequirement(sessionKey [sessionpin.SessionKeyLen]byte, env *translate.RequestEnvelope, reqs router.TranslationRequirements) router.TranslationRequirements {
-	if !s.scopedSearchRequirement || env == nil || !reqs.CitationsOrSearch ||
+	if !s.ingress.ScopedSearchRequirement || env == nil || !reqs.CitationsOrSearch ||
 		reqs.SourceFormat == router.WireFormatGemini {
 		return reqs
 	}
 	reqs.CitationsOrSearch = s.searchUse.observe(
-		string(sessionKey[:]), env.SearchToolUseRecency(), s.searchRequirementDecayTurns)
+		string(sessionKey[:]), env.SearchToolUseRecency(), s.ingress.SearchRequirementDecayTurns)
 	return reqs
 }
 

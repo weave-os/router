@@ -23,7 +23,7 @@ func (s *Service) serveNativeWebSearch(
 	headers http.Header,
 	w http.ResponseWriter,
 ) bool {
-	if s.webSearch == nil {
+	if s.ingress.WebSearch == nil {
 		return false
 	}
 	tool, hasTool := websearch.FindServerTool(body)
@@ -45,7 +45,7 @@ func (s *Service) serveNativeWebSearch(
 	}
 
 	start := s.clock.Now()
-	result, err := s.webSearch.Search(credCtx, query)
+	result, err := s.ingress.WebSearch.Search(credCtx, query)
 	if err != nil {
 		log.Warn("Native web-search execution failed; falling back to normal routing",
 			"err", err, "latency_ms", s.clock.Now().Sub(start).Milliseconds())

@@ -34,11 +34,13 @@ func TestWorkspaceSystemAppendApplies_GateAndTurnType(t *testing.T) {
 		assert.True(t, svc.autonomySystemAppendApplies(ctx, []byte(autonomyGateBody), env, turntype.MainLoop))
 	})
 	t.Run("deployment default on fires without an org override", func(t *testing.T) {
-		on := newAutonomyGateService().WithCCWorkspaceSystemAppend(true)
+		on := newAutonomyGateService()
+		on.ingress.CCWorkspaceSystemAppend = true
 		assert.True(t, on.workspaceSystemAppendApplies(workspaceGateCtx(false, requestcontext.ClientAppClaudeCode), []byte(autonomyGateBody), env, turntype.MainLoop))
 	})
 	t.Run("org override turns a default-on deployment off", func(t *testing.T) {
-		on := newAutonomyGateService().WithCCWorkspaceSystemAppend(true)
+		on := newAutonomyGateService()
+		on.ingress.CCWorkspaceSystemAppend = true
 		off := flags.WithOverrides(workspaceGateCtx(false, requestcontext.ClientAppClaudeCode), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyCCWorkspaceSystemAppend: false}})
 		assert.False(t, on.workspaceSystemAppendApplies(off, []byte(autonomyGateBody), env, turntype.MainLoop))
 	})
