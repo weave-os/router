@@ -116,6 +116,10 @@ func (s *ProviderSummarizer) CompactionHandover() handover.Summarizer {
 	return compactionHandoverSummarizer{s}
 }
 
+func (*ProviderSummarizer) AllowsCompaction(model string) bool {
+	return policy.AllowsCompactionSummarizer(model)
+}
+
 func (s *ProviderSummarizer) CompactionOn(model string) handover.Summarizer {
 	scoped := *s
 	scoped.compactionModel = model

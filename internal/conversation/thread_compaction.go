@@ -43,14 +43,13 @@ func PlanThreadCompaction(env *translate.RequestEnvelope, tail int, summary, mod
 }
 
 func ApplyThreadCompaction(env *translate.RequestEnvelope, compaction ThreadCompaction) bool {
+	return ThreadCompactionFits(env, compaction) && env.ReplacePrefixWithSummary(compaction.AnchorMessages, compaction.Summary)
+}
+
+func ThreadCompactionFits(env *translate.RequestEnvelope, compaction ThreadCompaction) bool {
 	anchor := compaction.AnchorMessages
-	if anchor < 2 || env.MessageCount() <= anchor {
-		return false
-	}
-	if env.MessageDigest(0) != compaction.FirstDigest || env.MessageDigest(anchor-1) != compaction.AnchorDigest {
-		return false
-	}
-	return env.ReplacePrefixWithSummary(anchor, compaction.Summary)
+	return anchor >= 2 && env.MessageCount() > anchor &&
+		env.MessageDigest(0) == compaction.FirstDigest && env.MessageDigest(anchor-1) == compaction.AnchorDigest
 }
 
 type MemoryCompactionStore struct {

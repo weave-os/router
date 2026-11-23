@@ -45,13 +45,16 @@ type SwitchInput struct {
 	UserPrompt            bool
 	ModelCaches           sessionpin.ModelCaches
 	CompactedTokens       int
+	Summarizer            string
+	SummaryReady          bool
 	Tuning                SwitchTuning
 }
 
 type SwitchTuning struct {
-	DowngradeHorizonTurns int
-	UpgradeHorizonTurns   int
-	CompactMinEvictionUSD float64
+	DowngradeHorizonTurns  int
+	UpgradeHorizonTurns    int
+	CompactMinEvictionUSD  float64
+	CompactMinPromptTokens int
 }
 
 func (t SwitchTuning) horizon(downgrade bool) float64 {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +29,8 @@ const (
 type recordingThreadCompactor struct {
 	models []string
 }
+
+func (*recordingThreadCompactor) AllowsCompaction(string) bool { return true }
 
 func (c *recordingThreadCompactor) CompactionOn(model string) handover.Summarizer {
 	c.models = append(c.models, model)
@@ -81,6 +84,9 @@ func TestSwitchExperiment_CompactionStaysOnEveryLaterTurn(t *testing.T) {
 		compactor:   compactor,
 		compactions: conversation.NewMemoryCompactionStore(time.Hour),
 		threads:     map[string]switchExperimentThread{},
+		prepared:    map[string]*preparedCompaction{},
+		spawn:       runInline,
+		now:         time.Now,
 	}
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
@@ -112,4 +118,148 @@ func TestSwitchExperiment_CompactionStaysOnEveryLaterTurn(t *testing.T) {
 	assert.False(t, firstMessageIsSummary(t, diverged))
 	_, kept := x.compactions.Load(hex.EncodeToString(append([]byte{7}, make([]byte, sessionpin.SessionKeyLen-1)...)), now.Add(5*time.Minute))
 	assert.False(t, kept, "a stale compaction is cleared")
+}
+
+const switchExperimentLow = "claude-haiku-5-5"
+
+type allowlistCompactor struct {
+	mu      sync.Mutex
+	allowed map[string]bool
+	models  []string
+	summary handover.Summarizer
+}
+
+func (c *allowlistCompactor) AllowsCompaction(model string) bool { return c.allowed[model] }
+
+func (c *allowlistCompactor) CompactionOn(model string) handover.Summarizer {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.models = append(c.models, model)
+	return c.summary
+}
+
+func (c *allowlistCompactor) summarizers() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.models...)
+}
+
+type gatedSummary struct{ release chan struct{} }
+
+func (g gatedSummary) Summarize(ctx context.Context, _ *translate.RequestEnvelope, _ router.Request) (string, handover.Usage, error) {
+	select {
+	case <-g.release:
+		return "SUMMARY: task, constraints and edits so far", handover.Usage{}, nil
+	case <-ctx.Done():
+		return "", handover.Usage{}, ctx.Err()
+	}
+}
+
+func (gatedSummary) Provider() string { return "anthropic" }
+
+func newPreparingExperiment(compactor ThreadCompactor, timeout time.Duration, spawn func(context.Context, time.Duration, func(context.Context))) *switchExperiment {
+	return &switchExperiment{
+		cfg: SwitchExperimentConfig{
+			Live: true, CompactTail: 4, CompactTimeout: timeout,
+			Tuning: routingpolicy.SwitchTuning{DowngradeHorizonTurns: 10, UpgradeHorizonTurns: 25},
+		},
+		compactor:   compactor,
+		compactions: conversation.NewMemoryCompactionStore(time.Hour),
+		threads:     map[string]switchExperimentThread{},
+		prepared:    map[string]*preparedCompaction{},
+		spawn:       spawn,
+		now:         time.Now,
+	}
+}
+
+func runInline(parent context.Context, timeout time.Duration, fn func(context.Context)) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+	defer cancel()
+	fn(ctx)
+}
+
+func TestSwitchExperiment_SummarizesOnAnAllowedWarmModelWhenTheCurrentOneIsNotAllowed(t *testing.T) {
+	const prompt = "fix the parser bug; never edit test files"
+	compactor := &allowlistCompactor{allowed: map[string]bool{switchExperimentMid: true, switchExperimentHigh: true}, summary: fixedSummary("SUMMARY")}
+	x := newPreparingExperiment(compactor, time.Second, runInline)
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	applyExperimentTurn(x, largeAgentTurn(t, 10, prompt), switchExperimentMid, now)
+	applyExperimentTurn(x, largeAgentTurn(t, 11, prompt), switchExperimentLow, now.Add(30*time.Second))
+	applyExperimentTurn(x, largeAgentTurn(t, 12, prompt), switchExperimentLow, now.Add(time.Minute))
+
+	require.NotEmpty(t, compactor.summarizers())
+	assert.NotContains(t, compactor.summarizers(), switchExperimentLow, "a model outside the compaction catalog never summarizes")
+	assert.Equal(t, switchExperimentMid, compactor.summarizers()[0], "the warm allowed model summarizes")
+}
+
+func TestSwitchExperiment_PreparesTheSummaryOffTheUserTurn(t *testing.T) {
+	const prompt = "fix the parser bug; never edit test files"
+	release := make(chan struct{})
+	compactor := &allowlistCompactor{allowed: map[string]bool{switchExperimentMid: true, switchExperimentHigh: true}, summary: gatedSummary{release: release}}
+	done := make(chan struct{}, 8)
+	x := newPreparingExperiment(compactor, time.Minute, func(parent context.Context, timeout time.Duration, fn func(context.Context)) {
+		go func() {
+			runInline(parent, timeout, fn)
+			done <- struct{}{}
+		}()
+	})
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	applyExperimentTurn(x, largeAgentTurn(t, 10, prompt), switchExperimentMid, now)
+	unready := largeAgentTurn(t, 11, prompt)
+	resent := unready.MessageCount()
+	started := time.Now()
+	res := applyExperimentTurn(x, unready, switchExperimentHigh, now.Add(time.Minute))
+	assert.Less(t, time.Since(started), time.Second, "an unfinished summary never blocks the turn")
+	assert.Equal(t, resent, unready.MessageCount(), "without a ready summary the turn keeps its full history")
+	assert.NotEqual(t, "switch_experiment_"+string(routingpolicy.SwitchReasonCompactThenSwitch), res.PinTier)
+
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("summary preparation never finished")
+	}
+
+	ready := largeAgentTurn(t, 12, prompt)
+	resent = ready.MessageCount()
+	res = applyExperimentTurn(x, ready, switchExperimentHigh, now.Add(2*time.Minute))
+	assert.Equal(t, "switch_experiment_"+string(routingpolicy.SwitchReasonCompactThenSwitch), res.PinTier)
+	assert.Equal(t, switchExperimentHigh, res.Decision.Model)
+	assert.Less(t, ready.MessageCount(), resent, "the prepared summary is applied when the switch happens")
+	assert.True(t, firstMessageIsSummary(t, ready))
+}
+
+func TestSwitchExperiment_SummaryTimeoutFallsBackToFullHistory(t *testing.T) {
+	const prompt = "fix the parser bug; never edit test files"
+	compactor := &allowlistCompactor{allowed: map[string]bool{switchExperimentMid: true, switchExperimentHigh: true}, summary: gatedSummary{release: make(chan struct{})}}
+	x := newPreparingExperiment(compactor, 20*time.Millisecond, runInline)
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	applyExperimentTurn(x, largeAgentTurn(t, 10, prompt), switchExperimentMid, now)
+	turn := largeAgentTurn(t, 11, prompt)
+	resent := turn.MessageCount()
+	started := time.Now()
+	res := applyExperimentTurn(x, turn, switchExperimentHigh, now.Add(time.Minute))
+	assert.Less(t, time.Since(started), time.Second)
+	assert.Equal(t, resent, turn.MessageCount(), "a timed-out summary leaves the full history")
+	assert.False(t, firstMessageIsSummary(t, turn))
+	assert.NotEqual(t, "switch_experiment_"+string(routingpolicy.SwitchReasonCompactThenSwitch), res.PinTier)
+	_, stored := x.compactions.Load(hex.EncodeToString(append([]byte{7}, make([]byte, sessionpin.SessionKeyLen-1)...)), now.Add(time.Minute))
+	assert.False(t, stored, "a failed summary is never stored")
+}
+
+func TestSwitchExperiment_SummarizerPrefersAWarmAllowedModel(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	x := newPreparingExperiment(&allowlistCompactor{allowed: map[string]bool{switchExperimentMid: true, switchExperimentHigh: true}}, time.Second, runInline)
+	warmHigh := switchExperimentThread{caches: sessionpin.ModelCaches{
+		switchExperimentLow:  {ServedAt: now},
+		switchExperimentHigh: {ServedAt: now.Add(-time.Minute)},
+		switchExperimentMid:  {ServedAt: now.Add(-10 * time.Minute)},
+	}}
+	assert.Equal(t, switchExperimentHigh, x.summarizerFor(switchExperimentLow, warmHigh, false, now), "the warm allowed model beats a cold one")
+	assert.Equal(t, switchExperimentMid, x.summarizerFor(switchExperimentMid, warmHigh, false, now), "an allowed current model summarizes on its own cache")
+	coldOnly := switchExperimentThread{caches: sessionpin.ModelCaches{switchExperimentLow: {ServedAt: now}}}
+	assert.Equal(t, switchExperimentMid, x.summarizerFor(switchExperimentLow, coldOnly, false, now), "with no warm allowed model the reviewed default summarizes")
 }

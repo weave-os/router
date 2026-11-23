@@ -17,12 +17,14 @@ import (
 )
 
 type SwitchExperimentConfig struct {
-	Live        bool
-	Tuning      routingpolicy.SwitchTuning
-	CompactTail int
+	Live           bool
+	Tuning         routingpolicy.SwitchTuning
+	CompactTail    int
+	CompactTimeout time.Duration
 }
 
 type ThreadCompactor interface {
+	AllowsCompaction(model string) bool
 	CompactionOn(model string) handover.Summarizer
 }
 
@@ -39,11 +41,21 @@ type switchExperiment struct {
 	compactions conversation.CompactionStore
 	mu          sync.Mutex
 	threads     map[string]switchExperimentThread
+	prepared    map[string]*preparedCompaction
+	spawn       func(parent context.Context, timeout time.Duration, fn func(context.Context))
+	now         func() time.Time
 }
 
 func (s *Service) WithSwitchExperiment(cfg SwitchExperimentConfig, compactor ThreadCompactor, store conversation.CompactionStore) *Service {
 	if cfg.Live {
-		s.switchExperiment = &switchExperiment{cfg: cfg, compactor: compactor, compactions: store, threads: map[string]switchExperimentThread{}}
+		s.switchExperiment = &switchExperiment{
+			cfg: cfg, compactor: compactor, compactions: store,
+			threads: map[string]switchExperimentThread{}, prepared: map[string]*preparedCompaction{},
+			now: func() time.Time { return s.clock.Now() },
+			spawn: func(parent context.Context, timeout time.Duration, fn func(context.Context)) {
+				observability.SafeGoContext(parent, observability.FromContext(parent), timeout, "switch-experiment-compaction", fn)
+			},
+		}
 	}
 	return s
 }
@@ -91,49 +103,67 @@ func (x *switchExperiment) apply(ctx context.Context, env *translate.RequestEnve
 	if current == "" {
 		current = res.Decision.Model
 	}
-	plan, canCompact := conversation.ThreadCompaction{}, false
-	if x.cfg.CompactTail > 0 && x.compactor != nil {
-		plan, canCompact = conversation.PlanThreadCompaction(original, x.cfg.CompactTail, "pending", current, now)
+	cacheCold := !thread.lastAt.IsZero() && now.Sub(thread.lastAt) > switchExperimentCacheTTL
+	compacting := x.cfg.CompactTail > 0 && x.compactor != nil && deploymentCreds
+	summarizer := ""
+	if compacting {
+		summarizer = x.summarizerFor(current, thread, cacheCold, now)
 	}
-	compactedTokens := 0
-	if canCompact {
-		compactedTokens = switchCompactionSummaryTokens + int(float64(original.ContextOverflowTokenEstimate())*original.MessagesShareFrom(plan.AnchorMessages))
-	}
+	ready, hasReady := x.readyCompaction(key, original)
 	input := routingpolicy.SwitchInput{
 		Current:              current,
 		Fresh:                res.Fresh.Model,
 		EstimatedInputTokens: tokens,
 		PromptTokens:         thread.promptTokens,
-		CacheCold:            !thread.lastAt.IsZero() && now.Sub(thread.lastAt) > 5*time.Minute,
+		CacheCold:            cacheCold,
 		Now:                  now,
 		MessageCount:         env.MessageCount(),
 		UserPrompt:           env.LastUserMessage().HasText,
 		ModelCaches:          thread.caches,
-		CompactedTokens:      compactedTokens,
+		Summarizer:           summarizer,
+		SummaryReady:         hasReady,
 		Tuning:               x.cfg.Tuning,
 	}
+	planned, canPlan := x.planCompaction(original, summarizer, now)
+	if hasReady {
+		input.CompactedTokens = compactedPromptTokens(original, ready.AnchorMessages())
+	} else if canPlan {
+		input.CompactedTokens = compactedPromptTokens(original, planned.AnchorMessages)
+	}
 	verdict := routingpolicy.DecideSwitch(input)
+	summarizerWarm := thread.caches[summarizer].ServedAt.After(now.Add(-switchExperimentCacheTTL))
+	prepareReason := ""
+	switch {
+	case verdict.Compact && !hasReady:
+		prepareReason = "switch"
+	case canPlan && !hasReady && summarizerWarm && !cacheCold && tokens >= x.prepareAheadTokens() &&
+		2*compactedPromptTokens(original, planned.AnchorMessages) <= tokens:
+		prepareReason = "ahead"
+	}
+	if prepareReason != "" {
+		x.prepare(ctx, key, env, planned, req, summarizer, tokens, prepareReason)
+		ready, hasReady = x.readyCompaction(key, original)
+	}
+	if verdict.Compact && !hasReady {
+		input.CompactedTokens = 0
+		verdict = routingpolicy.DecideSwitch(input)
+		log.Info("switch experiment summary not ready; switching with full history", "current", current, "summarizer_model", summarizer)
+	}
 	served := res.Fresh
 	if verdict.Serve != res.Fresh.Model {
 		served.Model = verdict.Serve
 	}
 	compacted := false
-	if verdict.Compact && canCompact && deploymentCreds {
-		summary, usage, err := x.compactor.CompactionOn(current).Summarize(clearCredentials(ctx), env, req)
-		switch {
-		case err != nil || summary == "":
-			log.Warn("switch experiment compaction failed; switching with full history", "err", err, "current", current)
-		default:
-			plan.Summary = summary
-			x.compactions.Save(key, plan)
-			fresh := original.Clone()
-			compacted = conversation.ApplyThreadCompaction(fresh, plan)
-			log.Info("switch experiment compacted", "summarizer_model", current, "anchor_messages", plan.AnchorMessages, "summary_input_tokens", usage.InputTokens, "summary_output_tokens", usage.OutputTokens, "summary_cache_read_tokens", usage.CacheRead, "summary_cache_creation_tokens", usage.CacheCreation+usage.CacheCreation1h, "applied", compacted)
-			if compacted {
-				*env = *fresh
-				res.Handover.SummaryUsage = usage
-				res.Handover.SummaryTokens = estimateSummaryTokens(summary)
-			}
+	if verdict.Compact && hasReady {
+		x.compactions.Save(key, ready.plan)
+		fresh := original.Clone()
+		compacted = conversation.ApplyThreadCompaction(fresh, ready.plan)
+		x.discardPrepared(key)
+		log.Info("switch experiment compacted", "summarizer_model", ready.plan.Model, "anchor_messages", ready.AnchorMessages(), "summary_input_tokens", ready.usage.InputTokens, "summary_output_tokens", ready.usage.OutputTokens, "summary_cache_read_tokens", ready.usage.CacheRead, "summary_cache_creation_tokens", ready.usage.CacheCreation+ready.usage.CacheCreation1h, "summary_latency_ms", ready.latency.Milliseconds(), "applied", compacted)
+		if compacted {
+			*env = *fresh
+			res.Handover.SummaryUsage = ready.usage
+			res.Handover.SummaryTokens = estimateSummaryTokens(ready.plan.Summary)
 		}
 	}
 	res.Decision = served
@@ -144,8 +174,7 @@ func (x *switchExperiment) apply(ctx context.Context, env *translate.RequestEnve
 		"current", current, "fresh", res.Fresh.Model, "served", served.Model,
 		"reason", string(verdict.Reason), "switch", served.Model != current,
 		"compact_verdict", verdict.Compact, "compacted", compacted, "sticky_applied", sticky,
-		"estimated_tokens", tokens, "compacted_tokens", compactedTokens, "servedTokens", servedTokens,
+		"estimated_tokens", tokens, "compacted_tokens", input.CompactedTokens, "servedTokens", servedTokens,
+		"summarizer_model", summarizer, "summary_ready", hasReady, "prepare_reason", prepareReason,
 		"messages", env.MessageCount())
 }
-
-const switchCompactionSummaryTokens = 4_000

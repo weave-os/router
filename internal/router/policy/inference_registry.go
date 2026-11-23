@@ -28,6 +28,10 @@ const (
 	UtilityHardPinDefaultModel    = "claude-haiku-4-5"
 )
 
+func AllowsCompactionSummarizer(model string) bool {
+	return slices.Contains(compactionSummarizerModels, model)
+}
+
 var compactionSummarizerModels = []string{
 	PrecompactionDefaultModel,
 	PrecompactionLargeWindowModel,

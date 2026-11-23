@@ -47,3 +47,26 @@ func TestDecideSwitchDoesNotCompactASmallPrompt(t *testing.T) {
 	})
 	assert.Equal(t, routingpolicy.SwitchVerdict{Serve: switchTestHigh, Switch: true, Reason: routingpolicy.SwitchReasonUpgrade}, verdict)
 }
+
+func TestDecideSwitchCompactionRespectsThePromptFloor(t *testing.T) {
+	input := routingpolicy.SwitchInput{
+		Current: switchTestMid, Fresh: switchTestHigh, EstimatedInputTokens: 300_000, PromptTokens: 300_000, CompactedTokens: 20_000,
+	}
+	assert.True(t, routingpolicy.DecideSwitch(input).Compact, "without a floor a 300k-token upgrade compacts")
+
+	input.Tuning.CompactMinPromptTokens = 400_000
+	verdict := routingpolicy.DecideSwitch(input)
+	assert.False(t, verdict.Compact, "a prompt under the floor never compacts")
+	assert.NotEqual(t, routingpolicy.SwitchReasonCompactThenSwitch, verdict.Reason)
+}
+
+func TestDecideSwitchPricesTheSummaryOnTheSummarizerCache(t *testing.T) {
+	input := routingpolicy.SwitchInput{
+		Current: switchTestLow, Fresh: switchTestMid, EstimatedInputTokens: 300_000, PromptTokens: 300_000, CompactedTokens: 20_000,
+		Summarizer: switchTestHigh,
+	}
+	assert.False(t, routingpolicy.DecideSwitch(input).Compact, "a cold summarizer rewrites the whole prompt, so compaction does not pay")
+
+	input.SummaryReady = true
+	assert.True(t, routingpolicy.DecideSwitch(input).Compact, "a summary prepared ahead of time is already paid for")
+}
