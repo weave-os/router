@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"weave-os/router/internal/router"
 )
 
 type PreparationState string
@@ -40,4 +41,15 @@ func (r *SidecarRouter) PrepareClassifier(ctx context.Context, operationID strin
 		return ClassifierPreparation{}, ErrClassifierPreparationUnavailable
 	}
 	return preparer.PrepareClassifier(ctx, operationID)
+}
+
+var (
+	ErrModelPreparationForbidden = errors.New("model preparation not permitted")
+	ErrModelPreparationOperation = errors.New("model preparation operation does not match admitted release")
+)
+
+type ModelPreparation struct {
+	ClassifierPreparation
+	Model     router.RoutingModel `json:"model"`
+	ReleaseID string              `json:"release_id"`
 }
