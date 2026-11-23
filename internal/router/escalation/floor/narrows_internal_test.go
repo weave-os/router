@@ -41,7 +41,15 @@ func (narrowingCase) Generate(r *rand.Rand, _ int) reflect.Value {
 		ExcludedModels: modelSet(), AllowedModels: modelSet(), SafetyExcludedModels: modelSet(),
 		ContextWindowExcludedModels: modelSet(), ImageLimitExcludedModels: modelSet(),
 		UnsignedHistoryExcludedModels: modelSet(), OverflowAdmittedModels: modelSet(), AutomaticExcludedModels: modelSet(),
-	}}
+	},
+		RequestedModel:       narrowingModels[r.Intn(len(narrowingModels))],
+		ForceCluster:         string(group()),
+		SkipSessionPin:       r.Intn(2) == 0,
+		EstimatedInputTokens: r.Intn(200_000),
+		HasTools:             r.Intn(2) == 0,
+		PreferredModels:      []string{narrowingModels[r.Intn(len(narrowingModels))]},
+		ClientSessionID:      "session",
+	}
 	if r.Intn(2) == 0 {
 		req.Escalation = &escalation.Constraint{Floor: group(), Escalate: r.Intn(2) == 0}
 	}
