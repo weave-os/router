@@ -220,7 +220,7 @@ func (s *Service) bypassToAnthropic(
 		ModelSwitched:            modelSwitched,
 		FastMode:                 fastModeForAttempt(ctx, decision.Model, decision.Provider),
 	}
-	prep, emitErr := prepareAnthropicForTurn(env, r.Header, opts, turnType)
+	prep, emitErr := routingpolicy.PrepareAnthropicForTurn(env, r.Header, opts, turnType)
 	if emitErr != nil {
 		log.Error("Failed to emit Anthropic body on usage-bypass path", "err", emitErr)
 		return fmt.Errorf("emit bypass body: %w", emitErr)

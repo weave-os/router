@@ -191,7 +191,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	effortServed.Apply(&opts)
 	ctx = credentials.ResolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
-	prep, emitErr := env.PrepareGemini(r.Header, geminiOptionsForTurn(opts, routeRes.TurnType))
+	prep, emitErr := env.PrepareGemini(r.Header, routingpolicy.GeminiOptionsForTurn(opts, routeRes.TurnType))
 	if emitErr != nil {
 		log.Error("Failed to emit Gemini body", "err", emitErr)
 		return fmt.Errorf("emit body: %w", emitErr)

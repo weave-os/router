@@ -23,6 +23,7 @@ import (
 	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rosterdata"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -39,7 +40,7 @@ func TestClassifierPerCallHistoryWithinSingleHumanTurn(t *testing.T) {
 	observation := classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "Synthetic task"))
 	failed := true
 	for call := range 14 {
-		input, err := classifierContextForCall(observation)
+		input, err := routingpolicy.ClassifierContextForCall(observation)
 		require.NoError(t, err)
 		prediction, err := svc.classifyThread(ctx, input)
 		require.NoError(t, err)
@@ -162,7 +163,7 @@ func TestClassifierCodexExitErrorsAdvanceWithoutChangingReplay(t *testing.T) {
 		original, err := json.Marshal(observation)
 		require.NoError(t, err)
 		observation.CodexToolResults = true
-		input, err := classifierContextForCall(observation)
+		input, err := routingpolicy.ClassifierContextForCall(observation)
 		require.NoError(t, err)
 		replayed, err := json.Marshal(observation)
 		require.NoError(t, err)
@@ -191,7 +192,7 @@ func TestClassifierCodexExitErrorsAdvanceWithoutChangingReplay(t *testing.T) {
 func TestClassifierLegacyPredictionsCannotBecomeCallHistory(t *testing.T) {
 	svc, principal, store := classifierSessionFixture(t, classifierMedium)
 	ctx := classifierAdmit(t, svc, principal)
-	input, err := classifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "Synthetic task")))
+	input, err := routingpolicy.ClassifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "Synthetic task")))
 	require.NoError(t, err)
 	prediction, err := svc.classifyThread(ctx, input)
 	require.NoError(t, err)
@@ -206,7 +207,7 @@ func TestClassifierMissingUserPredictionCannotInheritOlderCall(t *testing.T) {
 	svc, principal, _ := classifierSessionFixture(t, classifierMedium)
 	ctx := classifierAdmit(t, svc, principal)
 	observation := classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "Synthetic first task"))
-	input, err := classifierContextForCall(observation)
+	input, err := routingpolicy.ClassifierContextForCall(observation)
 	require.NoError(t, err)
 	_, err = svc.classifyThread(ctx, input)
 	require.NoError(t, err)
@@ -216,7 +217,7 @@ func TestClassifierMissingUserPredictionCannotInheritOlderCall(t *testing.T) {
 		classifierTestText(translate.EscalationRoleAssistant, "Unrouted second answer"),
 		classifierTestText(translate.EscalationRoleUser, "Third task"),
 	)
-	input, err = classifierContextForCall(observation)
+	input, err = routingpolicy.ClassifierContextForCall(observation)
 	require.NoError(t, err)
 	_, err = svc.classifyThread(ctx, input)
 	require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)

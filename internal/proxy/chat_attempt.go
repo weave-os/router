@@ -82,11 +82,11 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				nativeOpts.TargetProvider = d.Provider
 				nativeOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
 				*deps.fastServed = nativeOpts.FastMode
-				outBody, setErr = codexNativeFastMode(outBody, nativeOpts, deps.routeRes.TurnType)
+				outBody, setErr = routingpolicy.CodexNativeFastMode(outBody, nativeOpts, deps.routeRes.TurnType)
 				if setErr != nil {
 					return fmt.Errorf("set codex service_tier: %w", setErr)
 				}
-				outBody, setErr = codexNativeEffort(outBody, nativeOpts, deps.routeRes.TurnType)
+				outBody, setErr = routingpolicy.CodexNativeEffort(outBody, nativeOpts, deps.routeRes.TurnType)
 				if setErr != nil {
 					return fmt.Errorf("set codex reasoning effort: %w", setErr)
 				}
@@ -109,7 +109,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				if surface == surfaceResponsesTranslated {
 					prep, emitErr = deps.env.PrepareOpenAIResponses(deps.request.Header, attemptOpts)
 				} else {
-					prep, emitErr = prepareOpenAIForTurn(deps.env, deps.request.Header, attemptOpts, deps.routeRes.TurnType)
+					prep, emitErr = routingpolicy.PrepareOpenAIForTurn(deps.env, deps.request.Header, attemptOpts, deps.routeRes.TurnType)
 				}
 				if emitErr != nil {
 					deps.log.Error("Failed to emit OpenAI body", "err", emitErr,

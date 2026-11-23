@@ -1,4 +1,4 @@
-package proxy
+package routingpolicy
 
 import (
 	"net/http"
@@ -8,14 +8,14 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-func prepareAnthropicForTurn(env *translate.RequestEnvelope, in http.Header, opts translate.EmitOptions, turnType turntype.TurnType) (providers.PreparedRequest, error) {
+func PrepareAnthropicForTurn(env *translate.RequestEnvelope, in http.Header, opts translate.EmitOptions, turnType turntype.TurnType) (providers.PreparedRequest, error) {
 	if turnType == turntype.Classifier && env.SourceFormat() == translate.FormatAnthropic && opts.TargetModel == env.Model() {
 		return env.PrepareAnthropicVerbatim(in, opts)
 	}
 	return env.PrepareAnthropic(in, opts)
 }
 
-func prepareOpenAIForTurn(env *translate.RequestEnvelope, in http.Header, opts translate.EmitOptions, turnType turntype.TurnType) (providers.PreparedRequest, error) {
+func PrepareOpenAIForTurn(env *translate.RequestEnvelope, in http.Header, opts translate.EmitOptions, turnType turntype.TurnType) (providers.PreparedRequest, error) {
 	if turnType == turntype.Classifier {
 		if prep, ok := env.PrepareOpenAIVerbatim(opts); ok {
 			return prep, nil
@@ -24,21 +24,21 @@ func prepareOpenAIForTurn(env *translate.RequestEnvelope, in http.Header, opts t
 	return env.PrepareOpenAI(in, opts)
 }
 
-func codexNativeFastMode(body []byte, opts translate.EmitOptions, turnType turntype.TurnType) ([]byte, error) {
+func CodexNativeFastMode(body []byte, opts translate.EmitOptions, turnType turntype.TurnType) ([]byte, error) {
 	if turnType == turntype.Classifier {
 		return body, nil
 	}
 	return translate.ApplyOpenAIFastMode(body, opts)
 }
 
-func codexNativeEffort(body []byte, opts translate.EmitOptions, turnType turntype.TurnType) ([]byte, error) {
+func CodexNativeEffort(body []byte, opts translate.EmitOptions, turnType turntype.TurnType) ([]byte, error) {
 	if turnType == turntype.Classifier {
 		return body, nil
 	}
 	return translate.ApplyOpenAIResponsesEffort(body, opts)
 }
 
-func geminiOptionsForTurn(opts translate.EmitOptions, turnType turntype.TurnType) translate.EmitOptions {
+func GeminiOptionsForTurn(opts translate.EmitOptions, turnType turntype.TurnType) translate.EmitOptions {
 	if turnType != turntype.Classifier {
 		return opts
 	}
