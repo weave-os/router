@@ -32,7 +32,7 @@ func TestCatalogRosterSource_ListsEveryCatalogModel(t *testing.T) {
 func TestDeployedModelsSource_ManagedAdmissionListsCatalogUnauthed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	server.RegisterWithFeatures(engine, nil, nil, deployedModelsSource(nil), server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
+	server.RegisterWithFeatures(engine, nil, server.Services{}, deployedModelsSource(nil), server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
 
 	for _, path := range []string{"/v1/router/models", "/v1/router/models?strategy=hmm", "/v1/router/models?strategy=hmm_embedding"} {
 		response := httptest.NewRecorder()
