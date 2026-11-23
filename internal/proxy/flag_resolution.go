@@ -13,10 +13,6 @@ func (s *Service) ResolveAllowedModelsHeader(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAllowedModelsHeader, s.ingress.AllowedModelsHeader)
 }
 
-func (s *Service) ResolveTransientRateLimit(ctx context.Context) bool {
-	return s.throttling.RateLimit.Transient(ctx)
-}
-
 func plannerConfigFor(ctx context.Context, cfg planner.EVConfig) planner.EVConfig {
 	cfg.TierUpgradeEnabled = flags.BoolOr(ctx, flags.KeyPlannerTierUpgrade, cfg.TierUpgradeEnabled)
 	cfg.CorrectedEconomics = flags.BoolOr(ctx, flags.KeyPlannerCorrectedEconomics, cfg.CorrectedEconomics)

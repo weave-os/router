@@ -519,7 +519,7 @@ func (s *Service) runTurnLoop(
 	}
 	demoted := sessionDemotedModels(ctx, s, env, &res, pin, switchHistory)
 	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.ImageCount), req.HasTools)
-	if s.ResolveTransientRateLimit(ctx) && (!forceModelFound || !candidates.ForcedPinEligible(forceModelPin, req)) {
+	if s.throttling.RateLimit.Transient(ctx) && (!forceModelFound || !candidates.ForcedPinEligible(forceModelPin, req)) {
 		ctx, demoted = applyDemotionCooldowns(ctx, s, &req, &res, demoted, mergeDemotionCooldowns(pin.DemotionCooldowns, switchHistory.DemotionCooldowns))
 	}
 	if len(demoted) > 0 {

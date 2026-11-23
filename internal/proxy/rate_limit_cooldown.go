@@ -126,7 +126,7 @@ func isRateLimitedPrimaryFailure(err error) bool {
 }
 
 func (s *Service) withRateLimitTurn(ctx context.Context) (context.Context, *dispatch.ThrottleLedger) {
-	if !s.ResolveTransientRateLimit(ctx) {
+	if !s.throttling.RateLimit.Transient(ctx) {
 		return ctx, nil
 	}
 	return dispatch.WithThrottleLedger(ctx)
