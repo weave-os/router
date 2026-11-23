@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/requestcontext"
 )
 
 func withPickedModelFunding(ctx context.Context, servedAsIs bool, provider string) context.Context {
@@ -19,7 +20,7 @@ func withPickedModelFunding(ctx context.Context, servedAsIs bool, provider strin
 }
 
 func withCodexPickFunding(ctx context.Context, servedModel, provider string) context.Context {
-	selected, _, _ := strings.Cut(codexSelectedModel(ctx), ":")
+	selected, _, _ := strings.Cut(requestcontext.CodexSelectedModel(ctx), ":")
 	if selected == "" || selected != servedModel {
 		return ctx
 	}

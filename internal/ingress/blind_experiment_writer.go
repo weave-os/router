@@ -1,4 +1,4 @@
-package proxy
+package ingress
 
 import (
 	"bytes"
@@ -30,7 +30,7 @@ type blindExperimentWriter struct {
 	pending     []byte
 }
 
-func withBlindExperimentWriter(ctx context.Context, w http.ResponseWriter, body []byte) (http.ResponseWriter, func()) {
+func WithBlindExperimentWriter(ctx context.Context, w http.ResponseWriter, body []byte) (http.ResponseWriter, func()) {
 	if _, active := auth.BlindExperimentFrom(ctx); !active {
 		return w, func() {}
 	}
