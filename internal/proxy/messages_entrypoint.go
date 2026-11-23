@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/websearch"
 )
@@ -93,7 +94,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	feats := env.RoutingFeatures()
-	ctx = withRequestImageCount(ctx, feats.ImageCount)
+	ctx = requestcontext.WithRequestImageCount(ctx, feats.ImageCount)
 	if err := validateHandoffEnvelope(ctx, env, r.Header, body); err != nil {
 		return err
 	}
@@ -158,14 +159,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}, func(routeCtx context.Context) (routingpolicy.TurnRoute, error) {
 		switch {
 		case conversation.HandoffFromContext(ctx) != nil:
-			return s.resumeHandoff(routeCtx, strategy, env, req, turntype.IsSubAgent(env, subAgentHintForRequest(routeCtx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(routeCtx))))
+			return s.resumeHandoff(routeCtx, strategy, env, req, turntype.IsSubAgent(env, subAgentHintForRequest(routeCtx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(requestcontext.ClientIdentityFrom(routeCtx))))
 		case agentShadowMode:
 			return s.runAgentShadowEvaluationRoute(routeCtx, env, feats, facts.InstallationID, req, agentShadowEval)
 		}
 		return taskArm.route(routeCtx, s.runTurnLoop)(env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, "", r.Header, req)
 	})
 	defer routeRes.ReleaseCooldownProbes()
-	var escalationCapture *captureWriter
+	var escalationCapture *capture.Writer
 	defer func() {
 		if !conversation.PreparingHandoff(ctx) {
 			s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseAnthropic)

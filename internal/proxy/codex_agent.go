@@ -8,7 +8,7 @@ import (
 )
 
 func codexSubagentPath(ctx context.Context) string {
-	if ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppCodex {
+	if requestcontext.ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppCodex {
 		return ""
 	}
 	native, _ := ctx.Value(nativeResponsesBodyContextKey{}).([]byte)

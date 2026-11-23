@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
@@ -140,7 +141,7 @@ func forceClusterForTurn(ports continuity.StrategyPorts, ctx context.Context, tu
 		return forceCluster, taskArmTurn{}, err
 	}
 	hint := subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type"))
-	turnType := turntype.Detect(env, feats, hint, openCodeCaller(ClientIdentityFrom(ctx)))
+	turnType := turntype.Detect(env, feats, hint, openCodeCaller(requestcontext.ClientIdentityFrom(ctx)))
 	if turnType != turntype.MainLoop && turnType != turntype.ToolResult {
 		return forceCluster, taskArmTurn{}, nil
 	}
@@ -154,4 +155,9 @@ func applyExperimentAttrs(ctx context.Context, b *telemetry.AttrBuilder, routed 
 
 func routesWithoutSessionPin(store sessionpin.Store, req router.Request) bool {
 	return store == nil || req.SkipSessionPin
+}
+
+func openCodeCaller(id requestcontext.ClientIdentity) turntype.OpenCodeCaller {
+	isClient := id.ClientApp == requestcontext.ClientAppOpencode
+	return turntype.OpenCodeCaller{IsClient: isClient, IsSubagent: isClient && id.OpenCodeSubagent}
 }

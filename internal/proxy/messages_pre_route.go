@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -69,7 +70,7 @@ func assembleMessagesPreRoute(ctx context.Context, s *Service, in messagesPreRou
 	}
 	if requestBodyChanged {
 		feats = env.RoutingFeatures()
-		ctx = withRequestImageCount(ctx, feats.ImageCount)
+		ctx = requestcontext.WithRequestImageCount(ctx, feats.ImageCount)
 		promptText, embedInput = conversation.TurnPromptText(feats)
 	}
 
@@ -99,7 +100,7 @@ func assembleMessagesPreRoute(ctx context.Context, s *Service, in messagesPreRou
 		inboundSpiralReasons = conversation.SpiralReasons(inboundSpiralSignals)
 	}
 
-	if s.effectiveCaptureMode(ctx) != CaptureOff {
+	if s.effectiveCaptureMode(ctx) != capture.Off {
 		logInboundRequestDiagnostics(log, env)
 	}
 

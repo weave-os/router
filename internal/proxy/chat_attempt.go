@@ -54,7 +54,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 	targetNotice := routerNoticeForDecision(withOwnCodexRejectionNudge(ctx, deps.request.Header, deps.svc.credentials.UsageObserver), deps.request.Header, target, targetMarker)
 	targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(deps.svc), target.Provider, target.Model, targetNotice)
 	if deps.isResponses {
-		if targetMarker != "" && (!deps.responseSwitch.passthrough() || supportsResponsesTerminalSurfaces(deps.facts.Client.ClientApp)) {
+		if targetMarker != "" && (!deps.responseSwitch.passthrough() || requestcontext.SupportsResponsesTerminalSurfaces(deps.facts.Client.ClientApp)) {
 			_, noticeErr := deps.responsesNotices.prepare(ctx, deps.responsesPreludeBuf, deps.responsesPreludeBuf, translate.FormatOpenAIResponses, deps.env.Stream(), targetNotice)
 			if noticeErr != nil {
 				return nil, fmt.Errorf("emit Responses router notice: %w", noticeErr)

@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 )
 
@@ -65,7 +66,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	codexTitleGen, _ := ctx.Value(codexTitleGenerationContextKey{}).(bool)
 	feats := env.RoutingFeatures()
-	ctx = withRequestImageCount(ctx, feats.ImageCount)
+	ctx = requestcontext.WithRequestImageCount(ctx, feats.ImageCount)
 	if codexTitleGen {
 		feats.TitleGenHint = true
 	}
@@ -113,7 +114,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	if requestBodyChanged {
 		feats = env.RoutingFeatures()
-		ctx = withRequestImageCount(ctx, feats.ImageCount)
+		ctx = requestcontext.WithRequestImageCount(ctx, feats.ImageCount)
 		if codexTitleGen {
 			feats.TitleGenHint = true
 		}
@@ -136,7 +137,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return forceErr
 	}
 
-	if s.effectiveCaptureMode(ctx) != CaptureOff {
+	if s.effectiveCaptureMode(ctx) != capture.Off {
 		logInboundRequestDiagnostics(log, env)
 	}
 
@@ -180,7 +181,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return taskArm.route(routeCtx, s.runTurnLoop)(env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
 	})
 	defer routeRes.ReleaseCooldownProbes()
-	var escalationCapture *captureWriter
+	var escalationCapture *capture.Writer
 	defer func() {
 		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseChat)
 	}()

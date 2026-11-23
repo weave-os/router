@@ -14,88 +14,50 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 
 	"github.com/tidwall/gjson"
 )
 
-type ContentCaptureMode int
+func (s *Service) WithContentCapture(mode capture.Mode, maxBytes int, redactor capture.Redactor) *Service {
+	s.captureMode = mode
+	if maxBytes > 0 {
+		s.captureMaxBytes = maxBytes
+	}
+	s.redactor = redactor
+	return s
+}
 
-const (
-	CaptureOff ContentCaptureMode = iota
-	CaptureHashed
-	CaptureFull
-)
-
-func (s *Service) effectiveCaptureMode(ctx context.Context) ContentCaptureMode {
-	override, ok := ctx.Value(requestcontext.InstallationCaptureModeContextKey{}).(ContentCaptureMode)
+func (s *Service) effectiveCaptureMode(ctx context.Context) capture.Mode {
+	override, ok := ctx.Value(requestcontext.InstallationCaptureModeContextKey{}).(capture.Mode)
 	if !ok {
 		return s.captureMode
 	}
-	return StricterCaptureMode(s.captureMode, override)
+	return capture.StricterMode(s.captureMode, override)
 }
 
-func StricterCaptureMode(a, b ContentCaptureMode) ContentCaptureMode {
-	if b < a {
-		return b
-	}
-	return a
-}
-
-func (s *Service) CaptureMode() ContentCaptureMode { return s.captureMode }
-
-type ContentKind int
-
-const (
-	ContentKindRequest ContentKind = iota
-	ContentKindResponse
-)
-
-type Redactor func(content string, kind ContentKind) string
-
-func ParseCaptureMode(raw string) ContentCaptureMode {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "full":
-		return CaptureFull
-	case "hashed":
-		return CaptureHashed
-	default:
-		return CaptureOff
-	}
-}
-
-func (m ContentCaptureMode) String() string {
-	switch m {
-	case CaptureFull:
-		return "full"
-	case CaptureHashed:
-		return "hashed"
-	default:
-		return "off"
-	}
-}
-
-func (s *Service) maybeCaptureResponse(ctx context.Context, w http.ResponseWriter) (http.ResponseWriter, *captureWriter) {
-	if s.effectiveCaptureMode(ctx) == CaptureOff {
+func (s *Service) maybeCaptureResponse(ctx context.Context, w http.ResponseWriter) (http.ResponseWriter, *capture.Writer) {
+	if s.effectiveCaptureMode(ctx) == capture.Off {
 		return w, nil
 	}
 	if rw, ok := w.(*translate.ResponsesWriter); ok {
-		var cw *captureWriter
+		var cw *capture.Writer
 		rw.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
-			cw = newCaptureWriter(inner, s.captureMaxBytes)
+			cw = capture.NewWriter(inner, s.captureMaxBytes)
 			return cw
 		})
 		return w, cw
 	}
-	cw := newCaptureWriter(w, s.captureMaxBytes)
+	cw := capture.NewWriter(w, s.captureMaxBytes)
 	return cw, cw
 }
 
-func capturedResponse(c *captureWriter) (body []byte, truncated bool) {
+func capturedResponse(c *capture.Writer) (body []byte, truncated bool) {
 	if c == nil {
 		return nil, false
 	}
-	b, _, ok := c.captured()
+	b, _, ok := c.Captured()
 	if !ok {
 		return nil, true
 	}
@@ -127,13 +89,13 @@ func (d *deferredCallLog) run() {
 }
 
 func (s *Service) zdrLogField(ctx context.Context, v string) string {
-	if s.effectiveCaptureMode(ctx) == CaptureOff {
+	if s.effectiveCaptureMode(ctx) == capture.Off {
 		return ""
 	}
 	return v
 }
 
-func (s *Service) redact(content []byte, kind ContentKind) string {
+func (s *Service) redact(content []byte, kind capture.ContentKind) string {
 	if s.redactor == nil {
 		return string(content)
 	}
@@ -147,7 +109,7 @@ func sha256Hex(b []byte) string {
 
 func (s *Service) recordCallLog(ctx context.Context, base []telemetry.Attr, routeMs int64, proxyErr error, reqBody, respBody []byte, respTruncated bool) {
 	mode := s.effectiveCaptureMode(ctx)
-	if mode == CaptureOff {
+	if mode == capture.Off {
 		s.recordPermanentError(ctx, base, proxyErr, len(reqBody))
 		return
 	}
@@ -159,13 +121,13 @@ func (s *Service) recordCallLog(ctx context.Context, base []telemetry.Attr, rout
 		Bool("io.truncated", respTruncated)
 
 	switch mode {
-	case CaptureFull:
-		content.String("io.request_body", s.redact(reqBody, ContentKindRequest)).
-			String("io.response_body", s.redact(respBody, ContentKindResponse))
-	case CaptureHashed:
+	case capture.Full:
+		content.String("io.request_body", s.redact(reqBody, capture.ContentKindRequest)).
+			String("io.response_body", s.redact(respBody, capture.ContentKindResponse))
+	case capture.Hashed:
 		content.String("io.request_sha256", sha256Hex(reqBody)).
 			String("io.response_sha256", sha256Hex(respBody))
-	case CaptureOff:
+	case capture.Off:
 	}
 
 	attrs := append(slices.Clone(base), content.Build()...)
@@ -272,7 +234,7 @@ func (s *Service) recordPermanentError(ctx context.Context, base []telemetry.Att
 	})
 }
 
-func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int, redact Redactor, responsesSurface ...bool) []telemetry.Attr {
+func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int, redact capture.Redactor, responsesSurface ...bool) []telemetry.Attr {
 	isResponsesSurface := len(responsesSurface) > 0 && responsesSurface[0]
 	attrs := telemetry.NewAttrBuilder(8).
 		String("upstream.error_class", string(classifyPermanentError(proxyErr, isResponsesSurface))).
@@ -301,10 +263,10 @@ func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int, redact Reda
 	return attrs.Build()
 }
 
-func boundedErrorResponse(body []byte, redact Redactor) (string, bool) {
+func boundedErrorResponse(body []byte, redact capture.Redactor) (string, bool) {
 	errorResponse := string(body)
 	if redact != nil {
-		errorResponse = redact(errorResponse, ContentKindResponse)
+		errorResponse = redact(errorResponse, capture.ContentKindResponse)
 	}
 	errorResponse = strings.ToValidUTF8(errorResponse, "�")
 	if len(errorResponse) <= maxLoggedErrorResponseBytes {

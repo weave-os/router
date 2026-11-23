@@ -47,7 +47,7 @@ func (s *Service) anthropicRoutingRequest(
 		return ctx, router.Request{}, fmt.Errorf("parse request: %w", err)
 	}
 
-	clientIdentity := ClientIdentityFrom(ctx)
+	clientIdentity := requestcontext.ClientIdentityFrom(ctx)
 	headerIdentity := requestcontext.ClientIdentityFromHeaders(headers)
 	if clientIdentity.ClientApp == "" {
 		clientIdentity.ClientApp = headerIdentity.ClientApp
@@ -72,7 +72,7 @@ func (s *Service) anthropicRoutingRequest(
 		return ctx, router.Request{}, err
 	}
 	features := env.RoutingFeatures()
-	ctx = withRequestImageCount(ctx, features.ImageCount)
+	ctx = requestcontext.WithRequestImageCount(ctx, features.ImageCount)
 	promptText := features.PromptText
 	if features.OnlyUserMessageText != "" {
 		promptText = features.OnlyUserMessageText

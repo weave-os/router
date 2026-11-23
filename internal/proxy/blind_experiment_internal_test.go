@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
@@ -412,7 +413,7 @@ func TestApplyBlindExperimentTelemetry(t *testing.T) {
 		context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), requestcontext.PolicyTrainingAllowedContextKey{}, true), router.StrategyFromContext(context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), requestcontext.PolicyTrainingAllowedContextKey{}, true)),
 		router.Decision{},
 		router.Decision{},
-		CaptureOff)
+		capture.Off)
 
 	assert.False(t, observation.TrainingAllowed)
 }

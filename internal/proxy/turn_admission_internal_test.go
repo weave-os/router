@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 )
 
 type fakeTurnAdmission struct {
@@ -27,8 +28,8 @@ func (f *fakeTurnAdmission) withClassifierInput(ctx context.Context, _ router.St
 	return ctx, nil
 }
 
-func (f *fakeTurnAdmission) effectiveCaptureMode(context.Context) ContentCaptureMode {
-	return CaptureOff
+func (f *fakeTurnAdmission) effectiveCaptureMode(context.Context) capture.Mode {
+	return capture.Off
 }
 
 func (f *fakeTurnAdmission) checkUserMonthlySpendLimit(ctx context.Context, _ http.Header, _ string) (context.Context, error) {

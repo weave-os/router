@@ -159,7 +159,7 @@ func promptTooLongCounts(err error) (tokens, limit int, ok bool) {
 
 func withClientTrimCounts(ctx context.Context, err, primaryErr error) error {
 	var unservable *CompactionUnservableError
-	if ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppClaudeCode || !errors.As(err, &unservable) {
+	if requestcontext.ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppClaudeCode || !errors.As(err, &unservable) {
 		return err
 	}
 	for _, cause := range []error{primaryErr, unservable.Cause} {
