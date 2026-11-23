@@ -992,19 +992,13 @@ func main() {
 			TurnSignalCapture: turnSignalCaptureEnabled, NativeAnthropicResponseSignals: nativeAnthropicResponseSignals, NativeOpenAIResponseSignals: nativeOpenAIResponseSignals}},
 		BYOKOnly: byokOnly, DeploymentKeyedProviders: deploymentEligible,
 		Dispatch: &dispatch.Config{
-			Rescue: dispatch.RescueConfig{
-				SiblingFailover: siblingFailover, EarlyStopRedo: earlyStopRedo, CyberRefusalRepin: cyberRefusalRepin, CyberRefusalRetry: cyberRefusalRetry,
-				CyberRefusalFallbackModel: cyberRefusalFallbackModel, AnthropicServerSideFallback: anthropicServerSideFallback,
-			},
+			Rescue: dispatch.RescueConfig{SiblingFailover: siblingFailover, EarlyStopRedo: earlyStopRedo, CyberRefusalRepin: cyberRefusalRepin, CyberRefusalRetry: cyberRefusalRetry,
+				CyberRefusalFallbackModel: cyberRefusalFallbackModel, AnthropicServerSideFallback: anthropicServerSideFallback},
 			ArmDemotion: dispatch.ArmDemotionPolicy{CommittedStream: committedStreamArmDemotion, RescuedFailure: rescuedFailureArmDemotion},
-			Throttling: dispatch.Throttling{
-				Overload:  dispatch.NewOverloadBreaker(providerOverloaded, breaker.New(breaker.Defaults(), nil)),
-				RateLimit: dispatch.NewRateLimitPolicy(transientRateLimit, rateLimitCooldownSeconds),
-			},
+			Throttling: dispatch.Throttling{Overload: dispatch.NewOverloadBreaker(providerOverloaded, breaker.New(breaker.Defaults(), nil)),
+				RateLimit: dispatch.NewRateLimitPolicy(transientRateLimit, rateLimitCooldownSeconds)},
 			Executor: inferenceExecutor, Plans: inferencePlans, Deployment: inferenceDeployment,
-			TranslationCompatibilityMode: dispatch.TranslationCompatibilityMode(translationCompatibilityMode),
-			TranslationMetrics:           otel.NewTranslationMetrics(),
-		},
+			TranslationCompatibilityMode: dispatch.TranslationCompatibilityMode(translationCompatibilityMode), TranslationMetrics: otel.NewTranslationMetrics()},
 	}).
 		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithExternalKeyUsageRecorder(authSvc).
