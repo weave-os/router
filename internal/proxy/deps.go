@@ -59,7 +59,6 @@ func applyDispatchConfig(s *Service, cfg dispatch.Config) {
 	s.rescueConfig.CyberRefusalFallbackModel = fallbackModel
 	s.armDemotion = cfg.ArmDemotion
 	s.throttling = cfg.Throttling
-	s.engine.SetRetrySleep(cfg.RetrySleep)
 	s.engine.SetExecutor(cfg.Executor)
 	s.engine.SetPlans(cfg.Plans)
 	s.engine.SetDeployment(cfg.Deployment)
