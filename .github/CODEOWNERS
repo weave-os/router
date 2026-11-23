@@ -2,7 +2,7 @@
 /internal/architecture/ @steventohme
 /scripts/arch_ratchet/ @steventohme
 /scripts/structural_pr_guard/ @steventohme
-/.github/workflows/structural_pr_guard.yml @steventohme
+/.github/workflows/ @steventohme
 /cmd/geninferencepolicy/ @steventohme
 /docs/POLICY_INFERENCE.* @steventohme
 /.github/CODEOWNERS @steventohme
