@@ -8,7 +8,6 @@ import (
 	"time"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/routingpolicy"
-	"weave-os/router/internal/telemetry/spans"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -23,6 +22,7 @@ import (
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 

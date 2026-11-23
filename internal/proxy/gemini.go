@@ -7,8 +7,6 @@ import (
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/routingpolicy"
-	"weave-os/router/internal/telemetry/iolog"
-	"weave-os/router/internal/telemetry/spans"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
@@ -23,6 +21,8 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
+	"weave-os/router/internal/telemetry/iolog"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/translate"
 )
 

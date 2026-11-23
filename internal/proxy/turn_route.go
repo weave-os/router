@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"time"
 	"weave-os/router/internal/routingpolicy"
-	"weave-os/router/internal/telemetry/spans"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry/spans"
 )
 
 type routeTurnRequest struct {
