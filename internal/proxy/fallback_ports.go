@@ -17,8 +17,8 @@ func fallbackFor(s *Service) dispatch.Fallback {
 		Credentials: rescueCredentialPort{s},
 		Bindings:    rescueRoutingPort{s},
 		Diagnostics: fallbackDiagnostics{s},
-		Plans:       s.inferencePlans,
-		Executor:    s.inferenceExecutor,
+		Plans:       s.engine.ResolvePlans,
+		Executor:    func() (*dispatch.Executor, error) { return s.engine.ResolveExecutor(s.clock) },
 		Now:         s.clock.Now,
 	}
 }
@@ -127,5 +127,5 @@ func (fallbackDiagnostics) AttributeTerminal(trace *dispatch.AttemptTrace, err e
 }
 
 func (d fallbackDiagnostics) RecordOverloadOutcome(ctx context.Context, model, provider string, committed bool, err error) {
-	d.s.recordOverloadOutcome(ctx, model, provider, committed, err)
+	d.s.throttling.Overload.RecordOutcome(ctx, overloadOrg(ctx), model, provider, committed, err)
 }

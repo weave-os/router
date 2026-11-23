@@ -6,23 +6,13 @@ import (
 	"strings"
 
 	"weave-os/router/internal/credentials"
-	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/policy"
 )
 
-func (s *Service) inferencePlans() (*policy.PlanResolver, error) {
-	return s.engine.ResolvePlans()
-}
-
-func (s *Service) inferenceExecutor() (*dispatch.Executor, error) {
-	return s.engine.ResolveExecutor(s.clock)
-}
-
-func (s *Service) afterSubscriptionRotationBudget(ctx context.Context, decision router.Decision, subscriptionAttempts int, rotationErr error) error {
+func afterSubscriptionRotationBudget(ctx context.Context, decision router.Decision, subscriptionAttempts int, rotationErr error) error {
 	observability.FromContext(ctx).Warn("Subscription admission budget spent; refusing unproven paid recovery", "model", decision.Model, "provider", decision.Provider, "budget_ms", credentials.SubscriptionRotationBudget.Milliseconds(), "subscription_account_attempt", subscriptionAttempts, "err", rotationErr)
 	if credentials.ForcedClaudeClientAppRefused(ctx, decision, nil) {
 		return errors.Join(credentials.SubscriptionClientAppRefusal(ctx), rotationErr)

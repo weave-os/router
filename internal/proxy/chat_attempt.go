@@ -103,7 +103,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				attemptOpts.TargetProvider = d.Provider
 				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
 				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-				attemptOpts.ReasoningReplayScope = deps.svc.reasoningReplayScope(actx, d)
+				attemptOpts.ReasoningReplayScope = deps.svc.engine.ReasoningReplayScope(actx, d)
 				*deps.fastServed = attemptOpts.FastMode
 				var emitErr error
 				if surface == surfaceResponsesTranslated {

@@ -50,7 +50,7 @@ func TestSubscriptionStateForcedModelThrottledPoolFundsCredits(t *testing.T) {
 		},
 	}
 
-	_, err := svc.dispatchWithFallback(ctx, inputs)
+	_, err := fallbackFor(svc).Dispatch(ctx, inputs)
 
 	require.NoError(t, err, "a throttled pool is not an allowlist problem and must not fail the turn")
 	require.Equal(t, 1, openAI.calls, "the forced model is served once on Weave credits")

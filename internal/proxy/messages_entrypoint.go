@@ -177,7 +177,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
 	ctx = withPickedModelFunding(ctx, routeRes.CallerModelPassthrough, routeRes.Decision.Provider)
-	ctx = s.withTurnOverloadProbe(ctx, routeRes)
+	ctx = withTurnOverloadProbe(ctx, s.throttling.Overload, routeRes)
 	if conversation.PreparingHandoff(ctx) {
 		return s.finishHandoffPreparation(ctx, strategy, w, env, req, routeRes)
 	}

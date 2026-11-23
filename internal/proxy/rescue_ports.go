@@ -26,7 +26,9 @@ func rescuePortsFor(s *Service) dispatch.RescuePorts {
 		Attempts:    rescueAttemptPort{s},
 		Overflow:    rescueOverflowPort{s},
 		Render:      rescueRenderPort{},
-		Dispatch:    s.dispatchWithFallback,
+		Dispatch: func(ctx context.Context, in dispatch.FailoverInputs) (int, error) {
+			return fallbackFor(s).Dispatch(ctx, in)
+		},
 	}
 }
 
@@ -286,7 +288,7 @@ func (rescueRoutingPort) BaseModelOf(servedIdentity string) string {
 }
 
 func (p rescueRoutingPort) EarlyStopRedoMode(ctx context.Context, routeRes dispatch.RescueTurn, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode {
-	return p.s.earlyStopRedoMode(ctx, routeRes, decision, streaming, agentShadow)
+	return p.s.rescueConfig.EarlyStopRedoModeFor(ctx, routeRes, decision, streaming, agentShadow)
 }
 
 func (p rescueRoutingPort) RedoEarlyStop(ctx context.Context, redo dispatch.EarlyStopRedo) (bool, error) {

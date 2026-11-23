@@ -60,7 +60,7 @@ func TestVerificationOpaqueReasoningWireScope(t *testing.T) {
 			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: model, Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, model, nil)).WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: leases})
 			// Mint a protocol envelope for the old stable provider principal/model; token differs from current bearer.
 			oldCtx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{APIKey: []byte("old-access-token"), AccountID: []byte("reasoning-provider"), OAuth: true, Source: requestcontext.SourceCodexSubscription, PrincipalID: "chatgpt-account:reasoning-provider"})
-			scope := svc.reasoningReplayScope(oldCtx, router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel})
+			scope := svc.engine.ReasoningReplayScope(oldCtx, router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel})
 			envelope, err := json.Marshal(map[string]any{"v": 1, "provider": "openai", "id": "synthetic-reasoning-id", "enc": "opaque-prior-owner-reasoning", "scope": scope})
 			require.NoError(t, err)
 			signature := base64.StdEncoding.EncodeToString(envelope)
