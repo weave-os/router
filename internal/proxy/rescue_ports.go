@@ -127,7 +127,7 @@ func (p rescueRoutingPort) EarlyStopRedoTarget(ctx context.Context, served route
 }
 
 func (p rescueRoutingPort) ResolveCyberRefusalRetry(ctx context.Context) bool {
-	return p.s.ResolveCyberRefusalRetry(ctx)
+	return p.s.rescueConfig.CyberRefusalRetryEnabled(ctx)
 }
 
 func (p rescueRoutingPort) IsHardPinnedTurn(ctx context.Context, strategy router.Strategy, tt turntype.TurnType) bool {

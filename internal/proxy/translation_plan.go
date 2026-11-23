@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -13,12 +14,12 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-type TranslationCompatibilityMode string
+type TranslationCompatibilityMode = dispatch.TranslationCompatibilityMode
 
 const (
-	TranslationCompatibilityOff     TranslationCompatibilityMode = "off"
-	TranslationCompatibilityShadow  TranslationCompatibilityMode = "shadow"
-	TranslationCompatibilityEnforce TranslationCompatibilityMode = "enforce"
+	TranslationCompatibilityOff     = dispatch.TranslationCompatibilityOff
+	TranslationCompatibilityShadow  = dispatch.TranslationCompatibilityShadow
+	TranslationCompatibilityEnforce = dispatch.TranslationCompatibilityEnforce
 )
 
 var ErrTranslationIntrinsicallyIncompatible = errors.New("translation requirements are intrinsically incompatible")
