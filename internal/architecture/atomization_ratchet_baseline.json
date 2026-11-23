@@ -19,6 +19,11 @@
       "internal/api/anthropic": 1,
       "internal/proxy": 3
     },
-    "strategy_serving_adapter_imports": {}
+    "strategy_serving_adapter_imports": {},
+    "upgrade_confidence_threshold_references": {
+      "internal/proxy": 2,
+      "internal/router/continuity": 5,
+      "internal/routingpolicy": 1
+    }
   }
 }
