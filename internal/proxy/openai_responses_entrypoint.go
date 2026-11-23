@@ -19,7 +19,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, body, r.Header)
 	ctx = context.WithValue(ctx, responsesSurfaceContextKey{}, true)
-	ctx, inputErr := s.withClassifierInput(ctx, router.StrategyFromContext(ctx), body, router.EndpointOpenAIResponses)
+	ctx, _, inputErr := withTurnClassifierInput(ctx, s, body, router.EndpointOpenAIResponses)
 	if inputErr != nil {
 		return inputErr
 	}

@@ -26,6 +26,10 @@ func ClassifiesThreads(strategy Strategy) bool {
 	return strategy == StrategyLLMClassifier
 }
 
+func IsInternalOnlyStrategy(strategy Strategy) bool {
+	return strategy == StrategyHMMQwen
+}
+
 func IsBetaStrategy(strategy Strategy) bool {
 	return strategy == StrategyHMMBeta || strategy == StrategyHMMQwen
 }

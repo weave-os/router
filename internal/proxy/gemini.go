@@ -27,12 +27,12 @@ import (
 var ErrGeminiCrossFormatUnsupported = ingress.ErrGeminiCrossFormatUnsupported
 
 func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
-	ctx, strategy := credentials.WithWeaveCreditsFunding(ctx, r.Header), router.StrategyFromContext(ctx)
+	ctx = credentials.WithWeaveCreditsFunding(ctx, r.Header)
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, s.ingress.Gemini.TraceBody(body), r.Header)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
-	ctx, returnErr = s.withClassifierInput(ctx, strategy, body, router.EndpointGeminiGenerate)
+	ctx, strategy, returnErr := withTurnClassifierInput(ctx, s, body, router.EndpointGeminiGenerate)
 	if returnErr != nil {
 		return returnErr
 	}
