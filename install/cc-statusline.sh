@@ -40,6 +40,74 @@ jQIDAQAB
 -----END PUBLIC KEY-----
 WEAVE_RELEASE_PUBKEY_EOF
 
+# ---------- release manifest verification ----------
+#
+# Shared by every fetched-code path: a downloaded body may replace an
+# installed file only after weave_verify_manifest accepts the fetched MANIFEST
+# and weave_verify_file matches the body against that MANIFEST's row. These
+# helpers are duplicated verbatim in cc-statusline.sh, codex-status.sh and
+# install.sh (and the copies install.sh embeds); keep them identical.
+#
+# They add the first openssl call to the installed statusline and Codex hook;
+# before this only install.sh needed openssl. Both return 0 when verified,
+# 1 when verification fails, and WEAVE_VERIFY_UNAVAILABLE (2) when openssl or
+# a SHA-256 tool is missing. Callers refuse the swap on any non-zero status,
+# so a machine without openssl never auto-updates (fail closed);
+# WEAVE_STATUSLINE_UPDATE=0 remains the way to turn the refresh off.
+WEAVE_VERIFY_UNAVAILABLE=2
+
+# weave_verify_manifest <manifest> <sig.b64> <pubkey-pem>
+# Checks the base64 RSA/SHA-256 signature in <sig.b64> over <manifest> with
+# `openssl dgst -sha256 -verify`, using the PEM text in <pubkey-pem>.
+weave_verify_manifest() {
+  local manifest="${1:-}" sig_b64="${2:-}" pubkey_pem="${3:-}" dir out rc=1
+  command -v openssl >/dev/null 2>&1 || return "$WEAVE_VERIFY_UNAVAILABLE"
+  [[ -f "$manifest" && -s "$manifest" && -f "$sig_b64" && -s "$sig_b64" ]] || return 1
+  [[ "$pubkey_pem" == *"-----BEGIN PUBLIC KEY-----"* ]] || return 1
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/weave-verify.XXXXXX")" || return 1
+  if printf '%s\n' "$pubkey_pem" >"$dir/pub.pem" \
+     && tr -d ' \t\r\n' <"$sig_b64" >"$dir/sig.b64" \
+     && [[ -s "$dir/sig.b64" ]] \
+     && openssl base64 -d -A -in "$dir/sig.b64" -out "$dir/sig" 2>/dev/null \
+     && [[ -s "$dir/sig" ]]; then
+    if out="$(openssl dgst -sha256 -verify "$dir/pub.pem" -signature "$dir/sig" "$manifest" 2>/dev/null)" \
+       && [[ "$out" == "Verified OK" ]]; then
+      rc=0
+    fi
+  fi
+  rm -rf "$dir"
+  return "$rc"
+}
+
+# weave_sha256 <file>: print the lowercase hex SHA-256 of <file>.
+weave_sha256() {
+  local out
+  if command -v sha256sum >/dev/null 2>&1; then
+    out="$(sha256sum <"$1")" || return 1
+  elif command -v shasum >/dev/null 2>&1; then
+    out="$(shasum -a 256 <"$1")" || return 1
+  else
+    return "$WEAVE_VERIFY_UNAVAILABLE"
+  fi
+  printf '%s\n' "${out%% *}"
+}
+
+# weave_verify_file <manifest> <path-in-manifest> <candidate>
+# Succeeds only when <manifest> has exactly one well-formed row for
+# <path-in-manifest> (e.g. install/cc-statusline.sh) and its digest equals the
+# SHA-256 of <candidate>. Call only after weave_verify_manifest accepted
+# <manifest>.
+weave_verify_file() {
+  local manifest="${1:-}" name="${2:-}" candidate="${3:-}" rows want got rc
+  [[ -n "$name" && -f "$manifest" && -f "$candidate" ]] || return 1
+  rows="$(awk -v n="$name" 'NF == 2 && $2 == n { print $1 }' "$manifest")" || return 1
+  [[ "$rows" =~ ^[0-9a-f]{64}$ ]] || return 1
+  want="$rows"
+  got="$(weave_sha256 "$candidate")" && rc=0 || rc=$?
+  [[ "$rc" -eq 0 ]] || return "$rc"
+  [[ "$got" =~ ^[0-9a-f]{64}$ && "$got" == "$want" ]]
+}
+
 # ---------- /router-status prompt hook ----------
 #
 # Registered as a UserPromptSubmit hook with --prompt-hook. Every other prompt
