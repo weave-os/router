@@ -496,10 +496,10 @@ func TestPreviewRouteHandler_ReturnsFrozenPolicyPlan(t *testing.T) {
 		RosterSHA256:         "sha256:roster",
 		EligibleRosterIDs:    []string{"anthropic/claude-opus-4-8", "openai/gpt-5.5"},
 	}}
-	svc := newTestService(&fakeRouter{}, "", nil).WithPolicyStrategy(policy.StrategySpec{
+	svc := proxy.WithDeps(newTestService(&fakeRouter{}, "", nil), proxy.Deps{Routing: &proxy.RoutingDeps{Strategies: []policy.StrategySpec{{
 		Strategy: router.StrategyHMM,
 		Router:   previewer,
-	})
+	}}}})
 	engine := previewRouteEngine(svc, true)
 	recorder := httptest.NewRecorder()
 

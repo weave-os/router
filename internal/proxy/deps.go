@@ -8,7 +8,14 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/ingress"
+	"weave-os/router/internal/router/candidates"
+	"weave-os/router/internal/router/continuity"
+	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/llmescalation"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
 )
@@ -38,8 +45,33 @@ type EscalationDeps struct {
 }
 
 type RoutingDeps struct {
-	PrefixTrimFreeSwitch *bool
-	EffortEscalation     bool
+	PrefixTrimFreeSwitch      *bool
+	EffortEscalation          bool
+	AvailableModels           map[string]struct{}
+	DefaultBaselineModel      string
+	ExcludedModels            []string
+	HardPinResolver           HardPinResolver
+	ExplicitUtilityHardPin    bool
+	SubAgentProvider          string
+	SubAgentModel             string
+	Deadline                  routingpolicy.PolicyDeadline
+	GlobalAutomaticExclusions candidates.GlobalAutomaticExclusionStore
+	Plans                     *policy.PlanResolver
+	Continuity                *continuity.Config
+	HMM                       *continuity.AuthoritativeConfig
+	BandSwap                  bool
+	Strategies                []policy.StrategySpec
+	Escalation                *RoutingEscalation
+	ClassifierSessions        *ClassifierSessions
+}
+
+type RoutingEscalation struct {
+	Store         escalation.Store
+	Observer      escalation.Observer
+	LLMStore      llmescalation.Store
+	LLMJudge      llmescalation.Judge
+	QwenJudge     llmescalation.Judge
+	ShadowDefault flags.EscalationClassifier
 }
 
 func WithDeps(s *Service, deps Deps) *Service {
@@ -58,10 +90,7 @@ func WithDeps(s *Service, deps Deps) *Service {
 	}
 	s.escalationHelper().WithSwitchyardActive(deps.Escalation.SwitchyardActive)
 	if deps.Routing != nil {
-		s.routing = s.routing.WithEffortEscalation(deps.Routing.EffortEscalation)
-		if deps.Routing.PrefixTrimFreeSwitch != nil {
-			s.routing = s.routing.WithPrefixTrimFreeSwitch(*deps.Routing.PrefixTrimFreeSwitch)
-		}
+		applyRoutingDeps(s, *deps.Routing)
 	}
 	s.credentials.BYOKOnly = deps.BYOKOnly
 	s.credentials.KeyedProviders = maps.Clone(deps.DeploymentKeyedProviders)
@@ -99,4 +128,36 @@ func DispatchEngine(s *Service) *dispatch.Engine {
 		return nil
 	}
 	return s.engine
+}
+
+func applyRoutingDeps(s *Service, deps RoutingDeps) {
+	if esc := deps.Escalation; esc != nil {
+		s.escalationHelper().WithXGB(esc.Store, esc.Observer)
+		s.escalationHelper().WithLLM(esc.LLMStore, esc.LLMJudge)
+		s.escalationHelper().WithQwen(esc.QwenJudge)
+		s.escalationHelper().WithShadowDefault(esc.ShadowDefault)
+	}
+	for _, spec := range deps.Strategies {
+		registerPolicyStrategy(s, spec)
+	}
+	hardPins := s.routing.HardPins()
+	hardPins.Resolver, hardPins.ExplicitUtility = deps.HardPinResolver, deps.ExplicitUtilityHardPin
+	hardPins.SubAgentProvider, hardPins.SubAgentModel = deps.SubAgentProvider, deps.SubAgentModel
+	routing := s.routing.WithHardPins(hardPins).WithDeadline(deps.Deadline).WithGlobalAutomaticExclusions(deps.GlobalAutomaticExclusions).
+		WithAvailableModels(deps.AvailableModels).WithDefaultBaselineModel(deps.DefaultBaselineModel).WithEffortEscalation(deps.EffortEscalation).
+		WithPlansFrom(routingpolicy.New(deps.Plans)).WithExcludedModelsOverride(deps.ExcludedModels)
+	if deps.PrefixTrimFreeSwitch != nil {
+		routing = routing.WithPrefixTrimFreeSwitch(*deps.PrefixTrimFreeSwitch)
+	}
+	s.routing = routing
+	if deps.Continuity != nil {
+		s.continuityConfig = *deps.Continuity
+	}
+	if deps.HMM != nil {
+		s.hmmConfig = *deps.HMM
+	}
+	withBandSwap(s, deps.BandSwap)
+	if deps.ClassifierSessions != nil {
+		s.classifierSessions = deps.ClassifierSessions
+	}
 }

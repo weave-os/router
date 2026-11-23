@@ -10,7 +10,7 @@ type strategyServing struct {
 	hmmConfig          continuity.AuthoritativeConfig
 	strategyPorts      continuity.StrategyPorts
 	bandSwap           *bandswap.Classifier
-	classifierSessions *classifierSessions
+	classifierSessions *ClassifierSessions
 }
 
 func WithStrategyPorts(s *Service, ports continuity.StrategyPorts) *Service {
