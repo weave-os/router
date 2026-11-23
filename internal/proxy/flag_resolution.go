@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/planner"
@@ -149,5 +150,5 @@ func plannerConfigFor(ctx context.Context, cfg planner.EVConfig) planner.EVConfi
 }
 
 func stripsThinkingHistory(ctx context.Context) bool {
-	return betaArtifactHistoryFromContext(ctx) || !sessionpin.Enabled(ctx)
+	return conversation.BetaArtifactHistoryFromContext(ctx) || !sessionpin.Enabled(ctx)
 }

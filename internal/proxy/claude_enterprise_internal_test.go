@@ -224,7 +224,7 @@ func TestClaudeEnterpriseOnlyBypassRefusalDoesNotReroute(t *testing.T) {
 	}
 	service := ingress.quotaService(upstream)
 	threshold := 0.9
-	ctx := context.WithValue(enterpriseOnlyContext(ingress.subCtx()), requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx := context.WithValue(enterpriseOnlyContext(ingress.subCtx()), requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	recorder, request, body := ingress.request(t, false)
 	require.NoError(t, ingress.call(service, ctx, body, recorder, request))
 	require.Equal(t, http.StatusTooManyRequests, recorder.Code)

@@ -18,14 +18,14 @@ func TestDirectoryServingStoreReadsContentAddressedObjectsUnderItsRoot(t *testin
 	require.NoError(t, err)
 	dir := t.TempDir()
 	require.NoError(t, WriteDirectoryServingRegistry(dir, classifierContractRegistryRoot, map[string][]byte{
-		servingArtifactsNamespace + digest + ".json":                payload,
+		ServingArtifactsNamespace + digest + ".json":                payload,
 		DirectoryServingRuntimeBindingPath(EnvironmentProd, digest): binding,
 	}))
 
 	store, err := NewDirectoryServingStore(dir)
 	require.NoError(t, err)
 	require.Equal(t, classifierContractRegistryRoot, store.RootURI())
-	ref := ObjectRef{URI: classifierContractRegistryRoot + "/" + servingArtifactsNamespace + digest + ".json", SHA256: digest, Generation: 1}
+	ref := ObjectRef{URI: classifierContractRegistryRoot + "/" + ServingArtifactsNamespace + digest + ".json", SHA256: digest, Generation: 1}
 	manifest, read, err := store.ReadServingObject(context.Background(), ServingClassifierReleases, ref)
 	require.NoError(t, err)
 	require.Equal(t, &release, manifest)
@@ -67,7 +67,7 @@ func TestDirectoryServingStoreRejectsMalformedRuntimeBinding(t *testing.T) {
 	require.NoError(t, err)
 	dir := t.TempDir()
 	require.NoError(t, WriteDirectoryServingRegistry(dir, classifierContractRegistryRoot, map[string][]byte{
-		servingArtifactsNamespace + digest + ".json":                payload,
+		ServingArtifactsNamespace + digest + ".json":                payload,
 		DirectoryServingRuntimeBindingPath(EnvironmentProd, digest): binding,
 	}))
 	store, err := NewDirectoryServingStore(dir)
