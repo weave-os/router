@@ -893,7 +893,10 @@ func policyRolloutIDFromContext(ctx context.Context) string {
 }
 
 func (s *Service) Route(ctx context.Context, req router.Request) (router.Decision, error) {
-	strategy := router.StrategyFromContext(ctx)
+	return s.routeTraced(ctx, router.StrategyFromContext(ctx), req)
+}
+
+func (s *Service) routeTraced(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {
 	routeCtx, span := startRoutingSpan(ctx, strategy, req)
 	decision, err := s.routeFor(routeCtx, strategy, req)
 	finishRoutingSpan(span, decision, err)
@@ -901,11 +904,11 @@ func (s *Service) Route(ctx context.Context, req router.Request) (router.Decisio
 }
 
 func (s *Service) RouteAnthropicRequest(ctx context.Context, body []byte, headers http.Header) (decision router.Decision, err error) {
-	ctx, req, err := s.anthropicRoutingRequest(ctx, body, headers, "anthropic_route")
+	ctx, strategy, req, err := s.anthropicRoutingRequest(ctx, body, headers, "anthropic_route")
 	if err != nil {
 		return decision, err
 	}
-	return s.Route(ctx, req)
+	return s.routeTraced(ctx, strategy, req)
 }
 
 func logUpstreamBody(log *slog.Logger, sessionKey [sessionpin.SessionKeyLen]byte, decision router.Decision, feats translate.RoutingFeatures, body []byte) {

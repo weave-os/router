@@ -43,7 +43,7 @@ func TestRoutingModelRedirectsLegacyBetaCommandsWithoutChangingPreferences(t *te
 				require.True(t, found)
 				response := httptest.NewRecorder()
 				key := [sessionpin.SessionKeyLen]byte{1}
-				require.NoError(t, (betaCommands{svc}).handle(ctx, response, envelope, command, uuid.New(), key, key, 1))
+				require.NoError(t, (betaCommands{svc}).handle(ctx, router.StrategyFromContext(ctx), response, envelope, command, uuid.New(), key, key, 1))
 				require.Contains(t, response.Body.String(), "wv router set-model")
 				require.Zero(t, store.toggles)
 				require.False(t, store.found)
