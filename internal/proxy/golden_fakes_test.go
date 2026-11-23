@@ -303,7 +303,7 @@ func preservePinHistory(p *sessionpin.Pin, prior sessionpin.Pin) {
 	p.LastCachedWriteTokens, p.LastOutputTokens = prior.LastCachedWriteTokens, prior.LastOutputTokens
 	p.LastTurnEndedAt, p.LastServedModel, p.HasEverSwitched = prior.LastTurnEndedAt, prior.LastServedModel, prior.HasEverSwitched
 	p.DisabledProviders, p.DemotedModels, p.DemotionCooldowns = prior.DisabledProviders, prior.DemotedModels, prior.DemotionCooldowns
-	p.TurnStrikes, p.TokenizerCalibration = prior.TurnStrikes, prior.TokenizerCalibration
+	p.TurnStrikes, p.TokenizerCalibration, p.ModelCaches = prior.TurnStrikes, prior.TokenizerCalibration, prior.ModelCaches
 	if prior.Strategy == p.Strategy {
 		p.LastOutputLimitAt = prior.LastOutputLimitAt
 	}
@@ -330,6 +330,14 @@ func (s *goldenPinStore) UpdateUsage(_ context.Context, key [sessionpin.SessionK
 	p.LastInputTokens, p.LastCachedReadTokens = usage.InputTokens, usage.CachedReadTokens
 	p.LastCachedWriteTokens, p.LastOutputTokens = usage.CachedWriteTokens, usage.OutputTokens
 	p.LastTurnEndedAt, p.LastServedModel = usage.EndedAt, usage.ServedModel
+	if model, state, ok := usage.ModelCache(usage.EndedAt); ok && !p.ModelCaches[model].ServedAt.After(state.ServedAt) {
+		caches := maps.Clone(p.ModelCaches)
+		if caches == nil {
+			caches = sessionpin.ModelCaches{}
+		}
+		caches[model] = state
+		p.ModelCaches = caches
+	}
 	p.LastOutputLimitAt = time.Time{}
 	if usage.OutputLimitReached {
 		p.LastOutputLimitAt = usage.EndedAt

@@ -45,6 +45,9 @@ func (s *Service) recordTurnUsage(ctx context.Context, res routingpolicy.TurnRou
 		ServedProvider:      servedProvider,
 		PriorServedModel:    res.PriorServedModel,
 		SessionEverSwitched: res.SessionEverSwitched,
+		PromptTokens:        servedPromptTokens(servedProvider, in, cacheRead, cacheCreation),
+		MessageCount:        res.CacheShape().MessageCount,
+		CacheWriteTTL:       res.CacheShape().CacheWriteTTL,
 	}
 	role := res.PinRole
 	if isUserForcedReason(res.Decision.Reason) {

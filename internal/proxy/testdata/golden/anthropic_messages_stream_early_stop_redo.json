@@ -319,7 +319,9 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 9,
+            "PromptTokens": 12,
             "ServedModel": "claude-opus-4-7",
             "ServedProvider": "anthropic",
             "Strategy": "hmm_embedding"

@@ -154,7 +154,7 @@ func recordChatUpstream(ctx context.Context, s *Service, t *chatFinishedTurn, us
 		emitCallLog()
 	}
 
-	s.recordTurnUsage(ctx, t.routeRes, t.finalProvider, t.decision.ServedIdentity(), usage.in, usage.out, usage.cacheCreation, usage.cacheRead, t.extractor.OutputLimitReached())
+	s.recordTurnUsage(ctx, withServedCacheWriteTTL(t.routeRes, t.extractor), t.finalProvider, t.decision.ServedIdentity(), usage.in, usage.out, usage.cacheCreation, usage.cacheRead, t.extractor.OutputLimitReached())
 	clearRecoveredCooldown(ctx, s, t.routeRes, t.decision.Model, t.proxyErr)
 	return openaiObs
 }

@@ -2,7 +2,6 @@ package candidates
 
 import (
 	"maps"
-	"strings"
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -141,10 +140,7 @@ func MaxedOutServedModel(pin sessionpin.Pin) string {
 }
 
 func BaseModelOf(servedIdentity string) string {
-	if idx := strings.LastIndex(servedIdentity, ":"); idx > 0 {
-		return servedIdentity[:idx]
-	}
-	return servedIdentity
+	return sessionpin.BaseModelOf(servedIdentity)
 }
 
 func ExcludeMaxedModel(req router.Request, model string) router.Request {
