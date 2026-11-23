@@ -1,6 +1,7 @@
 package classifier
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,12 +11,15 @@ import (
 	"github.com/google/uuid"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
-func StartThreadHandler(service *proxy.Service) gin.HandlerFunc {
+type ClassifierThreads interface {
+	StartClassifierThread(ctx context.Context, requestID uuid.UUID) (string, error)
+}
+
+func StartThreadHandler(service ClassifierThreads) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
 		var startRequest struct {

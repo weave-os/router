@@ -2,12 +2,12 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 
 	"github.com/gin-gonic/gin"
@@ -16,7 +16,11 @@ import (
 
 const classifierThreadField = "weave_classifier_thread"
 
-func WithClassifierThread(service *proxy.Service, availability StrategyAvailability) gin.HandlerFunc {
+type ClassifierThreadAdmission interface {
+	AdmitClassifierThread(ctx context.Context, threadToken string) (context.Context, error)
+}
+
+func WithClassifierThread(service ClassifierThreadAdmission, availability StrategyAvailability) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		threadToken := c.GetHeader(requestcontext.ClassifierThreadHeader)
 		headerValues := c.Request.Header.Values(requestcontext.ClassifierThreadHeader)
