@@ -42,6 +42,7 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 		}
 		decision := policy.Resolve(in)
 		switch decision.Outcome {
+		case router.StrategyResolved:
 		case router.StrategyPlanUnavailable:
 			observability.FromGin(c).Error("Plan-owned routing profile strategy is unavailable", "plan", identity.Plan)
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "plan_routing_unavailable"})
@@ -68,6 +69,7 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 func logStrategyHeader(c *gin.Context, installationID string, decision router.StrategyDecision) {
 	raw := decision.RequestedHeader
 	switch decision.HeaderOutcome {
+	case router.StrategyHeaderAbsent:
 	case router.StrategyHeaderRetiredBeta:
 		observability.FromGin(c).Warn("Retired beta strategy override ignored", "effective_strategy", decision.Strategy)
 	case router.StrategyHeaderUnauthorized:

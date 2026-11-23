@@ -46,6 +46,7 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 		return routingStrategyServable(c, managed, strategy, available)
 	})
 	switch choice.Outcome {
+	case router.RoutingModelServed:
 	case router.RoutingModelClassifierConflict:
 		observability.FromGin(c).Debug("Routing model conflicts with enrolled classifier thread", "model", model)
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "start_new_thread_to_change_router"})
