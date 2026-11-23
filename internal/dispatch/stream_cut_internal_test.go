@@ -271,7 +271,6 @@ const streamCutFixture = "event: message_start\ndata: {\"type\":\"message_start\
 	"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":3}}\n\n" +
 	"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
 
-// streamCutWire is what the observer has recorded about the upstream frames.
 type streamCutWire struct {
 	frames             int
 	lastEvent          string
@@ -441,7 +440,6 @@ var fragmentationChunkSizes = []int{1, 3, 7, 13, 4096}
 // further and make the test's runtime a function of the scanner's speed.
 const largeFixtureBytes = 2048
 
-// chunkEvery splits body into consecutive writes of at most size bytes.
 func chunkEvery(body string, size int) []string {
 	var chunks []string
 	for start := 0; start < len(body); start += size {
