@@ -22,11 +22,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-const (
-	CodexImageGenerations = "generations"
-	CodexImageEdits       = "edits"
-)
-
 type codexImageForwarder interface {
 	ForwardCodexImageRequest(context.Context, string, []byte, http.Header, http.ResponseWriter) error
 }
@@ -40,7 +35,7 @@ func NewCodexImages(svc *Service) CodexImages {
 }
 
 func (c CodexImages) ForwardWithCallerCredential(ctx context.Context, headers http.Header, operation string, body []byte, w http.ResponseWriter) error {
-	if operation != CodexImageGenerations && operation != CodexImageEdits {
+	if operation != ingress.CodexImageGenerations && operation != ingress.CodexImageEdits {
 		return fmt.Errorf("unsupported Codex image operation %q", operation)
 	}
 	client, err := c.svc.provider(providers.ProviderOpenAI)

@@ -8,6 +8,7 @@ import (
 	anthropicapi "weave-os/router/internal/api/anthropic"
 	openaiapi "weave-os/router/internal/api/openai"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
@@ -24,8 +25,8 @@ func registerClientPassthroughRoutes(engine *gin.Engine, authSvc *auth.Service, 
 	)
 	codexImagesGroup.Use(servingAdmissionMiddleware...)
 	codexImages := proxy.NewCodexImages(proxySvc)
-	codexImagesGroup.POST("/v1/images/generations", openaiapi.ImagesHandler(proxy.CodexImageGenerations, codexImages.ForwardWithCallerCredential))
-	codexImagesGroup.POST("/v1/images/edits", openaiapi.ImagesHandler(proxy.CodexImageEdits, codexImages.ForwardWithCallerCredential))
+	codexImagesGroup.POST("/v1/images/generations", openaiapi.ImagesHandler(ingress.CodexImageGenerations, codexImages.ForwardWithCallerCredential))
+	codexImagesGroup.POST("/v1/images/edits", openaiapi.ImagesHandler(ingress.CodexImageEdits, codexImages.ForwardWithCallerCredential))
 
 	passthroughGroup := engine.Group("",
 		middleware.WithTimeout(passthroughTimeout),
