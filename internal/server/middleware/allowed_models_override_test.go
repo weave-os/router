@@ -23,10 +23,6 @@ func (g stubAllowedModelsGate) ResolveAllowedModelsHeader(ctx context.Context) b
 	return flags.BoolOr(ctx, flags.KeyAllowedModelsHeader, bool(g))
 }
 
-func parseAllowedModels(raw string, installationAllowed []string) (any, error) {
-	return proxy.ParseAllowedModelsHeader(raw, installationAllowed)
-}
-
 func runAllowedModelsMiddleware(t *testing.T, installation *auth.Installation, header string) (int, proxy.RequestAllowedModels, bool) {
 	t.Helper()
 	return runAllowedModelsMiddlewareWithDefault(t, installation, header, false)
@@ -43,7 +39,9 @@ func runAllowedModelsMiddlewareWithDefault(t *testing.T, installation *auth.Inst
 		}
 		c.Next()
 	})
-	engine.Use(middleware.WithAllowedModelsOverride(stubAllowedModelsGate(deploymentDefault), parseAllowedModels))
+	engine.Use(middleware.WithAllowedModelsOverride(stubAllowedModelsGate(deploymentDefault), func(raw string, installationAllowed []string) (any, error) {
+		return proxy.ParseAllowedModelsHeader(raw, installationAllowed)
+	}))
 	var observed proxy.RequestAllowedModels
 	var ok bool
 	engine.POST("/v1/messages", func(c *gin.Context) {
