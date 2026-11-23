@@ -4,7 +4,10 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 )
 
@@ -13,7 +16,7 @@ func RequestFactsFrom(ctx context.Context, headers http.Header) requestcontext.R
 	anthropicSubscription, _ := ctx.Value(AnthropicSubscriptionContextKey{}).(string)
 	openAISubscription, _ := ctx.Value(OpenAISubscriptionContextKey{}).(string)
 	return requestcontext.RequestFacts{
-		RequestID:             requestcontext.RequestIDFor(ctx),
+		RequestID:             requestIDFor(ctx),
 		APIKeyID:              requestcontext.APIKeyIDFromContext(ctx),
 		ExternalID:            externalID,
 		InstallationID:        requestcontext.InstallationIDFromContext(ctx),
@@ -25,4 +28,11 @@ func RequestFactsFrom(ctx context.Context, headers http.Header) requestcontext.R
 		OpenAIAccountID:       requestcontext.OpenAIAccountIDFromContext(ctx),
 		ByokFeeUnpayable:      billing.ByokFeeUnpayable(ctx),
 	}
+}
+
+func requestIDFor(ctx context.Context) string {
+	if id := observability.RequestIDFromContext(ctx); id != "" {
+		return id
+	}
+	return uuid.New().String()
 }
