@@ -126,7 +126,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode {
 		outcome, err := conversation.CommandDispatch{
 			Source:                  env,
-			Handlers:                turnCommands{s: s, w: w, env: env, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
+			Handlers:                turnCommands{s: s, w: w, env: env, target: sessionTarget{Strategy: strategy, InstallationID: facts.InstallationID, SessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
 			Protocol:                "ProxyMessages",
 			ForceModelEnabled:       s.pinStore != nil,
 			ForceModelContinuesTurn: func(cmd translate.ForceModelResult) bool { return cmd.FromToolResult },

@@ -135,7 +135,7 @@ func (p rescueRoutingPort) IsHardPinnedTurn(ctx context.Context, strategy router
 }
 
 func (p rescueRoutingPort) CyberRefusalRetryTarget(ctx context.Context, failed router.Decision, target dispatch.RescueSessionTarget, role string, est, sigSavings, outputReserve int) (router.Decision, bool) {
-	return p.s.cyberRefusalRetryTarget(ctx, failed, sessionTarget{strategy: target.Strategy, installationID: target.InstallationID, sessionKey: target.SessionKey}, role, est, sigSavings, outputReserve)
+	return p.s.cyberRefusalRetryTarget(ctx, failed, sessionTarget{Strategy: target.Strategy, InstallationID: target.InstallationID, SessionKey: target.SessionKey}, role, est, sigSavings, outputReserve)
 }
 
 func (rescueRoutingPort) RescueBasis(decision router.Decision, turn dispatch.RescueTurn) router.Decision {

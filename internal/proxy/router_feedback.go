@@ -109,9 +109,9 @@ func (c routerFeedbackCommand) handle(ctx context.Context, s *Service) error {
 	}
 	result, err := newRouterFeedback(s).Record(ctx, conversation.RouterFeedbackRequest{
 		Command:         c.cmd,
-		InstallationID:  c.target.installationID,
-		SessionKey:      c.target.sessionKey,
-		Strategy:        c.target.strategy,
+		InstallationID:  c.target.InstallationID,
+		SessionKey:      c.target.SessionKey,
+		Strategy:        c.target.Strategy,
 		Role:            roleForTier(catalog.TierFor(c.env.Model())),
 		RequestedModel:  c.env.Model(),
 		Client:          clientID,

@@ -30,7 +30,7 @@ func (d sessionArmDemoter) DemoteArm(ctx context.Context, model string, reason s
 }
 
 func sessionArmDemoterFor(s *Service, target sessionTarget, role, pinRole string) dispatch.SessionArmDemoter {
-	if s.pinStore == nil || target.installationID == uuid.Nil || target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+	if s.pinStore == nil || target.InstallationID == uuid.Nil || target.SessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return nil
 	}
 	return sessionArmDemoter{s: s, target: target, role: role, pinRole: pinRole}
@@ -134,7 +134,7 @@ func (s *Service) demoteArmForSession(
 		cooldownUntil = time.Time{}
 	}
 	for _, strikeRole := range demotionRoles(s.strategyPorts.History, role, pinRole) {
-		expired := expiredSessionPin(target.installationID, target.sessionKey, strikeRole, string(reason), target.strategy, s.clock.Now())
+		expired := expiredSessionPin(target.InstallationID, target.SessionKey, strikeRole, string(reason), target.Strategy, s.clock.Now())
 		var err error
 		if cooldownUntil.IsZero() {
 			err = s.pinStore.ExpireAndDemoteModel(context.WithoutCancel(ctx), expired, model, reason)
@@ -146,7 +146,7 @@ func (s *Service) demoteArmForSession(
 			return false
 		}
 	}
-	if err := postCommandContinuation(s, target.strategy).Invalidate(ctx, target.sessionKey, pinRole); err != nil {
+	if err := postCommandContinuation(s, target.Strategy).Invalidate(ctx, target.SessionKey, pinRole); err != nil {
 		log.Error("continuation invalidation after session model demotion failed", "err", err, "role", role, "pin_role", pinRole, "model", model, "reason", string(reason))
 		return false
 	}

@@ -36,7 +36,7 @@ func TestForceModelCommand_CodexAckNamesTheDollarForm(t *testing.T) {
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	require.NoError(t, (forceModelCommands{svc}).handle(codexCtx("sess-1"), rec, env,
-		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(codexCtx("sess-1")), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+		translate.ForceModelResult{Model: "opus"}, sessionTarget{Strategy: router.StrategyFromContext(codexCtx("sess-1")), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
 
@@ -58,7 +58,7 @@ func TestForceModelCommand_ClaudeCodeAckKeepsTheSlashForm(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{},
 		ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
 	require.NoError(t, (forceModelCommands{svc}).handle(ctx, rec, env,
-		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+		translate.ForceModelResult{Model: "opus"}, sessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
 

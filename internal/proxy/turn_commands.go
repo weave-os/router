@@ -20,7 +20,7 @@ type turnCommands struct {
 }
 
 func (c turnCommands) ApplyForceModel(ctx context.Context, cmd translate.ForceModelResult) (string, error) {
-	agentForceModel, _, err := (forceModelCommands{c.s}).apply(ctx, c.target.strategy, cmd, c.target.installationID, c.target.sessionKey, c.forceModelSessionKey)
+	agentForceModel, _, err := (forceModelCommands{c.s}).apply(ctx, c.target.Strategy, cmd, c.target.InstallationID, c.target.SessionKey, c.forceModelSessionKey)
 	return agentForceModel, err
 }
 
@@ -45,7 +45,7 @@ func (c turnCommands) ListModels(ctx context.Context) error {
 }
 
 func (c turnCommands) GrantContinuation(ctx context.Context) {
-	postCommandContinuation(c.s, c.target.strategy).Grant(ctx, c.target.installationID, c.target.sessionKey, roleForTier(catalog.TierFor(c.requestedModel)))
+	postCommandContinuation(c.s, c.target.Strategy).Grant(ctx, c.target.InstallationID, c.target.SessionKey, roleForTier(catalog.TierFor(c.requestedModel)))
 }
 
 type chatCommandSource struct {

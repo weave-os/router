@@ -394,7 +394,7 @@ func (f forceModelCommands) handle(
 	forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
-	_, ack, err := f.apply(ctx, target.strategy, cmd, target.installationID, target.sessionKey, forceModelSessionKey)
+	_, ack, err := f.apply(ctx, target.Strategy, cmd, target.InstallationID, target.SessionKey, forceModelSessionKey)
 	if err != nil {
 		return err
 	}

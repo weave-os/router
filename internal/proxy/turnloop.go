@@ -445,7 +445,7 @@ func (s *Service) runTurnLoop(
 		return s.routeWithoutPin(ctx, strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 	if res.TurnType == turntype.Compaction {
-		return s.routeCompaction(ctx, req, res, reqHeaders, sessionTarget{strategy: strategy, installationID: installationID, sessionKey: threadSessionKey}, forceModelFound, forceModelPin)
+		return s.routeCompaction(ctx, req, res, reqHeaders, sessionTarget{Strategy: strategy, InstallationID: installationID, SessionKey: threadSessionKey}, forceModelFound, forceModelPin)
 	}
 
 	sessionKey := threadSessionKey

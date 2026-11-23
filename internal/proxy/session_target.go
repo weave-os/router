@@ -8,7 +8,7 @@ import (
 )
 
 type sessionTarget struct {
-	strategy       router.Strategy
-	installationID uuid.UUID
-	sessionKey     [sessionpin.SessionKeyLen]byte
+	Strategy       router.Strategy
+	InstallationID uuid.UUID
+	SessionKey     [sessionpin.SessionKeyLen]byte
 }

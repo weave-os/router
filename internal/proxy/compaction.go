@@ -37,11 +37,11 @@ func (s *Service) routeCompaction(
 	forceModelPin sessionpin.Pin,
 ) (routingpolicy.TurnRoute, error) {
 	if s.pinStore == nil {
-		return s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
+		return s.routeWithoutPin(ctx, target.Strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
-	res.SessionKey = target.sessionKey
+	res.SessionKey = target.SessionKey
 	if forceModelFound && candidates.ForcedPinEligible(forceModelPin, req) {
-		return s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
+		return s.routeWithoutPin(ctx, target.Strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 	session := compactionSession{
 		pins:           s.pinStore,
@@ -51,12 +51,12 @@ func (s *Service) routeCompaction(
 		now:            s.clock.Now(),
 		history:        s.strategyPorts.History,
 	}
-	decision, strikes, ok := session.decision(ctx, target.sessionKey, res.PinRole, req)
+	decision, strikes, ok := session.decision(ctx, target.SessionKey, res.PinRole, req)
 	req = strikes.apply(req)
 	if ok {
 		scoreReq := req
 		scoreReq.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
-		if fresh, err := s.routeFor(ctx, target.strategy, scoreReq); err == nil {
+		if fresh, err := s.routeFor(ctx, target.Strategy, scoreReq); err == nil {
 			res.Fresh = fresh
 		}
 		res.Decision = decision
@@ -66,11 +66,11 @@ func (s *Service) routeCompaction(
 		res.Origin = policy.OverrideSourceSession
 		return res, nil
 	}
-	res, err := s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, false, sessionpin.Pin{})
+	res, err := s.routeWithoutPin(ctx, target.Strategy, req, res, reqHeaders, false, sessionpin.Pin{})
 	if err != nil || res.UsageBypass || res.CallerModelPassthrough {
 		return res, err
 	}
-	routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, target.strategy).WriteNew(ctx, target.installationID, target.sessionKey, res.PinRole, res.Decision)
+	routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, target.Strategy).WriteNew(ctx, target.InstallationID, target.SessionKey, res.PinRole, res.Decision)
 	return res, nil
 }
 

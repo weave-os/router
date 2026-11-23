@@ -67,7 +67,7 @@ func strikeRescuedPrimary(svc *Service, ctx context.Context, err error) (string,
 		true,
 		false,
 		err,
-		rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"), sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"), sessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 

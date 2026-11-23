@@ -212,7 +212,7 @@ func (s *Service) cyberRefusalRetryTarget(
 	role string,
 	est, sigSavings, outputReserve int,
 ) (router.Decision, bool) {
-	repinTarget, _, ok := s.cyberRefusalFallback(ctx, target.strategy, target.sessionKey, role, failed, failed.Provider)
+	repinTarget, _, ok := s.cyberRefusalFallback(ctx, target.Strategy, target.SessionKey, role, failed, failed.Provider)
 	if !ok {
 		return router.Decision{}, false
 	}
