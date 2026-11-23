@@ -271,8 +271,12 @@ func namesHMMHistory(info *types.Info, self *types.Package, node ast.Node) bool 
 }
 
 func nodeViolations(info *types.Info, node ast.Node, scope atomizationScope) []string {
-	found := identViolations(info, node, scope)
+	var found []string
 	switch n := node.(type) {
+	case *ast.Ident:
+		if scope.upgradeConfidence && namesUpgradeConfidenceOutsideHMM(info, n) {
+			found = append(found, ratchetUpgradeConfidence)
+		}
 	case *ast.SelectorExpr:
 		if scope.serving && isRouterStrategyConstant(info, n) {
 			found = append(found, ratchetServingStrategyNames)
@@ -301,18 +305,6 @@ func nodeViolations(info *types.Info, node ast.Node, scope atomizationScope) []s
 		if scope.proxy && (n.Op == token.EQL || n.Op == token.NEQ) && (isReasonField(n.X) || isReasonField(n.Y)) {
 			found = append(found, ratchetProxyReasonComparisons)
 		}
-	}
-	return found
-}
-
-func identViolations(info *types.Info, node ast.Node, scope atomizationScope) []string {
-	ident, ok := node.(*ast.Ident)
-	if !ok {
-		return nil
-	}
-	var found []string
-	if scope.upgradeConfidence && namesUpgradeConfidenceOutsideHMM(info, ident) {
-		found = append(found, ratchetUpgradeConfidence)
 	}
 	return found
 }
