@@ -1,4 +1,4 @@
-package proxy
+package routingpolicy
 
 import (
 	"strings"
@@ -6,7 +6,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-var forceModelAliases = unversionedAliasesFollowLatestFamilyRelease(map[string]string{
+var ForceModelAliases = unversionedAliasesFollowLatestFamilyRelease(map[string]string{
 	"anthropic":                "claude-opus-5-5",
 	"claude":                   "claude-opus-5-5",
 	"opus":                     "claude-opus-5-5",
@@ -158,7 +158,7 @@ var forceModelAliases = unversionedAliasesFollowLatestFamilyRelease(map[string]s
 
 func unversionedAliasesFollowLatestFamilyRelease(aliases map[string]string) map[string]string {
 	servable := func(id string) bool {
-		_, ok := servableForceModel(id, "")
+		_, ok := ServableForceModel(id, "")
 		return ok
 	}
 	for alias, target := range aliases {
@@ -170,4 +170,12 @@ func unversionedAliasesFollowLatestFamilyRelease(aliases map[string]string) map[
 		}
 	}
 	return aliases
+}
+
+func ServableForceModel(id, requiredProvider string) (catalog.Model, bool) {
+	m, ok := catalog.ByID(id)
+	if !ok || len(m.Providers) == 0 || (requiredProvider != "" && m.Providers[0].Provider != requiredProvider) {
+		return catalog.Model{}, false
+	}
+	return m, true
 }

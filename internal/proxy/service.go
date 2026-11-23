@@ -566,12 +566,12 @@ func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
 		if !flags.BoolOr(ctx, flags.KeyPlanUserClusterLists, false) {
 			return nil
 		}
-		return mergeClusterOverrides(nil, auth.UserClusterModelListsFrom(ctx))
+		return routingpolicy.MergeClusterOverrides(nil, auth.UserClusterModelListsFrom(ctx))
 	}
 	v := ctx.Value(requestcontext.ClusterModelListsContextKey{})
 	keyScoped, _ := v.(map[string][]string)
 	userScoped := auth.UserClusterModelListsFrom(ctx)
-	return mergeClusterOverrides(keyScoped, userScoped)
+	return routingpolicy.MergeClusterOverrides(keyScoped, userScoped)
 }
 
 func memberSelectedModel(ctx context.Context, model string) bool {
