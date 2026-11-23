@@ -33,7 +33,7 @@ func TestResponsesCodexRejectionRescuesToAnthropic(t *testing.T) {
 				svc, ctx := newCodexRescueService(upstream.URL)
 				body := `{"model":"auto","stream":true,"input":[{"role":"user","content":"synthetic task"}],"tools":[{"type":"function","name":"exec","parameters":{"type":"object","properties":{"cmd":{"type":"string"}},"required":["cmd"]}}]}`
 				rec := httptest.NewRecorder()
-				err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
+				err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, requestcontext.RoutePathResponses, strings.NewReader(body)))
 				assert.Equal(t, 1, fixture.preflights)
 				assert.Equal(t, 1, fixture.claudeAttempts)
 				assert.Zero(t, fixture.codexAttempts, "a rejected preflight must prevent GPT inference")

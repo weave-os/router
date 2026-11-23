@@ -76,7 +76,7 @@ func (m ClassifierReleaseManifestV1) Validate(root string) error {
 	if m.SchemaVersion != ServingClassifierReleaseV1 || m.APIMajor != policy.ClassifierAPIMajorV5 || m.WireSchema != policy.SchemaVersionV5 {
 		return errors.New("unsupported classifier release schema or API contract")
 	}
-	if len(m.Taxonomy.ClassOrder) == 0 || hasDuplicateLabel(m.Taxonomy.ClassOrder) || !validDigest(m.Taxonomy.SHA256) || TaxonomyDigest(m.Taxonomy.ClassOrder) != m.Taxonomy.SHA256 {
+	if len(m.Taxonomy.ClassOrder) == 0 || hasDuplicateLabel(m.Taxonomy.ClassOrder) || !ValidDigest(m.Taxonomy.SHA256) || TaxonomyDigest(m.Taxonomy.ClassOrder) != m.Taxonomy.SHA256 {
 		return errors.New("classifier release taxonomy is invalid")
 	}
 	if !validImageDigest(m.RuntimeImageDigest) {
@@ -89,37 +89,37 @@ func (m ClassifierReleaseManifestV1) Validate(root string) error {
 		if variantID != policy.ClassifierVariantPrimary && variantID != policy.ClassifierVariantHMMBeta && variantID != policy.ClassifierVariantQwen {
 			return fmt.Errorf("unsupported classifier variant %q", variantID)
 		}
-		if strings.TrimSpace(variant.ArtifactID) == "" || !validDigest(variant.ArtifactSHA256) || variant.AuxiliaryModels == nil {
+		if strings.TrimSpace(variant.ArtifactID) == "" || !ValidDigest(variant.ArtifactSHA256) || variant.AuxiliaryModels == nil {
 			return fmt.Errorf("classifier variant %q has incomplete identity", variantID)
 		}
-		if !validDigest(variant.SemanticConfigurationSHA256) {
+		if !ValidDigest(variant.SemanticConfigurationSHA256) {
 			return fmt.Errorf("classifier variant %q semantic configuration digest is invalid", variantID)
 		}
 		for name, ref := range variant.AuxiliaryModels {
 			if strings.TrimSpace(name) == "" {
 				return fmt.Errorf("classifier variant %q has an empty auxiliary model name", variantID)
 			}
-			if err := validateArtifactRef(ref); err != nil {
+			if err := ValidateArtifactRef(ref); err != nil {
 				return fmt.Errorf("classifier variant %q auxiliary model %q: %w", variantID, name, err)
 			}
 		}
 		switch variant.Kind {
 		case ClassifierVariantKindHMMPackage:
-			if variantID == policy.ClassifierVariantQwen || variant.PackageWeaveDataRef == nil || variant.BundleSHA256 != "" || !validDigest(variant.EmbeddingContractSHA256) {
+			if variantID == policy.ClassifierVariantQwen || variant.PackageWeaveDataRef == nil || variant.BundleSHA256 != "" || !ValidDigest(variant.EmbeddingContractSHA256) {
 				return fmt.Errorf("HMM variant %q requires a WeaveData package ref and embedding contract digest", variantID)
 			}
 			if len(variant.AuxiliaryModels) != 0 {
 				return fmt.Errorf("HMM variant %q cannot declare unsupported auxiliary model refs", variantID)
 			}
 			ref := variant.PackageWeaveDataRef
-			if ref.DataID == "" || strings.TrimSpace(ref.StorageURI) == "" || ref.DataKind != ClassifierModelArtifactDataKind || ref.SchemaVersion == "" || ref.Version == "" || !validDigest(ref.ContentSHA256) || ref.Role != ClassifierModelArtifactRoleTrainedPolicy || !ref.Required || (ref.RowCount != nil && *ref.RowCount < 0) {
+			if ref.DataID == "" || strings.TrimSpace(ref.StorageURI) == "" || ref.DataKind != ClassifierModelArtifactDataKind || ref.SchemaVersion == "" || ref.Version == "" || !ValidDigest(ref.ContentSHA256) || ref.Role != ClassifierModelArtifactRoleTrainedPolicy || !ref.Required || (ref.RowCount != nil && *ref.RowCount < 0) {
 				return fmt.Errorf("classifier variant %q WeaveDataRef is incomplete or not required", variantID)
 			}
 			if variant.PackageWeaveDataRef.ContentSHA256 != variant.ArtifactSHA256 {
 				return fmt.Errorf("classifier variant %q WeaveDataRef content hash does not match artifact_sha256", variantID)
 			}
 		case ClassifierVariantKindQwenBundle:
-			if variantID != policy.ClassifierVariantQwen || variant.PackageWeaveDataRef != nil || variant.EmbeddingContractSHA256 != "" || variant.BundleSHA256 != variant.ArtifactSHA256 || !validDigest(variant.BundleSHA256) || len(variant.AuxiliaryModels) != 0 {
+			if variantID != policy.ClassifierVariantQwen || variant.PackageWeaveDataRef != nil || variant.EmbeddingContractSHA256 != "" || variant.BundleSHA256 != variant.ArtifactSHA256 || !ValidDigest(variant.BundleSHA256) || len(variant.AuxiliaryModels) != 0 {
 				return errors.New("qwen variant requires its bundle digest and no HMM package or embedding refs")
 			}
 		default:
@@ -129,7 +129,7 @@ func (m ClassifierReleaseManifestV1) Validate(root string) error {
 	if !sourceRevisionPattern.MatchString(m.Provenance.RouterRevision) || !sourceRevisionPattern.MatchString(m.Provenance.WeaveRevision) {
 		return errors.New("classifier release provenance requires exact source revisions")
 	}
-	return validateArtifactRef(m.Provenance.BuildAttestation)
+	return ValidateArtifactRef(m.Provenance.BuildAttestation)
 }
 
 type CandidateRequirementsV3 struct {
@@ -240,7 +240,7 @@ func (b CandidateCodeV4) validate(root string) error {
 	if err := b.Router.validate(); err != nil {
 		return err
 	}
-	return validateArtifactRef(b.Attestation)
+	return ValidateArtifactRef(b.Attestation)
 }
 
 type SelectionSetV4 struct {

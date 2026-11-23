@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
@@ -115,7 +116,7 @@ func TestTurnLoopUserPromptClearsTurnStrikes(t *testing.T) {
 func TestRescuedFailureStrikesModelForAgentTurn(t *testing.T) {
 	store := &turnStrikePinStore{}
 	svc := newRescuedDemotionTestService(store, false)
-	ctx := withTurnFailures(context.Background())
+	ctx := requestcontext.WithTurnFailures(context.Background())
 
 	demoted, _ := strikeRescuedPrimary(svc, ctx, &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable, Headers: http.Header{}})
 	assert.Empty(t, demoted, "no session-lifetime demotion while the flag is off")
@@ -145,8 +146,8 @@ func TestTurnStrikeSkippedWhenTurnFailedOrPinned(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			store := &turnStrikePinStore{}
 			svc := newRescuedDemotionTestService(store, false)
-			ctx := withTurnFailures(context.Background())
-			recordTurnFailure(ctx, demotedArm)
+			ctx := requestcontext.WithTurnFailures(context.Background())
+			requestcontext.RecordTurnFailure(ctx, demotedArm)
 			strike(svc, ctx)
 			assert.Empty(t, store.strikes)
 		})
@@ -197,7 +198,7 @@ func TestSiblingRescueRecordsEveryFailedModel(t *testing.T) {
 	}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}})
 	svc.engine.SetRetrySleep(noopSleep)
-	ctx := withTurnFailures(context.Background())
+	ctx := requestcontext.WithTurnFailures(context.Background())
 
 	body := `{"model":"claude-opus-5","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()
@@ -207,5 +208,5 @@ func TestSiblingRescueRecordsEveryFailedModel(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "rescued")
 	require.Contains(t, anthropicClient.failed, "claude-opus-5")
 	require.Contains(t, openAIClient.failed, "gpt-5.6-luna", "the first sibling fails before the second serves")
-	assert.ElementsMatch(t, []string{"claude-opus-5", "gpt-5.6-luna"}, turnFailuresFromContext(ctx).models)
+	assert.ElementsMatch(t, []string{"claude-opus-5", "gpt-5.6-luna"}, requestcontext.TurnFailedModels(ctx))
 }
