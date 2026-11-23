@@ -21,3 +21,10 @@ func withRoutingSwitchDefaults(defaults map[flags.Key]string, hardPinExplore, cc
 	defaults[flags.KeyTaskArmExperimentTreatmentCluster] = ""
 	return defaults
 }
+
+func boolDefault(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
@@ -57,7 +58,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	if portableCodex && codexModelSwitched(r.Header, conversion) {
 		ctx = withCodexSelectedModel(ctx, model, nativeBody)
 	}
-	ctx = context.WithValue(ctx, codexSkillContextKey{}, conversion.CodexSkill)
+	ctx = conversation.WithCodexSkillTurn(ctx, conversion.CodexSkill)
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
 	if conversion.Requirements.NativeOnly || codexNativeRequest {
 		ctx = context.WithValue(ctx, codexResponsesBodyContextKey{}, nativeBody)

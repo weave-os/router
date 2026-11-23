@@ -1,4 +1,4 @@
-package proxy
+package conversation
 
 import (
 	"context"
@@ -8,7 +8,18 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-func stripClientHistory(ctx context.Context, log *slog.Logger, env *translate.RequestEnvelope, provider string) (context.Context, error) {
+type betaArtifactHistoryContextKey struct{}
+
+func withBetaArtifactHistory(ctx context.Context) context.Context {
+	return context.WithValue(ctx, betaArtifactHistoryContextKey{}, true)
+}
+
+func BetaArtifactHistoryFromContext(ctx context.Context) bool {
+	found, _ := ctx.Value(betaArtifactHistoryContextKey{}).(bool)
+	return found
+}
+
+func StripClientHistory(ctx context.Context, log *slog.Logger, env *translate.RequestEnvelope, provider string) (context.Context, error) {
 	if err := env.StripCommandOutcomes(); err != nil {
 		return ctx, fmt.Errorf("strip command outcomes: %w", err)
 	}

@@ -36,7 +36,7 @@ type fakePinStore struct {
 	mu                     sync.Mutex
 	pin                    sessionpin.Pin
 	hasPin                 bool
-	hmmHistory             sessionpin.Pin
+	switchHistory          sessionpin.Pin
 	hasHMMHistory          bool
 	getErr                 error
 	getCalls               int
@@ -81,7 +81,7 @@ func (f *fakePinStore) Get(ctx context.Context, key [sessionpin.SessionKeyLen]by
 		if !f.hasHMMHistory {
 			return sessionpin.Pin{}, false, nil
 		}
-		pin := f.hmmHistory
+		pin := f.switchHistory
 		pin.SessionKey = key
 		pin.Role = role
 		return pin, true, nil

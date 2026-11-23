@@ -128,16 +128,16 @@ func (t *hardPinnedTurnServing) serveForcedPin(ctx context.Context) bool {
 	s, res, forceModelPin := t.s, &t.res, t.forceModelPin
 	if candidates.ForcedPinEligible(forceModelPin, t.req) {
 		res.Purpose = utilityPurposes[res.TurnType]
-		threadPin, hmmHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
+		threadPin, switchHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
 		if s.pinStore != nil {
 			threadPin, _ = t.sessionPins.Load(ctx, t.threadSessionKey, res.PinRole)
-			hmmHistory = t.sessionPins.LoadHMMHistory(ctx, t.threadSessionKey, res.PinRole)
+			switchHistory = loadSwitchHistory(ctx, s.strategyPorts, t.sessionPins, t.threadSessionKey, res.PinRole)
 			forceHistory = s.loadForceModelHistory(ctx, t.threadSessionKey, res.PinRole)
 		}
 		res.SessionKey = t.threadSessionKey
 		res.PinModel = forceModelPin.Model
 		res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
-		applySwitchHistory(res, threadPin, hmmHistory, forceHistory)
+		applySwitchHistory(res, threadPin, switchHistory, forceHistory)
 		res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
 			(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
 		res.ServeForceModelPin(forceModelPin)

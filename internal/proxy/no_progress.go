@@ -49,7 +49,7 @@ func (p loopBreakPins) Load(ctx context.Context, sessionKey [sessionpin.SessionK
 }
 
 func (p loopBreakPins) ExpireWithHistory(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, role, reason string) error {
-	return p.s.expireSessionPinAndHMMHistory(ctx, p.strategy, installationID, sessionKey, role, reason)
+	return p.s.expireSessionPinAndSwitchHistory(ctx, p.strategy, installationID, sessionKey, role, reason)
 }
 
 func writeLoopStop(ctx context.Context, w http.ResponseWriter, env *translate.RequestEnvelope, msg string, inputTokens int) error {

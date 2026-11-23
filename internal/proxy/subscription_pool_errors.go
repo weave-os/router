@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/requestcontext"
 )
 
 func isSubscriptionPoolError(err error) bool {
@@ -20,5 +21,5 @@ func strikeModelUnlessFundingFailure(ctx context.Context, model string, err erro
 	if subscriptionFundingFailure(err) {
 		return
 	}
-	recordTurnFailure(ctx, model)
+	requestcontext.RecordTurnFailure(ctx, model)
 }

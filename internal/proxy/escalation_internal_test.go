@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalation/floor"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -209,7 +210,7 @@ func TestEscalationRecordsServedHistoryWithoutReplacingBaselinePin(t *testing.T)
 	res.SessionKey[0] = 1
 	svc.recordTurnUsage(context.Background(), res, providers.ProviderAnthropic, "claude-sonnet-4-6", 100, 20, 0, 0, false)
 	require.Len(t, pins.upserts, 1)
-	require.Equal(t, hmmHistoryRole(res.PinRole), pins.upserts[0].Role)
+	require.Equal(t, hmm.HistoryRole(res.PinRole), pins.upserts[0].Role)
 	require.Equal(t, "claude-sonnet-4-6", pins.lastUsage.ServedModel)
 	require.Equal(t, 20, pins.lastUsage.OutputTokens)
 }

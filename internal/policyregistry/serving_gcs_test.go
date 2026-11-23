@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
 
+	"weave-os/router/internal/gcsregistry"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/rosterdata"
 )
@@ -114,14 +115,14 @@ func (f *servingGCSFixture) writeAttrs(w http.ResponseWriter, name string, gener
 	_ = json.NewEncoder(w).Encode(map[string]any{"name": name, "bucket": "registry-test", "generation": strconv.FormatInt(generation, 10), "metageneration": "1", "size": strconv.Itoa(len(f.objects[name][generation])), "contentType": "application/json"})
 }
 
-func newServingGCSFixture(t *testing.T) (*policyregistry.Registry, *servingGCSFixture) {
+func newServingGCSFixture(t *testing.T) (*gcsregistry.Registry, *servingGCSFixture) {
 	t.Helper()
 	fixture := &servingGCSFixture{objects: make(map[string]map[int64][]byte), current: make(map[string]int64)}
 	server := httptest.NewServer(fixture)
 	t.Cleanup(server.Close)
 	client, err := storage.NewClient(context.Background(), option.WithEndpoint(server.URL), option.WithoutAuthentication(), storage.WithJSONReads())
 	require.NoError(t, err)
-	registry, err := policyregistry.NewRegistry(client, testRegistryRoot)
+	registry, err := gcsregistry.NewRegistry(client, testRegistryRoot)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, registry.Close()) })
 	return registry, fixture

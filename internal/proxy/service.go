@@ -85,7 +85,7 @@ type Service struct {
 	webSearch                websearch.Executor
 	billing                  *billing.Service
 	clock                    auth.Clock
-	feedbackLinks            feedbackLinks
+	feedbackLinks            *feedbackLinks
 }
 
 type registeredStrategy struct {
@@ -113,8 +113,6 @@ type nativeResponsesReasoningHashContextKey struct{}
 
 type nativeResponsesToolHashContextKey struct{}
 
-type codexSkillContextKey struct{}
-
 type responsesFooterEchoedContextKey struct{}
 
 type codexTitleGenerationContextKey struct{}
@@ -131,15 +129,10 @@ type SessionCooldownProbeDeniedModelsContextKey struct{}
 
 type SessionStrikeReadmitModelsContextKey struct{}
 
-type UsageBypassConfig struct {
-	Enabled   bool
-	Threshold *float64
-}
-
-func usageBypassFromContext(ctx context.Context) (UsageBypassConfig, bool) {
-	cfg, ok := ctx.Value(requestcontext.InstallationUsageBypassContextKey{}).(UsageBypassConfig)
+func usageBypassFromContext(ctx context.Context) (requestcontext.UsageBypassConfig, bool) {
+	cfg, ok := ctx.Value(requestcontext.InstallationUsageBypassContextKey{}).(requestcontext.UsageBypassConfig)
 	if !ok || !cfg.Enabled {
-		return UsageBypassConfig{}, false
+		return requestcontext.UsageBypassConfig{}, false
 	}
 	return cfg, true
 }
@@ -1519,16 +1512,6 @@ func stickyStateRole(res routingpolicy.TurnRoute) string {
 
 func isHMMTurn(ports continuity.StrategyPorts, res routingpolicy.TurnRoute) bool {
 	return isHMMDecision(ports, res.Decision) || isHMMDecision(ports, res.Fresh)
-}
-
-func hmmHistoryStoredReason(ports continuity.StrategyPorts, res routingpolicy.TurnRoute) string {
-	if isHMMDecision(ports, res.Fresh) {
-		return res.Fresh.Reason
-	}
-	if isHMMDecision(ports, res.Decision) {
-		return res.Decision.Reason
-	}
-	return ports.CostGate.HistoryReason()
 }
 
 func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvider string, headers http.Header) map[string]struct{} {

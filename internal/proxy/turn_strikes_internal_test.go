@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 )
@@ -106,7 +108,7 @@ func TestTurnLoopUserPromptClearsTurnStrikes(t *testing.T) {
 		assert.NotContains(t, req.Candidates.AutomaticExcludedModels, demotedPinModel)
 	}
 	assert.NotContains(t, res.SessionDemotedModels, demotedPinModel)
-	assert.ElementsMatch(t, []string{sessionpin.DefaultRole, hmmHistoryRole(sessionpin.DefaultRole)}, store.cleared)
+	assert.ElementsMatch(t, []string{sessionpin.DefaultRole, hmm.HistoryRole(sessionpin.DefaultRole)}, store.cleared)
 }
 
 // With session-lifetime demotion off, a rescued primary failure is still kept
@@ -114,7 +116,7 @@ func TestTurnLoopUserPromptClearsTurnStrikes(t *testing.T) {
 func TestRescuedFailureStrikesModelForAgentTurn(t *testing.T) {
 	store := &turnStrikePinStore{}
 	svc := newRescuedDemotionTestService(store, false)
-	ctx := withTurnFailures(context.Background())
+	ctx := requestcontext.WithTurnFailures(context.Background())
 
 	demoted, _ := strikeRescuedPrimary(svc, ctx, &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable, Headers: http.Header{}})
 	assert.Empty(t, demoted, "no session-lifetime demotion while the flag is off")
@@ -122,8 +124,8 @@ func TestRescuedFailureStrikesModelForAgentTurn(t *testing.T) {
 	served := router.Decision{Model: freshTurnModel, Reason: "cluster:v0.2"}
 	svc.strikeRescuedModelsForTurn(ctx, nil, served, false, nonZeroSessionKey(), sessionpin.DefaultRole, sessionpin.DefaultRole)
 	assert.Equal(t, map[string][]string{
-		sessionpin.DefaultRole:                 {demotedArm},
-		hmmHistoryRole(sessionpin.DefaultRole): {demotedArm},
+		sessionpin.DefaultRole:                  {demotedArm},
+		hmm.HistoryRole(sessionpin.DefaultRole): {demotedArm},
 	}, store.strikes)
 }
 
@@ -144,8 +146,8 @@ func TestTurnStrikeSkippedWhenTurnFailedOrPinned(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			store := &turnStrikePinStore{}
 			svc := newRescuedDemotionTestService(store, false)
-			ctx := withTurnFailures(context.Background())
-			recordTurnFailure(ctx, demotedArm)
+			ctx := requestcontext.WithTurnFailures(context.Background())
+			requestcontext.RecordTurnFailure(ctx, demotedArm)
 			strike(svc, ctx)
 			assert.Empty(t, store.strikes)
 		})
@@ -196,7 +198,7 @@ func TestSiblingRescueRecordsEveryFailedModel(t *testing.T) {
 	}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}})
 	svc.engine.SetRetrySleep(noopSleep)
-	ctx := withTurnFailures(context.Background())
+	ctx := requestcontext.WithTurnFailures(context.Background())
 
 	body := `{"model":"claude-opus-5","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()
@@ -206,5 +208,5 @@ func TestSiblingRescueRecordsEveryFailedModel(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "rescued")
 	require.Contains(t, anthropicClient.failed, "claude-opus-5")
 	require.Contains(t, openAIClient.failed, "gpt-5.6-luna", "the first sibling fails before the second serves")
-	assert.ElementsMatch(t, []string{"claude-opus-5", "gpt-5.6-luna"}, turnFailuresFromContext(ctx).models)
+	assert.ElementsMatch(t, []string{"claude-opus-5", "gpt-5.6-luna"}, requestcontext.TurnFailedModels(ctx))
 }
