@@ -375,8 +375,27 @@ weave_self_refresh 2>/dev/null || true
 # cached (unrendered) per install under the user cache dir and a wrapper is
 # replaced only when its bytes still match that baseline. With no baseline yet
 # we can't prove anything, so the first run only seeds the cache and a swap can
-# happen from the next one on. install.sh seeds it too, so fresh installs skip
-# that warm-up round.
+# happen from the next one on.
+#
+# Every downloaded body must match its row in a MANIFEST whose signature
+# verifies under the embedded release key (see "release manifest verification"
+# above). MANIFEST and MANIFEST.sig.b64 are fetched once per refresh cycle; if
+# either fails to download or verify, the cycle touches neither the baseline
+# cache nor any wrapper. A body that does not match its row is skipped and its
+# baseline is left as it is.
+#
+# A baseline written before this check existed (by install.sh, or by an older
+# statusline that installed unverified downloads) can't be trusted as the
+# "what we shipped" reference. The sentinel $baseline_dir/.manifest-seeded
+# marks a cache seeded under the manifest. While it is absent, the first
+# refresh whose MANIFEST verifies re-seeds once: each verified body becomes
+# the baseline, an installed wrapper that differs from it is replaced with it
+# without consulting the old baseline, and the sentinel is written. A wrapper
+# whose body could not be fetched or verified in that cycle has its untrusted
+# baseline removed, so it can only be refreshed against a verified one later.
+# Users who edited a wrapper before upgrading to a manifest-aware statusline
+# therefore see it reset once on the first post-upgrade refresh; from then on
+# the baseline comparison preserves local edits as before.
 #
 # Never touch a wrapper git tracks either. A project-scope install writes the
 # wrappers into the repo's own .claude/commands/, and unlike cc-statusline.sh
@@ -385,8 +404,12 @@ weave_self_refresh 2>/dev/null || true
 # Only the installer changes tracked files, and only when a human runs it.
 #
 # Opt out with WEAVE_COMMANDS_UPDATE=0 (WEAVE_STATUSLINE_UPDATE=0 disables this
-# too, along with every other network path here). Override the source with
-# WEAVE_COMMANDS_URL_BASE=..., e.g. for self-hosters who fork.
+# too, along with every other network path here). Wrappers come from this
+# copy's own release tag (WEAVE_RELEASE_TAG), never a mutable branch; the
+# self-refresh moves the tag forward. Self-hosters who fork can point
+# WEAVE_COMMANDS_URL_BASE=... at their own commands/ directory; MANIFEST and
+# MANIFEST.sig.b64 are then read from its parent directory and must still
+# verify under the embedded key.
 
 # weave_command_tracked_by_git returns 0 when $1 is a file git tracks. Used to
 # leave repo-committed wrappers alone; no git (or no repo) means untracked.
@@ -423,8 +446,10 @@ weave_render_command() {
 
 # Fetched-code surface 2 (inventory in install.sh, "uninstall delegation"):
 # downloaded commands/*.md bodies overwrite installed wrappers that Claude Code
-# runs as prompts. They are gated only by a `---` first line and the baseline
-# comparison, with no digest or signature.
+# runs as prompts. A body is admitted only after weave_verify_manifest accepts
+# the fetched MANIFEST and weave_verify_file matches the body to its
+# install/commands/<name>.md row; the `---` first line and the baseline
+# comparison stay as further checks.
 weave_sync_commands() {
   [ "${WEAVE_STATUSLINE_UPDATE:-1}" = "0" ] && return 0
   [ "${WEAVE_COMMANDS_UPDATE:-1}" = "0" ] && return 0
@@ -483,12 +508,21 @@ weave_sync_commands() {
     scope_args="$(sed -En 's#^`npx @(workweave/router|weave-os/router) off --claude(.*)`$#\2#p' "$off" | head -n 1)"
   fi
 
-  local url_base="${WEAVE_COMMANDS_URL_BASE:-https://raw.githubusercontent.com/weave-os/router/main/install/commands}"
+  local url_base="${WEAVE_COMMANDS_URL_BASE:-$WEAVE_RELEASE_REPO_URL/$WEAVE_RELEASE_TAG/install/commands}"
+  url_base="${url_base%/}"
+  local manifest_base="${url_base%/*}"
+  local sentinel="$baseline_dir/.manifest-seeded"
   local name installed raw prev tmp new_body prev_body installed_body
+  local manifest="$baseline_dir/.MANIFEST.tmp.$$" seeding="false"
+  [ -f "$sentinel" ] || seeding="true"
   (
     # Detach stdin (CC pipes JSON to us) so curl can't consume it, and silence
     # everything so no output leaks into the statusline.
     exec </dev/null
+    trap 'rm -f "$manifest" "$manifest.sig.b64"' EXIT
+    curl -fsSL --max-time 15 "$manifest_base/MANIFEST" -o "$manifest" 2>/dev/null || exit 0
+    curl -fsSL --max-time 15 "$manifest_base/MANIFEST.sig.b64" -o "$manifest.sig.b64" 2>/dev/null || exit 0
+    weave_verify_manifest "$manifest" "$manifest.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" || exit 0
     while IFS= read -r name; do
       installed="$cmd_dir/$name.md"
       # Only ever refresh a wrapper that is already installed: a missing one
@@ -501,24 +535,32 @@ weave_sync_commands() {
       weave_command_tracked_by_git "$installed" && continue
 
       raw="$baseline_dir/$name.md.tmp.$$"
-      curl -fsSL --max-time 15 "$url_base/$name.md" -o "$raw" 2>/dev/null || { rm -f "$raw"; continue; }
-      # Shape check: every wrapper opens with YAML front matter, so a 404 page
-      # or a truncated body can never be installed as a command.
-      if [ ! -s "$raw" ] || [ "$(head -n 1 "$raw")" != "---" ]; then
+      prev="$baseline_dir/$name.md"
+      # Signed-manifest digest first, then the shape check: every wrapper opens
+      # with YAML front matter, so a 404 page or a truncated body can never be
+      # installed as a command. On any failure the baseline stays as it is,
+      # except while re-seeding, when the untrusted one is dropped.
+      if ! curl -fsSL --max-time 15 "$url_base/$name.md" -o "$raw" 2>/dev/null \
+         || ! weave_verify_file "$manifest" "install/commands/$name.md" "$raw" \
+         || [ ! -s "$raw" ] || [ "$(head -n 1 "$raw")" != "---" ]; then
         rm -f "$raw"
+        [ "$seeding" = "true" ] && rm -f "$prev"
         continue
       fi
 
-      prev="$baseline_dir/$name.md"
       if grep -q '{{SCOPE}}' "$raw" && [ "$scope_known" != "true" ]; then
         mv "$raw" "$prev" 2>/dev/null || rm -f "$raw"
         continue
       fi
 
-      if [ -f "$prev" ]; then
+      if [ -f "$prev" ] || [ "$seeding" = "true" ]; then
         new_body="$(weave_render_command "$raw" "$scope_args")"
-        prev_body="$(weave_render_command "$prev" "$scope_args")"
         installed_body="$(sed '/^<!-- weave-router managed command: .* -->$/d' "$installed" 2>/dev/null)" || installed_body=""
+        if [ "$seeding" = "true" ]; then
+          prev_body="$installed_body"
+        else
+          prev_body="$(weave_render_command "$prev" "$scope_args")"
+        fi
         if [ "$prev_body" = "$installed_body" ] && [ "$new_body" != "$installed_body" ]; then
           tmp="$installed.tmp.$$"
           if printf '%s\n' "$new_body" >"$tmp" 2>/dev/null; then
@@ -537,6 +579,8 @@ weave_sync_commands() {
     done <<EOF
 $(weave_installed_command_names "$cmd_dir")
 EOF
+    [ "$seeding" = "true" ] && : >"$sentinel" 2>/dev/null
+    true
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
   return 0
