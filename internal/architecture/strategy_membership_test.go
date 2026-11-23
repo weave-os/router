@@ -82,24 +82,11 @@ func referenceSites(loaded []*packages.Package, inServingLayer func(string) bool
 		if !inServingLayer(pkg.PkgPath) {
 			continue
 		}
-		inspect := func(site string, node ast.Node) {
-			ast.Inspect(node, func(node ast.Node) bool {
-				if ident, ok := node.(*ast.Ident); ok && target(pkg.TypesInfo.Uses[ident]) {
-					sites = append(sites, relativePackage(pkg.PkgPath)+"."+site)
-				}
-				return true
-			})
-		}
 		for _, file := range pkg.Syntax {
 			for _, decl := range file.Decls {
-				switch decl := decl.(type) {
-				case *ast.FuncDecl:
-					inspect(funcDeclName(pkg.TypesInfo, decl), decl)
-				case *ast.GenDecl:
-					for _, spec := range decl.Specs {
-						if value, ok := spec.(*ast.ValueSpec); ok {
-							inspect(value.Names[0].Name, value)
-						}
+				for site, node := range declarationSites(pkg.TypesInfo, decl) {
+					if referencesObject(pkg.TypesInfo, node, target) {
+						sites = append(sites, relativePackage(pkg.PkgPath)+"."+site)
 					}
 				}
 			}
@@ -107,6 +94,32 @@ func referenceSites(loaded []*packages.Package, inServingLayer func(string) bool
 	}
 	slices.Sort(sites)
 	return slices.Compact(sites)
+}
+
+func declarationSites(info *types.Info, decl ast.Decl) map[string]ast.Node {
+	sites := map[string]ast.Node{}
+	switch decl := decl.(type) {
+	case *ast.FuncDecl:
+		sites[funcDeclName(info, decl)] = decl
+	case *ast.GenDecl:
+		for _, spec := range decl.Specs {
+			if value, ok := spec.(*ast.ValueSpec); ok {
+				sites[value.Names[0].Name] = value
+			}
+		}
+	}
+	return sites
+}
+
+func referencesObject(info *types.Info, node ast.Node, target func(types.Object) bool) bool {
+	found := false
+	ast.Inspect(node, func(node ast.Node) bool {
+		if ident, ok := node.(*ast.Ident); ok && target(info.Uses[ident]) {
+			found = true
+		}
+		return !found
+	})
+	return found
 }
 
 func isRouterRouteMethod(object types.Object) bool {
