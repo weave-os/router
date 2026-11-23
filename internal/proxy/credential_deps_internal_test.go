@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/dispatch"
@@ -63,5 +62,6 @@ func TestWithDepsWithoutCredentialsKeepsTheNewServiceDefaults(t *testing.T) {
 	assert.Nil(t, svc.credentials.ManagedSubscriptions)
 	assert.Nil(t, svc.credentials.PassthroughEligible)
 	assert.Nil(t, svc.credentials.ExcludedProvidersOverride)
-	assert.Equal(t, auth.Clock(nil).Now().Truncate(time.Hour), svc.credentials.Clock.Now().Truncate(time.Hour))
+	require.NotNil(t, svc.credentials.Clock)
+	assert.WithinDuration(t, time.Now(), svc.credentials.Clock.Now(), time.Minute)
 }
