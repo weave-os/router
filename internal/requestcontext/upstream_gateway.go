@@ -8,13 +8,25 @@ import (
 const UpstreamGatewayHopHeader = "X-Weave-Router-Hop"
 
 type UpstreamGateway struct {
-	SessionID string
+	SessionID   string
+	Email       string
+	DisplayName string
+}
+
+type UpstreamGatewayHeaders struct {
+	Session   []string
+	UserEmail []string
+	UserName  []string
 }
 
 type upstreamGatewayContextKey struct{}
 
-func WithUpstreamGateway(ctx context.Context, sessionHeaders []string, inbound http.Header) context.Context {
-	return context.WithValue(ctx, upstreamGatewayContextKey{}, UpstreamGateway{SessionID: gatewaySessionID(sessionHeaders, inbound)})
+func WithUpstreamGateway(ctx context.Context, headers UpstreamGatewayHeaders, inbound http.Header) context.Context {
+	return context.WithValue(ctx, upstreamGatewayContextKey{}, UpstreamGateway{
+		SessionID:   gatewaySessionID(headers.Session, inbound),
+		Email:       firstHeader(headers.UserEmail, inbound, NormalizeEmail),
+		DisplayName: firstHeader(headers.UserName, inbound, NormalizeDisplayName),
+	})
 }
 
 func UpstreamGatewayFrom(ctx context.Context) (UpstreamGateway, bool) {
@@ -33,4 +45,13 @@ func gatewaySessionID(sessionHeaders []string, inbound http.Header) string {
 		}
 	}
 	return NormalizeClientIdentifier(inbound.Get(ClaudeCodeSessionHeader))
+}
+
+func firstHeader(names []string, inbound http.Header, normalize func(string) string) string {
+	for _, name := range names {
+		if value := normalize(inbound.Get(name)); value != "" {
+			return value
+		}
+	}
+	return ""
 }

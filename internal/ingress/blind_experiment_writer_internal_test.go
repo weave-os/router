@@ -197,7 +197,7 @@ func TestBlindExperimentWriterUnusableRequestedModelStillDropsWeaveCost(t *testi
 }
 
 func TestUpstreamGatewayWriterHidesRouterSurfacesButKeepsServedModel(t *testing.T) {
-	ctx := requestcontext.WithUpstreamGateway(context.Background(), nil, http.Header{})
+	ctx := requestcontext.WithUpstreamGateway(context.Background(), requestcontext.UpstreamGatewayHeaders{}, http.Header{})
 	rec := httptest.NewRecorder()
 	w, finish := WithBlindExperimentWriter(ctx, rec, []byte(`{"model":"weave-auto","messages":[]}`))
 	w.Header().Set("Content-Type", "text/event-stream")

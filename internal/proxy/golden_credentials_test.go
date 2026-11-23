@@ -205,7 +205,7 @@ func goldenCodexCredentialCtx(ctx context.Context) context.Context {
 }
 
 func goldenUpstreamGatewayCtx(ctx context.Context) context.Context {
-	return requestcontext.WithUpstreamGateway(ctx, nil, http.Header{})
+	return requestcontext.WithUpstreamGateway(ctx, requestcontext.UpstreamGatewayHeaders{}, http.Header{})
 }
 
 func goldenUnkeyedCtx(ctx context.Context) context.Context {

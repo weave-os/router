@@ -45,8 +45,13 @@ are unaffected and never enter this mode.
 - **Session.** The session ID comes from the configured `session_headers`, then
   `X-Claude-Code-Session-Id`. A request without one is served unpinned. Session
   pins and blind experiments work as they do for other clients.
-- **Identity.** End-user email, account, device and display name are dropped
-  from the request context. No identity header and no baggage are sent.
+- **Identity.** The end user comes only from the configured
+  `user_email_headers` and `user_name_headers`, which the authenticated gateway
+  sets. That user is recorded for analytics and dashboards like any other
+  router user. Client-supplied identity (`X-Weave-User-Email`, Claude Code
+  account, device and body metadata) is ignored. A request without a valid
+  gateway email is served as unidentified. No identity header and no baggage
+  are sent upstream, so the user never leaves the router.
 - **Correlation.** The provider key's `forwarded_client_headers` are copied from
   the inbound request. An echoed `traceparent` is kept; the router's own tracing
   injects one only when none is present.

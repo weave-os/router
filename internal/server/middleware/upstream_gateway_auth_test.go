@@ -46,6 +46,7 @@ func newGatewayAuthHarness(t *testing.T) *gatewayAuthHarness {
 		WithUpstreamGatewayIssuers([]auth.UpstreamGatewayIssuer{{
 			IssuerURL: "https://issuer.gateway.example", Audience: "router-inference", Subjects: []string{"gateway-workload"},
 			SessionIssuerKID: "issuer-kid", SessionHeaders: []string{"X-Gateway-Session"},
+			UserEmailHeaders: []string{"X-Gateway-User-Email"}, UserNameHeaders: []string{"X-Gateway-User-Name"},
 		}}, staticOIDCKeys{key: &signing.PublicKey})
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.RegisteredClaims{
@@ -92,7 +93,11 @@ func refusalCode(t *testing.T, rr *httptest.ResponseRecorder) string {
 
 func TestWithAuth_UpstreamGatewayTokenEntersGatewayMode(t *testing.T) {
 	h := newGatewayAuthHarness(t)
-	rr := h.serve(t, "/v1/messages", map[string]string{"X-Gateway-Session": "gw-session-1"})
+	rr := h.serve(t, "/v1/messages", map[string]string{
+		"X-Gateway-Session":    "gw-session-1",
+		"X-Gateway-User-Email": "gateway.user@example.com",
+		"X-Gateway-User-Name":  "Gateway User",
+	})
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 
 	ctx := h.seen.Context()
@@ -100,6 +105,8 @@ func TestWithAuth_UpstreamGatewayTokenEntersGatewayMode(t *testing.T) {
 	upstreamGateway, ok := requestcontext.UpstreamGatewayFrom(ctx)
 	require.True(t, ok)
 	assert.Equal(t, "gw-session-1", upstreamGateway.SessionID)
+	assert.Equal(t, "gateway.user@example.com", upstreamGateway.Email)
+	assert.Equal(t, "Gateway User", upstreamGateway.DisplayName)
 	assert.Empty(t, h.seen.Header.Get("Authorization"), "the inbound gateway credential must not stay on the request")
 }
 

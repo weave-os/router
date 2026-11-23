@@ -47,5 +47,9 @@ func withUpstreamGatewayMode(ctx context.Context, principal *auth.UpstreamGatewa
 	if principal == nil {
 		return ctx
 	}
-	return requestcontext.WithUpstreamGateway(ctx, principal.SessionHeaders, inbound)
+	return requestcontext.WithUpstreamGateway(ctx, requestcontext.UpstreamGatewayHeaders{
+		Session:   principal.SessionHeaders,
+		UserEmail: principal.UserEmailHeaders,
+		UserName:  principal.UserNameHeaders,
+	}, inbound)
 }

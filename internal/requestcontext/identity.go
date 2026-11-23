@@ -54,10 +54,10 @@ func WithClientIdentity(ctx context.Context, id ClientIdentity) context.Context 
 		id.RolloutID = ""
 	}
 	if upstreamGateway, ok := UpstreamGatewayFrom(ctx); ok {
-		id.Email = ""
+		id.Email = upstreamGateway.Email
 		id.AccountID = ""
 		id.DeviceID = ""
-		id.DisplayName = ""
+		id.DisplayName = upstreamGateway.DisplayName
 		id.SessionID = upstreamGateway.SessionID
 	}
 	return context.WithValue(ctx, ClientIdentityContextKey{}, id)
