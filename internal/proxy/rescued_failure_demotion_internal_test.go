@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 )
@@ -114,7 +115,7 @@ func assertRescuedFailureStrikes(t *testing.T, demotions []demotionCall, wantDem
 		return
 	}
 	require.Len(t, demotions, 2, "the strike must land on the pin row and its HMM history row")
-	assert.Equal(t, hmmHistoryRole(demotions[0].role), demotions[1].role)
+	assert.Equal(t, hmm.HistoryRole(demotions[0].role), demotions[1].role)
 	if wantDemotionReason == "" {
 		wantDemotionReason = sessionpin.DemotionReasonRescuedFailure
 	}

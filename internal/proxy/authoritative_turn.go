@@ -21,7 +21,7 @@ type authoritativeTurn struct {
 	req            router.Request
 	pin            sessionpin.Pin
 	pinFound       bool
-	hmmHistory     sessionpin.Pin
+	switchHistory  sessionpin.Pin
 	fresh          router.Decision
 	prefixBroken   bool
 	sessionPins    routingpolicy.SessionPins
@@ -37,7 +37,7 @@ func serveAuthoritativeTurn(ctx context.Context, s *Service, res *routingpolicy.
 	plannerTokens := s.plannerTokensFor(ctx, in.env, in.feats)
 	res.UpgradeShadow = s.authoritativeUpgradeFor(ctx, in.req, activePin, in.fresh, *res, plannerTokens)
 	res.AuthorityShadow = s.authorityCacheShadowFor(
-		ctx, in.req, activePin, in.hmmHistory, in.fresh, plannerTokens, in.prefixBroken,
+		ctx, in.req, activePin, in.switchHistory, in.fresh, plannerTokens, in.prefixBroken,
 	)
 	s.logAuthorityCacheShadow(ctx, *res)
 	if res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.DemotedModel() {

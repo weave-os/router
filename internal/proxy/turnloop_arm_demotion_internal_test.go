@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -128,8 +129,8 @@ func TestTurnLoopDropsDemotedPinOnScorerPath(t *testing.T) {
 // there has to count even when the base pin knows nothing about it.
 func TestTurnLoopHonoursDemotionRecordedOnHMMHistory(t *testing.T) {
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		sessionpin.DefaultRole:                 demotedPin(demotedPinModel),
-		hmmHistoryRole(sessionpin.DefaultRole): demotedPin(demotedPinModel, demotedPinModel),
+		sessionpin.DefaultRole:                  demotedPin(demotedPinModel),
+		hmm.HistoryRole(sessionpin.DefaultRole): demotedPin(demotedPinModel, demotedPinModel),
 	}}
 	scorer := &authoritativeTestRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropic,

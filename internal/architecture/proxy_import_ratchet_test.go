@@ -22,7 +22,6 @@ var proxyImporterRoots = []string{proxyPackagePath, modulePath + "/internal/api"
 var proxyImportAllowlist = map[string]bool{
 	"internal/requestcontext -> internal/proxy":                 true,
 	"scripts/classifier_session_check -> internal/proxy":        true,
-	"scripts/feedback_integration_check -> internal/proxy":      true,
 	"scripts/subscription_verification_check -> internal/proxy": true,
 }
 

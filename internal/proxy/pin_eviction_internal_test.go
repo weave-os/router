@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -201,7 +202,7 @@ func TestExpireSessionPinAndHMMHistoryExpiresBothRoles(t *testing.T) {
 	installationID := uuid.New()
 	sessionKey := nonZeroSessionKey()
 
-	err := svc.expireSessionPinAndHMMHistory(
+	err := svc.expireSessionPinAndSwitchHistory(
 		context.Background(), router.StrategyFromContext(context.Background()),
 		installationID,
 		sessionKey,
@@ -212,7 +213,7 @@ func TestExpireSessionPinAndHMMHistoryExpiresBothRoles(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, store.upserts, 2)
 	assert.Equal(t, sessionpin.DefaultRole, store.upserts[0].Role)
-	assert.Equal(t, hmmHistoryRole(sessionpin.DefaultRole), store.upserts[1].Role)
+	assert.Equal(t, hmm.HistoryRole(sessionpin.DefaultRole), store.upserts[1].Role)
 	assert.Equal(t, []string{conversation.CommandContinuationRole(sessionpin.DefaultRole)}, store.consumeRoles,
 		"only the primary pin may invalidate a post-command continuation")
 	for _, expired := range store.upserts {
