@@ -36,5 +36,15 @@ Measurement rules (pinned in `ratchet_test.go`):
   import of `context`.
 - Model matching counts comparisons of a model- or provider-named value against a
   string literal, the pattern that hard-codes model quirks outside catalog data.
+- Baseline growth (`baseline_growth`) compares the architecture debt records at the
+  merge base and in the working tree: the atomization ratchet baseline (per ratchet
+  and package), the inference-boundary baseline (exception count per `kind`), and the
+  `envReadAllowlist`, `proxyImportAllowlist` and `strategyFromContextSites` literals
+  (a `map[string]int` contributes its values; any other map or slice counts one per
+  entry). A raised count or a new key fails unless `ratchet_exceptions.json` holds a
+  `baseline_growth` exception for the subject `<file>#<group>/<key>` with a `max` at
+  or above the new count and a reason. A group absent at the merge base is a new
+  ratchet recording today's debt and is not compared. Comment-ban budgets grow only
+  with a `comment ban budget` exception for the package.
 - Paths are read from git with `-z`, because git otherwise quotes and escapes
   non-ASCII names.
