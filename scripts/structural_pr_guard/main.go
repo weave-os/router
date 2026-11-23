@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,7 +38,7 @@ func main() {
 			os.Exit(2)
 		}
 	}
-	changed, err := readLines(os.Stdin)
+	changed, err := readPaths(os.Stdin)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "structural_pr_guard: read changed files:", err)
 		os.Exit(2)
@@ -98,13 +97,16 @@ func isProtected(file string) bool {
 	return false
 }
 
-func readLines(r io.Reader) ([]string, error) {
-	var lines []string
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		if line := strings.TrimSpace(scanner.Text()); line != "" {
-			lines = append(lines, line)
+func readPaths(r io.Reader) ([]string, error) {
+	payload, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, file := range strings.Split(string(payload), "\x00") {
+		if file != "" {
+			paths = append(paths, file)
 		}
 	}
-	return lines, scanner.Err()
+	return paths, nil
 }

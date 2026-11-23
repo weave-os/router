@@ -42,4 +42,4 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA" | go run ./scripts/structural_pr_guard
+          git diff -z --no-renames --name-only "$BASE_SHA...$HEAD_SHA" | go run ./scripts/structural_pr_guard

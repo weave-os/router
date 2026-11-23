@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsStructural(t *testing.T) {
@@ -58,4 +59,11 @@ func TestReportFailsOnlyForStructuralGoldenChanges(t *testing.T) {
 	assert.False(t, report(&strings.Builder{}, "fix: pins", []string{"structural"}, golden))
 	assert.True(t, report(&strings.Builder{}, "fix: pins", nil, golden))
 	assert.True(t, report(&strings.Builder{}, "refactor: split", nil, golden[:1]))
+}
+
+func TestReadPathsKeepsUnusualFilenamesVerbatim(t *testing.T) {
+	paths, err := readPaths(strings.NewReader("internal/proxy/testdata/golden/caf\u00e9.json\x00internal/proxy/testdata/golden/a b\tc.json\x00"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"internal/proxy/testdata/golden/caf\u00e9.json", "internal/proxy/testdata/golden/a b\tc.json"}, paths)
+	assert.Equal(t, paths, protectedChanges(paths))
 }
