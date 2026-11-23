@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/server/middleware"
@@ -37,7 +37,7 @@ func runProductScopeMiddleware(
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
-		middleware.WithSubscriberAllowance(svc, proxy.RequestPresentsCoveringSubscription)(c)
+		middleware.WithSubscriberAllowance(svc, credentials.RequestPresentsCoveringSubscription)(c)
 		observed <- c.Request.Context()
 		if c.IsAborted() {
 			return
@@ -190,7 +190,7 @@ func TestWithSubscriberAllowance_ScopesAgentShadowWithoutSpendingAllowance(t *te
 			RolloutID: "rollout-1",
 			StateID:   "state-1",
 		}))
-		middleware.WithSubscriberAllowance(svc, proxy.RequestPresentsCoveringSubscription)(c)
+		middleware.WithSubscriberAllowance(svc, credentials.RequestPresentsCoveringSubscription)(c)
 		if c.IsAborted() {
 			return
 		}

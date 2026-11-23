@@ -10,7 +10,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -39,7 +39,7 @@ func runDelegatedSpendCap(t *testing.T, reader *stubDelegatedSpend, session *aut
 		c.Request = c.Request.WithContext(auth.WithDelegatedSession(c.Request.Context(), session))
 		c.Next()
 	})
-	engine.Use(middleware.WithDelegatedSpendCap(svc, proxy.RequestHasCustomerFunding))
+	engine.Use(middleware.WithDelegatedSpendCap(svc, credentials.RequestHasCustomerFunding))
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		reached = true
 		c.Status(http.StatusOK)

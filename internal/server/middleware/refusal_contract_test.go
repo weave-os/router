@@ -11,7 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -41,7 +41,7 @@ func runTestBudgetCheck(t *testing.T, book stubTestBudgetBook) *httptest.Respons
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Request = c.Request.WithContext(requestcontext.WithInternalTestIdentity(c.Request.Context(), requestcontext.InternalTestIdentity{SubjectID: "subject-1"}))
-		middleware.WithBalanceCheck(svc, 0, proxy.RequestHasCustomerFunding)(c)
+		middleware.WithBalanceCheck(svc, 0, credentials.RequestHasCustomerFunding)(c)
 		if !c.IsAborted() {
 			c.Status(http.StatusOK)
 		}
@@ -271,7 +271,7 @@ func capAndSubscriberRefusals() []refusalScenario {
 			run: func(t *testing.T) *httptest.ResponseRecorder {
 				t.Helper()
 				return runSubscriberGate(t, func(svc *entitlement.Service) gin.HandlerFunc {
-					return middleware.WithSubscriberAllowance(svc, proxy.RequestPresentsCoveringSubscription)
+					return middleware.WithSubscriberAllowance(svc, credentials.RequestPresentsCoveringSubscription)
 				}, &stubEntitlements{err: errRefusalBillingDown}, &stubAllowances{})
 			},
 			status:     http.StatusServiceUnavailable,
