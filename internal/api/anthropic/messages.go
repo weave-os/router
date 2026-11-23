@@ -10,7 +10,6 @@ import (
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 
@@ -18,7 +17,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func PrepareHandoffHandler(svc *proxy.Service, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
+func PrepareHandoffHandler(svc MessagesProxy, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
 	messages := MessagesHandler(svc, authSvc, vocab)
 	return func(c *gin.Context) {
 		c.Request = c.Request.WithContext(conversation.WithHandoffPreparation(c.Request.Context()))
@@ -26,7 +25,11 @@ func PrepareHandoffHandler(svc *proxy.Service, authSvc *auth.Service, vocab ingr
 	}
 }
 
-func MessagesHandler(svc *proxy.Service, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
+type MessagesProxy interface {
+	ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error
+}
+
+func MessagesHandler(svc MessagesProxy, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 

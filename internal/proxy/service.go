@@ -1157,8 +1157,6 @@ func (s *Service) WithPassthroughEligibleProviders(set map[string]struct{}) *Ser
 
 var ErrProviderNotConfigured = dispatch.ErrProviderNotConfigured
 
-var ErrRequestNotJSONObject = translate.ErrNotJSONObject
-
 var stripRoutingMarkerFromMessages = translate.StripRoutingMarkerFromMessages
 
 func (s *Service) provider(name string) (providers.Client, error) {

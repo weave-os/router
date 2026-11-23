@@ -54,6 +54,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/llmescalation"
@@ -992,16 +993,14 @@ func main() {
 			TurnSignalCapture: turnSignalCaptureEnabled, NativeAnthropicResponseSignals: nativeAnthropicResponseSignals, NativeOpenAIResponseSignals: nativeOpenAIResponseSignals}},
 		Conversation: conversation.Config{Summarizer: summarizer, CompactionHandoverSummarizer: compactionHandoverSz, RouterFeedbackStore: repo.Telemetry, SessionStrategies: sessionStrategyStore,
 			FeedbackLinks: feedbackLinks, PiHandoffSecret: config.GetOr("ROUTER_PI_HANDOFF_SECRET", ""), TextRepetitionBreak: &textRepetitionBreakEnabled},
-		BYOKOnly: byokOnly, DeploymentKeyedProviders: deploymentEligible,
+		Escalation: proxy.EscalationDeps{SwitchyardActive: escalationJudgeActiveEnabled}, BYOKOnly: byokOnly, DeploymentKeyedProviders: deploymentEligible,
 	}).WithTranslationMetrics(otel.NewTranslationMetrics()).
 		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithExternalKeyUsageRecorder(authSvc).
 		WithCodexExtraCredits(allowCodexCredits).
 		WithEscalation(escalationStore, escalationObserver).
-		WithEscalationDashboard(escalationDashboardStore).
 		WithLLMEscalation(llmEscalationStore, escalationJudge).
 		WithQwenEscalation(qwenEscalationJudge).
-		WithEscalationConfiguration(llmEscalationStore, authSvc.InvalidateInstallation, escalationJudgeActiveEnabled).
 		WithEscalationShadowDefault(escalationShadowDefault).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
 		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
@@ -1196,6 +1195,7 @@ func main() {
 		PolicyStatus:             policyStatus,
 		FeedbackLinks:            feedbackLinks,
 	}, servingAdmission, routingDistribution), defaultStrategy)), repo.Telemetry), captureMode))
+	serverFeatures.EscalationAdmin = &floor.Admin{Dashboard: escalationDashboardStore, Sessions: llmEscalationStore, Configuration: llmEscalationStore, InvalidateSelection: authSvc.InvalidateInstallation, SwitchyardJudge: escalationJudge, QwenJudge: qwenEscalationJudge, SwitchyardActive: escalationJudgeActiveEnabled, Clock: time.Now}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}

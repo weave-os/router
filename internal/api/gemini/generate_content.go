@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +11,6 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 
@@ -24,7 +24,11 @@ const (
 	streamGenerateContentSuffix = ":streamGenerateContent"
 )
 
-func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
+type GenerateContent interface {
+	ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error
+}
+
+func GenerateContentHandler(svc GenerateContent, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
@@ -78,7 +82,7 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service, vocab ing
 				log.Error("Proxy failed mid-stream", "err", err)
 				return
 			}
-			if errors.Is(err, proxy.ErrGeminiCrossFormatUnsupported) {
+			if errors.Is(err, ingress.ErrGeminiCrossFormatUnsupported) {
 				writeGeminiError(c, http.StatusNotImplemented, "UNIMPLEMENTED", "Cross-format request not supported by the upstream Gemini provider.")
 				return
 			}
