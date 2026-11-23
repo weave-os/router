@@ -1,4 +1,4 @@
-package proxy
+package ingress
 
 import (
 	"context"
@@ -15,11 +15,15 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+func blindExperimentCtx(arm auth.BlindExperimentArm) context.Context {
+	return context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: arm})
+}
+
 const blindRequestBody = `{"model":"claude-opus-4-7","messages":[]}`
 
 func TestBlindExperimentWriterReportsRequestedModelInStream(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
+	w, finish := WithBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("x-router-model", "gpt-5.4-mini")
 	w.Header().Set("X-Router-Decision", "cluster_argmax")
@@ -44,7 +48,7 @@ func TestBlindExperimentWriterReportsRequestedModelInStream(t *testing.T) {
 func TestBlindExperimentWriterReportsRequestedModelInJSON(t *testing.T) {
 	served := `{"id":"m","type":"message","model":"gpt-5.4-mini","content":[{"type":"text","text":"hi"}]}`
 	rec := httptest.NewRecorder()
-	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
+	w, finish := WithBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Length", "84")
 	w.Header().Set("x-router-provider", "openai")
@@ -60,7 +64,7 @@ func TestBlindExperimentWriterReportsRequestedModelInJSON(t *testing.T) {
 
 func TestBlindExperimentWriterRewritesResponsesAndChatModels(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmPassthrough), rec, []byte(`{"model":"gpt-5.5"}`))
+	w, finish := WithBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmPassthrough), rec, []byte(`{"model":"gpt-5.5"}`))
 	w.Header().Set("Content-Type", "text/event-stream")
 	_, err := w.Write([]byte("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"model\":\"gpt-5.4-mini\"}}\n\ndata: {\"object\":\"chat.completion.chunk\",\"model\":\"gpt-5.4-mini\"}\n\ndata: [DONE]\n\n"))
 	require.NoError(t, err)
@@ -73,7 +77,7 @@ func TestBlindExperimentWriterRewritesResponsesAndChatModels(t *testing.T) {
 
 func TestBlindExperimentWriterStripsHeadersOnUnwrittenError(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
+	w, finish := WithBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
 	w.Header().Set("x-router-model", "gpt-5.4-mini")
 	finish()
 	assert.Empty(t, rec.Header().Get("x-router-model"))
@@ -81,7 +85,7 @@ func TestBlindExperimentWriterStripsHeadersOnUnwrittenError(t *testing.T) {
 
 func TestBlindExperimentWriterInactiveLeavesResponseUntouched(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w, finish := withBlindExperimentWriter(context.Background(), rec, []byte(blindRequestBody))
+	w, finish := WithBlindExperimentWriter(context.Background(), rec, []byte(blindRequestBody))
 	assert.Same(t, http.ResponseWriter(rec), w)
 	w.Header().Set("x-router-model", "gpt-5.4-mini")
 	_, err := w.Write([]byte(`{"model":"gpt-5.4-mini"}`))
@@ -93,7 +97,7 @@ func TestBlindExperimentWriterInactiveLeavesResponseUntouched(t *testing.T) {
 
 func TestBlindExperimentWriterDropsWeaveCostFromStream(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmPassthrough), rec, []byte(blindRequestBody))
+	w, finish := WithBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmPassthrough), rec, []byte(blindRequestBody))
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 	_, err := w.Write([]byte("event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":3,\"weave_cost\":{\"actual_cost_usd\":0.01}}}\n\n"))
@@ -107,7 +111,7 @@ func TestBlindExperimentWriterDropsWeaveCostFromStream(t *testing.T) {
 
 func TestBlindExperimentWriterRewritesCRLFFramedStream(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
+	w, finish := WithBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 	_, err := w.Write([]byte("event: message_start\r\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"gpt-5.4-mini\"}}\r\n\r\n"))
@@ -121,7 +125,7 @@ func TestBlindExperimentWriterRewritesCRLFFramedStream(t *testing.T) {
 
 func TestBlindExperimentWriterFlushKeepsJSONBuffered(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
+	w, finish := WithBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, err := w.Write([]byte(`{"id":"m","model":"gpt-5.`))
@@ -137,7 +141,7 @@ func TestBlindExperimentWriterFlushKeepsJSONBuffered(t *testing.T) {
 
 func TestBlindExperimentWriterRewritesGeminiModelVersion(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmPassthrough), rec, []byte(`{"model":"gemini-3-pro","contents":[]}`))
+	w, finish := WithBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmPassthrough), rec, []byte(`{"model":"gemini-3-pro","contents":[]}`))
 	w.Header().Set("Content-Type", "application/json")
 	_, err := w.Write([]byte(`{"candidates":[],"modelVersion":"gemini-3-flash"}`))
 	require.NoError(t, err)
@@ -148,7 +152,7 @@ func TestBlindExperimentWriterRewritesGeminiModelVersion(t *testing.T) {
 
 func TestBlindExperimentWriterFlushBeforeWriteStripsHeaders(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
+	w, finish := WithBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("X-Router-Model", "gpt-5.4-mini")
 	mustAs[http.Flusher](t, w).Flush()
@@ -165,7 +169,7 @@ func TestBlindExperimentWriterResumedSessionRequestsOriginalModel(t *testing.T) 
 		body, err := sjson.Set(blindRequestBody, "model", transcriptModel)
 		require.NoError(t, err)
 		rec := httptest.NewRecorder()
-		w, finish := withBlindExperimentWriter(ctx, rec, []byte(body))
+		w, finish := WithBlindExperimentWriter(ctx, rec, []byte(body))
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		_, err = w.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5\"}}\n\n"))
@@ -180,7 +184,7 @@ func TestBlindExperimentWriterResumedSessionRequestsOriginalModel(t *testing.T) 
 
 func TestBlindExperimentWriterUnusableRequestedModelStillDropsWeaveCost(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(`{"model":"<bad model>","messages":[]}`))
+	w, finish := WithBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(`{"model":"<bad model>","messages":[]}`))
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Router-Model", "gpt-5.4-mini")
 	_, err := w.Write([]byte(`{"model":"gpt-5.4-mini","usage":{"output_tokens":3,"weave_cost":{"actual_cost_usd":0.01}}}`))

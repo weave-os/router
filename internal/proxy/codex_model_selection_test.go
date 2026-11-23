@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -120,7 +121,7 @@ func TestCodexNativeModelSelection_ModelInstructionsPinOnlyForCatalogClients(t *
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 			req.Header.Set(requestcontext.CodexNativeModelPinHeader, "1")
 			if tc.catalogClient {
-				req.Header.Set(proxy.CodexModelCatalogHeader, "1")
+				req.Header.Set(ingress.CodexModelCatalogHeader, "1")
 			}
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
