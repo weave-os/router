@@ -14,15 +14,16 @@ import (
 )
 
 const (
-	switchExperimentCacheTTL        = 5 * time.Minute
-	switchCompactionSummaryTokens   = 4_000
-	switchCompactPrepareAheadTokens = 50_000
-	switchCompactRefreshTokens      = 50_000
-	switchCompactRetryAfter         = time.Minute
-	DefaultSwitchCompactionTimeout  = 20 * time.Second
-	switchCompactionFailureTimeout  = "timeout"
-	switchCompactionFailureUpstream = "upstream_error"
-	switchCompactionFailureEmpty    = "empty_summary"
+	switchExperimentCacheTTL             = 5 * time.Minute
+	switchCompactPrepareAheadTokens      = 50_000
+	switchCompactRefreshTokens           = 50_000
+	switchCompactRetryAfter              = 15 * time.Second
+	switchCompactRefreshTailFactor       = 3
+	DefaultSwitchCompactionTimeout       = 20 * time.Second
+	DefaultSwitchCompactionSummaryTokens = 1_500
+	switchCompactionFailureTimeout       = "timeout"
+	switchCompactionFailureUpstream      = "upstream_error"
+	switchCompactionFailureEmpty         = "empty_summary"
 )
 
 type preparedCompaction struct {
@@ -42,8 +43,19 @@ type readyCompaction struct {
 
 func (r readyCompaction) AnchorMessages() int { return r.plan.AnchorMessages }
 
-func compactedPromptTokens(env *translate.RequestEnvelope, anchor int) int {
-	return switchCompactionSummaryTokens + int(float64(env.ContextOverflowTokenEstimate())*env.MessagesShareFrom(anchor))
+func (x *switchExperiment) compactedPromptTokens(env *translate.RequestEnvelope, anchor int) int {
+	return x.summaryTokens() + int(float64(env.ContextOverflowTokenEstimate())*env.MessagesShareFrom(anchor))
+}
+
+func (x *switchExperiment) summaryTokens() int {
+	if x.cfg.SummaryTokens > 0 {
+		return x.cfg.SummaryTokens
+	}
+	return DefaultSwitchCompactionSummaryTokens
+}
+
+func (x *switchExperiment) tailCovered(env *translate.RequestEnvelope, ready readyCompaction) bool {
+	return env.MessageCount()-ready.AnchorMessages() >= x.cfg.CompactTail
 }
 
 func (x *switchExperiment) prepareAheadTokens() int {
@@ -83,6 +95,18 @@ func (x *switchExperiment) planCompaction(env *translate.RequestEnvelope, summar
 	return conversation.PlanThreadCompaction(env, x.cfg.CompactTail, "pending", summarizer, now)
 }
 
+func (x *switchExperiment) planEarliestCompaction(env *translate.RequestEnvelope, summarizer string, now time.Time) (conversation.ThreadCompaction, bool) {
+	if summarizer == "" {
+		return conversation.ThreadCompaction{}, false
+	}
+	for tail := x.cfg.CompactTail; tail >= 1; tail-- {
+		if plan, ok := conversation.PlanThreadCompaction(env, tail, "pending", summarizer, now); ok {
+			return plan, true
+		}
+	}
+	return conversation.ThreadCompaction{}, false
+}
+
 func (x *switchExperiment) readyCompaction(key string, env *translate.RequestEnvelope) (readyCompaction, bool) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
@@ -99,7 +123,7 @@ func (x *switchExperiment) discardPrepared(key string) {
 	delete(x.prepared, key)
 }
 
-func (x *switchExperiment) claimPreparation(key string, tokens int, now time.Time) bool {
+func (x *switchExperiment) claimPreparation(key string, tokens, messages int, now time.Time) bool {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	p := x.prepared[key]
@@ -111,7 +135,8 @@ func (x *switchExperiment) claimPreparation(key string, tokens int, now time.Tim
 		return false
 	case !p.failedAt.IsZero() && now.Sub(p.failedAt) < switchCompactRetryAfter:
 		return false
-	case p.plan.Summary != "" && tokens-p.promptTokens < switchCompactRefreshTokens:
+	case p.plan.Summary != "" && tokens-p.promptTokens < switchCompactRefreshTokens &&
+		messages-p.plan.AnchorMessages < switchCompactRefreshTailFactor*x.cfg.CompactTail:
 		return false
 	}
 	p.inflight = true
@@ -136,13 +161,13 @@ func (x *switchExperiment) finishPreparation(key string, tokens int, now time.Ti
 
 func (x *switchExperiment) prepare(ctx context.Context, key string, served *translate.RequestEnvelope, plan conversation.ThreadCompaction, req router.Request, summarizer string, tokens int, reason string) {
 	now := plan.CreatedAt
-	if !x.claimPreparation(key, tokens, now) {
+	if !x.claimPreparation(key, tokens, served.MessageCount(), now) {
 		return
 	}
 	log := observability.FromContext(ctx)
 	history := served.Clone()
 	timeout := x.compactTimeout()
-	summarize := x.compactor.CompactionOn(summarizer)
+	summarize := x.compactor.CompactionOn(summarizer, x.summaryTokens())
 	x.spawn(clearCredentials(ctx), timeout, func(callCtx context.Context) {
 		started := x.now()
 		summary, usage, err := summarize.Summarize(callCtx, history, req)

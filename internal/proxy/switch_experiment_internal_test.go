@@ -32,7 +32,7 @@ type recordingThreadCompactor struct {
 
 func (*recordingThreadCompactor) AllowsCompaction(string) bool { return true }
 
-func (c *recordingThreadCompactor) CompactionOn(model string) handover.Summarizer {
+func (c *recordingThreadCompactor) CompactionOn(model string, _ int) handover.Summarizer {
 	c.models = append(c.models, model)
 	return fixedSummary("SUMMARY: task, constraints and edits so far")
 }
@@ -123,18 +123,20 @@ func TestSwitchExperiment_CompactionStaysOnEveryLaterTurn(t *testing.T) {
 const switchExperimentLow = "claude-haiku-5-5"
 
 type allowlistCompactor struct {
-	mu      sync.Mutex
-	allowed map[string]bool
-	models  []string
-	summary handover.Summarizer
+	mu            sync.Mutex
+	allowed       map[string]bool
+	models        []string
+	summaryTokens []int
+	summary       handover.Summarizer
 }
 
 func (c *allowlistCompactor) AllowsCompaction(model string) bool { return c.allowed[model] }
 
-func (c *allowlistCompactor) CompactionOn(model string) handover.Summarizer {
+func (c *allowlistCompactor) CompactionOn(model string, summaryTokens int) handover.Summarizer {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.models = append(c.models, model)
+	c.summaryTokens = append(c.summaryTokens, summaryTokens)
 	return c.summary
 }
 
@@ -210,7 +212,7 @@ func TestSwitchExperiment_PreparesTheSummaryOffTheUserTurn(t *testing.T) {
 	unready := largeAgentTurn(t, 11, prompt)
 	resent := unready.MessageCount()
 	started := time.Now()
-	res := applyExperimentTurn(x, unready, switchExperimentHigh, now.Add(time.Minute))
+	res := applyExperimentTurn(x, unready, switchExperimentMid, now.Add(time.Minute))
 	assert.Less(t, time.Since(started), time.Second, "an unfinished summary never blocks the turn")
 	assert.Equal(t, resent, unready.MessageCount(), "without a ready summary the turn keeps its full history")
 	assert.NotEqual(t, "switch_experiment_"+string(routingpolicy.SwitchReasonCompactThenSwitch), res.PinTier)
@@ -262,4 +264,67 @@ func TestSwitchExperiment_SummarizerPrefersAWarmAllowedModel(t *testing.T) {
 	assert.Equal(t, switchExperimentMid, x.summarizerFor(switchExperimentMid, warmHigh, false, now), "an allowed current model summarizes on its own cache")
 	coldOnly := switchExperimentThread{caches: sessionpin.ModelCaches{switchExperimentLow: {ServedAt: now}}}
 	assert.Equal(t, switchExperimentMid, x.summarizerFor(switchExperimentLow, coldOnly, false, now), "with no warm allowed model the reviewed default summarizes")
+}
+
+var preloadedPrompt = "fix the parser bug; never edit test files\n" + strings.Repeat("def handler(request): return parse(request)  # preloaded source\n", 14_000)
+
+func newFlooredExperiment(compactor ThreadCompactor, spawn func(context.Context, time.Duration, func(context.Context))) *switchExperiment {
+	x := newPreparingExperiment(compactor, time.Minute, spawn)
+	x.cfg.Tuning.CompactMinPromptTokens = 150_000
+	return x
+}
+
+func TestSwitchExperiment_PreparesAsSoonAsThePromptCrossesTheFloor(t *testing.T) {
+	compactor := &allowlistCompactor{allowed: map[string]bool{switchExperimentMid: true, switchExperimentHigh: true}, summary: fixedSummary("SUMMARY")}
+	x := newFlooredExperiment(compactor, runInline)
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	applyExperimentTurn(x, largeAgentTurn(t, 1, preloadedPrompt), switchExperimentMid, now)
+	applyExperimentTurn(x, largeAgentTurn(t, 2, preloadedPrompt), switchExperimentMid, now.Add(10*time.Second))
+	require.Len(t, compactor.summarizers(), 1, "the summary starts on the first turn that can be planned above the floor, before any switch")
+
+	switchTurn := largeAgentTurn(t, 3, preloadedPrompt)
+	resent := switchTurn.MessageCount()
+	res := applyExperimentTurn(x, switchTurn, switchExperimentHigh, now.Add(20*time.Second))
+	assert.Equal(t, "switch_experiment_"+string(routingpolicy.SwitchReasonCompactThenSwitch), res.PinTier)
+	assert.Less(t, switchTurn.MessageCount(), resent, "the early summary is applied once the tail is long enough")
+	assert.Len(t, compactor.summarizers(), 1)
+}
+
+func TestSwitchExperiment_KeepsThePreparedSummaryCurrent(t *testing.T) {
+	compactor := &allowlistCompactor{allowed: map[string]bool{switchExperimentMid: true, switchExperimentHigh: true}, summary: fixedSummary("SUMMARY")}
+	x := newFlooredExperiment(compactor, runInline)
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	for rounds := 1; rounds <= 8; rounds++ {
+		applyExperimentTurn(x, largeAgentTurn(t, rounds, preloadedPrompt), switchExperimentMid, now.Add(time.Duration(rounds)*10*time.Second))
+	}
+	assert.Len(t, compactor.summarizers(), 2, "the summary is re-prepared once the unsummarized tail grows well past the configured tail")
+}
+
+func TestSwitchExperiment_SwitchesWithFullHistoryWhenTheSummaryIsNotReady(t *testing.T) {
+	compactor := &allowlistCompactor{allowed: map[string]bool{switchExperimentMid: true, switchExperimentHigh: true}, summary: gatedSummary{release: make(chan struct{})}}
+	x := newFlooredExperiment(compactor, func(context.Context, time.Duration, func(context.Context)) {})
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	applyExperimentTurn(x, largeAgentTurn(t, 10, preloadedPrompt), switchExperimentMid, now)
+	turn := largeAgentTurn(t, 11, preloadedPrompt)
+	resent := turn.MessageCount()
+	res := applyExperimentTurn(x, turn, switchExperimentHigh, now.Add(time.Minute))
+	assert.Equal(t, switchExperimentHigh, res.Decision.Model, "a compaction-worthy switch still happens when its summary is not ready")
+	assert.Equal(t, "switch_experiment_"+string(routingpolicy.SwitchReasonSummaryNotReady), res.PinTier)
+	assert.Equal(t, resent, turn.MessageCount(), "the switch carries the full history")
+	assert.False(t, firstMessageIsSummary(t, turn))
+}
+
+func TestSwitchExperiment_CapsTheSummaryOutput(t *testing.T) {
+	compactor := &allowlistCompactor{allowed: map[string]bool{switchExperimentMid: true, switchExperimentHigh: true}, summary: fixedSummary("SUMMARY")}
+	x := newFlooredExperiment(compactor, runInline)
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	applyExperimentTurn(x, largeAgentTurn(t, 10, preloadedPrompt), switchExperimentMid, now)
+	applyExperimentTurn(x, largeAgentTurn(t, 11, preloadedPrompt), switchExperimentHigh, now.Add(time.Minute))
+	require.NotEmpty(t, compactor.summaryTokens)
+	assert.Equal(t, DefaultSwitchCompactionSummaryTokens, compactor.summaryTokens[0])
+	assert.Equal(t, 1_500, DefaultSwitchCompactionSummaryTokens)
 }

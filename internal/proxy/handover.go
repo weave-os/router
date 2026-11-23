@@ -36,8 +36,11 @@ const handoverInstruction = "Summarize the conversation so far in <= 800 tokens.
 
 const DefaultCompactionMaxTokens = 4000
 
-const compactionInstruction = "Summarize the conversation so far in <= 4000 tokens. " +
-	"Preserve the user's task and every instruction or constraint verbatim, all decisions, file paths, " +
+func compactionInstruction(targetTokens int) string {
+	return fmt.Sprintf("Summarize the conversation so far in <= %d tokens. ", targetTokens) + compactionPreserveInstruction
+}
+
+const compactionPreserveInstruction = "Preserve the user's task and every instruction or constraint verbatim, all decisions, file paths, " +
 	"edits already made, commands run with their key results, and what remains to do. " +
 	"Output only the summary text — no preamble, no closing remark."
 
@@ -52,6 +55,7 @@ type ProviderSummarizer struct {
 	maxTokens         int
 	compactionTimeout time.Duration
 	compactionModel   string
+	compactionTokens  int
 }
 
 func NewProviderSummarizer(plans *policy.PlanResolver, executor *dispatch.Executor, provider, model string, timeout time.Duration) *ProviderSummarizer {
@@ -120,9 +124,10 @@ func (*ProviderSummarizer) AllowsCompaction(model string) bool {
 	return policy.AllowsCompactionSummarizer(model)
 }
 
-func (s *ProviderSummarizer) CompactionOn(model string) handover.Summarizer {
+func (s *ProviderSummarizer) CompactionOn(model string, summaryTokens int) handover.Summarizer {
 	scoped := *s
 	scoped.compactionModel = model
+	scoped.compactionTokens = summaryTokens
 	return compactionHandoverSummarizer{&scoped}
 }
 
@@ -140,7 +145,11 @@ func (c compactionHandoverSummarizer) Summarize(ctx context.Context, env *transl
 	if err != nil {
 		return "", handover.Usage{}, err
 	}
-	return c.run(ctx, env, plan, summaryCall{instruction: compactionInstruction, maxTokens: DefaultCompactionMaxTokens, keepWarmCachePrefix: true}, c.compactionTimeout)
+	target, limit := DefaultCompactionMaxTokens, DefaultCompactionMaxTokens
+	if c.compactionTokens > 0 {
+		target, limit = c.compactionTokens, c.compactionTokens+c.compactionTokens/3
+	}
+	return c.run(ctx, env, plan, summaryCall{instruction: compactionInstruction(target), maxTokens: limit, keepWarmCachePrefix: true}, c.compactionTimeout)
 }
 
 func summarizerRequest(scope router.Request, env *translate.RequestEnvelope) router.Request {

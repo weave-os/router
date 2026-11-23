@@ -21,11 +21,12 @@ type SwitchExperimentConfig struct {
 	Tuning         routingpolicy.SwitchTuning
 	CompactTail    int
 	CompactTimeout time.Duration
+	SummaryTokens  int
 }
 
 type ThreadCompactor interface {
 	AllowsCompaction(model string) bool
-	CompactionOn(model string) handover.Summarizer
+	CompactionOn(model string, summaryTokens int) handover.Summarizer
 }
 
 type switchExperimentThread struct {
@@ -109,7 +110,8 @@ func (x *switchExperiment) apply(ctx context.Context, env *translate.RequestEnve
 	if compacting {
 		summarizer = x.summarizerFor(current, thread, cacheCold, now)
 	}
-	ready, hasReady := x.readyCompaction(key, original)
+	ready, hasPrepared := x.readyCompaction(key, original)
+	hasReady := hasPrepared && x.tailCovered(original, ready)
 	input := routingpolicy.SwitchInput{
 		Current:              current,
 		Fresh:                res.Fresh.Model,
@@ -125,29 +127,32 @@ func (x *switchExperiment) apply(ctx context.Context, env *translate.RequestEnve
 		Tuning:               x.cfg.Tuning,
 	}
 	planned, canPlan := x.planCompaction(original, summarizer, now)
+	earliest, canPlanEarly := x.planEarliestCompaction(original, summarizer, now)
 	if hasReady {
-		input.CompactedTokens = compactedPromptTokens(original, ready.AnchorMessages())
+		input.CompactedTokens = x.compactedPromptTokens(original, ready.AnchorMessages())
 	} else if canPlan {
-		input.CompactedTokens = compactedPromptTokens(original, planned.AnchorMessages)
+		input.CompactedTokens = x.compactedPromptTokens(original, planned.AnchorMessages)
 	}
 	verdict := routingpolicy.DecideSwitch(input)
 	summarizerWarm := thread.caches[summarizer].ServedAt.After(now.Add(-switchExperimentCacheTTL))
 	prepareReason := ""
+	prepareWith := planned
 	switch {
-	case verdict.Compact && !hasReady:
+	case verdict.Compact && !hasPrepared:
 		prepareReason = "switch"
-	case canPlan && !hasReady && summarizerWarm && !cacheCold && tokens >= x.prepareAheadTokens() &&
-		2*compactedPromptTokens(original, planned.AnchorMessages) <= tokens:
-		prepareReason = "ahead"
+	case canPlanEarly && summarizerWarm && !cacheCold && tokens >= x.prepareAheadTokens() &&
+		2*x.compactedPromptTokens(original, earliest.AnchorMessages) <= tokens:
+		prepareReason, prepareWith = "ahead", earliest
 	}
 	if prepareReason != "" {
-		x.prepare(ctx, key, env, planned, req, summarizer, tokens, prepareReason)
-		ready, hasReady = x.readyCompaction(key, original)
+		x.prepare(ctx, key, env, prepareWith, req, summarizer, tokens, prepareReason)
+		ready, hasPrepared = x.readyCompaction(key, original)
+		hasReady = hasPrepared && x.tailCovered(original, ready)
 	}
 	if verdict.Compact && !hasReady {
-		input.CompactedTokens = 0
-		verdict = routingpolicy.DecideSwitch(input)
-		log.Info("switch experiment summary not ready; deciding without compaction", "current", current, "summarizer_model", summarizer, "serve", verdict.Serve, "reason", string(verdict.Reason))
+		verdict.Compact = false
+		verdict.Reason = routingpolicy.SwitchReasonSummaryNotReady
+		log.Info("switch experiment summary not ready; switching with full history", "current", current, "serve", verdict.Serve, "summarizer_model", summarizer, "summary_prepared", hasPrepared)
 	}
 	served := res.Fresh
 	if verdict.Serve != res.Fresh.Model {

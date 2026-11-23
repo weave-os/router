@@ -17,5 +17,6 @@ func switchExperimentConfigFromEnv() proxy.SwitchExperimentConfig {
 		},
 		CompactTail:    parseEnvInt("ROUTER_SWITCH_COMPACT_TAIL", 0),
 		CompactTimeout: parseEnvDurationMs("ROUTER_SWITCH_COMPACT_TIMEOUT_MS", proxy.DefaultSwitchCompactionTimeout),
+		SummaryTokens:  parseEnvInt("ROUTER_SWITCH_COMPACT_SUMMARY_TOKENS", proxy.DefaultSwitchCompactionSummaryTokens),
 	}
 }

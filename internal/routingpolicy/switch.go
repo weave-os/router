@@ -21,6 +21,7 @@ const (
 	SwitchReasonSideRequest        SwitchReason = "side_request"
 	SwitchReasonDowngradePending   SwitchReason = "downgrade_rewrite_exceeds_savings"
 	SwitchReasonCompactThenSwitch  SwitchReason = "compact_then_switch"
+	SwitchReasonSummaryNotReady    SwitchReason = "switch_summary_not_ready"
 )
 
 const (

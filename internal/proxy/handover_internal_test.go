@@ -378,3 +378,19 @@ func TestProviderSummarizer_CompactionKeepsCachedPrefix(t *testing.T) {
 	assert.Equal(t, "none", gjson.Get(body, "tool_choice.type").String())
 	assert.Equal(t, "ephemeral", gjson.Get(body, "messages.2.content.0.cache_control.type").String())
 }
+
+func TestProviderSummarizer_CompactionOnCapsTheSummary(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel)
+
+	_, _, err = s.CompactionOn(policy.PrecompactionDefaultModel, 1_500).Summarize(context.Background(), env, router.Request{})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2_000), fake.maxTokens[0], "max_tokens leaves headroom over the target so the summary is not cut off")
+	assert.Contains(t, fake.bodies[0], "1500 tokens")
+	assert.NotContains(t, fake.bodies[0], "4000 tokens")
+}
