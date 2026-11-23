@@ -16,21 +16,9 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
-	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
 )
-
-func subscriptionPoolForModel(target inference.Target) (subscriptions.Provider, bool) {
-	if entry, known := catalog.ByID(target.CatalogID); known {
-		for _, binding := range entry.Providers {
-			if pool, compatible := managedSubscriptionProviderFromUpstream(binding.Provider, target.CatalogID); compatible {
-				return pool, true
-			}
-		}
-	}
-	return managedSubscriptionProviderFromUpstream(target.Provider, target.CatalogID)
-}
 
 func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, headers http.Header) context.Context {
 	ctx = credentials.WithManagedSubscriptionUsage(ctx)
@@ -38,8 +26,8 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 	if dispatch.AuthorizationFromContext(ctx) != nil {
 		return ctx
 	}
-	codexToken, claudeToken := presentSubscriptionTokens(ctx, headers)
-	if creds := CredentialsFromContext(ctx); creds != nil && creds.OAuth {
+	codexToken, claudeToken := credentials.PresentSubscriptionTokens(ctx, headers)
+	if creds := credentials.CredentialsFromContext(ctx); creds != nil && creds.OAuth {
 		if creds.Source == requestcontext.SourceCodexSubscription {
 			codexToken = string(creds.APIKey)
 		} else {
@@ -49,27 +37,27 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 	ctx = s.withClaudeSubscriptionProfile(ctx, headers)
 	admissionCtx := ctx
 	return dispatch.WithAuthorization(ctx, func(callCtx context.Context, target inference.Target) error {
-		pool, compatible := subscriptionPoolForModel(target)
-		return credentials.AuthorizeFunding(callCtx, CredentialsFromContext(callCtx), target.Provider, target.CatalogID, pool, compatible, credentials.FundingChecks{
+		pool, compatible := credentials.SubscriptionPoolForModel(target)
+		return credentials.AuthorizeFunding(callCtx, credentials.CredentialsFromContext(callCtx), target.Provider, target.CatalogID, pool, compatible, credentials.FundingChecks{
 			ClaudeEnterprise: func(ctx context.Context) (bool, error) {
-				if !claudeEnterpriseTarget(ctx, target) && !claudeEnterpriseTurn(ctx) {
+				if !credentials.ClaudeEnterpriseTarget(ctx, target) && !credentials.ClaudeEnterpriseTurn(ctx) {
 					return false, nil
 				}
 				return true, claudeEnterpriseFunding(ctx, target, s.supportsSubscriptionTransport(target.Provider))
 			},
-			ByokFirst: func(ctx context.Context) bool { return byokFirst(ctx, target.Provider) },
+			ByokFirst: func(ctx context.Context) bool { return credentials.ByokFirst(ctx, target.Provider) },
 			PlanUnverified: func(ctx context.Context) bool {
-				claudeTurn, _ := ctx.Value(claudeSubscriptionTurnKey{}).(bool)
-				presentedPlan, _ := ctx.Value(claudeSubscriptionPlanKey{}).(providers.SubscriptionPlan)
-				unverified := claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanUnknown && (claudeTurn || compatible && pool == subscriptions.ProviderClaude) || claudeTurn && presentedPlan == providers.SubscriptionPlanUnknown
+				claudeTurn, _ := ctx.Value(credentials.ClaudeSubscriptionTurnKey{}).(bool)
+				presentedPlan, _ := ctx.Value(credentials.ClaudeSubscriptionPlanKey{}).(providers.SubscriptionPlan)
+				unverified := credentials.ClaudeSubscriptionPlan(ctx) == providers.SubscriptionPlanUnknown && (claudeTurn || compatible && pool == subscriptions.ProviderClaude) || claudeTurn && presentedPlan == providers.SubscriptionPlanUnknown
 				if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil {
 					unverified = unverified || state.ClaudePlanUnverified
 				}
-				return claudeEnterpriseEnabled(ctx) && unverified && !triedSubscriptionFallsBackToCredits(ctx)
+				return credentials.ClaudeEnterpriseEnabled(ctx) && unverified && !triedSubscriptionFallsBackToCredits(ctx)
 			},
-			PickedModelOnOwnPlan: pickedModelOnOwnPlan,
+			PickedModelOnOwnPlan: credentials.PickedModelOnOwnPlan,
 			AuthorizeSubscriptionAPI: func(ctx context.Context) error {
-				refusal := clientAppRefusalFunding{counts: clientAppRefusalPaidFallback(ctx), poolRefused: claudePoolRefusesClientApp(ctx), clientApp: requestcontext.ClientIdentityFrom(ctx).ClientApp}
+				refusal := clientAppRefusalFunding{counts: credentials.ClientAppRefusalPaidFallback(ctx), poolRefused: credentials.ClaudePoolRefusesClientApp(ctx), clientApp: requestcontext.ClientIdentityFrom(ctx).ClientApp}
 				return s.authorizeSubscriptionAPI(admissionCtx, pool, target, codexToken, claudeToken, refusal)
 			},
 		})
@@ -78,7 +66,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 
 func (s *Service) subscriptionAPIAuthorization(ctx context.Context, provider, model string) error {
 	ctx = s.withSubscriptionFundingAuthorization(ctx, nil)
-	return dispatch.AuthorizationFromContext(ctx)(withPaidFallbackCredentials(ctx, provider), inference.Target{Provider: provider, CatalogID: model})
+	return dispatch.AuthorizationFromContext(ctx)(credentials.WithPaidFallbackCredentials(ctx, provider), inference.Target{Provider: provider, CatalogID: model})
 }
 
 type clientAppRefusalFunding struct {
@@ -125,7 +113,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		if err := callerPlanRefusal(ctx, pool, callerQuotaUnproven, now); err != nil {
 			return err
 		}
-		return throttledPoolRefusal(ctx, pool, token != "", now)
+		return credentials.ThrottledPoolRefusal(ctx, pool, token != "", now)
 	}
 	if err := credentials.MissingQuotaSnapshotRefusal(ctx, pool, snapshotPresent); err != nil {
 		return err
@@ -159,7 +147,7 @@ func triedSubscriptionFallsBackToCredits(ctx context.Context) bool {
 }
 
 func recordSubscriptionUnavailable(ctx context.Context, provider, model string, attemptErr error, now time.Time) {
-	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
+	pool, compatible := credentials.ManagedSubscriptionProviderFromUpstream(provider, model)
 	if !compatible || !upstreamServerFailure(attemptErr) {
 		return
 	}
@@ -205,15 +193,15 @@ func upstreamServerFailure(err error) bool {
 }
 
 func (s *Service) subscriptionPoolUnavailable(ctx context.Context, provider, model string) bool {
-	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
+	pool, compatible := credentials.ManagedSubscriptionProviderFromUpstream(provider, model)
 	return compatible && credentials.SubscriptionProviderUnavailable(ctx, pool, s.clock.Now())
 }
 
 func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string) bool {
-	if s.credentials.ManagedSubscriptions == nil || !managedSubscriptionCanServe(ctx, provider, model) || managedSubscriptionEnrollmentUnavailable(ctx) {
+	if s.credentials.ManagedSubscriptions == nil || !credentials.ManagedSubscriptionCanServe(ctx, provider, model) || managedSubscriptionEnrollmentUnavailable(ctx) {
 		return false
 	}
-	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
+	pool, _ := credentials.ManagedSubscriptionProviderFromUpstream(provider, model)
 	now := s.clock.Now()
 	return managedSeatCanCover(ctx, pool, now, func(candidate credentials.ManagedSubscriptionCandidate) bool {
 		return s.managedAccountQuotaExhausted(ctx, candidate, now)
@@ -232,11 +220,11 @@ func seatAdmissionOf(s *Service) seatAdmission {
 }
 
 func (a seatAdmission) mayAdmit(ctx context.Context, provider, model string) bool {
-	if !managedSubscriptionCanServe(ctx, provider, model) || managedSubscriptionEnrollmentUnavailable(ctx) {
+	if !credentials.ManagedSubscriptionCanServe(ctx, provider, model) || managedSubscriptionEnrollmentUnavailable(ctx) {
 		return false
 	}
-	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
-	enterpriseOverage := pool == subscriptions.ProviderClaude && (claudeEnterpriseOnly(ctx) || !a.verifiedPlanOnly && claudeEnterpriseEnabled(ctx))
+	pool, _ := credentials.ManagedSubscriptionProviderFromUpstream(provider, model)
+	enterpriseOverage := pool == subscriptions.ProviderClaude && (credentials.ClaudeEnterpriseOnly(ctx) || !a.verifiedPlanOnly && credentials.ClaudeEnterpriseEnabled(ctx))
 	return managedSeatCanCover(ctx, pool, a.now, func(candidate credentials.ManagedSubscriptionCandidate) bool {
 		switch {
 		case enterpriseOverage:
@@ -277,7 +265,7 @@ func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate cr
 	if recordedQuotaExhausted(ctx, candidate, now) {
 		return true
 	}
-	if candidate.Provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
+	if candidate.Provider == auth.SubscriptionProviderClaude && credentials.ClaudeEnterpriseOnly(ctx) {
 		return false
 	}
 	return includedQuotaObservedSpent(s.credentials.UsageObserver, candidate, now)
@@ -297,7 +285,7 @@ func recordedQuotaExhausted(ctx context.Context, candidate credentials.ManagedSu
 			return true
 		}
 	}
-	if candidate.Provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
+	if candidate.Provider == auth.SubscriptionProviderClaude && credentials.ClaudeEnterpriseOnly(ctx) {
 		return false
 	}
 	return candidate.State == auth.SubscriptionAccountStateExhausted && candidate.ResetAt.After(now)

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -158,7 +159,7 @@ func (s *Service) maybeExpireSubscriptionArmPin(
 
 func subscriptionArmPinEvictionReason(err error) string {
 	switch {
-	case isSubscriptionPoolError(err):
+	case credentials.IsSubscriptionPoolError(err):
 		return pinEvictionReasonSubscriptionPool
 	case anthropicSubscriptionModelRejected(err):
 		return pinEvictionReasonSubscriptionModel

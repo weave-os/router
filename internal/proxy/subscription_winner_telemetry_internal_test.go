@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/turnrecord"
 
@@ -16,29 +17,29 @@ import (
 )
 
 func TestEnterpriseSeatTelemetryUsesTheServingCredential(t *testing.T) {
-	enterprise := &Credentials{APIKey: []byte("synthetic-enterprise"), OAuth: true, Source: credSourceSubscription, SubscriptionPlan: providers.SubscriptionPlanEnterprise}
-	team := &Credentials{APIKey: []byte("synthetic-team"), OAuth: true, Source: credSourceSubscription, SubscriptionPlan: providers.SubscriptionPlanTeam}
-	unknown := &Credentials{APIKey: []byte("synthetic-unknown"), OAuth: true, Source: credSourceSubscription}
-	codex := &Credentials{APIKey: []byte("synthetic-codex"), OAuth: true, Source: credSourceCodexSubscription}
-	apiKey := &Credentials{APIKey: []byte("synthetic-key"), Source: credSourceBYOK}
+	enterprise := &requestcontext.Credentials{APIKey: []byte("synthetic-enterprise"), OAuth: true, Source: requestcontext.SourceSubscription, SubscriptionPlan: providers.SubscriptionPlanEnterprise}
+	team := &requestcontext.Credentials{APIKey: []byte("synthetic-team"), OAuth: true, Source: requestcontext.SourceSubscription, SubscriptionPlan: providers.SubscriptionPlanTeam}
+	unknown := &requestcontext.Credentials{APIKey: []byte("synthetic-unknown"), OAuth: true, Source: requestcontext.SourceSubscription}
+	codex := &requestcontext.Credentials{APIKey: []byte("synthetic-codex"), OAuth: true, Source: requestcontext.SourceCodexSubscription}
+	apiKey := &requestcontext.Credentials{APIKey: []byte("synthetic-key"), Source: requestcontext.SourceBYOK}
 
 	for _, tc := range []struct {
 		name    string
-		winner  *Credentials
+		winner  *requestcontext.Credentials
 		overage bool
 		source  string
 	}{
-		{name: "included Enterprise", winner: enterprise, source: credSourceSubscription},
-		{name: "Enterprise overage", winner: enterprise, overage: true, source: credSourceSubscriptionOverage},
-		{name: "Team fallback", winner: team, source: credSourceSubscription},
-		{name: "Unverified fallback", winner: unknown, source: credSourceSubscription},
-		{name: "Codex fallback", winner: codex, source: credSourceCodexSubscription},
-		{name: "API fallback", winner: apiKey, source: credSourceBYOK},
+		{name: "included Enterprise", winner: enterprise, source: requestcontext.SourceSubscription},
+		{name: "Enterprise overage", winner: enterprise, overage: true, source: requestcontext.SourceSubscriptionOverage},
+		{name: "Team fallback", winner: team, source: requestcontext.SourceSubscription},
+		{name: "Unverified fallback", winner: unknown, source: requestcontext.SourceSubscription},
+		{name: "Codex fallback", winner: codex, source: requestcontext.SourceCodexSubscription},
+		{name: "API fallback", winner: apiKey, source: requestcontext.SourceBYOK},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), CredentialsContextKey{}, enterprise)
-			ctx = context.WithValue(ctx, claudeSubscriptionPlanKey{}, providers.SubscriptionPlanEnterprise)
-			winnerCtx := context.WithValue(ctx, CredentialsContextKey{}, tc.winner)
+			ctx := context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), requestcontext.CredentialsContextKey{}, enterprise)
+			ctx = context.WithValue(ctx, credentials.ClaudeSubscriptionPlanKey{}, providers.SubscriptionPlanEnterprise)
+			winnerCtx := context.WithValue(ctx, requestcontext.CredentialsContextKey{}, tc.winner)
 			recordWinningCredentials(ctx, winnerCtx)
 			if tc.overage {
 				usage := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
@@ -92,21 +93,21 @@ func TestFailedAPIFallbackReplacesInboundSubscriptionAttribution(t *testing.T) {
 	ctx := credentials.WithManagedSubscriptionUsage(context.Background())
 	usage := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 	usage.SubscriptionAttempted = true
-	ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
+	ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey: []byte("oauth-sentinel"),
 		OAuth:  true,
-		Source: credSourceSubscription,
+		Source: requestcontext.SourceSubscription,
 	})
-	apiCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
+	apiCtx := context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey: []byte("api-sentinel"),
-		Source: credSourceBYOK,
+		Source: requestcontext.SourceBYOK,
 	})
 
 	recordWinningCredentials(ctx, apiCtx)
 
-	require.Same(t, CredentialsFromContext(apiCtx), CredentialsFromContext(ctx))
-	winner := CredentialsFromContext(ctx)
-	require.Equal(t, credSourceBYOK, winner.Source)
+	require.Same(t, credentials.CredentialsFromContext(apiCtx), credentials.CredentialsFromContext(ctx))
+	winner := credentials.CredentialsFromContext(ctx)
+	require.Equal(t, requestcontext.SourceBYOK, winner.Source)
 	require.Equal(t, []byte("api-sentinel"), winner.APIKey)
 	require.False(t, winner.OAuth)
 	assert.False(t, (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).costNeutralSubscriptionServed(ctx))

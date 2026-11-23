@@ -6,13 +6,18 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
 )
 
 type Deps struct {
 	Telemetry                TelemetryDeps
+	Conversation             conversation.Config
+	Ingress                  *ingress.Formats
+	Escalation               EscalationDeps
 	BYOKOnly                 bool
 	DeploymentKeyedProviders map[string]struct{}
 	Dispatch                 *dispatch.Config
@@ -27,6 +32,10 @@ type TelemetryDeps struct {
 	Flags                  *TelemetryFlags
 }
 
+type EscalationDeps struct {
+	SwitchyardActive bool
+}
+
 func WithDeps(s *Service, deps Deps) *Service {
 	s.clock = deps.Telemetry.Clock
 	s.turnTelemetry.turnClock = deps.Telemetry.SessionTurnClock
@@ -38,11 +47,19 @@ func WithDeps(s *Service, deps Deps) *Service {
 	if deps.Telemetry.Flags != nil {
 		s.turnTelemetry.flags = *deps.Telemetry.Flags
 	}
+	if deps.Ingress != nil {
+		s.ingress = *deps.Ingress
+	}
+	s.escalationHelper().WithSwitchyardActive(deps.Escalation.SwitchyardActive)
 	s.credentials.BYOKOnly = deps.BYOKOnly
 	s.credentials.KeyedProviders = maps.Clone(deps.DeploymentKeyedProviders)
 	if deps.Dispatch != nil {
 		applyDispatchConfig(s, *deps.Dispatch)
 	}
+	if s.lifecycle == nil {
+		s.lifecycle = &conversation.Lifecycle{}
+	}
+	s.lifecycle.Configure(deps.Conversation)
 	return s
 }
 

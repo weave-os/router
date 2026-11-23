@@ -45,9 +45,9 @@ func classifyFailureOwner(in failureOwnerInput) turnrecord.FailureOwner {
 		switch {
 		case cls.Kind == ingress.DispatchErrorHandoff && errors.Is(err, conversation.ErrHandoffUnavailable):
 			return turnrecord.FailureOwnerRouter
-		case cls.Kind == ingress.DispatchErrorSubscriptionPoolExhausted && (upstreamStatus(err) == http.StatusTooManyRequests || errors.Is(err, errLinkedSeatsThrottled)):
+		case cls.Kind == ingress.DispatchErrorSubscriptionPoolExhausted && (upstreamStatus(err) == http.StatusTooManyRequests || errors.Is(err, credentials.ErrLinkedSeatsThrottled)):
 			return turnrecord.FailureOwnerProvider
-		case cls.Kind == ingress.DispatchErrorSubscriptionPoolExhausted && errors.Is(err, errLinkedSeatsUnusable):
+		case cls.Kind == ingress.DispatchErrorSubscriptionPoolExhausted && errors.Is(err, credentials.ErrLinkedSeatsUnusable):
 			return turnrecord.FailureOwnerClient
 		}
 		return dispatchErrorKindOwner(cls.Kind)

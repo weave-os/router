@@ -20,7 +20,6 @@ var proxyImporterRoots = []string{proxyPackagePath, modulePath + "/internal/api"
 
 // proxyImportAllowlist lists importers that predate the rule. Entries only go away.
 var proxyImportAllowlist = map[string]bool{
-	"internal/requestcontext -> internal/proxy":                 true,
 	"scripts/classifier_session_check -> internal/proxy":        true,
 	"scripts/subscription_verification_check -> internal/proxy": true,
 }

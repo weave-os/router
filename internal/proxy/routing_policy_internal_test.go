@@ -309,7 +309,7 @@ func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := withPickedModelFunding(tc.ctx, tc.servedAsIs, tc.provider)
 
-			assert.Equal(t, tc.wantOwn, pickedModelOnOwnPlan(ctx))
+			assert.Equal(t, tc.wantOwn, credentials.PickedModelOnOwnPlan(ctx))
 			assert.Equal(t, tc.wantOwn, paidFallbackForbidden(ctx))
 			assert.Equal(t, tc.wantPicked, auth.ClientModelPassthroughFrom(ctx))
 		})
@@ -343,11 +343,11 @@ func TestCodexPickFundsOnOwnPlan(t *testing.T) {
 	creditFallback := context.WithValue(selected, requestcontext.InstallationPickedModelCreditFallbackContextKey{}, true)
 
 	served := withCodexPickFunding(selected, "gpt-6-astra", providers.ProviderOpenAI)
-	assert.True(t, pickedModelOnOwnPlan(served))
+	assert.True(t, credentials.PickedModelOnOwnPlan(served))
 	assert.True(t, requestcontext.SubscriptionExtraUsageFrom(served))
-	assert.False(t, pickedModelOnOwnPlan(withCodexPickFunding(selected, "gpt-6.1-sol", providers.ProviderOpenAI)), "a pick the router did not serve funds like routed traffic")
-	assert.False(t, pickedModelOnOwnPlan(withCodexPickFunding(creditFallback, "gpt-6-astra", providers.ProviderOpenAI)))
-	assert.False(t, pickedModelOnOwnPlan(withCodexPickFunding(context.Background(), "gpt-6-astra", providers.ProviderOpenAI)), "launch models are not picks")
+	assert.False(t, credentials.PickedModelOnOwnPlan(withCodexPickFunding(selected, "gpt-6.1-sol", providers.ProviderOpenAI)), "a pick the router did not serve funds like routed traffic")
+	assert.False(t, credentials.PickedModelOnOwnPlan(withCodexPickFunding(creditFallback, "gpt-6-astra", providers.ProviderOpenAI)))
+	assert.False(t, credentials.PickedModelOnOwnPlan(withCodexPickFunding(context.Background(), "gpt-6-astra", providers.ProviderOpenAI)), "launch models are not picks")
 }
 
 func TestPickedModelWithoutOwnLoginUsesManagedPool(t *testing.T) {

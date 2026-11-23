@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -53,7 +54,7 @@ func attemptedSeatsRateLimited(state *credentials.ManagedSubscriptionUsage, mode
 	return true
 }
 
-func recordCallerCodexFailureOnLinkedSeat(ctx context.Context, creds *Credentials, attemptErr error, now time.Time) {
+func recordCallerCodexFailureOnLinkedSeat(ctx context.Context, creds *requestcontext.Credentials, attemptErr error, now time.Time) {
 	if creds == nil || !creds.OAuth || creds.SubscriptionAccountID != "" || len(creds.AccountID) == 0 || upstreamStatus(attemptErr) != http.StatusTooManyRequests {
 		return
 	}
@@ -65,16 +66,16 @@ func recordCallerCodexFailureOnLinkedSeat(ctx context.Context, creds *Credential
 	}
 	resetAt, spent := codexQuotaExhaustion(attemptErr)
 	if resetAt.IsZero() {
-		resetAt = managedSubscriptionResetAt(attemptErr, now)
+		resetAt = credentials.ManagedSubscriptionResetAt(attemptErr, now)
 	}
 	for _, candidate := range candidates {
 		if candidate.Provider != auth.SubscriptionProviderCodex || candidate.ExternalAccountID != string(creds.AccountID) || candidate.ProviderUserID != callerUserID {
 			continue
 		}
 		if spent {
-			recordManagedQuotaProof(ctx, candidate.AccountID, resetAt)
+			credentials.RecordManagedQuotaProof(ctx, candidate.AccountID, resetAt)
 		} else {
-			recordManagedThrottle(ctx, candidate.AccountID, resetAt)
+			credentials.RecordManagedThrottle(ctx, candidate.AccountID, resetAt)
 		}
 		if state.AttemptedAccounts == nil {
 			state.AttemptedAccounts = make(map[string]struct{})

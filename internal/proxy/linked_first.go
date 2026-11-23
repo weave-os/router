@@ -6,6 +6,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptionlane"
 )
@@ -19,15 +20,15 @@ func paidFallbackForbiddenByPlan(ctx context.Context) bool {
 }
 
 func paidFallbackForbiddenFor(ctx context.Context, provider string) bool {
-	return !servingCommitted(ctx, paidFallbackBinding(ctx), payableServingEvent(ctx, paidFallbackEvent(usableBYOK(ctx, provider))))
+	return !servingCommitted(ctx, paidFallbackBinding(ctx), payableServingEvent(ctx, paidFallbackEvent(credentials.UsableBYOK(ctx, provider))))
 }
 
-func paidAttemptForbidden(ctx context.Context, creds *Credentials) bool {
+func paidAttemptForbidden(ctx context.Context, creds *requestcontext.Credentials) bool {
 	return !servingCommitted(ctx, paidFallbackBinding(ctx), payableServingEvent(ctx, servingEvent(creds)))
 }
 
 func subscriptionOnlyUnservable(ctx context.Context, provider, model string) bool {
-	return !servedOnSubscription(ctx) && !servedOnUnfundedKey(ctx) && !managedSubscriptionCanServe(ctx, provider, model)
+	return !credentials.ServedOnSubscription(ctx) && !servedOnUnfundedKey(ctx) && !credentials.ManagedSubscriptionCanServe(ctx, provider, model)
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
@@ -37,14 +38,14 @@ func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
 func paidFallbackForbiddenForModelOnProvider(ctx context.Context, provider, model string) bool {
 	event := subscriptionlane.OrganizationCreditsServed
 	if provider != "" && credentials.PaidCapacityUnfunded(ctx) {
-		event = payableServingEvent(ctx, paidFallbackEvent(usableBYOK(ctx, provider)))
+		event = payableServingEvent(ctx, paidFallbackEvent(credentials.UsableBYOK(ctx, provider)))
 	}
 	return !servingCommitted(ctx, paidFallbackBindingForModel(ctx, model), event)
 }
 
 func subscriptionStatePaidRescueContext(ctx context.Context, model string) context.Context {
 	if _, exhaustedModel := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]; exhaustedModel {
-		return context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
+		return context.WithValue(ctx, credentials.SubscriptionAPIOnlyKey{}, true)
 	}
 	return ctx
 }
@@ -79,5 +80,5 @@ func payableServingEvent(ctx context.Context, event subscriptionlane.Event) subs
 }
 
 func servedOnUnfundedKey(ctx context.Context) bool {
-	return credentials.PaidCapacityUnfunded(ctx) && credentials.UnfundedKeyFunds(ctx, CredentialsFromContext(ctx))
+	return credentials.PaidCapacityUnfunded(ctx) && credentials.UnfundedKeyFunds(ctx, credentials.CredentialsFromContext(ctx))
 }

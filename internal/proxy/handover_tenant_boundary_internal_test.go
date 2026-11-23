@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/translate"
@@ -19,12 +20,12 @@ import (
 
 type credentialRecordingSummarizer struct {
 	calls int
-	creds *Credentials
+	creds *requestcontext.Credentials
 }
 
 func (r *credentialRecordingSummarizer) Summarize(ctx context.Context, _ *translate.RequestEnvelope, _ router.Request) (string, handover.Usage, error) {
 	r.calls++
-	r.creds, _ = ctx.Value(CredentialsContextKey{}).(*Credentials)
+	r.creds, _ = ctx.Value(requestcontext.CredentialsContextKey{}).(*requestcontext.Credentials)
 	return "Earlier: step 1 done.", handover.Usage{}, nil
 }
 

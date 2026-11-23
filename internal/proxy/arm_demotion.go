@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -86,7 +87,7 @@ func (s *Service) maybeDemoteArmAfterUnrescuedStall(
 	})
 }
 
-func isUpstreamWatchdogError(err error) bool { return dispatch.IsUpstreamWatchdogError(err) }
+func isUpstreamWatchdogError(err error) bool { return providers.IsUpstreamWatchdogError(err) }
 
 func (s *Service) maybeDemoteArmAfterRescuedFailure(
 	ctx context.Context,
@@ -229,7 +230,7 @@ func isRescuedPrimaryFailure(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
-	if providers.IsUpstreamModelNotFound(err) || isSubscriptionPoolError(err) {
+	if providers.IsUpstreamModelNotFound(err) || credentials.IsSubscriptionPoolError(err) {
 		return false
 	}
 	return upstreamStatus(err) != providerOverloadedStatus

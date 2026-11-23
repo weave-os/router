@@ -71,7 +71,7 @@ func (p rescueCredentialPort) RecordCodexQuotaExhaustion(ctx context.Context, he
 }
 
 func (rescueCredentialPort) ServedOnSubscription(ctx context.Context) bool {
-	return servedOnSubscription(ctx)
+	return credentials.ServedOnSubscription(ctx)
 }
 
 func (rescueCredentialPort) RescueCredentialContext(ctx context.Context, rescueProvider string) context.Context {
@@ -79,7 +79,7 @@ func (rescueCredentialPort) RescueCredentialContext(ctx context.Context, rescueP
 }
 
 func (rescueCredentialPort) IsSubscriptionPoolError(err error) bool {
-	return isSubscriptionPoolError(err)
+	return credentials.IsSubscriptionPoolError(err)
 }
 
 type rescueRoutingPort struct{ s *Service }
@@ -151,7 +151,7 @@ type rescueFundingPort struct{ seats seatAdmission }
 var _ dispatch.RescueFunding = rescueFundingPort{}
 
 func (rescueFundingPort) WithSiblingFunding(ctx context.Context, decision router.Decision) context.Context {
-	ctx = withClaudeEnterpriseTurn(ctx, decision)
+	ctx = credentials.WithClaudeEnterpriseTurn(ctx, decision)
 	return credentials.WithManagedSubscriptionUsage(ctx)
 }
 
@@ -192,15 +192,15 @@ func (rescueOverflowPort) RescuesCompactionOverflow(turnType turntype.TurnType, 
 }
 
 func (rescueCredentialPort) ResolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
-	return resolveAndInjectCredentials(ctx, provider, model, headers)
+	return credentials.ResolveAndInjectCredentials(ctx, provider, model, headers)
 }
 
 func (rescueCredentialPort) SuppressCodexSubscription(ctx context.Context) context.Context {
-	return withSuppressedCodexSubscription(ctx)
+	return credentials.WithSuppressedCodexSubscription(ctx)
 }
 
 func (rescueCredentialPort) ServedOnCodexSubscription(ctx context.Context) bool {
-	return servedOnCodexSubscription(ctx)
+	return credentials.ServedOnCodexSubscription(ctx)
 }
 
 func (rescueCredentialPort) SubscriptionCredentialFallbackUsed(ctx context.Context) bool {
@@ -220,7 +220,7 @@ func (rescueCredentialPort) AnthropicSubscriptionModelRejected(err error) bool {
 }
 
 func (rescueCredentialPort) AnthropicThirdPartyRefused(err error) bool {
-	return anthropicSubscriptionThirdPartyRefused(err)
+	return credentials.AnthropicSubscriptionThirdPartyRefused(err)
 }
 
 func (rescueCredentialPort) CodexOAuthRejected(err error) bool {
@@ -294,7 +294,7 @@ func (p rescueRoutingPort) RedoEarlyStop(ctx context.Context, redo dispatch.Earl
 }
 
 func (rescueFundingPort) WeaveCreditsCannotFund(ctx context.Context, provider string) bool {
-	return weaveCreditsCannotFund(ctx, provider)
+	return credentials.WeaveCreditsCannotFund(ctx, provider)
 }
 
 func (p rescueFundingPort) AddRoutingFundingSource(ctx context.Context, provider, model string, notice translate.RouterNotice) translate.RouterNotice {

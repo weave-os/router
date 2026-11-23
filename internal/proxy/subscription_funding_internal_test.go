@@ -61,9 +61,9 @@ func TestSubscriptionFundingPaidDispatchRequiresQuotaProof(t *testing.T) {
 				ctx := credentials.WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), tc.accounts)
 				ctx = svc.withSubscriptionFundingAuthorization(ctx, nil)
 				// Exhausted-state routing and OAuth suppression must not erase admission facts.
-				ctx = context.WithValue(credentials.WithSuppressedClaudeSubscription(ctx), subscriptionAPIOnlyKey{}, true)
+				ctx = context.WithValue(credentials.WithSuppressedClaudeSubscription(ctx), credentials.SubscriptionAPIOnlyKey{}, true)
 				if source != "" {
-					ctx = requestcontext.WithCredentials(ctx, &Credentials{Source: source, APIKey: []byte("synthetic-api-key")})
+					ctx = requestcontext.WithCredentials(ctx, &requestcontext.Credentials{Source: source, APIKey: []byte("synthetic-api-key")})
 				}
 				rec := httptest.NewRecorder()
 				buf := newPreludeBuffer(rec)
@@ -216,7 +216,7 @@ func TestSubscriptionFundingBufferedAuxiliaryCannotClearGuard(t *testing.T) {
 	upstream := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("unexpected summary")}}}
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: upstream})
 	ctx := credentials.WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), []*auth.SubscriptionAccount{{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
-	ctx = clearCredentials(svc.withSubscriptionFundingAuthorization(ctx, nil))
+	ctx = credentials.ClearCredentials(svc.withSubscriptionFundingAuthorization(ctx, nil))
 	summarizer := newTestSummarizer(t, upstream, policy.HandoverSummaryDefaultModel, time.Second)
 	plan, err := summarizer.plans.Resolve(policy.ResolutionRequest{Purpose: inference.PurposeHandoverSummary, RouterRequest: router.Request{EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}})
 	require.NoError(t, err)
@@ -252,7 +252,7 @@ func TestSubscriptionAdmissionBudgetChargesLeasingNotInference(t *testing.T) {
 		finish()
 		time.Sleep(30 * time.Second)
 		require.Equal(t, 6*time.Second, budget.remaining)
-		reusedCtx, reused := withSubscriptionAdmissionBudget(svc.withSubscriptionFundingAuthorization(clearCredentials(ctx), nil))
+		reusedCtx, reused := withSubscriptionAdmissionBudget(svc.withSubscriptionFundingAuthorization(credentials.ClearCredentials(ctx), nil))
 		require.Same(t, budget, reused)
 		leaseCtx, finish = reused.leaseContext(reusedCtx, time.Now)
 		time.Sleep(7 * time.Second)

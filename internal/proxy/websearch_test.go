@@ -11,7 +11,9 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/websearch"
 )
 
@@ -36,7 +38,7 @@ const searchTurnBody = `{
 }`
 
 func gatewayCtx() context.Context {
-	return context.WithValue(context.Background(), CredentialsContextKey{}, &Credentials{
+	return context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:   []byte("WIF.GCP.token"),
 		BaseURL:  "https://acct.snowflakecomputing.com/api/v2/cortex",
 		AuthType: auth.AuthTypeWIF,
@@ -52,7 +54,7 @@ func TestServeNativeWebSearchAnswersGatewayOnlyTenant(t *testing.T) {
 		Summary: "Agents run web_search.",
 		Results: []websearch.Result{{Title: "Docs", URL: "https://docs.snowflake.com/agents"}},
 	}}
-	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), webSearch: ex}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), ingress: ingress.Formats{WebSearch: ex}}
 	rec := httptest.NewRecorder()
 
 	if !s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", false, 42, gatewayOnly(), http.Header{}, rec) {
@@ -81,7 +83,7 @@ func TestServeNativeWebSearchStreams(t *testing.T) {
 		Summary: "Answer.",
 		Results: []websearch.Result{{Title: "Docs", URL: "https://docs.snowflake.com/agents"}},
 	}}
-	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), webSearch: ex}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), ingress: ingress.Formats{WebSearch: ex}}
 	rec := httptest.NewRecorder()
 
 	if !s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", true, 10, gatewayOnly(), http.Header{}, rec) {
@@ -106,7 +108,7 @@ func TestServeNativeWebSearchStreams(t *testing.T) {
 
 func TestServeNativeWebSearchDefersToNativelyCapableProvider(t *testing.T) {
 	ex := &fakeSearch{}
-	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), webSearch: ex}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), ingress: ingress.Formats{WebSearch: ex}}
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderAnthropicGateway: {}}
 
 	if s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", false, 0, enabled, http.Header{}, httptest.NewRecorder()) {
@@ -119,7 +121,7 @@ func TestServeNativeWebSearchDefersToNativelyCapableProvider(t *testing.T) {
 
 func TestServeNativeWebSearchFallsThroughOnExecutorFailure(t *testing.T) {
 	ex := &fakeSearch{err: context.DeadlineExceeded}
-	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), webSearch: ex}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), ingress: ingress.Formats{WebSearch: ex}}
 	rec := httptest.NewRecorder()
 
 	if s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", false, 0, gatewayOnly(), http.Header{}, rec) {
@@ -132,7 +134,7 @@ func TestServeNativeWebSearchFallsThroughOnExecutorFailure(t *testing.T) {
 
 func TestServeNativeWebSearchIgnoresTurnsWithoutTheTool(t *testing.T) {
 	ex := &fakeSearch{}
-	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), webSearch: ex}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), ingress: ingress.Formats{WebSearch: ex}}
 	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"Perform a web search for the query: x"}]}`)
 
 	if s.serveNativeWebSearch(gatewayCtx(), body, "claude-sonnet-5", false, 0, gatewayOnly(), http.Header{}, httptest.NewRecorder()) {

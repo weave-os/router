@@ -308,20 +308,20 @@ func (s *Service) subscriptionSiblingAllowed(ctx context.Context) bool {
 	if s.credentials.BYOKOnly || len(credentials.ExternalKeysFromContext(ctx)) > 0 {
 		return false
 	}
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	return creds != nil && creds.OAuth
 }
 
 func rescueCredentialContext(ctx context.Context, rescueProvider string) context.Context {
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	if creds == nil || !creds.OAuth || oauthCredentialProvider(creds) == rescueProvider {
 		return ctx
 	}
-	return clearCredentials(ctx)
+	return credentials.ClearCredentials(ctx)
 }
 
-func oauthCredentialProvider(creds *Credentials) string {
-	if creds.Source == credSourceCodexSubscription {
+func oauthCredentialProvider(creds *requestcontext.Credentials) string {
+	if creds.Source == requestcontext.SourceCodexSubscription {
 		return providers.ProviderOpenAI
 	}
 	return providers.ProviderAnthropic
@@ -333,7 +333,7 @@ func (s *Service) gatewaySiblingAllowed(ctx context.Context, sibling router.Deci
 }
 
 func (s *Service) siblingRescueAllowed(ctx context.Context, gatewayHeld bool) bool {
-	return !claudeEnterpriseTurn(ctx) && s.rescueConfig.SiblingFailoverEnabled(ctx) &&
+	return !credentials.ClaudeEnterpriseTurn(ctx) && s.rescueConfig.SiblingFailoverEnabled(ctx) &&
 		(s.shouldFailover(ctx) || s.subscriptionSiblingAllowed(ctx) || gatewayHeld) &&
 		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
 }

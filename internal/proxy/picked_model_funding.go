@@ -5,11 +5,10 @@ import (
 	"strings"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 )
-
-type pickedModelOnOwnPlanContextKey struct{}
 
 func withPickedModelFunding(ctx context.Context, servedAsIs bool, provider string) context.Context {
 	if !auth.ClientModelPassthroughFrom(ctx) {
@@ -33,18 +32,13 @@ func fundOnOwnPlan(ctx context.Context, provider string) context.Context {
 	if creditFallback, _ := ctx.Value(requestcontext.InstallationPickedModelCreditFallbackContextKey{}).(bool); creditFallback {
 		return ctx
 	}
-	if provider == providers.ProviderAnthropic && anthropicSubscriptionFromContext(ctx) == "" ||
-		provider == providers.ProviderOpenAI && openaiSubscriptionFromContext(ctx) == "" ||
+	if provider == providers.ProviderAnthropic && credentials.AnthropicSubscriptionFromContext(ctx) == "" ||
+		provider == providers.ProviderOpenAI && credentials.OpenAISubscriptionFromContext(ctx) == "" ||
 		provider != providers.ProviderAnthropic && provider != providers.ProviderOpenAI {
 		return ctx
 	}
 	if provider == providers.ProviderOpenAI {
 		ctx = requestcontext.WithSubscriptionExtraUsage(ctx)
 	}
-	return context.WithValue(ctx, pickedModelOnOwnPlanContextKey{}, true)
-}
-
-func pickedModelOnOwnPlan(ctx context.Context) bool {
-	onOwnPlan, _ := ctx.Value(pickedModelOnOwnPlanContextKey{}).(bool)
-	return onOwnPlan
+	return context.WithValue(ctx, credentials.PickedModelOnOwnPlanContextKey{}, true)
 }

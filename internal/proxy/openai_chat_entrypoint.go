@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -20,7 +21,7 @@ import (
 )
 
 func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
-	ctx = withWeaveCreditsFunding(ctx, r.Header)
+	ctx = credentials.WithWeaveCreditsFunding(ctx, r.Header)
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
@@ -202,14 +203,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	pinAgeSec := routeRes.PinAgeSec
 	logPlannerOutcome(ctx, s.strategyPorts, routeRes)
 
-	if facts.Client.ClientApp == requestcontext.ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
+	if facts.Client.ClientApp == requestcontext.ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.lifecycle.TextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, sessionKey, role, decision).TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
 		}
 	}
 
-	credentialCtx := resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
+	credentialCtx := credentials.ResolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
 	if _, err := s.provider(decision.Provider); err != nil {
 		return err
@@ -242,7 +243,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	if s.codexSubscriptionExhausted(ctx, r.Header) {
 		nudge := codexSubscriptionReconnectNudge(ctx, r.Header, s.credentials.UsageObserver)
-		ctx = withSuppressedCodexSubscription(ctx)
+		ctx = credentials.WithSuppressedCodexSubscription(ctx)
 		if codexSeatsCoverOrThrottled(ctx, s.linkedSeatCanCover(ctx, decision.Provider, decision.Model), s.clock.Now()) {
 			ctx = withDeferredReconnectNudge(ctx, nudge)
 		} else {
@@ -250,7 +251,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 	resolvedCtx := s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
-	responsesEndpointKey := EffectiveBaseURL(resolvedCtx, decision.Provider)
+	responsesEndpointKey := requestcontext.EffectiveBaseURL(resolvedCtx, decision.Provider)
 	openAIResponsesEndpoint := len(responsesBody) > 0
 	if !openAIResponsesEndpoint && decision.Provider == providers.ProviderOpenAI {
 		openAIResponsesEndpoint = translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
@@ -258,10 +259,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			Capabilities:   opts.Capabilities,
 			HasTools:       feats.HasTools,
 			ChatOnlyParams: env.RequiresChatCompletionsParams(opts.Capabilities),
-			Broad:          s.ResolveOpenAIResponsesBroad(ctx),
+			Broad:          s.ingress.ResponsesBroad(ctx),
 		}) && !s.engine.GatewayCaps().LacksResponses(responsesEndpointKey)
 		if !env.RequiresChatCompletionsParams(opts.Capabilities) && !s.engine.GatewayCaps().LacksResponses(responsesEndpointKey) && s.supportsSubscriptionTransport(decision.Provider) &&
-			(servedOnCodexSubscription(resolvedCtx) || managedSubscriptionCanServe(ctx, decision.Provider, decision.Model)) {
+			(credentials.ServedOnCodexSubscription(resolvedCtx) || credentials.ManagedSubscriptionCanServe(ctx, decision.Provider, decision.Model)) {
 			openAIResponsesEndpoint = true
 		}
 	}
@@ -269,7 +270,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if endpointErr != nil {
 		return endpointErr
 	}
-	if codexChatEndpoint(endpointCtx) {
+	if credentials.CodexChatEndpoint(endpointCtx) {
 		ctx = s.resolveCredentials(endpointCtx, decision.Provider, decision.Model, r.Header)
 	} else {
 		ctx = resolvedCtx

@@ -144,7 +144,7 @@ func (t *messagesTurnDispatch) bindAndGate(ctx context.Context) (context.Context
 				return ctx, credentials.SubscriptionOnlyUnavailable(ctx)
 			}
 			ctx = released
-		case !servedOnCustomerKey(ctx) && t.s.anthropicSubscriptionObservedExhausted(ctx, t.r.Header) && !credentials.ClaudeSubscriptionSuppressed(ctx):
+		case !credentials.ServedOnCustomerKey(ctx) && t.s.anthropicSubscriptionObservedExhausted(ctx, t.r.Header) && !credentials.ClaudeSubscriptionSuppressed(ctx):
 			t.log.Info("Subscription-only request cannot be served on the subscription; refusing",
 				"requested_model", t.feats.Model, "external_id", t.facts.ExternalID, "decision_provider", t.decision.Provider)
 			return ctx, credentials.SubscriptionOnlyUnavailable(ctx)
@@ -180,7 +180,7 @@ func (t *messagesTurnDispatch) prepareAttempt(ctx, credentialCtx context.Context
 	t.marker = suppressMarkerIfRequested(ctx, t.r.Header, modelSelectionMarkerForRequest(t.s.strategyPorts, ctx, announcementTurn, routingMarkerFor(announcementTurn), t.decision.Model, ""))
 	muteSlowStartFor(ctx, t.routeRes)
 	fundingCtx := ctx
-	if CredentialsFromContext(fundingCtx) == nil {
+	if credentials.CredentialsFromContext(fundingCtx) == nil {
 		fundingCtx = credentialCtx
 	}
 	notice := routerNoticeForRequest(ctx, t.r.Header, subscriptions.ProviderClaude, t.decision.Model, t.marker)
@@ -313,7 +313,7 @@ func (t *messagesTurnDispatch) settle(ctx context.Context) context.Context {
 	if t.rescue.SubscriptionFailoverUsed {
 		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
 	}
-	ctx = resolveAndInjectCredentials(ctx, t.finalProvider, t.decision.Model, t.r.Header)
+	ctx = credentials.ResolveAndInjectCredentials(ctx, t.finalProvider, t.decision.Model, t.r.Header)
 
 	if t.extractor.Speed() == catalog.SpeedFast {
 		t.fastServed = true

@@ -27,7 +27,7 @@ import (
 var ErrGeminiCrossFormatUnsupported = ingress.ErrGeminiCrossFormatUnsupported
 
 func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
-	ctx, strategy := withWeaveCreditsFunding(ctx, r.Header), router.StrategyFromContext(ctx)
+	ctx, strategy := credentials.WithWeaveCreditsFunding(ctx, r.Header), router.StrategyFromContext(ctx)
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, s.ingress.Gemini.TraceBody(body), r.Header)
@@ -44,7 +44,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	if subscriptionStateModelsEnabled(ctx) {
 		ctx = context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
-		ctx = context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
+		ctx = context.WithValue(ctx, credentials.SubscriptionAPIOnlyKey{}, true)
 	}
 	ctx, rateLimit := s.withRateLimitTurn(ctx)
 	log := observability.FromContext(ctx)
@@ -189,7 +189,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
 	effortServed.Apply(&opts)
-	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
+	ctx = credentials.ResolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
 	prep, emitErr := env.PrepareGemini(r.Header, geminiOptionsForTurn(opts, routeRes.TurnType))
 	if emitErr != nil {

@@ -103,7 +103,7 @@ func TestBypassRefusesEnterpriseOnlyTurnsThatWouldNotServeOnTheSubscription(t *t
 
 	err := svc.bypassToAnthropic(enterpriseOnlyContext(context.Background()), env, env.RoutingFeatures(), false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, httptest.NewRecorder())
 
-	require.ErrorIs(t, err, ErrClaudeEnterpriseSubscriptionUnavailable)
+	require.ErrorIs(t, err, credentials.ErrClaudeEnterpriseSubscriptionUnavailable)
 	assert.Zero(t, upstream.dispatches)
 }
 
@@ -122,7 +122,7 @@ func TestBypassRefusesAModelTheProductDoesNotSellBeforeDispatch(t *testing.T) {
 func TestSpentEnterpriseSeatStaysServableOnlyWhenPaidFallbackIsOff(t *testing.T) {
 	spent := usage.Snapshot{Primary: usage.Window{UsedPercent: 1, WindowMinutes: 300}}
 	planFallbackOn := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: false}})
-	enterprise := context.WithValue(planFallbackOn, claudeSubscriptionPlanKey{}, providers.SubscriptionPlanEnterprise)
+	enterprise := context.WithValue(planFallbackOn, credentials.ClaudeSubscriptionPlanKey{}, providers.SubscriptionPlanEnterprise)
 
 	assert.True(t, claudeSnapshotUnservable(enterprise, spent), "paid fallback still available")
 	assert.False(t, claudeSnapshotUnservable(billing.WithSubscriptionOnly(enterprise, billing.SubscriptionOnlySpendCapReached), spent), "a usage-billed seat's overage is the only lane left")

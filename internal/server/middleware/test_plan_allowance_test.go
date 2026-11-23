@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -28,7 +28,7 @@ func TestVerifiedInternalTestSkipsAllSubscriberAllowanceAndProductReads(t *testi
 		c.Request = c.Request.WithContext(entitlement.WithProductScope(ctx, entitlement.PlanMax))
 	})
 	// A nil service panics if either subscriber path is entered.
-	engine.Use(WithSubscriberAllowance(nil, proxy.RequestPresentsCoveringSubscription), WithSubscriberProductScope(nil))
+	engine.Use(WithSubscriberAllowance(nil, credentials.RequestPresentsCoveringSubscription), WithSubscriberProductScope(nil))
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		require.Empty(t, SubscriptionOwnerFrom(c).SubscriberID)
 		plan, ok := entitlement.ProductScopeFromContext(c.Request.Context())

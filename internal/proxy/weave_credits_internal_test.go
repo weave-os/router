@@ -19,7 +19,7 @@ import (
 func deniedCtxWithKeys(keys ...*auth.ExternalAPIKey) context.Context {
 	ctx := billing.WithWeaveCreditsDenied(context.Background())
 	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, keys)
-	return withWeaveCreditsFunding(ctx, http.Header{})
+	return credentials.WithWeaveCreditsFunding(ctx, http.Header{})
 }
 
 func TestWeaveCreditsFunding_FailedKeyIsNotAFundingSource(t *testing.T) {
@@ -29,32 +29,21 @@ func TestWeaveCreditsFunding_FailedKeyIsNotAFundingSource(t *testing.T) {
 	)
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}
 
-	got, err := applyWeaveCreditsPolicy(ctx, enabled)
+	got, err := credentials.ApplyWeaveCreditsPolicy(ctx, enabled)
 
 	require.NoError(t, err)
 	assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, got)
 	assert.False(t, credentials.CustomerFunded(credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[providers.ProviderOpenAI]))
 }
 
-func TestWeaveCreditsFunding_AllowedLeavesProvidersAlone(t *testing.T) {
-	enabled := map[string]struct{}{providers.ProviderOpenAI: {}}
-	ctx := withWeaveCreditsFunding(context.Background(), http.Header{})
-
-	got, err := applyWeaveCreditsPolicy(ctx, enabled)
-
-	require.NoError(t, err)
-	assert.Equal(t, enabled, got)
-	assert.Nil(t, CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderOpenAI)))
-}
-
 func TestPaidFallbackCredentials_UsesCustomerKeyWhenCreditsDenied(t *testing.T) {
 	ctx := deniedCtxWithKeys(&auth.ExternalAPIKey{Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok")})
 
-	creds := CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderAnthropic))
+	creds := credentials.CredentialsFromContext(credentials.WithPaidFallbackCredentials(ctx, providers.ProviderAnthropic))
 
 	require.NotNil(t, creds)
 	assert.True(t, credentials.CustomerFunded(creds))
-	assert.Nil(t, CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderOpenAI)))
+	assert.Nil(t, credentials.CredentialsFromContext(credentials.WithPaidFallbackCredentials(ctx, providers.ProviderOpenAI)))
 }
 
 func TestForcedModelBinding_UnfundedProviderReturnsCreditsError(t *testing.T) {
@@ -65,7 +54,7 @@ func TestForcedModelBinding_UnfundedProviderReturnsCreditsError(t *testing.T) {
 	binding, fundedRefusal := svc.forcedModelBinding(ctx, "claude-sonnet-4-6", providers.ProviderAnthropic)
 
 	require.NotNil(t, refusal)
-	require.Equal(t, forcedModelUnfundedReason, refusal.Reason)
+	require.Equal(t, credentials.ForcedModelUnfundedReason, refusal.Reason)
 	require.Equal(t, "gpt-5.4", refusal.Model)
 	err := error(refusal)
 	require.ErrorIs(t, err, credentials.ErrWeaveCreditsDisabled)

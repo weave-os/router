@@ -24,12 +24,14 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/config"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/entra"
 	"weave-os/router/internal/escalationmodal"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/gcsregistry"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/apm"
 	"weave-os/router/internal/observability/otel"
@@ -53,6 +55,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/llmescalation"
@@ -636,7 +639,7 @@ func main() {
 	cyberRefusalFallbackModel := config.GetOr("ROUTER_CYBER_REFUSAL_FALLBACK_MODEL", "claude-sonnet-5")
 	anthropicServerSideFallback := config.GetOr("ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK", "true") == "true"
 	scopedSearchRequirement := config.GetOr("ROUTER_SCOPED_SEARCH_REQUIREMENT", "true") == "true"
-	searchRequirementDecayTurns := parseEnvInt("ROUTER_SEARCH_REQUIREMENT_DECAY_TURNS", proxy.DefaultSearchRequirementDecayTurns)
+	searchRequirementDecayTurns := parseEnvInt("ROUTER_SEARCH_REQUIREMENT_DECAY_TURNS", ingress.DefaultSearchRequirementDecayTurns)
 	effortEscalation := config.GetOr("ROUTER_EFFORT_ESCALATION", "false") == "true"
 	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
 	openAIResponsesBroad := config.GetOr("ROUTER_OPENAI_RESPONSES_BROAD", "true") == "true"
@@ -987,10 +990,16 @@ func main() {
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 	inferenceDeployment.RoutableModels = servedModels
 
+	ingressFormats := ingressFormatsFor(allowedModelsHeader, scopedSearchRequirement, searchRequirementDecayTurns, cortexWebSearch(logger))
+	ingressFormats.OpenAIResponsesBroad, ingressFormats.EscapeNormalize = openAIResponsesBroad, escapeNormalize
+	ingressFormats.CCOrchToolsCrossVendor, ingressFormats.CCTaskToolsCrossVendor = ccOrchToolsCrossVendor, ccTaskToolsCrossVendor
+	ingressFormats.CCAutonomySystemAppend, ingressFormats.CCWorkspaceSystemAppend = ccAutonomySystemAppend, ccWorkspaceSystemAppend
 	proxySvc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(providerMap), telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry), hmm.ServingPorts()), proxy.Deps{
 		Telemetry: proxy.TelemetryDeps{Clock: time.Now, SessionTurnClock: sessionTurnClock, ContentCapture: captureMode, ContentCaptureMaxBytes: captureMaxBytes, Billing: billingSvc, Flags: &proxy.TelemetryFlags{
 			TurnSignalCapture: turnSignalCaptureEnabled, NativeAnthropicResponseSignals: nativeAnthropicResponseSignals, NativeOpenAIResponseSignals: nativeOpenAIResponseSignals}},
-		BYOKOnly: byokOnly, DeploymentKeyedProviders: deploymentEligible,
+		Conversation: conversation.Config{Summarizer: summarizer, CompactionHandoverSummarizer: compactionHandoverSz, RouterFeedbackStore: repo.Telemetry, SessionStrategies: sessionStrategyStore,
+			FeedbackLinks: feedbackLinks, PiHandoffSecret: config.GetOr("ROUTER_PI_HANDOFF_SECRET", ""), TextRepetitionBreak: &textRepetitionBreakEnabled},
+		Ingress: &ingressFormats, Escalation: proxy.EscalationDeps{SwitchyardActive: escalationJudgeActiveEnabled}, BYOKOnly: byokOnly, DeploymentKeyedProviders: deploymentEligible,
 		Dispatch: &dispatch.Config{
 			Rescue: dispatch.RescueConfig{SiblingFailover: siblingFailover, EarlyStopRedo: earlyStopRedo, CyberRefusalRepin: cyberRefusalRepin, CyberRefusalRetry: cyberRefusalRetry,
 				CyberRefusalFallbackModel: cyberRefusalFallbackModel, AnthropicServerSideFallback: anthropicServerSideFallback},
@@ -1003,14 +1012,10 @@ func main() {
 		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithExternalKeyUsageRecorder(authSvc).
 		WithCodexExtraCredits(allowCodexCredits).
-		WithSessionStrategyStore(sessionStrategyStore).
 		WithEscalation(escalationStore, escalationObserver).
-		WithEscalationDashboard(escalationDashboardStore).
 		WithLLMEscalation(llmEscalationStore, escalationJudge).
 		WithQwenEscalation(qwenEscalationJudge).
-		WithEscalationConfiguration(llmEscalationStore, authSvc.InvalidateInstallation, escalationJudgeActiveEnabled).
 		WithEscalationShadowDefault(escalationShadowDefault).
-		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: router.StrategyHMM, Router: hmmRouter, Unavailable: hmm.ErrHMMUnavailable,
 			Capabilities: hmmCapabilities,
@@ -1031,32 +1036,18 @@ func main() {
 			Strategy: router.StrategyDecisionModel, Router: buildDecisionModelRouter(logger), Unavailable: decisionmodel.ErrUnavailable,
 			Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true},
 		}).
-		WithFeedback(feedbackLinks).
-		WithPiHandoffSecret(config.GetOr("ROUTER_PI_HANDOFF_SECRET", "")).
 		WithPassthroughEligibleProviders(passthroughEligible).
 		WithHardPinResolver(hardPinResolver).
 		WithExplicitUtilityHardPin(hardPinOverrideConfigured).
 		WithSubAgentOverride(subAgentProvider, subAgentModel).
 		WithContinuityConfig(continuityConfig).
-		WithOpenAIResponsesBroad(openAIResponsesBroad).
-		WithIngress(ingressFormatsFor(allowedModelsHeader)).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMConfig(hmmConfig).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
-		WithEscapeNormalize(escapeNormalize).
 		WithEffortEscalation(effortEscalation).
-		WithCCOrchestrationToolsCrossVendor(ccOrchToolsCrossVendor).
-		WithCCTaskToolsCrossVendor(ccTaskToolsCrossVendor).
-		WithCCAutonomySystemAppend(ccAutonomySystemAppend).
-		WithCCWorkspaceSystemAppend(ccWorkspaceSystemAppend).
 		WithBandSwap(bandSwapEnabled).
 		WithGlobalAutomaticExclusions(repo.GlobalAutomaticExclusions).
-		WithTextRepetitionBreak(textRepetitionBreakEnabled).
-		WithRouterFeedbackStore(repo.Telemetry).
-		WithSummarizer(summarizer).
-		WithCompactionHandoverSummarizer(compactionHandoverSz).
-		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel())
 	if err := configureAtomicClassifier(proxySvc, pool, availableProviders); err != nil {
@@ -1197,6 +1188,7 @@ func main() {
 		PolicyStatus:             policyStatus,
 		FeedbackLinks:            feedbackLinks,
 	}, servingAdmission, routingDistribution), defaultStrategy)), repo.Telemetry), captureMode))
+	serverFeatures.EscalationAdmin = &floor.Admin{Dashboard: escalationDashboardStore, Sessions: llmEscalationStore, Configuration: llmEscalationStore, InvalidateSelection: authSvc.InvalidateInstallation, SwitchyardJudge: escalationJudge, QwenJudge: qwenEscalationJudge, SwitchyardActive: escalationJudgeActiveEnabled, Clock: time.Now}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}

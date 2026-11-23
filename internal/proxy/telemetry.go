@@ -206,9 +206,4 @@ const DecisionReasonPolicyPinUnservable = router.PolicyPinUnavailableReason
 
 const DecisionReasonRoutingFailed = "routing_failed"
 
-func plannerOutcome(outcome planner.Outcome) string {
-	if outcome == planner.OutcomeSwitch {
-		return "switch"
-	}
-	return "stay"
-}
+func plannerOutcome(outcome planner.Outcome) string { return routingpolicy.PlannerOutcome(outcome) }

@@ -22,6 +22,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rosterdata"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -52,7 +53,7 @@ func TestHMMCommandOnlyTurnUsesEligibleRosterFallback(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(request))
 	require.NoError(t, err)
 	features := env.RoutingFeatures()
-	require.False(t, hasTextUserBoundary(conversationMessagesForRouting(env)))
+	require.False(t, routingpolicy.HasTextUserBoundary(conversationMessagesForRouting(env)))
 
 	sidecarFailure := errors.New("policy sidecar must not receive a command-only request")
 	svc := unscorableHMMService(nil, sidecarFailure)
@@ -81,7 +82,7 @@ func TestHMMCommandOnlyTurnUsesAdmittedRuntimeFallback(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(requestBody))
 	require.NoError(t, err)
 	features := env.RoutingFeatures()
-	require.False(t, hasTextUserBoundary(conversationMessagesForRouting(env)))
+	require.False(t, routingpolicy.HasTextUserBoundary(conversationMessagesForRouting(env)))
 
 	innerService := unscorableHMMService(nil, errors.New("policy sidecar must not receive a command-only request"))
 	innerRouter := innerService.strategies[router.StrategyHMMEmbedding].router
@@ -235,7 +236,7 @@ func TestHMMCommandOnlyTurnKeepsEligibleSessionPin(t *testing.T) {
 	turn, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, request)
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-4-6", turn.Decision.Model)
-	assert.Equal(t, unscorableHMMStickyReason, turn.Decision.Reason)
+	assert.Equal(t, routingpolicy.UnscorableHMMStickyReason, turn.Decision.Reason)
 	assert.True(t, turn.StickyHit)
 	store.mu.Lock()
 	defer store.mu.Unlock()

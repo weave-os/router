@@ -23,10 +23,10 @@ func (f planBindingFacts) context() context.Context {
 		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionStateModelsEnabledContextKey{}, true)
 	}
 	if f.apiOnly {
-		ctx = context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
+		ctx = context.WithValue(ctx, credentials.SubscriptionAPIOnlyKey{}, true)
 	}
 	if f.enterpriseSeat {
-		ctx = context.WithValue(enterpriseOnlyContext(ctx), claudeEnterpriseTurnKey{}, true)
+		ctx = context.WithValue(enterpriseOnlyContext(ctx), credentials.ClaudeEnterpriseTurnKey{}, true)
 	}
 	if f.capRefused {
 		ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
@@ -35,10 +35,10 @@ func (f planBindingFacts) context() context.Context {
 		})
 	}
 	if f.ownPlan {
-		ctx = context.WithValue(ctx, pickedModelOnOwnPlanContextKey{}, true)
+		ctx = context.WithValue(ctx, credentials.PickedModelOnOwnPlanContextKey{}, true)
 	}
 	if f.subscriptionAttempt {
-		ctx = context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
+		ctx = context.WithValue(ctx, credentials.SubscriptionOnlyAttemptKey{}, true)
 	}
 	return ctx
 }
@@ -74,18 +74,18 @@ func TestPaidFallbackBindingNamesWhyPaidCapacityIsClosed(t *testing.T) {
 }
 
 func TestServingEventFollowsTheCommittedCredential(t *testing.T) {
-	cases := map[subscriptionlane.Event][]*Credentials{
+	cases := map[subscriptionlane.Event][]*requestcontext.Credentials{
 		subscriptionlane.SubscriptionServed: {
-			{APIKey: []byte("oauth-token"), OAuth: true, Source: credSourceSubscription},
-			{APIKey: []byte("codex-token"), OAuth: true, Source: credSourceCodexSubscription},
+			{APIKey: []byte("oauth-token"), OAuth: true, Source: requestcontext.SourceSubscription},
+			{APIKey: []byte("codex-token"), OAuth: true, Source: requestcontext.SourceCodexSubscription},
 		},
 		subscriptionlane.CustomerKeyServed: {
-			{APIKey: []byte("sk-ant-customer"), Source: credSourceBYOK},
+			{APIKey: []byte("sk-ant-customer"), Source: requestcontext.SourceBYOK},
 		},
 		subscriptionlane.OrganizationCreditsServed: {
 			nil,
-			{APIKey: []byte("sk-client"), Source: credSourceClient},
-			{Source: credSourceBYOK},
+			{APIKey: []byte("sk-client"), Source: requestcontext.SourceClient},
+			{Source: requestcontext.SourceBYOK},
 		},
 	}
 	for want, credentials := range cases {

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 
@@ -71,9 +71,9 @@ func TestAgentShadowEvaluation_SkipsCustomerBillingGates(t *testing.T) {
 	engine.Use(middleware.WithAgentShadowEvaluation())
 	// Nil services deliberately prove each billing gate exits on the shadow
 	// context before attempting a customer balance/cap read.
-	engine.Use(middleware.WithBalanceCheck(nil, 0, proxy.RequestHasCustomerFunding))
-	engine.Use(middleware.WithAPIKeySpendCap(nil, proxy.RequestHasCustomerFunding))
-	engine.Use(middleware.WithOrgMonthlySpendCap(nil, proxy.RequestHasCustomerFunding))
+	engine.Use(middleware.WithBalanceCheck(nil, 0, credentials.RequestHasCustomerFunding))
+	engine.Use(middleware.WithAPIKeySpendCap(nil, credentials.RequestHasCustomerFunding))
+	engine.Use(middleware.WithOrgMonthlySpendCap(nil, credentials.RequestHasCustomerFunding))
 	engine.POST("/v1/messages", func(c *gin.Context) { c.Status(http.StatusOK) })
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	req.Header.Set(requestcontext.AgentShadowModelHeader, "claude-opus-4-8")

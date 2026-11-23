@@ -12,9 +12,11 @@ import (
 
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -28,7 +30,7 @@ import (
 type modelListingClient struct {
 	models    []string
 	err       error
-	seenCreds *proxy.Credentials
+	seenCreds *requestcontext.Credentials
 }
 
 func (c *modelListingClient) Proxy(context.Context, router.Decision, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
@@ -38,7 +40,7 @@ func (c *modelListingClient) Passthrough(context.Context, providers.PreparedRequ
 	return nil
 }
 func (c *modelListingClient) ListModels(ctx context.Context) ([]string, error) {
-	c.seenCreds = proxy.CredentialsFromContext(ctx)
+	c.seenCreds = credentials.CredentialsFromContext(ctx)
 	return c.models, c.err
 }
 

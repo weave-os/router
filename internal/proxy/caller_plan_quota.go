@@ -6,21 +6,22 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
 
-func (s *Service) recordDirectSubscriptionQuota(ctx context.Context, provider, model string, creds *Credentials, attemptErr error) {
+func (s *Service) recordDirectSubscriptionQuota(ctx context.Context, provider, model string, creds *requestcontext.Credentials, attemptErr error) {
 	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil && (anthropicOAuthCredentialRejected(attemptErr) || codexOAuthCredentialRejected(attemptErr)) {
 		state.CallerCredentialRejected = true
 	}
-	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
+	pool, compatible := credentials.ManagedSubscriptionProviderFromUpstream(provider, model)
 	if !compatible {
 		return
 	}
 	resetAt, exhausted := s.subscriptionQuotaExhaustion(pool, subscriptions.Lease{AccessToken: string(creds.APIKey)}, attemptErr)
 	if !exhausted {
 		if upstreamStatus(attemptErr) == http.StatusTooManyRequests {
-			recordCallerPlanThrottle(ctx, pool, managedSubscriptionResetAt(attemptErr, s.clock.Now()))
+			recordCallerPlanThrottle(ctx, pool, credentials.ManagedSubscriptionResetAt(attemptErr, s.clock.Now()))
 		}
 		return
 	}

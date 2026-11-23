@@ -20,7 +20,6 @@ import (
 	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/switchpolicy"
 	"weave-os/router/internal/router/turntype"
@@ -54,7 +53,7 @@ func applyAgreementShadowTelemetry(ports continuity.StrategyPorts, ctx context.C
 		Observation: switchpolicy.ShadowObservation{RequestID: p.RequestID, StartedAt: p.Timestamp, Gap: switchpolicy.ShadowGapUnsupported},
 	}
 	p.AgreementShadow = shadow
-	if !res.AuthoritativePerTurn || !isHMMDecision(ports, res.Fresh) || res.HardPinned || res.ForcedPinDropped || res.PolicyFallback || res.CallerModelPassthrough || res.UsageBypass || floor.RoutingApplied(res.Fresh) {
+	if !res.IsAuthoritativeHMMDecision(ports) {
 		return
 	}
 	md, classifier := res.Fresh.Metadata, ports.Facts.ClassifierTelemetryOf(res.Fresh.Metadata)

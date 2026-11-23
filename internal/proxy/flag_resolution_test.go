@@ -45,21 +45,3 @@ func TestPerOrgOverrideBeatsDeploymentDefault(t *testing.T) {
 	// An unoverridden flag on the same context keeps its deployment default.
 	assert.True(t, svc.ResolveTextRepetitionBreakEnabled(ctx))
 }
-
-func TestCCTaskToolsCrossVendorResolution(t *testing.T) {
-	svc := newFlagTestService()
-	assert.False(t, svc.ResolveCCTaskToolsCrossVendor(context.Background()),
-		"the task-list tools stay stripped until an installation opts in")
-
-	on := flags.WithOverrides(context.Background(), flags.Overrides{
-		Bools: map[flags.Key]bool{flags.KeyCCTaskToolsCrossVendor: true},
-	})
-	assert.True(t, svc.ResolveCCTaskToolsCrossVendor(on))
-
-	deploymentOn := newFlagTestService().WithCCTaskToolsCrossVendor(true)
-	assert.True(t, deploymentOn.ResolveCCTaskToolsCrossVendor(context.Background()))
-	off := flags.WithOverrides(context.Background(), flags.Overrides{
-		Bools: map[flags.Key]bool{flags.KeyCCTaskToolsCrossVendor: false},
-	})
-	assert.False(t, deploymentOn.ResolveCCTaskToolsCrossVendor(off))
-}

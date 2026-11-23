@@ -1,4 +1,4 @@
-package proxy
+package credentials
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -16,19 +15,19 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-const subscriptionThirdPartyDenialTTL = credentials.SubscriptionModelDenialTTL
+const SubscriptionThirdPartyDenialTTL = SubscriptionModelDenialTTL
 
 var ErrSubscriptionClientAppRefused = errors.New("claude subscription refused third-party client")
 
-func markSubscriptionClientAppRefused(ctx context.Context) {
-	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); usage != nil {
+func MarkSubscriptionClientAppRefused(ctx context.Context) {
+	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
 		usage.ClientAppRefused = true
 	}
 }
 
 type clientAppRefusalPaidFallbackKey struct{}
 
-func withClientAppRefusalPaidFallback(ctx context.Context, decision router.Decision) context.Context {
+func WithClientAppRefusalPaidFallback(ctx context.Context, decision router.Decision) context.Context {
 	consented, _ := ctx.Value(requestcontext.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
 	forcedConsent := consented && strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel)
 	if !forcedConsent && billing.WeaveCreditsDeniedFromContext(ctx) {
@@ -37,24 +36,24 @@ func withClientAppRefusalPaidFallback(ctx context.Context, decision router.Decis
 	return context.WithValue(ctx, clientAppRefusalPaidFallbackKey{}, forcedConsent)
 }
 
-func clientAppRefusalPaidFallback(ctx context.Context) bool {
+func ClientAppRefusalPaidFallback(ctx context.Context) bool {
 	_, allowed := ctx.Value(clientAppRefusalPaidFallbackKey{}).(bool)
 	return allowed
 }
 
-func claudePoolRefusesClientApp(ctx context.Context) bool {
+func ClaudePoolRefusesClientApp(ctx context.Context) bool {
 	if spendsPool, _ := ctx.Value(clientAppRefusalPaidFallbackKey{}).(bool); !spendsPool {
 		return false
 	}
-	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
+	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	return usage != nil && usage.ClientAppRefused
 }
 
-func forcedClaudeClientAppRefused(ctx context.Context, decision router.Decision, creds *Credentials) bool {
-	if creds != nil && (creds.OAuth || creds.Source == credSourceBYOK) || clientAppRefusalPaidFallback(ctx) {
+func ForcedClaudeClientAppRefused(ctx context.Context, decision router.Decision, creds *requestcontext.Credentials) bool {
+	if creds != nil && (creds.OAuth || creds.Source == requestcontext.SourceBYOK) || ClientAppRefusalPaidFallback(ctx) {
 		return false
 	}
-	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage)
+	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	return usage != nil && usage.ClientAppRefused && strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel)
 }
 
@@ -69,13 +68,13 @@ func anthropicInvalidRequestMessage(err error) string {
 	return strings.ToLower(gjson.GetBytes(upstream.Body, "error.message").String())
 }
 
-func anthropicSubscriptionThirdPartyRefused(err error) bool {
+func AnthropicSubscriptionThirdPartyRefused(err error) bool {
 	message := anthropicInvalidRequestMessage(err)
 	return strings.Contains(message, "third-party apps") && strings.Contains(message, "extra usage")
 }
 
-func anthropicClientAppRefused(ctx context.Context, err error) bool {
-	if anthropicSubscriptionThirdPartyRefused(err) {
+func AnthropicClientAppRefused(ctx context.Context, err error) bool {
+	if AnthropicSubscriptionThirdPartyRefused(err) {
 		return true
 	}
 	return knownThirdPartyClientApp(requestcontext.ClientIdentityFrom(ctx).ClientApp) && strings.Contains(anthropicInvalidRequestMessage(err), "extra usage")

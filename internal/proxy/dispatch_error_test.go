@@ -30,7 +30,7 @@ func TestClassifyDispatchError_UnknownErrorIsUnmatched(t *testing.T) {
 }
 
 func TestClassifyDispatchError_ClaudeEnterpriseOnlyIsNotRetryable(t *testing.T) {
-	classification, ok := proxy.ClassifyDispatchError(fmt.Errorf("dispatch: %w", proxy.ErrClaudeEnterpriseSubscriptionUnavailable))
+	classification, ok := proxy.ClassifyDispatchError(fmt.Errorf("dispatch: %w", credentials.ErrClaudeEnterpriseSubscriptionUnavailable))
 	require.True(t, ok)
 	require.Equal(t, http.StatusPaymentRequired, classification.Status)
 	require.True(t, classification.NoClientRetry)

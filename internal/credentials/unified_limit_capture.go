@@ -1,4 +1,4 @@
-package proxy
+package credentials
 
 import (
 	"context"
@@ -16,11 +16,11 @@ type unifiedLimitCapture struct {
 
 type unifiedLimitCaptureKey struct{}
 
-func withUnifiedLimitCapture(ctx context.Context) context.Context {
+func WithUnifiedLimitCapture(ctx context.Context) context.Context {
 	return context.WithValue(ctx, unifiedLimitCaptureKey{}, &unifiedLimitCapture{})
 }
 
-func captureUnifiedLimitHeaders(ctx context.Context, h http.Header) {
+func CaptureUnifiedLimitHeaders(ctx context.Context, h http.Header) {
 	c, ok := ctx.Value(unifiedLimitCaptureKey{}).(*unifiedLimitCapture)
 	if !ok || c == nil {
 		return
@@ -49,11 +49,11 @@ func CodexLimitHeadersFrom(ctx context.Context) map[string]string {
 	return c.codex
 }
 
-func unifiedLimitHeadersJSON(ctx context.Context) []byte {
+func UnifiedLimitHeadersJSON(ctx context.Context) []byte {
 	return limitHeadersJSON(ctx, UnifiedLimitHeadersFrom(ctx), "unified_limit_headers")
 }
 
-func codexLimitHeadersJSON(ctx context.Context) []byte {
+func CodexLimitHeadersJSON(ctx context.Context) []byte {
 	return limitHeadersJSON(ctx, CodexLimitHeadersFrom(ctx), "codex_limit_headers")
 }
 

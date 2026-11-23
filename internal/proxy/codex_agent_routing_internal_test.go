@@ -118,7 +118,7 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 	store := &codexRoutingPinStore{stubPinStore: newStubPinStore(), pins: make(map[codexRoutingPinKey]sessionpin.Pin)}
 	upstream := &codexTitleProvider{}
 	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}), nil, store, false, providers.ProviderOpenAI, codexRoutingLuna.String(), nil)).
-		WithOpenAIResponsesBroad(true).
+		WithIngress(responsesBroadFormats(true)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routing, Capabilities: capabilities}).
 		EditHMMConfig(func(c *hmm.Config) {
 			c.UpgradeSlidingThreshold = true

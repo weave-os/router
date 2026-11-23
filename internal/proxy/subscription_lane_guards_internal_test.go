@@ -37,19 +37,19 @@ func TestForcedClaudeClientAppRefusalIgnoresTurnsOnTheCallersOwnCredential(t *te
 	ctx := context.WithValue(context.Background(), credentials.ManagedSubscriptionUsageContextKey{}, usage)
 	forced := router.Decision{Reason: translate.ReasonUserForceModel}
 
-	assert.True(t, forcedClaudeClientAppRefused(ctx, forced, nil))
-	assert.False(t, forcedClaudeClientAppRefused(ctx, forced, &Credentials{OAuth: true}), "the caller's own OAuth login is not standing in for refusing seats")
-	assert.False(t, forcedClaudeClientAppRefused(ctx, forced, &Credentials{Source: credSourceBYOK}), "a customer key is not standing in for refusing seats")
-	assert.False(t, forcedClaudeClientAppRefused(ctx, router.Decision{Reason: "cluster"}, nil), "routed turns need pool-wide funding authorization instead")
+	assert.True(t, credentials.ForcedClaudeClientAppRefused(ctx, forced, nil))
+	assert.False(t, credentials.ForcedClaudeClientAppRefused(ctx, forced, &requestcontext.Credentials{OAuth: true}), "the caller's own OAuth login is not standing in for refusing seats")
+	assert.False(t, credentials.ForcedClaudeClientAppRefused(ctx, forced, &requestcontext.Credentials{Source: requestcontext.SourceBYOK}), "a customer key is not standing in for refusing seats")
+	assert.False(t, credentials.ForcedClaudeClientAppRefused(ctx, router.Decision{Reason: "cluster"}, nil), "routed turns need pool-wide funding authorization instead")
 }
 
 func TestCustomerFundingCountsOnlyTheCustomersOwnCredentials(t *testing.T) {
 	key := []byte("synthetic-key")
-	assert.True(t, credentials.CustomerFunded(&Credentials{APIKey: key, Source: credSourceBYOK}))
-	assert.True(t, credentials.CustomerFunded(&Credentials{APIKey: key, Source: credSourceClient}), "a key the client sent with the request is the customer's own")
-	assert.True(t, credentials.CustomerFunded(&Credentials{APIKey: key, OAuth: true}))
-	assert.False(t, credentials.CustomerFunded(&Credentials{APIKey: key}), "a deployment key is Weave-funded")
-	assert.False(t, credentials.CustomerFunded(&Credentials{Source: credSourceBYOK}), "a credential without key material funds nothing")
+	assert.True(t, credentials.CustomerFunded(&requestcontext.Credentials{APIKey: key, Source: requestcontext.SourceBYOK}))
+	assert.True(t, credentials.CustomerFunded(&requestcontext.Credentials{APIKey: key, Source: requestcontext.SourceClient}), "a key the client sent with the request is the customer's own")
+	assert.True(t, credentials.CustomerFunded(&requestcontext.Credentials{APIKey: key, OAuth: true}))
+	assert.False(t, credentials.CustomerFunded(&requestcontext.Credentials{APIKey: key}), "a deployment key is Weave-funded")
+	assert.False(t, credentials.CustomerFunded(&requestcontext.Credentials{Source: requestcontext.SourceBYOK}), "a credential without key material funds nothing")
 }
 
 func TestRejectedOwnCodexLoginOutranksALaterRateLimit(t *testing.T) {
@@ -65,11 +65,11 @@ func TestRejectedOwnCodexLoginOutranksALaterRateLimit(t *testing.T) {
 func TestEnterpriseCapRescueNeedsAUsableAnthropicKey(t *testing.T) {
 	refused := context.WithValue(context.Background(), credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
 
-	assert.False(t, claudeEnterpriseCapRescue(refused), "with no customer key the cap has nothing to rescue onto")
+	assert.False(t, credentials.ClaudeEnterpriseCapRescue(refused), "with no customer key the cap has nothing to rescue onto")
 	keyed := context.WithValue(refused, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok"), FundingPriority: auth.FundingPriorityPlanFirst},
 	})
-	assert.True(t, claudeEnterpriseCapRescue(keyed))
+	assert.True(t, credentials.ClaudeEnterpriseCapRescue(keyed))
 }
 
 func TestUnleasableSeatsDoNotHoldPaidFallbackEvenWhileEnabled(t *testing.T) {
@@ -177,8 +177,8 @@ func TestCoveringSubscriptionMustMatchTheRouteFamily(t *testing.T) {
 	codexBearer.Set("Authorization", "Bearer eyJhbGciOi.codex.jwt")
 	codexBearer.Set("ChatGPT-Account-ID", "acct-abc-123")
 
-	assert.True(t, RequestPresentsCoveringSubscription(context.Background(), codexBearer, requestcontext.RoutePathResponses))
-	assert.False(t, RequestPresentsCoveringSubscription(context.Background(), codexBearer, requestcontext.RoutePathMessages),
+	assert.True(t, credentials.RequestPresentsCoveringSubscription(context.Background(), codexBearer, requestcontext.RoutePathResponses))
+	assert.False(t, credentials.RequestPresentsCoveringSubscription(context.Background(), codexBearer, requestcontext.RoutePathMessages),
 		"a Codex login cannot serve Messages, so it must not exempt a prepaid turn there")
 }
 
@@ -188,17 +188,17 @@ func TestPlanForbiddenPaidFallbackKeepsTheCustomerKeyOut(t *testing.T) {
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenRouter: {}}
 
 	assert.Equal(t, enabled, restrictToFundedProviders(ctx, http.Header{}, enabled))
-	attemptOnly := context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
+	attemptOnly := context.WithValue(ctx, credentials.SubscriptionOnlyAttemptKey{}, true)
 	assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, restrictToFundedProviders(attemptOnly, http.Header{}, enabled),
 		"a turn the plan keeps on the subscription may not reach the customer's paid key")
 }
 
 func TestClearedCredentialsOverrideTheWinningSubscription(t *testing.T) {
-	usage := &credentials.ManagedSubscriptionUsage{Finished: true, WinningCredentials: &Credentials{APIKey: []byte("sk-ant-oat01-winning"), OAuth: true}}
+	usage := &credentials.ManagedSubscriptionUsage{Finished: true, WinningCredentials: &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-winning"), OAuth: true}}
 	ctx := context.WithValue(context.Background(), credentials.ManagedSubscriptionUsageContextKey{}, usage)
-	require.Same(t, usage.WinningCredentials, CredentialsFromContext(ctx))
+	require.Same(t, usage.WinningCredentials, credentials.CredentialsFromContext(ctx))
 
-	assert.Nil(t, CredentialsFromContext(clearCredentials(ctx)), "a synthetic call must not borrow the turn's subscription credential")
+	assert.Nil(t, credentials.CredentialsFromContext(credentials.ClearCredentials(ctx)), "a synthetic call must not borrow the turn's subscription credential")
 }
 
 func TestKeyFirstPreferenceIgnoresAnEmptyKeyRow(t *testing.T) {
@@ -206,7 +206,7 @@ func TestKeyFirstPreferenceIgnoresAnEmptyKeyRow(t *testing.T) {
 	emptyPlanFirst := &auth.ExternalAPIKey{Provider: providers.ProviderOpenAI, FundingPriority: auth.FundingPriorityPlanFirst}
 	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{keyFirst, emptyPlanFirst})
 
-	assert.True(t, byokFirst(ctx, providers.ProviderOpenAI), "a row with no key material is not the key that serves")
+	assert.True(t, credentials.ByokFirst(ctx, providers.ProviderOpenAI), "a row with no key material is not the key that serves")
 }
 
 func TestExternalKeyPrincipalChangesWithTheUpstreamAccount(t *testing.T) {

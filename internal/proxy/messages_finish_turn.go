@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/routingpolicy"
 
@@ -297,8 +298,8 @@ func messagesTelemetryRow(ctx context.Context, s *Service, t *messagesFinishedTu
 		ErrorClass:               classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks),
 		FailureOwner:             turnFailureOwnerAfterFinish(ctx, t.proxyErr, classifyTurnError(t.proxyErr, t.respSummary.StopReason, t.respSummary.InvalidToolArgsBlocks), usage.terminalFinishReason),
 		LatestToolCallCounts:     t.inboundLatestToolCalls,
-		UnifiedLimitHeaders:      unifiedLimitHeadersJSON(ctx),
-		CodexLimitHeaders:        codexLimitHeadersJSON(ctx),
+		UnifiedLimitHeaders:      credentials.UnifiedLimitHeadersJSON(ctx),
+		CodexLimitHeaders:        credentials.CodexLimitHeadersJSON(ctx),
 	}
 }
 

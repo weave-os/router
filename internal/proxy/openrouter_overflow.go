@@ -88,7 +88,7 @@ func (s *Service) openRouterOverflowBindings(ctx context.Context, target router.
 }
 
 func (s *Service) subscriptionStateTargetBindings(ctx context.Context, target router.Decision) []catalog.ProviderBinding {
-	if !openRouterOverflowEnabled(ctx) || subscriptionAttemptOnly(ctx) {
+	if !openRouterOverflowEnabled(ctx) || credentials.SubscriptionAttemptOnly(ctx) {
 		return s.resolveBindingsForDispatch(ctx, target)
 	}
 	return s.openRouterOverflowBindings(ctx, target)
@@ -109,7 +109,7 @@ func (s *Service) withOpenRouterOverflowTarget(ctx context.Context, in dispatch.
 			return ctx, in, err
 		}
 		in.Attempt = attempt
-		ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.SubscriptionStateHeaders)
+		ctx = s.resolveCredentials(credentials.ClearCredentials(ctx), target.Provider, target.Model, in.SubscriptionStateHeaders)
 		if in.OnSubscriptionStateTarget != nil {
 			in.OnSubscriptionStateTarget(target, bindings)
 		}
