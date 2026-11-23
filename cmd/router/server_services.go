@@ -6,7 +6,7 @@ import (
 	"weave-os/router/internal/server"
 )
 
-func serverServices(proxySvc *proxy.Service) server.Services {
+func serverServices(proxySvc *proxy.Service, ingressFormats ingress.Formats) server.Services {
 	return server.Services{
 		Messages:                  proxySvc,
 		Passthrough:               proxySvc,
@@ -21,7 +21,7 @@ func serverServices(proxySvc *proxy.Service) server.Services {
 		ModelPreparer:             proxySvc,
 		ClassifierThreads:         proxySvc,
 		ClassifierThreadAdmission: proxySvc,
-		AllowedModelsHeader:       proxySvc,
+		AllowedModelsHeader:       ingressFormats,
 		ParseAllowedModelsHeader: func(raw string, installationAllowed []string) (any, error) {
 			return proxy.ParseAllowedModelsHeader(raw, installationAllowed)
 		},

@@ -1142,7 +1142,7 @@ func main() {
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
-	server.RegisterWithFeatures(engine, authSvc, serverServices(proxySvc), deployedModelsSource(hmmRosterModels), deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
+	server.RegisterWithFeatures(engine, authSvc, serverServices(proxySvc, ingressFormats), deployedModelsSource(hmmRosterModels), deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
 
 	port := config.GetOr("PORT", "8080")
 	address := ":" + port
