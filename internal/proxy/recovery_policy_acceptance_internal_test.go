@@ -31,7 +31,7 @@ func TestRecoveryAcceptanceRescued502HasBoundedWithdrawal(t *testing.T) {
 	svc := newRateLimitTestService(store, true, 45)
 	primary := router.Decision{Provider: providers.ProviderOpenAIGateway, Model: catalog.ModelGPT6Luna}
 	model, _ := svc.maybeStrikeArmAfterRescuedFailure(context.Background(), true, false,
-		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, primary, routingpolicy.SessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, primary, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
