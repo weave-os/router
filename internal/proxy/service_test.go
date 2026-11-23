@@ -69,9 +69,9 @@ type fakeProvider struct {
 	proxyErr       error
 	// proxyCreds records the resolved credential per dispatch; nil means
 	// deployment-key fallback (no credential set).
-	proxyCreds []*proxy.Credentials
+	proxyCreds []*requestcontext.Credentials
 	// passthroughCreds records the resolved credential per Passthrough call.
-	passthroughCreds []*proxy.Credentials
+	passthroughCreds []*requestcontext.Credentials
 	// passthroughResponse, when set, drives Passthrough's response and error.
 	passthroughResponse func(ctx context.Context, w http.ResponseWriter) error
 	// proxyErrByEndpoint overrides proxyErr for one upstream endpoint, modelling
@@ -87,7 +87,7 @@ func (f *fakeProvider) Proxy(ctx context.Context, decision router.Decision, prep
 	f.proxyBodies = append(f.proxyBodies, saved)
 	f.proxyEndpoints = append(f.proxyEndpoints, prep.Endpoint)
 	f.proxyHeaders = append(f.proxyHeaders, prep.Headers.Clone())
-	f.proxyCreds = append(f.proxyCreds, proxy.CredentialsFromContext(ctx))
+	f.proxyCreds = append(f.proxyCreds, credentials.CredentialsFromContext(ctx))
 	if err, ok := f.proxyErrByEndpoint[prep.Endpoint]; ok {
 		return err
 	}
@@ -919,7 +919,7 @@ func TestService_ProxyOpenAIResponses_CodexPortableBridgeKeepsHMMProvidersAndRes
 }
 
 func (f *fakeProvider) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
-	f.passthroughCreds = append(f.passthroughCreds, proxy.CredentialsFromContext(ctx))
+	f.passthroughCreds = append(f.passthroughCreds, credentials.CredentialsFromContext(ctx))
 	if f.passthroughResponse != nil {
 		return f.passthroughResponse(ctx, w)
 	}

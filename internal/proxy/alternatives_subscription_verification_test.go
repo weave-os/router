@@ -117,7 +117,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 				require.Contains(t, rec.Body.String(), "alternative answer")
 				require.Equal(t, []string{"Bearer alternative-seat", "Bearer alternative-seat"}, bearers)
 				require.Contains(t, models[1], "6")
-				require.True(t, servedOnSubscription(ctx))
+				require.True(t, credentials.ServedOnSubscription(ctx))
 				require.Equal(t, alternative, rec.Header().Get(requestcontext.HeaderRouterModel))
 				require.Contains(t, rec.Body.String(), alternative)
 				require.Equal(t, "read_file", gjson.GetBytes(sent[1], "tools.0.name").String())
@@ -130,7 +130,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 				require.Error(t, dispatchErr, "with credits off, model denial or an ineligible alternative does not buy API capacity")
 				require.Equal(t, []string{"Bearer alternative-seat"}, bearers)
 				require.NotContains(t, rec.Body.String(), "alternative answer")
-				require.False(t, servedOnSubscription(ctx))
+				require.False(t, credentials.ServedOnSubscription(ctx))
 			}
 		})
 	}

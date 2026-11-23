@@ -26,7 +26,7 @@ type planThenPaidClient struct {
 func (*planThenPaidClient) SupportsSubscriptions() bool { return true }
 
 func (c *planThenPaidClient) Proxy(ctx context.Context, decision router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	oauth := creds != nil && creds.OAuth
 	c.oauthPerCall = append(c.oauthPerCall, oauth)
 	c.models = append(c.models, decision.Model)
@@ -75,7 +75,7 @@ type planMetadataThenOverloadClient struct{ oauthPerCall []bool }
 func (*planMetadataThenOverloadClient) SupportsSubscriptions() bool { return true }
 
 func (c *planMetadataThenOverloadClient) Proxy(ctx context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	oauth := creds != nil && creds.OAuth
 	c.oauthPerCall = append(c.oauthPerCall, oauth)
 	w.Header().Set("Content-Type", "text/event-stream")

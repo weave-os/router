@@ -193,7 +193,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 
 		var linkedSubscriptionRetry bool
-		ctx, linkedSubscriptionRetry, err = s.credentials.RetryAfterSubscriptionOnlyBypass(ctx, log, facts.RequestID, facts.ExternalID, routeRes.Decision, managedSubscriptionCanServe)
+		ctx, linkedSubscriptionRetry, err = s.credentials.RetryAfterSubscriptionOnlyBypass(ctx, log, facts.RequestID, facts.ExternalID, routeRes.Decision, credentials.ManagedSubscriptionCanServe)
 		if err != nil {
 			return err
 		}
@@ -237,7 +237,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	compactionHandoverOutcome := postOutcome.CompactionHandover
 
-	credentialCtx := resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
+	credentialCtx := credentials.ResolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
 	setDecisionHeaders(w.Header(), decision)
 	setContextEstimateHeaders(w.Header(), overflowEstimate, outputReserve)

@@ -46,17 +46,19 @@ func (subscriptionCoverage) OverflowEnabled(ctx context.Context) bool {
 }
 
 func (subscriptionCoverage) AttemptOnly(ctx context.Context) bool {
-	return subscriptionAttemptOnly(ctx)
+	return credentials.SubscriptionAttemptOnly(ctx)
 }
 
-func (subscriptionCoverage) APIOnly(ctx context.Context) bool { return subscriptionAPIOnly(ctx) }
+func (subscriptionCoverage) APIOnly(ctx context.Context) bool {
+	return credentials.SubscriptionAPIOnly(ctx)
+}
 
 func (subscriptionCoverage) WithAttempt(ctx context.Context) context.Context {
 	return withSubscriptionAttempt(ctx)
 }
 
 func (subscriptionCoverage) WithAPIOnly(ctx context.Context) context.Context {
-	return credentials.WithSuppressedClaudeSubscription(withSuppressedCodexSubscription(context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)))
+	return credentials.WithSuppressedClaudeSubscription(credentials.WithSuppressedCodexSubscription(context.WithValue(ctx, credentials.SubscriptionAPIOnlyKey{}, true)))
 }
 
 func (subscriptionCoverage) PaidFallbackForbidden(ctx context.Context) bool {
@@ -97,11 +99,11 @@ func (l subscriptionLanes) WithOverflowTarget(ctx context.Context, in dispatch.F
 var _ dispatch.FallbackCredentials = rescueCredentialPort{}
 
 func (rescueCredentialPort) ClearCredentials(ctx context.Context) context.Context {
-	return clearCredentials(ctx)
+	return credentials.ClearCredentials(ctx)
 }
 
 func (rescueCredentialPort) InjectCredentials(ctx context.Context, provider, model string) context.Context {
-	return resolveAndInjectCredentials(ctx, provider, model, http.Header{})
+	return credentials.ResolveAndInjectCredentials(ctx, provider, model, http.Header{})
 }
 
 type fallbackDiagnostics struct{ s *Service }

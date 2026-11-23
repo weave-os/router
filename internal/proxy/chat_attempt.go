@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/dispatch"
@@ -247,7 +248,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			return err
 		}
 		return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
-			surface := deps.responseSwitch.surface(d.Provider, servedOnCodexSubscription(actx))
+			surface := deps.responseSwitch.surface(d.Provider, credentials.ServedOnCodexSubscription(actx))
 			gatewayKey := gatewayResponsesKey(actx, d.Provider)
 			stripPromptCacheKey := deps.svc.engine.GatewayCaps().RejectsPromptCacheKey(gatewayKey)
 			err := dispatchOpenAI(actx, d, p, surface, stripPromptCacheKey)

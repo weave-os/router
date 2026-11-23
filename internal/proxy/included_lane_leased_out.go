@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -53,7 +54,7 @@ func attemptedSeatsRateLimited(state *credentials.ManagedSubscriptionUsage, mode
 	return true
 }
 
-func recordCallerCodexFailureOnLinkedSeat(ctx context.Context, creds *Credentials, attemptErr error, now time.Time) {
+func recordCallerCodexFailureOnLinkedSeat(ctx context.Context, creds *requestcontext.Credentials, attemptErr error, now time.Time) {
 	if creds == nil || !creds.OAuth || creds.SubscriptionAccountID != "" || len(creds.AccountID) == 0 || upstreamStatus(attemptErr) != http.StatusTooManyRequests {
 		return
 	}

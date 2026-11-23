@@ -27,14 +27,14 @@ func TestUnavailableFederationIsIsolatedToItsProvider(t *testing.T) {
 	}
 	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, keys)
 	model := "claude-opus-5-5"
-	resolvedAnthropic := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, model, nil)
-	anthropicCredential := CredentialsFromContext(resolvedAnthropic)
+	resolvedAnthropic := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, model, nil)
+	anthropicCredential := credentials.CredentialsFromContext(resolvedAnthropic)
 	require.NotNil(t, anthropicCredential)
 	require.ErrorIs(t, anthropicCredential.CredentialError, auth.ErrAnthropicFederationUnavailable)
 	assert.Empty(t, anthropicCredential.APIKey)
 
-	resolvedOpenAI := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5", nil)
-	openAICredential := CredentialsFromContext(resolvedOpenAI)
+	resolvedOpenAI := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5", nil)
+	openAICredential := credentials.CredentialsFromContext(resolvedOpenAI)
 	require.NotNil(t, openAICredential)
 	assert.Equal(t, "synthetic-openai-key", string(openAICredential.APIKey))
 	require.NoError(t, openAICredential.CredentialError)
@@ -70,8 +70,8 @@ func TestFederationOutageDoesNotBlockOpenAIInference(t *testing.T) {
 	err := service.ProxyMessages(ctx, body, recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 	require.NoError(t, err)
 	assert.Equal(t, 1, upstream.dispatches)
-	require.NotNil(t, CredentialsFromContext(upstream.capturedCtx))
-	assert.Equal(t, "synthetic-openai-key", string(CredentialsFromContext(upstream.capturedCtx).APIKey))
+	require.NotNil(t, credentials.CredentialsFromContext(upstream.capturedCtx))
+	assert.Equal(t, "synthetic-openai-key", string(credentials.CredentialsFromContext(upstream.capturedCtx).APIKey))
 }
 
 func TestFederationOutageFailsClosedOnAnthropicInference(t *testing.T) {

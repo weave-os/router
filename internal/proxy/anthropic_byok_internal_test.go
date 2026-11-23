@@ -83,9 +83,9 @@ func TestAnthropicBYOKDispatchIgnoresSubscriptionState(t *testing.T) {
 				require.NoError(t, err)
 			}
 			require.Equal(t, 1, upstream.dispatches)
-			creds := CredentialsFromContext(upstream.capturedCtx)
+			creds := credentials.CredentialsFromContext(upstream.capturedCtx)
 			require.NotNil(t, creds)
-			require.Equal(t, credSourceBYOK, creds.Source)
+			require.Equal(t, requestcontext.SourceBYOK, creds.Source)
 			require.False(t, creds.OAuth)
 			require.Equal(t, byok.Plaintext, creds.APIKey)
 			require.Equal(t, tc.credentialErr, creds.CredentialError)

@@ -24,7 +24,7 @@ func TestPresentSubscriptionTokens_InboundBearerHarnesses(t *testing.T) {
 	t.Run("claude code: sk-ant-oat in Authorization", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("Authorization", "Bearer sk-ant-oat01-claudecode-token")
-		codex, anthro := presentSubscriptionTokens(context.Background(), h)
+		codex, anthro := credentials.PresentSubscriptionTokens(context.Background(), h)
 		assert.Equal(t, "sk-ant-oat01-claudecode-token", anthro)
 		assert.Empty(t, codex, "an sk-ant token must not be misread as a Codex sub")
 	})
@@ -33,7 +33,7 @@ func TestPresentSubscriptionTokens_InboundBearerHarnesses(t *testing.T) {
 		h := http.Header{}
 		h.Set("Authorization", "Bearer eyJhbGciOi.codex.jwt")
 		h.Set("ChatGPT-Account-ID", "acct-abc-123")
-		codex, anthro := presentSubscriptionTokens(context.Background(), h)
+		codex, anthro := credentials.PresentSubscriptionTokens(context.Background(), h)
 		assert.Equal(t, "eyJhbGciOi.codex.jwt", codex)
 		assert.Empty(t, anthro, "a Codex JWT must not be misread as a Claude sub")
 	})
@@ -41,12 +41,12 @@ func TestPresentSubscriptionTokens_InboundBearerHarnesses(t *testing.T) {
 	t.Run("codex jwt without account-id is not a usable codex sub", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("Authorization", "Bearer eyJhbGciOi.codex.jwt")
-		codex, _ := presentSubscriptionTokens(context.Background(), h)
+		codex, _ := credentials.PresentSubscriptionTokens(context.Background(), h)
 		assert.Empty(t, codex, "the Codex backend needs the account-id; no pairing = no sub")
 	})
 
 	t.Run("no subscription credentials: both empty", func(t *testing.T) {
-		codex, anthro := presentSubscriptionTokens(context.Background(), http.Header{})
+		codex, anthro := credentials.PresentSubscriptionTokens(context.Background(), http.Header{})
 		assert.Empty(t, codex)
 		assert.Empty(t, anthro)
 	})
@@ -59,7 +59,7 @@ func TestPresentSubscriptionTokens_DisabledReportsNone(t *testing.T) {
 	h.Set("Authorization", "Bearer sk-ant-oat01-live-token")
 	ctx := context.WithValue(context.Background(), requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true)
 
-	codex, anthro := presentSubscriptionTokens(ctx, h)
+	codex, anthro := credentials.PresentSubscriptionTokens(ctx, h)
 	assert.Empty(t, anthro, "toggle off must report no Claude sub so billing paths gate prepaid")
 	assert.Empty(t, codex)
 
@@ -90,7 +90,7 @@ func TestPresentSubscriptionTokens_MaxProductScopeReportsNone(t *testing.T) {
 	h.Set("Authorization", "Bearer sk-ant-oat01-live-token")
 	ctx := entitlement.WithProductScope(context.Background(), entitlement.PlanMax)
 
-	codex, anthro := presentSubscriptionTokens(ctx, h)
+	codex, anthro := credentials.PresentSubscriptionTokens(ctx, h)
 	assert.Empty(t, anthro)
 	assert.Empty(t, codex)
 	assert.False(t, RequestPresentsCoveringSubscription(ctx, h, requestcontext.RoutePathMessages))

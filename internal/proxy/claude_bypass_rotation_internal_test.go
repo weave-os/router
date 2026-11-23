@@ -146,7 +146,7 @@ func TestClaudeBypassDepletedCreditsRotatesLinkedAccounts(t *testing.T) {
 						wantReason = reasonClassifierPassthrough
 					}
 					require.Equal(t, wantReason, rec.Header().Get(requestcontext.HeaderRouterDecision))
-					require.True(t, managedSubscriptionServed(ctx))
+					require.True(t, credentials.ManagedSubscriptionServed(ctx))
 				} else {
 					require.Error(t, err)
 					require.Equal(t, []string{"Bearer sk-ant-oat01-direct-spent"}, tokens)
