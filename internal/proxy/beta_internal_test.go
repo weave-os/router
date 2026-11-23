@@ -66,7 +66,7 @@ func TestQwenBetaToggleUsesAdmittedClassifierAndInternalIdentity(t *testing.T) {
 			response := httptest.NewRecorder()
 			var sessionKey [sessionstrategy.SessionKeyLen]byte
 			sessionKey[0] = 1
-			require.NoError(t, (betaCommands{svc}).handle(ctx, response, env, command, uuid.New(), sessionKey, sessionKey, 1))
+			require.NoError(t, (betaCommands{svc, router.StrategyFromContext(ctx)}).handle(ctx, response, env, command, uuid.New(), sessionKey, sessionKey, 1))
 			if tt.wantEnabled {
 				assert.Contains(t, response.Body.String(), conversation.QwenEnabledMessage)
 				assert.Equal(t, router.StrategyHMMQwen, store.preference.Strategy)
@@ -265,7 +265,7 @@ func TestHandleBetaCommandTogglesAndAcknowledges(t *testing.T) {
 		cmd, found := env.ExtractBetaCommand()
 		require.True(t, found)
 		response := httptest.NewRecorder()
-		require.NoError(t, (betaCommands{svc}).handle(
+		require.NoError(t, (betaCommands{svc, router.StrategyFromContext(context.Background())}).handle(
 			context.Background(), response, env, cmd, installationID, sessionKey, sessionKey, 1,
 		))
 		assert.Equal(t, "✦ **Weave Router** → "+want+"\n\n", gjson.Get(response.Body.String(), "content.0.text").String())
@@ -292,7 +292,7 @@ func TestHandleBetaCommandIsInertWhenInstallationPinnedToBeta(t *testing.T) {
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
 
 	response := httptest.NewRecorder()
-	require.NoError(t, (betaCommands{svc}).handle(ctx, response, env, cmd, uuid.New(), sessionKey, sessionKey, 1))
+	require.NoError(t, (betaCommands{svc, router.StrategyFromContext(ctx)}).handle(ctx, response, env, cmd, uuid.New(), sessionKey, sessionKey, 1))
 	assert.Equal(t, "✦ **Weave Router** → "+conversation.BetaPinnedMessage+"\n\n", gjson.Get(response.Body.String(), "content.0.text").String())
 	assert.Equal(t, 0, store.toggles, "an installation pin must not be shadowed by a session toggle")
 	assert.Empty(t, pins.consumedStrategy)
@@ -311,7 +311,7 @@ func TestHandleBetaCommandAcceptsHeaderOnlyClientSession(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
 
 	response := httptest.NewRecorder()
-	require.NoError(t, (betaCommands{svc}).handle(ctx, response, env, cmd, uuid.New(), sessionKey, sessionKey, 1))
+	require.NoError(t, (betaCommands{svc, router.StrategyFromContext(ctx)}).handle(ctx, response, env, cmd, uuid.New(), sessionKey, sessionKey, 1))
 	assert.Equal(t, "✦ **Weave Router** → "+conversation.BetaEnabledMessage+"\n\n", gjson.Get(response.Body.String(), "content.0.text").String())
 	assert.Equal(t, 1, store.toggles)
 }
@@ -341,7 +341,7 @@ func TestHandleBetaCommandOverlappingTogglesAcknowledgeDistinctStates(t *testing
 			cmd, found := env.ExtractBetaCommand()
 			assert.True(t, found)
 			response := httptest.NewRecorder()
-			assert.NoError(t, (betaCommands{svc}).handle(
+			assert.NoError(t, (betaCommands{svc, router.StrategyFromContext(context.Background())}).handle(
 				context.Background(), response, env, cmd, installationID, sessionKey, sessionKey, 1,
 			))
 			acknowledgements <- gjson.Get(response.Body.String(), "content.0.text").String()
@@ -374,7 +374,7 @@ func TestHandleBetaCommandRejectsArgumentsWithoutStateChange(t *testing.T) {
 	var sessionKey [sessionstrategy.SessionKeyLen]byte
 	sessionKey[0] = 1
 
-	require.NoError(t, (betaCommands{svc}).handle(
+	require.NoError(t, (betaCommands{svc, router.StrategyFromContext(context.Background())}).handle(
 		context.Background(), response, env, cmd, uuid.New(), sessionKey, sessionKey, 1,
 	))
 	assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), conversation.BetaUsageMessage)
@@ -403,7 +403,7 @@ func TestHandleBetaCommandRequiresClientSessionAndAvailablePolicy(t *testing.T) 
 			var sessionKey [sessionstrategy.SessionKeyLen]byte
 			sessionKey[0] = 1
 
-			require.NoError(t, (betaCommands{svc}).handle(
+			require.NoError(t, (betaCommands{svc, router.StrategyFromContext(context.Background())}).handle(
 				context.Background(), response, env, cmd, uuid.New(), sessionKey, sessionKey, 1,
 			))
 			assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), conversation.BetaUnavailable)
@@ -424,7 +424,7 @@ func TestHandleBetaCommandWriteFailureLeavesStablePinsUntouched(t *testing.T) {
 	var sessionKey [sessionstrategy.SessionKeyLen]byte
 	sessionKey[0] = 1
 
-	err := (betaCommands{svc}).handle(
+	err := (betaCommands{svc, router.StrategyFromContext(context.Background())}).handle(
 		context.Background(), httptest.NewRecorder(), env, cmd, uuid.New(), sessionKey, sessionKey, 1,
 	)
 
@@ -451,7 +451,7 @@ func TestHandleBetaCommandCanDisablePersistedBetaWhilePolicyUnavailable(t *testi
 	require.True(t, found)
 	response := httptest.NewRecorder()
 
-	require.NoError(t, (betaCommands{svc}).handle(
+	require.NoError(t, (betaCommands{svc, router.StrategyFromContext(context.Background())}).handle(
 		context.Background(), response, env, cmd, installationID, sessionKey, sessionKey, 1,
 	))
 	assert.False(t, store.found)
@@ -490,7 +490,7 @@ func TestHandleBetaCommandOverlappingTogglesCannotReenableUnavailableBeta(t *tes
 			cmd, found := env.ExtractBetaCommand()
 			assert.True(t, found)
 			response := httptest.NewRecorder()
-			assert.NoError(t, (betaCommands{svc}).handle(
+			assert.NoError(t, (betaCommands{svc, router.StrategyFromContext(context.Background())}).handle(
 				context.Background(), response, env, cmd, installationID, sessionKey, sessionKey, 1,
 			))
 			acknowledgements <- gjson.Get(response.Body.String(), "content.0.text").String()
@@ -635,7 +635,7 @@ func TestBetaToggleSelectsBetaThenRestoresStableRouter(t *testing.T) {
 	enableEnv := betaTestEnvelope(t, "/beta", true)
 	enableCmd, found := enableEnv.ExtractBetaCommand()
 	require.True(t, found)
-	require.NoError(t, (betaCommands{svc}).handle(
+	require.NoError(t, (betaCommands{svc, router.StrategyFromContext(baseCtx)}).handle(
 		baseCtx, httptest.NewRecorder(), enableEnv, enableCmd, installationID, sessionKey, sessionKey, 1,
 	))
 	betaCtx, _, err := svc.applySessionStrategy(baseCtx, router.StrategyFromContext(baseCtx), installationID, sessionKey)
@@ -648,7 +648,7 @@ func TestBetaToggleSelectsBetaThenRestoresStableRouter(t *testing.T) {
 	disableEnv := betaTestEnvelope(t, "/beta", true)
 	disableCmd, found := disableEnv.ExtractBetaCommand()
 	require.True(t, found)
-	require.NoError(t, (betaCommands{svc}).handle(
+	require.NoError(t, (betaCommands{svc, router.StrategyFromContext(baseCtx)}).handle(
 		baseCtx, httptest.NewRecorder(), disableEnv, disableCmd, installationID, sessionKey, sessionKey, 1,
 	))
 	stableCtx, _, err := svc.applySessionStrategy(baseCtx, router.StrategyFromContext(baseCtx), installationID, sessionKey)

@@ -27,7 +27,7 @@ import (
 
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
 	ctx = credentials.WithWeaveCreditsFunding(ctx, r.Header)
-	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
+	w, finishBlindExperimentWriter := ingress.WithBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
 	if websearch.IsClaudeCodeWebSearchHelper(body) {
 		r = r.Clone(ctx)
@@ -108,7 +108,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		betaSessionKey := deriveBetaSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 		if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
 			log.Info("ProxyMessages beta command")
-			return (betaCommands{s}).handle(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
+			return (betaCommands{s, strategy}).handle(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
 		}
 		ctx, strategy, err = s.applySessionStrategy(ctx, strategy, facts.InstallationID, betaSessionKey)
 		if err != nil {

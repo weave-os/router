@@ -26,6 +26,10 @@ func ClassifiesThreads(strategy Strategy) bool {
 	return strategy == StrategyLLMClassifier
 }
 
+func IsInternalOnlyStrategy(strategy Strategy) bool {
+	return strategy == StrategyHMMQwen
+}
+
 func IsBetaStrategy(strategy Strategy) bool {
 	return strategy == StrategyHMMBeta || strategy == StrategyHMMQwen
 }
@@ -77,4 +81,16 @@ func StrategyUnavailableError(strategy Strategy) error {
 	default:
 		return ErrStrategyUnavailable
 	}
+}
+
+func IsStableHMMStrategy(strategy Strategy) bool {
+	return strategy == StrategyHMM || strategy == StrategyHMMEmbedding
+}
+
+func HMMRosterLane(raw string) (Strategy, bool) {
+	strategy := NormalizeStrategy(raw)
+	if strategy == "" || strategy == StrategyHMMEmbedding {
+		strategy = StrategyHMM
+	}
+	return strategy, strategy == StrategyHMM || strategy == StrategyHMMBeta
 }

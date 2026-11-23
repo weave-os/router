@@ -79,7 +79,7 @@ func PreviewRouteHandler(svc RoutePreviewer) gin.HandlerFunc {
 			return
 		}
 		strategy := router.StrategyFromContext(c.Request.Context())
-		if strategy != router.StrategyHMM && strategy != router.StrategyHMMEmbedding {
+		if !router.IsStableHMMStrategy(strategy) {
 			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Route preview requires an HMM strategy.")
 			return
 		}

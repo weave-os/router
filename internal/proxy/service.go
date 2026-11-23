@@ -888,22 +888,6 @@ func policyRolloutIDFromContext(ctx context.Context) string {
 	return requestcontext.ClientIdentityFrom(ctx).RolloutID
 }
 
-func (s *Service) Route(ctx context.Context, req router.Request) (router.Decision, error) {
-	strategy := router.StrategyFromContext(ctx)
-	routeCtx, span := startRoutingSpan(ctx, strategy, req)
-	decision, err := s.routeFor(routeCtx, strategy, req)
-	finishRoutingSpan(span, decision, err)
-	return decision, err
-}
-
-func (s *Service) RouteAnthropicRequest(ctx context.Context, body []byte, headers http.Header) (decision router.Decision, err error) {
-	ctx, req, err := s.anthropicRoutingRequest(ctx, body, headers, "anthropic_route")
-	if err != nil {
-		return decision, err
-	}
-	return s.Route(ctx, req)
-}
-
 func logUpstreamBody(log *slog.Logger, sessionKey [sessionpin.SessionKeyLen]byte, decision router.Decision, feats translate.RoutingFeatures, body []byte) {
 	log.Info("upstream prepared request",
 		"session_key", hex.EncodeToString(sessionKey[:8]),
