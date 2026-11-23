@@ -12,8 +12,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
-
-	"github.com/google/uuid"
 )
 
 func shortKey(key [sessionpin.SessionKeyLen]byte) string {
@@ -34,13 +32,6 @@ func sessionKeyHex(key [sessionpin.SessionKeyLen]byte) string {
 
 func sessionAffinityHint(key [sessionpin.SessionKeyLen]byte) string {
 	return sessionKeyHex(key)
-}
-
-func requestIDFor(ctx context.Context) string {
-	if id := observability.RequestIDFromContext(ctx); id != "" {
-		return id
-	}
-	return uuid.New().String()
 }
 
 func bindRequestLogger(
@@ -131,7 +122,7 @@ func deriveConversationSessionKeyForRequest(
 }
 
 func clientSessionIDForRequest(ctx context.Context, env *translate.RequestEnvelope) string {
-	if id := ClientIdentityFrom(ctx).SessionID; id != "" {
+	if id := requestcontext.ClientIdentityFrom(ctx).SessionID; id != "" {
 		return id
 	}
 	if env != nil {

@@ -23,6 +23,7 @@ type (
 	InstallationSubscriptionModelsWhenInactiveContextKey struct{}
 	InstallationSubscriptionRoutingDisabledContextKey    struct{}
 	InstallationSubscriptionStateModelsEnabledContextKey struct{}
+	OpenAIAccountIDContextKey                            struct{}
 	InstallationTrialCaptureContextKey                   struct{}
 	InstallationUsageBypassContextKey                    struct{}
 	PolicyDebugEnabledContextKey                         struct{}

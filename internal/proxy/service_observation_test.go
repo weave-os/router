@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
@@ -356,7 +357,7 @@ func TestProxyMessages_RecordsPolicyObservation(t *testing.T) {
 		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem), hmm.ServingPorts()).
-		WithContentCapture(proxy.CaptureHashed, 0, nil)
+		WithContentCapture(capture.Hashed, 0, nil)
 
 	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installID)
 	ctx = context.WithValue(ctx, requestcontext.PolicyTrainingAllowedContextKey{}, true)

@@ -30,7 +30,7 @@ func TestRequestFactsFromReadsTheBoundaryKeys(t *testing.T) {
 	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "account-1")
 	ctx = requestcontext.WithClientIdentity(ctx, client)
 
-	facts := requestFactsFrom(ctx, headers)
+	facts := credentials.RequestFactsFrom(ctx, headers)
 
 	assert.Equal(t, requestcontext.RequestFacts{
 		RequestID:             "req-1",
@@ -51,7 +51,7 @@ func TestRequestFactsFromWithoutRouterKey(t *testing.T) {
 	invalid := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "not-a-uuid")
 	for name, ctx := range map[string]context.Context{"absent": context.Background(), "unparseable installation": invalid} {
 		t.Run(name, func(t *testing.T) {
-			facts := requestFactsFrom(ctx, nil)
+			facts := credentials.RequestFactsFrom(ctx, nil)
 			assert.False(t, facts.RouterKeyed())
 			assert.NotEmpty(t, facts.RequestID, "a request outside the HTTP middleware still gets a correlation id")
 		})

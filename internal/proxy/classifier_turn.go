@@ -69,7 +69,7 @@ func (s *Service) withClassifierInput(ctx context.Context, strategy router.Strat
 	if captured {
 		return ctx, nil
 	}
-	observation.CodexToolResults = endpoint == router.EndpointOpenAIResponses && ClientIdentityFrom(ctx).ClientApp == requestcontext.ClientAppCodex
+	observation.CodexToolResults = endpoint == router.EndpointOpenAIResponses && requestcontext.ClientIdentityFrom(ctx).ClientApp == requestcontext.ClientAppCodex
 	input, err := classifierContextForCall(observation)
 	if err != nil {
 		observability.FromContext(ctx).Warn("Classifier input rejected", "err", err, "endpoint", endpoint)

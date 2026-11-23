@@ -17,7 +17,7 @@ const (
 	claudeCodeAutoCompactBuffer    = 13_000
 )
 
-func resolveClientBudget(clientIdentity ClientIdentity, headers http.Header, model string, hadVariant bool) router.ClientBudget {
+func resolveClientBudget(clientIdentity requestcontext.ClientIdentity, headers http.Header, model string, hadVariant bool) router.ClientBudget {
 	budget := router.ClientBudget{
 		ModelVariant1M:   hadVariant,
 		InboundContext1M: translate.HasContext1MBeta(headers),

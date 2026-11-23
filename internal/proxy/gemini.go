@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/dispatch"
@@ -19,6 +20,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 )
 
@@ -34,7 +36,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if returnErr != nil {
 		return returnErr
 	}
-	ctx = requestcontext.WithContentLogging(ctx, s.effectiveCaptureMode(ctx) != CaptureOff)
+	ctx = requestcontext.WithContentLogging(ctx, s.effectiveCaptureMode(ctx) != capture.Off)
 	ctx, err := s.checkUserMonthlySpendLimit(ctx, r.Header, r.URL.Path)
 	if err != nil {
 		return err
@@ -47,7 +49,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	ctx, rateLimit := s.withRateLimitTurn(ctx)
 	log := observability.FromContext(ctx)
 	requestStart := s.clock.Now()
-	facts := requestFactsFrom(ctx, r.Header)
+	facts := credentials.RequestFactsFrom(ctx, r.Header)
 	ctx = telemetry.WithRecorder(ctx, s.newTelemetryRecorder())
 
 	env, body, parseErr := s.ingress.Gemini.Parse(ctx, body)
@@ -68,7 +70,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		}()
 	}
 	feats := env.RoutingFeatures()
-	ctx = withRequestImageCount(ctx, feats.ImageCount)
+	ctx = requestcontext.WithRequestImageCount(ctx, feats.ImageCount)
 	promptText, embedInput := conversation.TurnPromptText(feats)
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
@@ -81,7 +83,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		"total_input_tokens", feats.Tokens,
 	)
 
-	if s.effectiveCaptureMode(ctx) != CaptureOff {
+	if s.effectiveCaptureMode(ctx) != capture.Off {
 		logInboundRequestDiagnostics(log, env)
 	}
 
@@ -145,7 +147,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		return s.runTurnLoop(routeCtx, env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
 	})
 	defer routeRes.ReleaseCooldownProbes()
-	var escalationCapture *captureWriter
+	var escalationCapture *capture.Writer
 	defer func() {
 		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseGemini)
 	}()
@@ -202,7 +204,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	var extractor *telemetry.UsageExtractor
 	clientSink := w
 	if env.Stream() {
-		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, false); footer != "" {
+		if footer := s.feedbackFooter(ctx, requestcontext.ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, false); footer != "" {
 			clientSink = translate.NewGeminiRoutingFooterWriter(w, footer)
 		}
 	}
