@@ -22,11 +22,14 @@ type UpstreamGatewayHeaders struct {
 type upstreamGatewayContextKey struct{}
 
 func WithUpstreamGateway(ctx context.Context, headers UpstreamGatewayHeaders, inbound http.Header) context.Context {
-	return context.WithValue(ctx, upstreamGatewayContextKey{}, UpstreamGateway{
-		SessionID:   gatewaySessionID(headers.Session, inbound),
-		Email:       firstHeader(headers.UserEmail, inbound, NormalizeEmail),
-		DisplayName: firstHeader(headers.UserName, inbound, NormalizeDisplayName),
-	})
+	upstreamGateway := UpstreamGateway{
+		SessionID: gatewaySessionID(headers.Session, inbound),
+		Email:     firstHeader(headers.UserEmail, inbound, NormalizeEmail),
+	}
+	if upstreamGateway.Email != "" {
+		upstreamGateway.DisplayName = firstHeader(headers.UserName, inbound, NormalizeDisplayName)
+	}
+	return context.WithValue(ctx, upstreamGatewayContextKey{}, upstreamGateway)
 }
 
 func UpstreamGatewayFrom(ctx context.Context) (UpstreamGateway, bool) {

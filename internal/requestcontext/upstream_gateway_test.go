@@ -98,17 +98,18 @@ func TestUpstreamGatewayUserFromConfiguredHeaders(t *testing.T) {
 }
 
 func TestUpstreamGatewayUserHeaderMissingOrInvalidIsUnidentified(t *testing.T) {
-	headers := requestcontext.UpstreamGatewayHeaders{UserEmail: []string{"X-Gateway-User-Email"}}
+	headers := requestcontext.UpstreamGatewayHeaders{UserEmail: []string{"X-Gateway-User-Email"}, UserName: []string{"X-Gateway-User-Name"}}
 	for name, value := range map[string]string{"missing": "", "not an email": "gateway-user", "oversized": strings.Repeat("a", requestcontext.MaxEmailLen) + "@example.com"} {
 		t.Run(name, func(t *testing.T) {
 			inbound := http.Header{}
 			if value != "" {
 				inbound.Set("X-Gateway-User-Email", value)
 			}
+			inbound.Set("X-Gateway-User-Name", "Gateway User")
 			inbound.Set("X-Weave-User-Email", "spoofed@example.com")
 			id := requestcontext.ClientIdentityFrom(gatewayCtx(t, &requestcontext.Credentials{}, headers, inbound))
 			assert.Empty(t, id.Email, "only the configured gateway header can identify the user")
-			assert.Empty(t, id.DisplayName)
+			assert.Empty(t, id.DisplayName, "a name without a gateway email must not rename the shared unidentified user")
 		})
 	}
 }
