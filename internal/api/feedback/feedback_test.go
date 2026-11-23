@@ -11,10 +11,7 @@ import (
 	"time"
 
 	feedbackapi "weave-os/router/internal/api/feedback"
-	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/feedback"
-	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/router/hmm"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -36,9 +33,8 @@ func (f *fakeFeedbackRepo) GetContext(_ context.Context, _, _ string) (feedback.
 	return f.ctxResult, f.ctxErr
 }
 
-func newService(repo feedback.FeedbackRepository, signer *feedback.Signer) *proxy.Service {
-	return proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(nil), nil, nil, false, "", "", nil), hmm.ServingPorts()).
-		WithFeedback(repo, signer, "https://router.example.com")
+func newLinks(repo feedback.FeedbackRepository, signer *feedback.Signer) *feedback.Links {
+	return feedback.NewLinks(repo, signer, "https://router.example.com", nil, time.Now)
 }
 
 func TestGetContextHandler_ValidTokenReturnsContext(t *testing.T) {
@@ -53,7 +49,7 @@ func TestGetContextHandler_ValidTokenReturnsContext(t *testing.T) {
 		Rating:         "up",
 	}}
 	engine := gin.New()
-	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(newService(repo, signer)))
+	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(newLinks(repo, signer)))
 
 	tok := signer.Mint("inst-1", "org-1", "req-1", "user-1")
 	rec := httptest.NewRecorder()
@@ -75,7 +71,7 @@ func TestGetContextHandler_UnknownRequestStillRenders(t *testing.T) {
 	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{ctxErr: sql.ErrNoRows}
 	engine := gin.New()
-	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(newService(repo, signer)))
+	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(newLinks(repo, signer)))
 
 	tok := signer.Mint("inst-1", "org-1", "req-1", "")
 	rec := httptest.NewRecorder()
@@ -92,7 +88,7 @@ func TestGetContextHandler_InvalidTokenReturns404(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	signer := feedback.NewSigner("secret", time.Hour)
 	engine := gin.New()
-	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(newService(&fakeFeedbackRepo{}, signer)))
+	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(newLinks(&fakeFeedbackRepo{}, signer)))
 
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/feedback/link/bogus.token", nil))
@@ -104,7 +100,7 @@ func TestGetContextHandler_ExpiredTokenReturns410(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	signer := feedback.NewSigner("secret", time.Nanosecond)
 	engine := gin.New()
-	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(newService(&fakeFeedbackRepo{}, signer)))
+	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(newLinks(&fakeFeedbackRepo{}, signer)))
 
 	tok := signer.Mint("inst-1", "org-1", "req-1", "")
 	time.Sleep(2 * time.Millisecond)
@@ -119,7 +115,7 @@ func TestSubmitHandler_ValidSubmissionPersists(t *testing.T) {
 	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 	engine := gin.New()
-	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
+	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newLinks(repo, signer)))
 
 	tok := signer.Mint("inst-1", "org-1", "req-1", "user-1")
 	body := `{"token":"` + tok + `","rating":"down","comment":"  routed to a weak model  "}`
@@ -143,7 +139,7 @@ func TestSubmitHandler_RejectsInvalidRating(t *testing.T) {
 	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 	engine := gin.New()
-	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
+	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newLinks(repo, signer)))
 
 	tok := signer.Mint("inst-1", "org-1", "req-1", "")
 	body := `{"token":"` + tok + `","rating":"meh"}`
@@ -159,7 +155,7 @@ func TestSubmitHandler_RejectsOversizedBody(t *testing.T) {
 	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 	engine := gin.New()
-	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
+	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newLinks(repo, signer)))
 
 	tok := signer.Mint("inst-1", "org-1", "req-1", "")
 	body := `{"token":"` + tok + `","rating":"up","comment":"` + strings.Repeat("x", 64*1024) + `"}`
@@ -175,7 +171,7 @@ func TestSubmitHandler_BlankCommentIsStoredAsNoComment(t *testing.T) {
 	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 	engine := gin.New()
-	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
+	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newLinks(repo, signer)))
 
 	tok := signer.Mint("inst-1", "org-1", "req-1", "")
 	body := `{"token":"` + tok + `","rating":"up","comment":"   "}`
@@ -192,7 +188,7 @@ func TestSubmitHandler_InvalidTokenReturns404(t *testing.T) {
 	signer := feedback.NewSigner("secret", time.Hour)
 	repo := &fakeFeedbackRepo{}
 	engine := gin.New()
-	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
+	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newLinks(repo, signer)))
 
 	body := `{"token":"bogus.token","rating":"up"}`
 	rec := httptest.NewRecorder()
@@ -205,7 +201,7 @@ func TestSubmitHandler_InvalidTokenReturns404(t *testing.T) {
 func rateEngine(repo feedback.FeedbackRepository, signer *feedback.Signer) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.GET("/v1/feedback/rate", feedbackapi.RateHandler(newService(repo, signer)))
+	engine.GET("/v1/feedback/rate", feedbackapi.RateHandler(newLinks(repo, signer)))
 	return engine
 }
 
