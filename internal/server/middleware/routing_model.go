@@ -37,43 +37,37 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "routing_model_conflicts_with_force_model"})
 		return false
 	}
-	if model == router.ModelAutomatic {
-		selection := router.StrategySelectionFromContext(c.Request.Context())
-		selection.RoutingModel = model
-		c.Request = c.Request.WithContext(router.WithStrategySelection(c.Request.Context(), selection))
-		observability.FromGin(c).Debug("Routing model selected", "model", model)
-		return true
+	identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context())
+	scope := router.RoutingModelScope{
+		Managed:  managed,
+		Internal: managed && policyregistry.ExperimentalRoutingModelsPermitted(policyregistry.ServingTarget(identity.Target), entitlement.Plan(identity.Plan)) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != "",
 	}
-	if router.StrategyFromContext(c.Request.Context()) == router.StrategyLLMClassifier {
+	choice := router.SelectRoutingModel(router.StrategySelectionFromContext(c.Request.Context()), model, scope, func(strategy router.Strategy) bool {
+		return routingStrategyServable(c, managed, strategy, available)
+	})
+	switch choice.Outcome {
+	case router.RoutingModelClassifierConflict:
 		observability.FromGin(c).Debug("Routing model conflicts with enrolled classifier thread", "model", model)
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "start_new_thread_to_change_router"})
 		return false
-	}
-	selection, _ := router.RoutingModelPolicyFor(model)
-	identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context())
-	internal := managed && policyregistry.ExperimentalRoutingModelsPermitted(policyregistry.ServingTarget(identity.Target), entitlement.Plan(identity.Plan)) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != ""
-	if (managed || model == router.ModelQwen) && !internal {
+	case router.RoutingModelNotPermitted:
 		observability.FromGin(c).Debug("Routing model is unavailable for this serving scope", "model", model, "serving_target", identity.Target)
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "routing_model_not_permitted"})
 		return false
+	case router.RoutingModelUnservable:
+		observability.FromGin(c).Warn("Routing model has no servable policy", "model", model, "strategy", choice.PolicyStrategy)
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": choice.UnavailableError})
+		return false
+	case router.RoutingModelPrimaryFallback:
+		observability.FromGin(c).Info("Routing model variant is absent; serving the primary classifier", "model", model, "strategy", choice.PolicyStrategy, "fallback_strategy", choice.Selection.Strategy)
 	}
-	selectedStrategy := selection.Strategy
-	if !routingStrategyServable(c, managed, selectedStrategy, available) {
-		if !selection.FallsBackToPrimary || !routingStrategyServable(c, managed, router.PrimaryRoutingStrategy, available) {
-			observability.FromGin(c).Warn("Routing model has no servable policy", "model", model, "strategy", selectedStrategy)
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": selection.UnavailableError})
-			return false
-		}
-		observability.FromGin(c).Info("Routing model variant is absent; serving the primary classifier", "model", model, "strategy", selectedStrategy, "fallback_strategy", router.PrimaryRoutingStrategy)
-		selectedStrategy = router.PrimaryRoutingStrategy
-	}
-	c.Request = c.Request.WithContext(router.WithStrategySelection(c.Request.Context(), router.StrategySelection{Strategy: selectedStrategy, RoutingModel: model}))
+	c.Request = c.Request.WithContext(router.WithStrategySelection(c.Request.Context(), choice.Selection))
 	observability.FromGin(c).Debug("Routing model selected", "model", model)
 	return true
 }
 
 func routingStrategyServable(c *gin.Context, managed bool, strategy router.Strategy, available StrategyAvailability) bool {
-	if managed && strategy != router.StrategyDecisionModel {
+	if managed && router.RequiresPolicySnapshot(strategy) {
 		snapshot := policyregistry.ServingSnapshotFromContext(c.Request.Context())
 		if snapshot == nil || snapshot.Routers[strategy] == nil {
 			return false

@@ -13,7 +13,6 @@
       "internal/policyregistry": 5,
       "internal/proxy": 8,
       "internal/server": 2,
-      "internal/server/middleware": 9,
       "internal/subscriptions/entitlement": 1,
       "internal/translate": 2
     },
@@ -21,8 +20,7 @@
     "strategy_from_context_callers": {
       "internal/api/admin": 2,
       "internal/api/anthropic": 1,
-      "internal/proxy": 3,
-      "internal/server/middleware": 1
+      "internal/proxy": 3
     },
     "strategy_serving_adapter_imports": {}
   }
