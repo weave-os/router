@@ -588,6 +588,7 @@ nothing lands in a repo working tree.
 | `WEAVE_CODEX_STATUS_UPDATE=0`               | on      | Disable the Codex status helper's self-refresh.                |
 | `WEAVE_CODEX_STATUS_UPDATE_INTERVAL_DAYS`   | `7`     | How often the Codex helper may check for a new copy.           |
 | `WEAVE_CODEX_STATUS_URL`                    | GitHub raw | Source for the Codex status helper (self-hosters who fork). |
+| `WEAVE_STATUSLINE_TRUST_UNSIGNED=1`         | off     | Skip signature verification for an overridden source on another host (self-hosters only; no security property). |
 
 **Codex refreshes itself too.** The status helper checks for a newer copy of
 itself on the same schedule and swaps it in atomically, so an install picks up
@@ -608,6 +609,26 @@ admissible only when the signature verifies and the body's SHA-256 equals its
 manifest row. The committed key is a placeholder until the release pipeline
 stamps the real one; key format, signing and rotation are in
 [RELEASE_SIGNING.md](RELEASE_SIGNING.md).
+
+**Unsigned self-hosted sources.** A fork that serves its own copies through
+`WEAVE_STATUSLINE_URL`, `WEAVE_COMMANDS_URL_BASE`, `WEAVE_CODEX_STATUS_URL` or
+`WEAVE_UNINSTALL_URL` must still serve a `MANIFEST` signed with the embedded
+key, unless it sets `WEAVE_STATUSLINE_TRUST_UNSIGNED=1`. That opt-in skips
+signature and digest verification for a source only when its URL points at a
+host other than `raw.githubusercontent.com`; the default publisher always
+verifies, with or without it. Each use prints a warning on stderr. **The
+opt-in provides no security property.** It exists only so self-hoster forks
+are not forced to run their own signing pipeline: whoever controls the
+overridden host controls what runs, and a tampered replacement script can
+remove this gate. To stop fetching code altogether, use
+`WEAVE_STATUSLINE_UPDATE=0`.
+
+**Uninstalling through `curl | sh`.** `install.sh --uninstall` without an
+`uninstall.sh` beside it downloads one from the newest signed release tag and
+runs it only if it verifies against that tag's signed `MANIFEST`. Until the
+release pipeline stamps the real key, that check always fails; use
+`npx @weave-os/router --uninstall`, which runs the uninstaller bundled with the
+package.
 
 **Codex skill invocations are answered by the router.** `$fm`/`$force-model`, `$force-parent`,
 `$ufm`/`$unforce-model`, `$rf`/`$router-feedback`, `$router-session` and

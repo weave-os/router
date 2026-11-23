@@ -109,6 +109,48 @@ weave_verify_file() {
   [[ "$got" =~ ^[0-9a-f]{64}$ && "$got" == "$want" ]]
 }
 
+# ---------- unsigned self-hoster opt-in ----------
+#
+# WEAVE_STATUSLINE_TRUST_UNSIGNED=1 lets a self-hoster fork that serves its own
+# copies skip the signed-manifest check, so the fork does not need a signing
+# pipeline of its own. It is honored only for a source URL the user overrode
+# to a host other than raw.githubusercontent.com; the default publisher always
+# verifies. It provides no security property: a tampered replacement can
+# remove this gate along with everything else. These helpers are duplicated
+# verbatim in cc-statusline.sh, codex-status.sh and install.sh (and the copies
+# install.sh embeds); keep them identical.
+WEAVE_TRUST_UNSIGNED_WARNING='WEAVE_STATUSLINE_TRUST_UNSIGNED=1: skipping signature verification. This is advisory only — a tampered replacement script can remove this gate. The real trust boundary is the signed manifest on the default publisher.'
+
+# weave_trust_unsigned <url>: succeeds when WEAVE_STATUSLINE_TRUST_UNSIGNED=1
+# and <url>'s host is set and is not the default publisher.
+weave_trust_unsigned() {
+  [ "${WEAVE_STATUSLINE_TRUST_UNSIGNED:-}" = "1" ] || return 1
+  local host="${1:-}"
+  [ -n "$host" ] || return 1
+  case "$host" in
+    *://*) host="${host#*://}" ;;
+  esac
+  host="${host%%[/?#]*}"
+  host="${host##*@}"
+  host="${host%%:*}"
+  host="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
+  host="${host%.}"
+  [ "$host" != "raw.githubusercontent.com" ]
+}
+
+# weave_warn_trust_unsigned <url>...: prints WEAVE_TRUST_UNSIGNED_WARNING to
+# stderr once when any <url> is trusted unsigned.
+weave_warn_trust_unsigned() {
+  local url
+  for url in "$@"; do
+    if weave_trust_unsigned "$url"; then
+      printf '%s\n' "$WEAVE_TRUST_UNSIGNED_WARNING" >&2
+      return 0
+    fi
+  done
+  return 0
+}
+
 # ---------- pinned release source ----------
 #
 # The self-refresh downloads only from an immutable release tag, never from a
@@ -162,7 +204,9 @@ weave_release_advertised_tag() {
 # Set WEAVE_CODEX_STATUS_UPDATE=0 to disable it. Self-hosters can point
 # WEAVE_CODEX_STATUS_URL at their own helper source; MANIFEST and
 # MANIFEST.sig.b64 are then read from the same directory and must still verify
-# under the embedded key. The common WEAVE_STATUSLINE_UPDATE and
+# under the embedded key, unless WEAVE_STATUSLINE_TRUST_UNSIGNED=1 and that URL
+# is on another host (see "unsigned self-hoster opt-in" above), in which case
+# only the shape checks apply. The common WEAVE_STATUSLINE_UPDATE and
 # WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS variables remain accepted as aliases
 # for users who configure both clients together.
 #
@@ -215,10 +259,11 @@ weave_self_refresh() {
     # Detach stdin so curl can't accidentally consume it, and silence all
     # output so nothing leaks into the client's display.
     exec </dev/null
-    local base url outcome=fail
+    local base url outcome=fail unsigned=0
     if [ -n "${WEAVE_CODEX_STATUS_URL:-}" ]; then
       url="$WEAVE_CODEX_STATUS_URL"
       base="${url%/*}"
+      weave_trust_unsigned "$url" && unsigned=1
     else
       base=""
       if curl -fsSL --max-time 15 "$WEAVE_RELEASE_REPO_URL/main/install/codex-status.sh" -o "$tmp.channel" 2>/dev/null; then
@@ -235,17 +280,26 @@ weave_self_refresh() {
     fi
     # Verify before anything touches $self: the MANIFEST signature under the
     # embedded key, then this body's SHA-256 against its MANIFEST row. The
-    # shape checks stay as a second line of defence.
-    if [ -n "$base" ] \
+    # shape checks stay as a second line of defence, and are the only check
+    # for a source trusted unsigned.
+    if [ "$unsigned" = "1" ]; then
+      curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null && outcome=fetched
+    elif [ -n "$base" ] \
        && curl -fsSL --max-time 15 "$base/MANIFEST" -o "$tmp.MANIFEST" 2>/dev/null \
        && curl -fsSL --max-time 15 "$base/MANIFEST.sig.b64" -o "$tmp.MANIFEST.sig.b64" 2>/dev/null \
        && curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null \
        && weave_verify_manifest "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" \
-       && weave_verify_file "$tmp.MANIFEST" "install/codex-status.sh" "$tmp" \
-       && [ -s "$tmp" ] \
-       && head -n 1 "$tmp" | grep -q '^#!.*bash' \
-       && [ "$(wc -c <"$tmp")" -ge 1024 ]; then
-      outcome=verified
+       && weave_verify_file "$tmp.MANIFEST" "install/codex-status.sh" "$tmp"; then
+      outcome=fetched
+    fi
+    if [ "$outcome" = "fetched" ]; then
+      if [ -s "$tmp" ] \
+         && head -n 1 "$tmp" | grep -q '^#!.*bash' \
+         && [ "$(wc -c <"$tmp")" -ge 1024 ]; then
+        outcome=verified
+      else
+        outcome=fail
+      fi
     fi
     rm -f "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64"
     if [ "$outcome" = "verified" ]; then
@@ -776,6 +830,8 @@ esac
 
 payload="$(cat)"
 [ -n "$payload" ] || exit 0
+[ "${WEAVE_CODEX_STATUS_UPDATE:-${WEAVE_STATUSLINE_UPDATE:-1}}" = "0" ] \
+  || weave_warn_trust_unsigned "${WEAVE_CODEX_STATUS_URL:-}"
 weave_self_refresh 2>/dev/null || true
 command -v jq >/dev/null 2>&1 || exit 0
 jq -e . >/dev/null 2>&1 <<<"$payload" || exit 0
