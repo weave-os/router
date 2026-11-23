@@ -48,7 +48,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 	targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(deps.svc), target.Provider, target.Model, targetNotice)
 	switch providers.FamilyFor(target.Provider) {
 	case providers.FamilyAnthropic:
-		prep, emitErr := prepareAnthropicForTurn(deps.env, deps.request.Header, targetOpts, deps.routeRes.TurnType)
+		prep, emitErr := routingpolicy.PrepareAnthropicForTurn(deps.env, deps.request.Header, targetOpts, deps.routeRes.TurnType)
 		if emitErr != nil {
 			deps.log.Error("Failed to emit Anthropic body", "err", emitErr)
 			return nil, fmt.Errorf("emit body: %w", emitErr)

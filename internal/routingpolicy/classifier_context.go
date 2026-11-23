@@ -1,4 +1,4 @@
-package proxy
+package routingpolicy
 
 import (
 	"crypto/sha256"
@@ -14,11 +14,11 @@ import (
 
 const classifierHistoryResponseLimit = 10
 
-const classifierClaudeToolHint = "First privately list what you need next; then request every item that doesn't depend on another's result in this one response."
+const ClassifierClaudeToolHint = "First privately list what you need next; then request every item that doesn't depend on another's result in this one response."
 
 var classifierClaudeTokenBudget = regexp.MustCompile(`(^|\n\n)<total_tokens>[0-9]+ tokens left</total_tokens>(\n\nUSD budget: \$[0-9]+(\.[0-9]+)?/\$[0-9]+(\.[0-9]+)?; \$[0-9]+(\.[0-9]+)? remaining)?$`)
 
-func classifierContextForCall(observation translate.EscalationObservation) (router.ClassifierContext, error) {
+func ClassifierContextForCall(observation translate.EscalationObservation) (router.ClassifierContext, error) {
 	if !observation.HistoryComplete || observation.ContinuationID != "" || len(observation.ItemReferenceIDs) != 0 {
 		return router.ClassifierContext{}, router.ErrClassifierHistoryUnavailable
 	}
@@ -37,10 +37,10 @@ func classifierContextForCall(observation translate.EscalationObservation) (rout
 		}
 		if index == len(observation.Messages)-1 && message.Role == translate.EscalationRoleSystem && len(message.Blocks) == 2 &&
 			message.Blocks[0].Type == translate.EscalationBlockText && classifierClaudeTokenBudget.MatchString(message.Blocks[0].Text) &&
-			message.Blocks[1].Type == translate.EscalationBlockText && message.Blocks[1].Text == classifierClaudeToolHint {
+			message.Blocks[1].Type == translate.EscalationBlockText && message.Blocks[1].Text == ClassifierClaudeToolHint {
 			message.Blocks = message.Blocks[:1]
 		}
-		identityMessage := classifierReplayMessage(message, index)
+		identityMessage := ClassifierReplayMessage(message, index)
 		priorPrefix := prefix
 		encodedPrefixMessage, _ := json.Marshal(struct {
 			Prefix  string
