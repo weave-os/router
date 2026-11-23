@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
@@ -34,7 +35,7 @@ func TestSubscriptionStateForcedModelThrottledPoolFundsCredits(t *testing.T) {
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateCodexModel})
 	ctx = requestcontext.WithTurnFailures(ctx)
-	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
+	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: candidates.ModelSet([]string{providers.ProviderOpenAI})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
 	inputs := dispatch.FailoverInputs{

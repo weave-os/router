@@ -352,7 +352,7 @@ func siblingFitsContext(cortexGateways map[string]struct{}, model, provider stri
 		return true
 	}
 	needed := est + outputReserve
-	if sigSavings > 0 && modelStripsAnthropicSignatures(model) {
+	if sigSavings > 0 && candidatefilter.StripsAnthropicSignatures(model) {
 		needed -= sigSavings
 	}
 	return needed <= gatewayContextWindow(cortexGateways, model, provider)

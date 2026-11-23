@@ -134,7 +134,7 @@ func beginSubscriptionStateLane(ctx context.Context, initial router.Decision) co
 func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispatch.FailoverInputs) (int, error) {
 	request := *in.SubscriptionStateRequest
 	ctx = beginSubscriptionStateLane(ctx, in.InitialDecision)
-	sessionUnavailableModels := modelSet(sessionDemotedModelsFromContext(ctx))
+	sessionUnavailableModels := candidates.ModelSet(sessionDemotedModelsFromContext(ctx))
 	if sessionUnavailableModels == nil {
 		sessionUnavailableModels = make(map[string]struct{})
 	}

@@ -1,4 +1,4 @@
-package proxy
+package candidates
 
 import (
 	"maps"
@@ -9,7 +9,7 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-func excludeAdvisorOutrankingModels(env *translate.RequestEnvelope, excluded, available map[string]struct{}) (map[string]struct{}, []string) {
+func ExcludeAdvisorOutrankingModels(env *translate.RequestEnvelope, excluded, available map[string]struct{}) (map[string]struct{}, []string) {
 	advisorRank, ok := catalog.AdvisorRankFor(env.AdvisorToolModel())
 	if !ok {
 		return excluded, nil
@@ -32,7 +32,7 @@ func excludeAdvisorOutrankingModels(env *translate.RequestEnvelope, excluded, av
 	return updatedExcluded, modelsAdvisorCannotAdvise
 }
 
-func advisorRejectsModel(env *translate.RequestEnvelope, model string) bool {
+func AdvisorRejectsModel(env *translate.RequestEnvelope, model string) bool {
 	advisorRank, ok := catalog.AdvisorRankFor(env.AdvisorToolModel())
 	return ok && advisorCannotAdvise(advisorRank, model)
 }

@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
 
@@ -66,7 +67,7 @@ func (d *overflowDispatch) run(ctx context.Context, laneRequest bool) error {
 			Candidates: router.Candidates{
 				AllowedModels: allowedModelsForRequest(ctx),
 			},
-			EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}),
+			EnabledProviders: candidates.ModelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}),
 		}
 	}
 	_, err := d.svc.dispatchWithFallback(ctx, in)
