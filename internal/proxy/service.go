@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -739,35 +738,6 @@ func (s *Service) InferenceExecutor() *dispatch.Executor {
 	return s.engine.Executor()
 }
 
-func (s *Service) HasExcludedModelsOverride() bool {
-	return s.routing.ExcludedModelsOverride() != nil
-}
-
-func (s *Service) RoutableModels() map[string]struct{} {
-	if s == nil {
-		return nil
-	}
-	universe := s.routableUniverse()
-	out := make(map[string]struct{}, len(universe))
-	for m := range universe {
-		out[m] = struct{}{}
-	}
-	return out
-}
-
-func (s *Service) ExcludedModelsOverride() []string {
-	override := s.routing.ExcludedModelsOverride()
-	if override == nil {
-		return nil
-	}
-	out := make([]string, 0, len(override))
-	for m := range override {
-		out = append(out, m)
-	}
-	sort.Strings(out)
-	return out
-}
-
 func (s *Service) WithExcludedProvidersOverride(providerNames []string) *Service {
 	if len(providerNames) == 0 {
 		s.credentials.ExcludedProvidersOverride = nil
@@ -779,22 +749,6 @@ func (s *Service) WithExcludedProvidersOverride(providerNames []string) *Service
 	}
 	s.credentials.ExcludedProvidersOverride = set
 	return s
-}
-
-func (s *Service) HasExcludedProvidersOverride() bool {
-	return s.credentials.ExcludedProvidersOverride != nil
-}
-
-func (s *Service) ExcludedProvidersOverride() []string {
-	if s.credentials.ExcludedProvidersOverride == nil {
-		return nil
-	}
-	out := make([]string, 0, len(s.credentials.ExcludedProvidersOverride))
-	for p := range s.credentials.ExcludedProvidersOverride {
-		out = append(out, p)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func (s *Service) usageRequired() bool {
@@ -891,52 +845,12 @@ func registerPolicyStrategy(s *Service, spec policy.StrategySpec) *Service {
 	return s
 }
 
-func (s *Service) PolicyCapabilities(strategy router.Strategy) (policy.Capabilities, bool) {
-	registered, ok := s.strategies[strategy]
-	if ok {
-		if source, dynamic := registered.router.(policy.CapabilitySource); dynamic {
-			return source.CurrentCapabilities(), true
-		}
-	}
-	return registered.capabilities, ok
-}
-
-func (s *Service) PolicyCapabilitiesForRequest(ctx context.Context, strategy router.Strategy) (policy.Capabilities, bool) {
-	if source, ok := s.strategies[strategy].router.(policy.RequestCapabilitySource); ok {
-		return source.CapabilitiesForRequest(ctx), true
-	}
-	return s.PolicyCapabilities(strategy)
-}
-
 func (s *Service) authoritativePerTurnSelection(ctx context.Context, strategy router.Strategy) bool {
 	if s == nil {
 		return false
 	}
-	capabilities, ok := s.PolicyCapabilitiesForRequest(ctx, strategy)
+	capabilities, ok := NewRoutingCatalog(s).PolicyCapabilitiesForRequest(ctx, strategy)
 	return ok && capabilities.AuthoritativePerTurnSelection
-}
-
-func (s *Service) PolicyStrategyAvailable(strategy router.Strategy) bool {
-	registered, ok := s.strategies[strategy]
-	if !ok || registered.router == nil {
-		return false
-	}
-	if source, dynamic := registered.router.(policy.AvailabilitySource); dynamic {
-		return source.Available()
-	}
-	return true
-}
-
-func (s *Service) RegisteredStrategies() []router.Strategy {
-	if s == nil {
-		return nil
-	}
-	strategies := make([]router.Strategy, 0, len(s.strategies))
-	for strategy := range s.strategies {
-		strategies = append(strategies, strategy)
-	}
-	sort.Slice(strategies, func(i, j int) bool { return strategies[i] < strategies[j] })
-	return strategies
 }
 
 func (s *Service) routeFor(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {

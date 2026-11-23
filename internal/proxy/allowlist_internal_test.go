@@ -102,14 +102,14 @@ func TestExcludedModelsForRequest_WhollyUnroutableAllowlistEmptiesThePool(t *tes
 func TestRoutableModels_MatchesDesugaringUniverse(t *testing.T) {
 	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), routing: routingpolicy.New(nil).WithAvailableModels(map[string]struct{}{"a": {}, "b": {}})}
 
-	assert.Equal(t, s.routableUniverse(), s.RoutableModels())
+	assert.Equal(t, s.routableUniverse(), NewRoutingCatalog(s).RoutableModels())
 }
 
 // The accessor must return a copy so callers cannot mutate routing state.
 func TestRoutableModels_ReturnsACopy(t *testing.T) {
 	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), routing: routingpolicy.New(nil).WithAvailableModels(map[string]struct{}{"a": {}})}
 
-	got := s.RoutableModels()
+	got := NewRoutingCatalog(s).RoutableModels()
 	got["injected"] = struct{}{}
 
 	assert.NotContains(t, s.routing.AvailableModels(), "injected")
@@ -119,7 +119,7 @@ func TestRoutableModels_ReturnsACopy(t *testing.T) {
 func TestRoutableModels_NilServiceReportsUnknownUniverse(t *testing.T) {
 	var s *Service
 
-	assert.Nil(t, s.RoutableModels())
+	assert.Nil(t, NewRoutingCatalog(s).RoutableModels())
 }
 
 // The env override is a deliberate operator escape hatch: an operator debugging

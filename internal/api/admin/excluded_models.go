@@ -7,7 +7,6 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 
@@ -112,5 +111,3 @@ func UpdateExcludedModelsHandler(authSvc *auth.Service, override ExclusionOverri
 		})
 	}
 }
-
-var _ ExclusionOverrideSource = (*proxy.Service)(nil)

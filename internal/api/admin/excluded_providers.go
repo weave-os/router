@@ -8,7 +8,6 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 )
@@ -132,5 +131,3 @@ func abortRosterUnavailable(c *gin.Context, err error) {
 	observability.FromGin(c).Error("Serving model roster unavailable", "err", err)
 	c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Model roster unavailable; retry shortly."})
 }
-
-var _ ProviderExclusionOverrideSource = (*proxy.Service)(nil)

@@ -149,7 +149,7 @@ func TestClassifierThreadsRemainExplicitlyEnrolled(t *testing.T) {
 	engine := gin.New()
 	engine.POST("/v1/router/threads", classifier.StartThreadHandler(svc))
 	for _, path := range []string{"/v1/messages", "/v1/responses"} {
-		engine.POST(path, middleware.WithClassifierThread(svc, svc.PolicyStrategyAvailable), func(c *gin.Context) {
+		engine.POST(path, middleware.WithClassifierThread(svc, proxy.NewRoutingCatalog(svc).PolicyStrategyAvailable), func(c *gin.Context) {
 			strategy := router.StrategyFromContext(c.Request.Context())
 			if _, enrolled := c.Request.Context().Value(classifierEnrollmentTestKey{}).(bool); enrolled {
 				require.Equal(t, router.StrategyLLMClassifier, strategy)
