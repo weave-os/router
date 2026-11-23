@@ -147,7 +147,7 @@ func (c compactionHandoverSummarizer) Summarize(ctx context.Context, env *transl
 	}
 	target, limit := DefaultCompactionMaxTokens, DefaultCompactionMaxTokens
 	if c.compactionTokens > 0 {
-		target, limit = c.compactionTokens, c.compactionTokens+c.compactionTokens/3
+		target, limit = c.compactionTokens, 2*c.compactionTokens
 	}
 	return c.run(ctx, env, plan, summaryCall{instruction: compactionInstruction(target), maxTokens: limit, keepWarmCachePrefix: true}, c.compactionTimeout)
 }
