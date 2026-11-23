@@ -14,14 +14,14 @@ func TestStrategyPolicyResolve(t *testing.T) {
 	stable := []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding}
 	withBeta := append(append([]router.Strategy{}, stable...), router.StrategyHMMBeta)
 	for _, tc := range []struct {
-		name          string
-		defaultS      router.Strategy
-		live          func(router.Strategy) bool
-		available     []router.Strategy
-		in            router.StrategyInputs
-		want          router.Strategy
-		outcome       router.StrategyOutcome
-		headerOutcome router.StrategyHeaderOutcome
+		name            string
+		defaultStrategy router.Strategy
+		live            func(router.Strategy) bool
+		available       []router.Strategy
+		in              router.StrategyInputs
+		want            router.Strategy
+		outcome         router.StrategyOutcome
+		headerOutcome   router.StrategyHeaderOutcome
 	}{
 		{name: "no header uses deployment default", live: allLive, want: router.StrategyHMMEmbedding},
 		{name: "empty available falls back to stable lanes", live: allLive, in: router.StrategyInputs{Header: "hmm", HeaderAuthorized: true}, want: router.StrategyHMM, headerOutcome: router.StrategyHeaderApplied},
@@ -41,12 +41,12 @@ func TestStrategyPolicyResolve(t *testing.T) {
 		{name: "persisted live beta activates beta", live: allLive, available: withBeta, in: router.StrategyInputs{Persisted: router.StrategyHMMBeta}, want: router.StrategyHMMBeta},
 		{name: "persisted beta fails closed when unregistered", live: allLive, available: stable, in: router.StrategyInputs{Persisted: router.StrategyHMMBeta}, want: router.StrategyHMMBeta, outcome: router.StrategyUnresolvable},
 		{name: "persisted beta fails closed while lane empty", live: noneLive, available: withBeta, in: router.StrategyInputs{Persisted: router.StrategyHMMBeta}, want: router.StrategyHMMBeta, outcome: router.StrategyUnresolvable},
-		{name: "deployment default beta fails closed", defaultS: router.StrategyHMMBeta, live: allLive, available: withBeta, want: "", outcome: router.StrategyUnresolvable},
+		{name: "deployment default beta fails closed", defaultStrategy: router.StrategyHMMBeta, live: allLive, available: withBeta, want: "", outcome: router.StrategyUnresolvable},
 		{name: "non-managed unavailable persisted fails closed", live: allLive, available: stable, in: router.StrategyInputs{Persisted: "rl"}, want: "rl", outcome: router.StrategyUnresolvable},
-		{name: "non-managed unavailable default fails closed", defaultS: router.StrategyHMM, live: allLive, available: []router.Strategy{router.StrategyHMMEmbedding}, want: "", outcome: router.StrategyUnresolvable},
+		{name: "non-managed unavailable default fails closed", defaultStrategy: router.StrategyHMM, live: allLive, available: []router.Strategy{router.StrategyHMMEmbedding}, want: "", outcome: router.StrategyUnresolvable},
 		{name: "managed remaps retired beta to deployment default", live: allLive, available: withBeta, in: router.StrategyInputs{Managed: true, Persisted: router.StrategyHMMBeta}, want: router.StrategyHMMEmbedding},
-		{name: "managed remaps empty persisted to raw default", defaultS: router.StrategyHMM, live: allLive, available: stable, in: router.StrategyInputs{Managed: true}, want: router.StrategyHMM},
-		{name: "managed remapped default unavailable fails closed", defaultS: router.StrategyHMMBeta, live: noneLive, available: withBeta, in: router.StrategyInputs{Managed: true, Persisted: router.StrategyHMMBeta}, want: router.StrategyHMMBeta, outcome: router.StrategyUnresolvable},
+		{name: "managed remaps empty persisted to raw default", defaultStrategy: router.StrategyHMM, live: allLive, available: stable, in: router.StrategyInputs{Managed: true}, want: router.StrategyHMM},
+		{name: "managed remapped default unavailable fails closed", defaultStrategy: router.StrategyHMMBeta, live: noneLive, available: withBeta, in: router.StrategyInputs{Managed: true, Persisted: router.StrategyHMMBeta}, want: router.StrategyHMMBeta, outcome: router.StrategyUnresolvable},
 		{name: "managed unavailable persisted fails closed", live: allLive, available: stable, in: router.StrategyInputs{Managed: true, Persisted: "rl"}, want: "rl", outcome: router.StrategyUnresolvable},
 		{name: "managed retired beta header ignored", live: allLive, available: withBeta, in: router.StrategyInputs{Managed: true, Header: "hmm_beta", HeaderAuthorized: true}, want: router.StrategyHMMEmbedding, headerOutcome: router.StrategyHeaderRetiredBeta},
 		{name: "managed retired beta header wins over authorization", live: allLive, available: withBeta, in: router.StrategyInputs{Managed: true, Header: "hmm_beta"}, want: router.StrategyHMMEmbedding, headerOutcome: router.StrategyHeaderRetiredBeta},
@@ -55,7 +55,7 @@ func TestStrategyPolicyResolve(t *testing.T) {
 		{name: "plan without profile falls through to persisted", live: allLive, available: stable, in: router.StrategyInputs{Managed: true, PlanStrategy: router.StrategyHMMBeta, Persisted: router.StrategyHMM}, want: router.StrategyHMM},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			defaultStrategy := tc.defaultS
+			defaultStrategy := tc.defaultStrategy
 			if defaultStrategy == "" {
 				defaultStrategy = router.StrategyHMMEmbedding
 			}
