@@ -39,7 +39,8 @@ Measurement rules (pinned in `ratchet_test.go`):
 - Baseline growth (`baseline_growth`) compares the architecture debt records at the
   merge base and in the working tree: the atomization ratchet baseline (per ratchet
   and package), the inference-boundary baseline (exception count per `kind`), and the
-  `envReadAllowlist`, `proxyImportAllowlist` and `strategyFromContextSites` literals
+  `envReadAllowlist`, `proxyImportAllowlist`, `strategyFromContextSites`,
+  `strategyRouterWrappers` and `strategyRouteCallSites` literals
   in any Go file of `internal/architecture` (a `map[string]int` contributes its
   values; any other map or slice counts one per entry; keys and counts must be
   self-contained Go constants, or the run fails). A raised count or a new key fails unless `ratchet_exceptions.json`

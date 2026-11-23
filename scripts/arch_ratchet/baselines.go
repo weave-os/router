@@ -32,7 +32,7 @@ var baselineSources = []baselineSource{
 
 const goAllowlistDir = "internal/architecture"
 
-var goAllowlistNames = []string{"envReadAllowlist", "proxyImportAllowlist", "strategyFromContextSites"}
+var goAllowlistNames = []string{"envReadAllowlist", "proxyImportAllowlist", "strategyFromContextSites", "strategyRouterWrappers", "strategyRouteCallSites"}
 
 func compareBaselines(ctx context.Context, r repo, baseRev string, allowed exceptionSet) ([]violation, error) {
 	var violations []violation
