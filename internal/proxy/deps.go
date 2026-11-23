@@ -38,7 +38,7 @@ type EscalationDeps struct {
 }
 
 type RoutingDeps struct {
-	PrefixTrimFreeSwitch bool
+	PrefixTrimFreeSwitch *bool
 	EffortEscalation     bool
 }
 
@@ -58,7 +58,10 @@ func WithDeps(s *Service, deps Deps) *Service {
 	}
 	s.escalationHelper().WithSwitchyardActive(deps.Escalation.SwitchyardActive)
 	if deps.Routing != nil {
-		s.routing = s.routing.WithPrefixTrimFreeSwitch(deps.Routing.PrefixTrimFreeSwitch).WithEffortEscalation(deps.Routing.EffortEscalation)
+		s.routing = s.routing.WithEffortEscalation(deps.Routing.EffortEscalation)
+		if deps.Routing.PrefixTrimFreeSwitch != nil {
+			s.routing = s.routing.WithPrefixTrimFreeSwitch(*deps.Routing.PrefixTrimFreeSwitch)
+		}
 	}
 	s.credentials.BYOKOnly = deps.BYOKOnly
 	s.credentials.KeyedProviders = maps.Clone(deps.DeploymentKeyedProviders)

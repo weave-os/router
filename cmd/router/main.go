@@ -999,7 +999,7 @@ func main() {
 			TurnSignalCapture: turnSignalCaptureEnabled, NativeAnthropicResponseSignals: nativeAnthropicResponseSignals, NativeOpenAIResponseSignals: nativeOpenAIResponseSignals}},
 		Conversation: conversation.Config{Summarizer: summarizer, CompactionHandoverSummarizer: compactionHandoverSz, RouterFeedbackStore: repo.Telemetry, SessionStrategies: sessionStrategyStore,
 			FeedbackLinks: feedbackLinks, PiHandoffSecret: config.GetOr("ROUTER_PI_HANDOFF_SECRET", ""), TextRepetitionBreak: &textRepetitionBreakEnabled},
-		Routing: &proxy.RoutingDeps{PrefixTrimFreeSwitch: prefixTrimFreeSwitch, EffortEscalation: effortEscalation},
+		Routing: &proxy.RoutingDeps{PrefixTrimFreeSwitch: &prefixTrimFreeSwitch, EffortEscalation: effortEscalation},
 		Ingress: &ingressFormats, Escalation: proxy.EscalationDeps{SwitchyardActive: escalationJudgeActiveEnabled}, BYOKOnly: byokOnly, DeploymentKeyedProviders: deploymentEligible,
 		Dispatch: &dispatch.Config{
 			Rescue: dispatch.RescueConfig{SiblingFailover: siblingFailover, EarlyStopRedo: earlyStopRedo, CyberRefusalRepin: cyberRefusalRepin, CyberRefusalRetry: cyberRefusalRetry,
