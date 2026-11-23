@@ -109,7 +109,9 @@ func (s *Service) resumeHandoff(ctx context.Context, strategy router.Strategy, e
 	if !candidates.AutomaticPinEligible(pin, req) {
 		return routingpolicy.TurnRoute{}, conversation.ErrHandoffInvalid
 	}
-	return claims.Route, nil
+	route := claims.Route
+	route.SetCacheShape(turnCacheShape(ctx, env, env.RoutingFeatures()))
+	return route, nil
 }
 
 func validateHandoffEnvelope(ctx context.Context, env *translate.RequestEnvelope, headers http.Header, body []byte) error {

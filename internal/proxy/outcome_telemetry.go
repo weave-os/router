@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
+	"weave-os/router/internal/telemetry/respobserve"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
@@ -17,7 +18,7 @@ func latestToolCallCountsJSON(env *translate.RequestEnvelope) []byte {
 	if env.SourceFormat() != translate.FormatAnthropic {
 		return nil
 	}
-	counts := toolErrorCountsJSON(toolErrorCounts(env.LatestToolCallOutcomes()))
+	counts := respobserve.ToolErrorCountsJSON(respobserve.ToolErrorCounts(env.LatestToolCallOutcomes()))
 	if counts == nil {
 		return []byte(`{}`)
 	}

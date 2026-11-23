@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
+	"weave-os/router/internal/telemetry/respobserve"
 	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/translate/toolcheck"
@@ -78,8 +79,8 @@ type messagesTurnDispatch struct {
 	policyOutcomeCap        *capture.Writer
 	preludeBuf              *preludeBuffer
 	sink                    http.ResponseWriter
-	refusalObs              *refusalObserver
-	toolUseObs              *toolUseObserver
+	refusalObs              *respobserve.RefusalObserver
+	toolUseObs              *respobserve.ToolUseObserver
 	earlyStop               *dispatch.EarlyStopGate
 	streamCut               *dispatch.StreamCutObserver
 	proxyStart              time.Time
@@ -165,9 +166,9 @@ func (t *messagesTurnDispatch) prepareSinks(ctx context.Context, clientSink http
 	t.preludeBuf = newPreludeBuffer(t.contentSink)
 	var rootSink http.ResponseWriter = t.preludeBuf
 	t.sink = rootSink
-	t.refusalObs = newRefusalObserver(t.sink)
+	t.refusalObs = respobserve.NewRefusalObserver(t.sink)
 	t.sink = t.refusalObs
-	t.toolUseObs = newToolUseObserver(t.sink)
+	t.toolUseObs = respobserve.NewToolUseObserver(t.sink)
 	t.sink = t.toolUseObs
 	t.earlyStop = dispatch.NewEarlyStopGate(t.sink, t.log)
 	t.sink = t.earlyStop

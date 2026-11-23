@@ -1,4 +1,4 @@
-package proxy
+package respobserve
 
 import (
 	"bytes"
@@ -8,37 +8,37 @@ import (
 	"weave-os/router/internal/telemetry"
 )
 
-const anthropicRefusalStopReason = "refusal"
+const AnthropicRefusalStopReason = "refusal"
 
 const refusalScanCap = 64 * 1024
 
 const refusalScanOverlap = 32
 
-type refusalObserver struct {
+type RefusalObserver struct {
 	inner    http.ResponseWriter
 	buf      []byte
-	refused  bool
-	category string
+	Refused  bool
+	Category string
 }
 
-func newRefusalObserver(inner http.ResponseWriter) *refusalObserver {
-	return &refusalObserver{inner: inner}
+func NewRefusalObserver(inner http.ResponseWriter) *RefusalObserver {
+	return &RefusalObserver{inner: inner}
 }
 
-func (o *refusalObserver) Header() http.Header { return o.inner.Header() }
+func (o *RefusalObserver) Header() http.Header { return o.inner.Header() }
 
-func (o *refusalObserver) WriteHeader(status int) {
+func (o *RefusalObserver) WriteHeader(status int) {
 	sse.PrepareJSONResponse(o.inner)
 	o.inner.WriteHeader(status)
 }
 
-func (o *refusalObserver) Write(p []byte) (int, error) {
+func (o *RefusalObserver) Write(p []byte) (int, error) {
 	o.observe(p)
 	return sse.WriteJSONChunk(o.inner, p)
 }
 
-func (o *refusalObserver) observe(p []byte) {
-	if !o.refused && len(o.buf) < refusalScanCap {
+func (o *RefusalObserver) observe(p []byte) {
+	if !o.Refused && len(o.buf) < refusalScanCap {
 		prevLen := len(o.buf)
 		room := refusalScanCap - len(o.buf)
 		if room > len(p) {
@@ -49,20 +49,20 @@ func (o *refusalObserver) observe(p []byte) {
 		if scanFrom < 0 {
 			scanFrom = 0
 		}
-		if detectRefusalSignal(o.buf[scanFrom:]) {
-			o.refused = true
-			o.category = refusalCategory(o.buf)
+		if DetectRefusalSignal(o.buf[scanFrom:]) {
+			o.Refused = true
+			o.Category = RefusalCategory(o.buf)
 		}
 	}
 }
 
-func (o *refusalObserver) Flush() {
+func (o *RefusalObserver) Flush() {
 	if f, ok := o.inner.(http.Flusher); ok {
 		f.Flush()
 	}
 }
 
-func detectRefusalSignal(b []byte) bool {
+func DetectRefusalSignal(b []byte) bool {
 	if bytes.Contains(b, []byte(`"stop_reason":"refusal"`)) ||
 		bytes.Contains(b, []byte(`"type":"refusal"`)) ||
 		bytes.Contains(b, []byte("api_refusal_category")) {
@@ -79,7 +79,7 @@ var refusalCategoryKeys = [][]byte{
 	[]byte(`"category":"`),
 }
 
-func refusalCategory(b []byte) string {
+func RefusalCategory(b []byte) string {
 	for _, key := range refusalCategoryKeys {
 		if v, ok := delimitedValue(b, key, '"'); ok {
 			return v
@@ -104,39 +104,39 @@ func delimitedValue(b, prefix []byte, end byte) (string, bool) {
 	return string(rest[:j]), true
 }
 
-type passiveRefusalObserver struct {
+type PassiveRefusalObserver struct {
 	inner http.ResponseWriter
-	scan  refusalObserver
+	Scan  RefusalObserver
 }
 
-func newPassiveRefusalObserver(inner http.ResponseWriter) *passiveRefusalObserver {
-	return &passiveRefusalObserver{inner: inner}
+func NewPassiveRefusalObserver(inner http.ResponseWriter) *PassiveRefusalObserver {
+	return &PassiveRefusalObserver{inner: inner}
 }
 
-func (o *passiveRefusalObserver) Header() http.Header { return o.inner.Header() }
+func (o *PassiveRefusalObserver) Header() http.Header { return o.inner.Header() }
 
-func (o *passiveRefusalObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
+func (o *PassiveRefusalObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
 
-func (o *passiveRefusalObserver) Write(p []byte) (int, error) {
-	o.scan.observe(p)
+func (o *PassiveRefusalObserver) Write(p []byte) (int, error) {
+	o.Scan.observe(p)
 	return o.inner.Write(p)
 }
 
-func (o *passiveRefusalObserver) ArmOutputProgress(mark func()) bool {
+func (o *PassiveRefusalObserver) ArmOutputProgress(mark func()) bool {
 	armer, ok := o.inner.(interface{ ArmOutputProgress(func()) bool })
 	return ok && armer.ArmOutputProgress(mark)
 }
 
-func (o *passiveRefusalObserver) Flush() {
+func (o *PassiveRefusalObserver) Flush() {
 	if f, ok := o.inner.(http.Flusher); ok {
 		f.Flush()
 	}
 }
 
-func (o *passiveRefusalObserver) stopReason(extractor *telemetry.UsageExtractor) string {
+func (o *PassiveRefusalObserver) StopReason(extractor *telemetry.UsageExtractor) string {
 	stopReason, _, _ := extractor.AnthropicResponse()
-	if stopReason == "" && o.scan.refused {
-		return anthropicRefusalStopReason
+	if stopReason == "" && o.Scan.Refused {
+		return AnthropicRefusalStopReason
 	}
 	return stopReason
 }

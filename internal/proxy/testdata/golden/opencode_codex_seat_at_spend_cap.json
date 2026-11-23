@@ -361,7 +361,9 @@
           "role": "default",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 6,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "gpt-5.6-sol",
             "ServedProvider": "openai",
             "Strategy": "hmm_embedding"

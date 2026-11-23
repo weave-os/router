@@ -1,4 +1,4 @@
-package proxy
+package respobserve
 
 import (
 	"encoding/json"
@@ -36,7 +36,7 @@ const toolUseObserverStreamFixture = "event: message_start\n" +
 // The Bash input JSON reassembled from its two input_json_delta frames.
 const toolUseObserverBashInput = `{"command":"go test ./..."}`
 
-func writeInChunks(t *testing.T, obs *toolUseObserver, body string, chunk int) {
+func writeInChunks(t *testing.T, obs *ToolUseObserver, body string, chunk int) {
 	t.Helper()
 	for i := 0; i < len(body); i += chunk {
 		end := i + chunk
@@ -50,36 +50,36 @@ func writeInChunks(t *testing.T, obs *toolUseObserver, body string, chunk int) {
 
 func TestToolUseObserver_StreamingToolUseStopNamesLastTool(t *testing.T) {
 	rec := httptest.NewRecorder()
-	obs := newToolUseObserver(rec)
+	obs := NewToolUseObserver(rec)
 	// Odd chunk size so every frame boundary lands mid-frame at least once.
 	writeInChunks(t, obs, toolUseObserverStreamFixture, 7)
 
-	last, ok := obs.terminal()
+	last, ok := obs.Terminal()
 	require.True(t, ok)
-	assert.Equal(t, lastToolUse{Name: "Bash", InputBytes: len(toolUseObserverBashInput)}, last)
+	assert.Equal(t, LastToolUse{Name: "Bash", InputBytes: len(toolUseObserverBashInput)}, last)
 	assert.Equal(t, toolUseObserverStreamFixture, rec.Body.String(), "observer must pass bytes through unchanged")
 }
 
 func TestToolUseObserver_StreamCutBeforeMessageDeltaIsUnknown(t *testing.T) {
-	obs := newToolUseObserver(httptest.NewRecorder())
+	obs := NewToolUseObserver(httptest.NewRecorder())
 	cut := toolUseObserverStreamFixture[:strings.Index(toolUseObserverStreamFixture, "event: message_delta")]
 	writeInChunks(t, obs, cut, 64)
 
-	_, ok := obs.terminal()
+	_, ok := obs.Terminal()
 	assert.False(t, ok)
 }
 
 func TestToolUseObserver_EndTurnStopIsUnknown(t *testing.T) {
-	obs := newToolUseObserver(httptest.NewRecorder())
+	obs := NewToolUseObserver(httptest.NewRecorder())
 	turn := strings.Replace(toolUseObserverStreamFixture, `"stop_reason":"tool_use"`, `"stop_reason":"end_turn"`, 1)
 	writeInChunks(t, obs, turn, 64)
 
-	_, ok := obs.terminal()
+	_, ok := obs.Terminal()
 	assert.False(t, ok, "a tool_use block on a non-tool_use stop is not the terminal call")
 }
 
 func TestToolUseObserver_NonStreamingBodyUsesLastToolUseBlock(t *testing.T) {
-	obs := newToolUseObserver(httptest.NewRecorder())
+	obs := NewToolUseObserver(httptest.NewRecorder())
 	body := `{"id":"msg_1","type":"message","role":"assistant","stop_reason":"tool_use",` +
 		`"content":[{"type":"text","text":"ok"},` +
 		`{"type":"tool_use","id":"toolu_1","name":"Read","input":{"path":"a.go"}},` +
@@ -87,34 +87,34 @@ func TestToolUseObserver_NonStreamingBodyUsesLastToolUseBlock(t *testing.T) {
 		`"usage":{"input_tokens":1,"output_tokens":2}}`
 	writeInChunks(t, obs, body, 33)
 
-	last, ok := obs.terminal()
+	last, ok := obs.Terminal()
 	require.True(t, ok)
-	assert.Equal(t, lastToolUse{Name: "Edit", InputBytes: len(`{"path":"a.go","old":"x","new":"yy"}`)}, last)
+	assert.Equal(t, LastToolUse{Name: "Edit", InputBytes: len(`{"path":"a.go","old":"x","new":"yy"}`)}, last)
 }
 
 func TestToolUseObserver_ErrorBodyIsUnknown(t *testing.T) {
-	obs := newToolUseObserver(httptest.NewRecorder())
+	obs := NewToolUseObserver(httptest.NewRecorder())
 	_, err := obs.Write([]byte(`{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`))
 	require.NoError(t, err)
 
-	_, ok := obs.terminal()
+	_, ok := obs.Terminal()
 	assert.False(t, ok)
 }
 
 func TestToolUseObserver_OversizedJSONBodyIsUnknown(t *testing.T) {
-	obs := newToolUseObserver(httptest.NewRecorder())
+	obs := NewToolUseObserver(httptest.NewRecorder())
 	padding := strings.Repeat("x", toolUseScanCap)
 	body := `{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Bash","input":{"pad":"` + padding + `"}}]}`
 	writeInChunks(t, obs, body, 1<<16)
 
-	_, ok := obs.terminal()
+	_, ok := obs.Terminal()
 	assert.False(t, ok)
 	assert.Nil(t, obs.jsonBody, "over-cap body must be released, not held")
 }
 
 func TestToolUseObserver_NilIsUnknown(t *testing.T) {
-	var obs *toolUseObserver
-	_, ok := obs.terminal()
+	var obs *ToolUseObserver
+	_, ok := obs.Terminal()
 	assert.False(t, ok)
 }
 
@@ -128,18 +128,18 @@ func TestToolErrorCounts_TalliesResolvedCallsPerTool(t *testing.T) {
 		{Name: "Edit", Resolved: false},
 	}
 
-	counts := toolErrorCounts(outcomes)
-	assert.Equal(t, map[string]toolCallTally{
+	counts := ToolErrorCounts(outcomes)
+	assert.Equal(t, map[string]ToolCallTally{
 		"Bash": {Calls: 3, Errors: 2},
 		"Read": {Calls: 1, Errors: 0},
 	}, counts)
-	assert.JSONEq(t, `{"Bash":{"calls":3,"errors":2},"Read":{"calls":1,"errors":0}}`, string(toolErrorCountsJSON(counts)))
+	assert.JSONEq(t, `{"Bash":{"calls":3,"errors":2},"Read":{"calls":1,"errors":0}}`, string(ToolErrorCountsJSON(counts)))
 }
 
 func TestToolErrorCounts_NoResolvedCallsStaysNil(t *testing.T) {
-	assert.Nil(t, toolErrorCounts(nil))
-	assert.Nil(t, toolErrorCounts([]translate.ToolCallOutcome{{Name: "Edit", Resolved: false}}))
-	assert.Nil(t, toolErrorCountsJSON(nil))
+	assert.Nil(t, ToolErrorCounts(nil))
+	assert.Nil(t, ToolErrorCounts([]translate.ToolCallOutcome{{Name: "Edit", Resolved: false}}))
+	assert.Nil(t, ToolErrorCountsJSON(nil))
 }
 
 const toolUseObserverJSONBody = `{"id":"msg_1","type":"message","role":"assistant","stop_reason":"tool_use",` +
@@ -152,12 +152,12 @@ const toolUseObserverJSONBody = `{"id":"msg_1","type":"message","role":"assistan
 // boundary shows the observer saw the same frames a single write would have.
 type toolUseObservation struct {
 	stopReason string
-	last       lastToolUse
+	last       LastToolUse
 	lastIndex  int64
 	haveLast   bool
 }
 
-func observationOf(o *toolUseObserver) toolUseObservation {
+func observationOf(o *ToolUseObserver) toolUseObservation {
 	return toolUseObservation{stopReason: o.stopReason, last: o.last, lastIndex: o.lastIndex, haveLast: o.haveLast}
 }
 
@@ -187,32 +187,32 @@ func TestToolUseObserver_FragmentationMatchesSingleWrite(t *testing.T) {
 	fixtures := []struct {
 		name string
 		body string
-		want lastToolUse
+		want LastToolUse
 	}{
-		{name: "lf stream", body: toolUseObserverStreamFixture, want: lastToolUse{Name: "Bash", InputBytes: len(toolUseObserverBashInput)}},
-		{name: "crlf stream", body: strings.ReplaceAll(toolUseObserverStreamFixture, "\n", "\r\n"), want: lastToolUse{Name: "Bash", InputBytes: len(toolUseObserverBashInput)}},
-		{name: "input spanning many writes", body: large, want: lastToolUse{Name: "Bash", InputBytes: largeInput}},
-		{name: "non-streaming body", body: toolUseObserverJSONBody, want: lastToolUse{Name: "Edit", InputBytes: len(`{"path":"a.go","old":"x","new":"yy"}`)}},
+		{name: "lf stream", body: toolUseObserverStreamFixture, want: LastToolUse{Name: "Bash", InputBytes: len(toolUseObserverBashInput)}},
+		{name: "crlf stream", body: strings.ReplaceAll(toolUseObserverStreamFixture, "\n", "\r\n"), want: LastToolUse{Name: "Bash", InputBytes: len(toolUseObserverBashInput)}},
+		{name: "input spanning many writes", body: large, want: LastToolUse{Name: "Bash", InputBytes: largeInput}},
+		{name: "non-streaming body", body: toolUseObserverJSONBody, want: LastToolUse{Name: "Edit", InputBytes: len(`{"path":"a.go","old":"x","new":"yy"}`)}},
 	}
 	prefixObservation := func(t *testing.T, prefix string) toolUseObservation {
 		t.Helper()
-		obs := newToolUseObserver(httptest.NewRecorder())
+		obs := NewToolUseObserver(httptest.NewRecorder())
 		writeChunks(t, obs, []string{prefix})
 		return observationOf(obs)
 	}
 	for _, fx := range fixtures {
 		t.Run(fx.name, func(t *testing.T) {
-			oracle := newToolUseObserver(httptest.NewRecorder())
+			oracle := NewToolUseObserver(httptest.NewRecorder())
 			writeChunks(t, oracle, []string{fx.body})
-			got, ok := oracle.terminal()
+			got, ok := oracle.Terminal()
 			require.True(t, ok)
 			require.Equal(t, fx.want, got)
 
 			for _, size := range chunkSizesFor(fx.body) {
 				rec := httptest.NewRecorder()
-				obs := newToolUseObserver(rec)
+				obs := NewToolUseObserver(rec)
 				writeChunks(t, obs, chunkEvery(fx.body, size))
-				last, ok := obs.terminal()
+				last, ok := obs.Terminal()
 				assert.True(t, ok, "chunk size %d", size)
 				assert.Equal(t, fx.want, last, "chunk size %d", size)
 				assert.Equal(t, fx.body, rec.Body.String(), "chunk size %d", size)
@@ -223,11 +223,11 @@ func TestToolUseObserver_FragmentationMatchesSingleWrite(t *testing.T) {
 			}
 			for i := 1; i < len(fx.body); i++ {
 				rec := httptest.NewRecorder()
-				obs := newToolUseObserver(rec)
+				obs := NewToolUseObserver(rec)
 				writeChunks(t, obs, []string{fx.body[:i]})
 				require.Equal(t, prefixObservation(t, fx.body[:i]), observationOf(obs), "state after the first write, split at %d", i)
 				writeChunks(t, obs, []string{fx.body[i:]})
-				last, ok := obs.terminal()
+				last, ok := obs.Terminal()
 				require.True(t, ok, "split at %d", i)
 				require.Equal(t, fx.want, last, "split at %d", i)
 				require.Equal(t, fx.body, rec.Body.String(), "split at %d", i)
