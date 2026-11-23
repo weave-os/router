@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/timing"
 )
 
@@ -62,7 +63,7 @@ type observationContext struct {
 	FreshCandidateScores     []byte
 }
 
-func buildObservationContext(ports continuity.StrategyPorts, ctx context.Context, strategy router.Strategy, decision, fresh router.Decision, captureMode ContentCaptureMode) observationContext {
+func buildObservationContext(ports continuity.StrategyPorts, ctx context.Context, strategy router.Strategy, decision, fresh router.Decision, captureMode capture.Mode) observationContext {
 	debugEnabled, _ := ctx.Value(requestcontext.PolicyDebugEnabledContextKey{}).(bool)
 	obs := observationContext{
 		TrainingAllowed: policyTrainingAllowedForRequest(ctx),

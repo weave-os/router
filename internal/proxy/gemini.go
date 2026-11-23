@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 )
 
@@ -35,7 +36,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if returnErr != nil {
 		return returnErr
 	}
-	ctx = requestcontext.WithContentLogging(ctx, s.effectiveCaptureMode(ctx) != CaptureOff)
+	ctx = requestcontext.WithContentLogging(ctx, s.effectiveCaptureMode(ctx) != capture.Off)
 	ctx, err := s.checkUserMonthlySpendLimit(ctx, r.Header, r.URL.Path)
 	if err != nil {
 		return err
@@ -82,7 +83,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		"total_input_tokens", feats.Tokens,
 	)
 
-	if s.effectiveCaptureMode(ctx) != CaptureOff {
+	if s.effectiveCaptureMode(ctx) != capture.Off {
 		logInboundRequestDiagnostics(log, env)
 	}
 
@@ -146,7 +147,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		return s.runTurnLoop(routeCtx, env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
 	})
 	defer routeRes.ReleaseCooldownProbes()
-	var escalationCapture *captureWriter
+	var escalationCapture *capture.Writer
 	defer func() {
 		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseGemini)
 	}()
