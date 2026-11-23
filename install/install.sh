@@ -8100,13 +8100,25 @@ weave_sync_commands() {
     # Backticks are literal Markdown delimiters.
     # shellcheck disable=SC2016
     scope_args="$(sed -En 's#^`npx @(workweave/router|weave-os/router) off --claude(.*)`$#\2#p' "$off" | head -n 1)"
+    # The installed copy is local and unverified, so it may only contribute a
+    # selector of the shape install_slash_commands writes; anything else (shell
+    # metacharacters, extra commands) would be copied into verified wrappers.
+    if ! printf '%s\n' "$scope_args" \
+         | grep -Eqx '( --scope project| --dir ([A-Za-z0-9_./~+@:=,%-]|\\[^[:cntrl:]])+)?'; then
+      scope_args="" scope_known="false"
+    fi
   fi
 
   local url_base="${WEAVE_COMMANDS_URL_BASE:-$WEAVE_RELEASE_REPO_URL/$WEAVE_RELEASE_TAG/install/commands}"
   url_base="${url_base%/}"
-  local manifest_base="${url_base%/*}"
+  # MANIFEST sits in the parent of the wrapper directory; a wrapper directory
+  # at the host root keeps the authority and uses the root.
+  local manifest_base="$url_base" url_path="${url_base#*://}"
+  case "$url_path" in
+    */*) manifest_base="${url_base%/*}" ;;
+  esac
   local sentinel="$baseline_dir/.manifest-seeded"
-  local name installed raw prev tmp new_body prev_body installed_body
+  local name installed raw prev tmp new_body prev_body installed_body owned
   local manifest="$baseline_dir/.MANIFEST.tmp.$$" seeding="false" unsigned="false"
   if [ -n "${WEAVE_COMMANDS_URL_BASE:-}" ] && weave_trust_unsigned "$url_base"; then
     unsigned="true"
@@ -8156,12 +8168,26 @@ weave_sync_commands() {
       if [ -f "$prev" ] || [ "$seeding" = "true" ]; then
         new_body="$(weave_render_command "$raw" "$scope_args")"
         installed_body="$(sed '/^<!-- weave-router managed command: .* -->$/d' "$installed" 2>/dev/null)" || installed_body=""
+        owned="true"
         if [ "$seeding" = "true" ]; then
-          prev_body="$installed_body"
+          # The re-seed may only replace a wrapper Router owns: one carrying the
+          # in-body marker, a matching ownership sidecar, or a body equal to the
+          # old baseline (a pre-marker install). A verified download proves
+          # where the replacement came from, not who owns the destination.
+          ownership_file="$installed.weave-router"
+          if grep -Fqx "<!-- weave-router managed command: $name -->" "$installed" 2>/dev/null \
+             || { [ -f "$ownership_file" ] && [ ! -L "$ownership_file" ] \
+                  && [ "$(sed -n '1p' "$ownership_file" 2>/dev/null)" = "weave-router managed command: $name" ]; } \
+             || { [ -f "$prev" ] && [ "$(weave_render_command "$prev" "$scope_args")" = "$installed_body" ]; }; then
+            prev_body="$installed_body"
+          else
+            owned="false"
+          fi
         else
           prev_body="$(weave_render_command "$prev" "$scope_args")"
         fi
-        if [ "$prev_body" = "$installed_body" ] && [ "$new_body" != "$installed_body" ]; then
+        if [ "$owned" = "true" ] && [ "$prev_body" = "$installed_body" ] \
+           && [ "$new_body" != "$installed_body" ]; then
           tmp="$installed.tmp.$$"
           if printf '%s\n' "$new_body" >"$tmp" 2>/dev/null; then
             mv "$tmp" "$installed" 2>/dev/null || rm -f "$tmp"

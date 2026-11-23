@@ -468,6 +468,7 @@ commands_lab cmd-seed
 upstream_wrapper fm "release fm."
 sign_commands
 printf '%s\n' 'EDITED BEFORE UPGRADE' >"$cmd_dir/rf.md"
+printf 'weave-router managed command: rf\n%s\n' "$(cat "$baseline/rf.md")" >"$cmd_dir/rf.md.weave-router"
 if file_absent "$baseline/.manifest-seeded"; then ok "sentinel absent before the first verified cycle"; else no "sentinel absent before the first verified cycle" "absent" "present"; fi
 run_tool cc "$installed"
 if wait_for 20 test -f "$baseline/.manifest-seeded"; then
@@ -548,6 +549,66 @@ wait_for 20 log_has "$log" "$current_tag/install/MANIFEST.sig.b64"
 wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*"
 sleep 0.5
 check "without openssl no wrapper is refreshed" "$(cat "$cmd_dir/fm.md")" "$fm_before"
+
+# The re-seed never replaces a command Router does not own: no in-body marker,
+# no ownership sidecar and a body that differs from the old baseline.
+commands_lab cmd-seed-user-owned
+upstream_wrapper fm "release fm."
+upstream_wrapper rf "release rf."
+sign_commands
+printf '%s\n' 'MY OWN FM COMMAND' >"$cmd_dir/fm.md"
+run_tool cc "$installed"
+wait_for 20 test -f "$baseline/.manifest-seeded" || true
+sync_settle "commands/rf.md"
+check "re-seed refreshes a wrapper that matches the old baseline" "$(cat "$cmd_dir/rf.md")" "$(cat "$release_dir/commands/rf.md")"
+check "re-seed leaves a user-owned command untouched" "$(cat "$cmd_dir/fm.md")" "MY OWN FM COMMAND"
+if file_absent "$cmd_dir/fm.md.weave-router"; then ok "re-seed claims no ownership of a user-owned command"; else no "re-seed claims no ownership of a user-owned command" "no sidecar" "sidecar written"; fi
+check "re-seed still records the verified baseline for a user-owned name" "$(sha "$baseline/fm.md")" "$(sha "$release_dir/commands/fm.md")"
+
+# A wrapper source at a host root fetches MANIFEST from that root.
+commands_lab cmd-host-root
+: >"$baseline/.manifest-seeded"
+upstream_wrapper fm "host-root fm."
+sign_commands
+cp "$release_dir/commands/fm.md" "$release_dir/MANIFEST" "$release_dir/MANIFEST.sig.b64" "$pub/selfhost/"
+run_tool cc "$installed" "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/"
+if wait_for 20 grep -q 'host-root fm.' "$cmd_dir/fm.md"; then
+  ok "a host-root wrapper source verifies MANIFEST at the root"
+else
+  no "a host-root wrapper source verifies MANIFEST at the root" "refreshed fm" "$(cat "$cmd_dir/fm.md")"
+fi
+sync_settle "selfhost/rf.md"
+check_contains "a host-root wrapper source fetches the root MANIFEST" "$(cat "$log")" "selfhost/MANIFEST"
+
+# The scope selector recovered from the installed /router-off is unverified, so
+# only the shapes the installer writes are copied into verified wrappers.
+scope_lab() { # scope_lab <name> <router-off npx suffix>
+  commands_lab "$1"
+  : >"$baseline/.manifest-seeded"
+  local off_line="\`npx @weave-os/router off --claude$2\`"
+  sed "s#^\`npx @weave-os/router off --claude{{SCOPE}}\`\$#$off_line#" \
+    "$script_dir/../commands/router-off.md" >"$cmd_dir/router-off.md"
+  cp "$script_dir/../commands/router-on.md" "$baseline/router-on.md"
+  sed "s#{{SCOPE}}#$2#g" "$script_dir/../commands/router-on.md" >"$cmd_dir/router-on.md"
+  sed 's#^Turn#Now turn#' "$script_dir/../commands/router-on.md" >"$release_dir/commands/router-on.md"
+  sign_commands
+}
+scope_lab cmd-scope-project " --scope project"
+run_tool cc "$installed"
+if wait_for 20 grep -q '^Now turn' "$cmd_dir/router-on.md"; then
+  ok "an installer-shaped scope selector still refreshes scoped wrappers"
+else
+  no "an installer-shaped scope selector still refreshes scoped wrappers" "refreshed router-on" "$(cat "$cmd_dir/router-on.md")"
+fi
+sync_settle "commands/router-on.md"
+check_contains "a refreshed scoped wrapper keeps its scope selector" "$(cat "$cmd_dir/router-on.md")" "on --claude --scope project"
+
+scope_lab cmd-scope-injected " --scope project; touch pwned"
+on_before="$(cat "$cmd_dir/router-on.md")"
+run_tool cc "$installed"
+sync_settle "commands/router-on.md"
+check "a tampered scope selector refreshes no scoped wrapper" "$(cat "$cmd_dir/router-on.md")" "$on_before"
+check_not_contains "a tampered scope selector reaches no verified wrapper" "$(cat "$cmd_dir"/*.md)" "Now turn"
 
 # ---------- fetched uninstaller (surface 4) ----------
 

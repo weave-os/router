@@ -130,13 +130,17 @@ The sentinel `.manifest-seeded` in the baseline cache directory
 seeded under the manifest:
 
 - **Absent:** the first refresh whose `MANIFEST` verifies re-seeds once. Each
-  verified body becomes the baseline, an installed wrapper that differs from it
-  is replaced with it, and the sentinel is written. A wrapper whose body could
-  not be fetched or verified in that cycle has its old baseline removed.
+  verified body becomes the baseline, an installed wrapper that Router owns and
+  that differs from it is replaced with it, and the sentinel is written. A
+  wrapper counts as Router-owned when it carries the in-body ownership marker,
+  has a `<name>.md.weave-router` ownership sidecar, or still equals the old
+  baseline; a command with none of these is the user's and is never replaced.
+  A wrapper whose body could not be fetched or verified in that cycle has its
+  old baseline removed.
 - **Present:** the baseline comparison gates the swap as before, so local edits
   are preserved.
 
-Users who edited a wrapper before upgrading see it reset once, on the first
+Users who edited a Router-owned wrapper before upgrading see it reset once, on the first
 post-upgrade refresh. A cycle that runs under
 `WEAVE_STATUSLINE_TRUST_UNSIGNED=1` never re-seeds or writes the sentinel, so
 returning to a signed source still re-seeds once.
