@@ -27,6 +27,7 @@ Index of Markdown documentation in the `router/` repo.
 | [INFERENCE_BOUNDARY.md](INFERENCE_BOUNDARY.md) | Inference operation inventory, policy-boundary exceptions, and staged migration enforcement. |
 | [POLICY_INFERENCE.md](POLICY_INFERENCE.md) | Generated static registry of inference purposes, selection policy, constraints, fallback, and migration status. |
 | [ANALYTICS_EXPORT.md](ANALYTICS_EXPORT.md) | `/v1/analytics/*` raw routing-decision export: read-only keys, cursor paging, row grain, field reference. |
+| [ROUTING_OBSERVATION_SMOKE.md](ROUTING_OBSERVATION_SMOKE.md) | Staging smoke test and historical routing observation report. |
 | [SUBSCRIPTION_ROUTING.md](SUBSCRIPTION_ROUTING.md) | Personal and shared subscription candidate admission, alternatives, native OAuth dispatch with quota checks, and API fallback. |
 | [DELEGATED_SESSION_TOKENS.md](DELEGATED_SESSION_TOKENS.md) | Experimental `rs_` session JWTs signed by a registered Ed25519 issuer: token claims, issuer registration and revocation. |
 | [TURN_SIGNALS.md](TURN_SIGNALS.md) | Turn signals, stuck-session detectors, telemetry row NULL conventions, cross-tokenizer usage reporting and the feedback footer. |
