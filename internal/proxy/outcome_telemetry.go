@@ -3,11 +3,11 @@ package proxy
 import (
 	"context"
 	"weave-os/router/internal/routingpolicy"
-	"weave-os/router/internal/telemetry/respobserve"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
+	"weave-os/router/internal/telemetry/respobserve"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
