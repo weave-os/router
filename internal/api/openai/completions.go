@@ -14,7 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service, errs ingress.ErrorVocabulary) gin.HandlerFunc {
+func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
@@ -43,7 +43,7 @@ func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service, errs ingre
 		c.Request = c.Request.WithContext(ctx)
 
 		if err := svc.ProxyOpenAIChatCompletion(c.Request.Context(), body, c.Writer, c.Request); err != nil {
-			cls, ok := errs.Classify(err)
+			cls, ok := vocab.Classify(err)
 			if ok && cls.Kind == ingress.DispatchErrorUpstreamStatus {
 				if c.Writer.Written() {
 					return
@@ -67,7 +67,7 @@ func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service, errs ingre
 				return
 			}
 			log.Error("Proxy failed", "err", err)
-			writeOpenAIError(c, http.StatusBadGateway, "api_error", errs.TerminalMessage(err))
+			writeOpenAIError(c, http.StatusBadGateway, "api_error", vocab.TerminalMessage(err))
 			return
 		}
 	}

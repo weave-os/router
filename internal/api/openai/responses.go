@@ -14,7 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func ResponsesHandler(svc *proxy.Service, authSvc *auth.Service, errs ingress.ErrorVocabulary) gin.HandlerFunc {
+func ResponsesHandler(svc *proxy.Service, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
@@ -43,7 +43,7 @@ func ResponsesHandler(svc *proxy.Service, authSvc *auth.Service, errs ingress.Er
 		c.Request = c.Request.WithContext(ctx)
 
 		if err := svc.ProxyOpenAIResponses(c.Request.Context(), body, c.Writer, c.Request); err != nil {
-			cls, ok := errs.Classify(err)
+			cls, ok := vocab.Classify(err)
 			if ok && cls.Kind == ingress.DispatchErrorUpstreamStatus {
 				if c.Writer.Written() {
 					return
@@ -67,7 +67,7 @@ func ResponsesHandler(svc *proxy.Service, authSvc *auth.Service, errs ingress.Er
 				return
 			}
 			log.Error("Proxy failed", "err", err)
-			writeOpenAIError(c, http.StatusBadGateway, "api_error", errs.TerminalMessage(err))
+			writeOpenAIError(c, http.StatusBadGateway, "api_error", vocab.TerminalMessage(err))
 			return
 		}
 	}
