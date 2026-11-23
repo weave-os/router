@@ -1,6 +1,7 @@
 package feedback
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -11,12 +12,17 @@ import (
 
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 )
 
 const maxBodyBytes = 64 * 1024
+
+type LinkService interface {
+	VerifyFeedbackToken(token string) (feedback.Claims, error)
+	GetFeedbackContext(ctx context.Context, installationID, requestID string) (feedback.FeedbackContext, error)
+	SubmitFeedback(ctx context.Context, p feedback.SubmitFeedbackParams) error
+}
 
 type submittedFeedback struct {
 	Rating  string  `json:"rating"`
@@ -38,7 +44,7 @@ type submitRequest struct {
 	Comment *string `json:"comment"`
 }
 
-func GetContextHandler(svc *proxy.Service) gin.HandlerFunc {
+func GetContextHandler(svc LinkService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
@@ -62,7 +68,7 @@ func GetContextHandler(svc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-func SubmitHandler(svc *proxy.Service) gin.HandlerFunc {
+func SubmitHandler(svc LinkService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
@@ -104,7 +110,7 @@ func SubmitHandler(svc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-func RateHandler(svc *proxy.Service) gin.HandlerFunc {
+func RateHandler(svc LinkService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 

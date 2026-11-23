@@ -86,7 +86,7 @@ type Service struct {
 	webSearch                websearch.Executor
 	billing                  *billing.Service
 	clock                    auth.Clock
-	feedbackLinks            feedbackLinks
+	feedbackLinks            *feedbackLinks
 }
 
 type registeredStrategy struct {
