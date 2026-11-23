@@ -35,12 +35,12 @@ type fakeSummarizer struct {
 	summary   string
 	errOnCall error
 	calls     atomic.Int32
-	creds     atomic.Pointer[proxy.Credentials]
+	creds     atomic.Pointer[requestcontext.Credentials]
 }
 
 func (f *fakeSummarizer) Summarize(ctx context.Context, env *translate.RequestEnvelope, _ router.Request) (string, handover.Usage, error) {
 	f.calls.Add(1)
-	if creds, ok := ctx.Value(proxy.CredentialsContextKey{}).(*proxy.Credentials); ok {
+	if creds, ok := ctx.Value(requestcontext.CredentialsContextKey{}).(*requestcontext.Credentials); ok {
 		f.creds.Store(creds)
 	}
 	if f.errOnCall != nil {

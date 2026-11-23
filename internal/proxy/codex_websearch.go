@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -30,7 +31,7 @@ const (
 )
 
 func (s *Service) serveCodexWebSearch(ctx context.Context, body []byte, model string, stream bool, enabled map[string]struct{}, r *http.Request, w http.ResponseWriter) (bool, error) {
-	if !websearch.IsClaudeCodeWebSearchHelper(body) || subscriptionAPIOnly(ctx) || subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
+	if !websearch.IsClaudeCodeWebSearchHelper(body) || credentials.SubscriptionAPIOnly(ctx) || credentials.SubscriptionRoutingDisabledForRequest(ctx) || credentials.SubscriptionFundingOutOfPlayForRequest(ctx) {
 		return false, nil
 	}
 	if anyNativeServerToolProvider(enabled) && !requestcontext.CodexSubscriptionCanAttemptModel(model) {
@@ -39,8 +40,8 @@ func (s *Service) serveCodexWebSearch(ctx context.Context, body []byte, model st
 	if _, ok := enabled[providers.ProviderOpenAI]; !ok {
 		return false, nil
 	}
-	creds := ExtractClientCredentials(providers.ProviderOpenAI, r.Header)
-	if !managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && codexSubscriptionFromContext(ctx) == nil && (creds == nil || !creds.OAuth) {
+	creds := requestcontext.ExtractClientCredentials(providers.ProviderOpenAI, r.Header)
+	if !credentials.ManagedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && credentials.CodexSubscriptionFromContext(ctx) == nil && (creds == nil || !creds.OAuth) {
 		return false, nil
 	}
 	selected := model
@@ -53,7 +54,7 @@ func (s *Service) serveCodexWebSearch(ctx context.Context, body []byte, model st
 	}
 	callCtx, cancel := context.WithTimeout(ctx, nativeSearchTimeout)
 	defer cancel()
-	callCtx = context.WithValue(callCtx, subscriptionOnlyAttemptKey{}, true)
+	callCtx = context.WithValue(callCtx, credentials.SubscriptionOnlyAttemptKey{}, true)
 	callCtx = context.WithValue(callCtx, codexWebSearchContextKey{}, true)
 	if base, ok := ctx.Value(nativeSearchLoggerContextKey{}).(*slog.Logger); ok {
 		callCtx = observability.WithLogger(callCtx, base)

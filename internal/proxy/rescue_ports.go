@@ -71,7 +71,7 @@ func (p rescueCredentialPort) RecordCodexQuotaExhaustion(ctx context.Context, he
 }
 
 func (rescueCredentialPort) ServedOnSubscription(ctx context.Context) bool {
-	return servedOnSubscription(ctx)
+	return credentials.ServedOnSubscription(ctx)
 }
 
 func (rescueCredentialPort) RescueCredentialContext(ctx context.Context, rescueProvider string) context.Context {
@@ -192,15 +192,15 @@ func (rescueOverflowPort) RescuesCompactionOverflow(turnType turntype.TurnType, 
 }
 
 func (rescueCredentialPort) ResolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
-	return resolveAndInjectCredentials(ctx, provider, model, headers)
+	return credentials.ResolveAndInjectCredentials(ctx, provider, model, headers)
 }
 
 func (rescueCredentialPort) SuppressCodexSubscription(ctx context.Context) context.Context {
-	return withSuppressedCodexSubscription(ctx)
+	return credentials.WithSuppressedCodexSubscription(ctx)
 }
 
 func (rescueCredentialPort) ServedOnCodexSubscription(ctx context.Context) bool {
-	return servedOnCodexSubscription(ctx)
+	return credentials.ServedOnCodexSubscription(ctx)
 }
 
 func (rescueCredentialPort) SubscriptionCredentialFallbackUsed(ctx context.Context) bool {

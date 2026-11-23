@@ -139,22 +139,22 @@ func (l *accountLoop) writeAttemptHeaders() {
 
 func (l *accountLoop) oauthTransportFallback(ctx, attemptCtx context.Context) (context.Context, error) {
 	s, decision := l.s, l.decision
-	if current := CredentialsFromContext(attemptCtx); current != nil && current.OAuth && !s.supportsSubscriptionTransport(decision.Provider) {
-		if subscriptionAttemptOnly(ctx) || paidFallbackForbidden(ctx) || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderCodex) && decision.Provider == providers.ProviderOpenAI || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderClaude) && decision.Provider == providers.ProviderAnthropic {
+	if current := credentials.CredentialsFromContext(attemptCtx); current != nil && current.OAuth && !s.supportsSubscriptionTransport(decision.Provider) {
+		if credentials.SubscriptionAttemptOnly(ctx) || paidFallbackForbidden(ctx) || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderCodex) && decision.Provider == providers.ProviderOpenAI || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderClaude) && decision.Provider == providers.ProviderAnthropic {
 			return nil, dispatch.Abort{Err: credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)}
 		}
-		attemptCtx = resolveAndInjectCredentials(credentials.WithSuppressedClaudeSubscription(withSuppressedCodexSubscription(attemptCtx)), decision.Provider, decision.Model, http.Header{})
+		attemptCtx = credentials.ResolveAndInjectCredentials(credentials.WithSuppressedClaudeSubscription(credentials.WithSuppressedCodexSubscription(attemptCtx)), decision.Provider, decision.Model, http.Header{})
 	}
 	return attemptCtx, nil
 }
 
 func (l *accountLoop) leaseAccount(ctx, attemptCtx context.Context, account int) (context.Context, leasedAccount, error) {
 	s, decision, rotationBudget := l.s, l.decision, l.rotationBudget
-	if !subscriptionAPIOnly(attemptCtx) && rotationBudget.remaining <= 0 {
+	if !credentials.SubscriptionAPIOnly(attemptCtx) && rotationBudget.remaining <= 0 {
 		return nil, leasedAccount{}, dispatch.Abort{Err: s.afterSubscriptionRotationBudget(ctx, decision, account, credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable))}
 	}
 	leaseCtx, finishLease := rotationBudget.leaseContext(attemptCtx, s.clock.Now)
-	if subscriptionAPIOnly(attemptCtx) {
+	if credentials.SubscriptionAPIOnly(attemptCtx) {
 		finishLease()
 		leaseCtx = attemptCtx
 		finishLease = func() {}
@@ -174,7 +174,7 @@ func (l *accountLoop) leaseAccount(ctx, attemptCtx context.Context, account int)
 	if !managedAttempt {
 		credentialCtx = attemptCtx
 	} else {
-		credentialCtx = context.WithValue(attemptCtx, CredentialsContextKey{}, requestcontext.CredentialsFromContext(credentialCtx))
+		credentialCtx = context.WithValue(attemptCtx, requestcontext.CredentialsContextKey{}, requestcontext.CredentialsFromContext(credentialCtx))
 	}
 	l.managedBinding = l.managedBinding || managedAttempt
 	credentialCtx = s.withClaudeSubscriptionProfile(credentialCtx, nil)
@@ -189,21 +189,21 @@ func (l *accountLoop) admitLeased(ctx, credentialCtx context.Context, leased lea
 		}
 		usage.AttemptedAccounts[leased.lease.AccountID+"\x00"+l.decision.Model] = struct{}{}
 	}
-	if forcedClaudeClientAppRefused(ctx, l.decision, CredentialsFromContext(credentialCtx)) {
+	if forcedClaudeClientAppRefused(ctx, l.decision, credentials.CredentialsFromContext(credentialCtx)) {
 		leased.lease.Release()
 		return dispatch.Abort{Err: subscriptionClientAppRefusal(ctx)}
 	}
-	if paidAttemptForbidden(ctx, CredentialsFromContext(credentialCtx)) {
+	if paidAttemptForbidden(ctx, credentials.CredentialsFromContext(credentialCtx)) {
 		leased.lease.Release()
 		if claudeEnterpriseTurn(ctx) {
 			return dispatch.Abort{Err: claudeEnterpriseRefusal(ctx)}
 		}
 		return dispatch.Abort{Err: credentials.SubscriptionOnlyUnavailable(ctx)}
 	}
-	if creds := CredentialsFromContext(credentialCtx); creds != nil && creds.OAuth {
+	if creds := credentials.CredentialsFromContext(credentialCtx); creds != nil && creds.OAuth {
 		if state := managedSubscriptionUsageOf(ctx); state != nil {
 			state.SubscriptionAttempted = true
-			if creds.Source == credSourceSubscription && creds.SubscriptionPlan != "" {
+			if creds.Source == requestcontext.SourceSubscription && creds.SubscriptionPlan != "" {
 				state.ClaudeSubscriptionPlan = creds.SubscriptionPlan
 				state.ClaudePlanUnverified = state.ClaudePlanUnverified || creds.SubscriptionPlan == providers.SubscriptionPlanUnknown
 			}
@@ -221,7 +221,7 @@ func (l *accountLoop) recordAccountAttempt(bookkeepingCtx, credentialCtx context
 			"upstream_status", upstreamStatus(attemptErr), "attempt_ms", s.clock.Now().Sub(attemptStarted).Milliseconds(),
 			"response_committed", committed(l.in.Prelude), "subscription_account_attempt", leased.account+1)
 	}
-	if creds := CredentialsFromContext(credentialCtx); !leased.managed && creds != nil && creds.OAuth && attemptErr != nil {
+	if creds := credentials.CredentialsFromContext(credentialCtx); !leased.managed && creds != nil && creds.OAuth && attemptErr != nil {
 		s.recordDirectSubscriptionQuota(bookkeepingCtx, decision.Provider, decision.Model, creds, attemptErr)
 	}
 	if !committed(l.in.Prelude) {
@@ -255,9 +255,9 @@ func (l *accountLoop) rotationAfterFailure(bookkeepingCtx, credentialCtx, attemp
 		recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr, s.clock.Now())
 	}
 	if !leased.managed && !committed(l.in.Prelude) && codexSubscriptionRotates(credentialCtx, attemptErr) {
-		s.recordCodexCredentialUnusable(bookkeepingCtx, CredentialsFromContext(credentialCtx), attemptErr)
+		s.recordCodexCredentialUnusable(bookkeepingCtx, credentials.CredentialsFromContext(credentialCtx), attemptErr)
 		recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr, s.clock.Now())
-		attemptCtx = resolveAndInjectCredentials(withSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
+		attemptCtx = credentials.ResolveAndInjectCredentials(credentials.WithSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
 		rotate = true
 	}
 	if next, capped := claudeEnterpriseCapRotation(credentialCtx, attemptCtx, decision, attemptErr); capped && !leased.managed && !committed(l.in.Prelude) {

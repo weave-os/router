@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 )
 
 func TestUnifiedLimitHeadersFrom_NoCaptureInstalled(t *testing.T) {
@@ -20,8 +21,8 @@ func TestUnifiedLimitHeadersFrom_NoCaptureInstalled(t *testing.T) {
 
 func TestCaptureUnifiedLimitHeaders_RecordsOnSubscriptionCredential(t *testing.T) {
 	ctx := withUnifiedLimitCapture(context.Background())
-	ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
-		APIKey: []byte("sk-ant-oat01-live"), Source: credSourceSubscription, OAuth: true,
+	ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey: []byte("sk-ant-oat01-live"), Source: requestcontext.SourceSubscription, OAuth: true,
 	})
 
 	resp := http.Header{}
@@ -43,8 +44,8 @@ func TestCaptureUnifiedLimitHeaders_RecordsOnSubscriptionCredential(t *testing.T
 func TestCaptureUnifiedLimitHeaders_SkipsNonOAuthCredential(t *testing.T) {
 	// BYOK/deployment-key call must not be recorded — headers describe a different account's quota.
 	ctx := withUnifiedLimitCapture(context.Background())
-	ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
-		APIKey: []byte("sk-ant-api-deployment"), Source: credSourceBYOK, OAuth: false,
+	ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey: []byte("sk-ant-api-deployment"), Source: requestcontext.SourceBYOK, OAuth: false,
 	})
 
 	resp := http.Header{}
@@ -66,8 +67,8 @@ func TestCaptureUnifiedLimitHeaders_NoCredentialsResolved(t *testing.T) {
 func TestCaptureUnifiedLimitHeaders_NoUnifiedHeadersPresent(t *testing.T) {
 	// Subscription response with no unified headers must leave capture nil, not empty-but-non-nil.
 	ctx := withUnifiedLimitCapture(context.Background())
-	ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
-		APIKey: []byte("sk-ant-oat01-live"), Source: credSourceSubscription, OAuth: true,
+	ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey: []byte("sk-ant-oat01-live"), Source: requestcontext.SourceSubscription, OAuth: true,
 	})
 	captureUnifiedLimitHeaders(ctx, http.Header{"Content-Type": {"application/json"}})
 
@@ -82,8 +83,8 @@ func TestUnifiedLimitHeadersJSON(t *testing.T) {
 
 	t.Run("captured set round-trips through JSON", func(t *testing.T) {
 		ctx := withUnifiedLimitCapture(context.Background())
-		ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
-			APIKey: []byte("sk-ant-oat01-live"), Source: credSourceSubscription, OAuth: true,
+		ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+			APIKey: []byte("sk-ant-oat01-live"), Source: requestcontext.SourceSubscription, OAuth: true,
 		})
 		resp := http.Header{}
 		resp.Set("anthropic-ratelimit-unified-status", "allowed")
@@ -108,8 +109,8 @@ func TestWithUsageObserver_CapturesRawHeadersEvenWithoutSubsidyObserver(t *testi
 	headers.Set("Authorization", "Bearer sk-ant-oat01-claudecode")
 
 	ctx := s.withUsageObserver(context.Background(), headers)
-	callCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
-		APIKey: []byte("sk-ant-oat01-claudecode"), Source: credSourceSubscription, OAuth: true,
+	callCtx := context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey: []byte("sk-ant-oat01-claudecode"), Source: requestcontext.SourceSubscription, OAuth: true,
 	})
 
 	resp := http.Header{}
@@ -134,8 +135,8 @@ func TestWithUsageObserver_NoopWhenNothingToObserve(t *testing.T) {
 
 func TestCaptureUnifiedLimitHeaders_RecordsCodexHeadersOnCodexSubscription(t *testing.T) {
 	ctx := withUnifiedLimitCapture(context.Background())
-	ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
-		APIKey: []byte("eyJhbGciOi.codex.jwt"), Source: credSourceCodexSubscription, OAuth: true,
+	ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey: []byte("eyJhbGciOi.codex.jwt"), Source: requestcontext.SourceCodexSubscription, OAuth: true,
 	})
 
 	resp := http.Header{}
@@ -159,15 +160,15 @@ func TestCaptureUnifiedLimitHeaders_RecordsCodexHeadersOnCodexSubscription(t *te
 
 func TestCaptureUnifiedLimitHeaders_LastAttemptReplacesOtherFamily(t *testing.T) {
 	ctx := withUnifiedLimitCapture(context.Background())
-	claudeCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
-		APIKey: []byte("sk-ant-oat01-live"), Source: credSourceSubscription, OAuth: true,
+	claudeCtx := context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey: []byte("sk-ant-oat01-live"), Source: requestcontext.SourceSubscription, OAuth: true,
 	})
 	claudeResp := http.Header{}
 	claudeResp.Set("anthropic-ratelimit-unified-status", "rejected")
 	captureUnifiedLimitHeaders(claudeCtx, claudeResp)
 
-	codexCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
-		APIKey: []byte("eyJhbGciOi.codex.jwt"), Source: credSourceCodexSubscription, OAuth: true,
+	codexCtx := context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey: []byte("eyJhbGciOi.codex.jwt"), Source: requestcontext.SourceCodexSubscription, OAuth: true,
 	})
 	codexResp := http.Header{}
 	codexResp.Set("x-codex-primary-used-percent", "10")
@@ -185,8 +186,8 @@ func TestWithUsageObserver_CapturesCodexHeadersForDirectCodexLogin(t *testing.T)
 	headers.Set("ChatGPT-Account-ID", "acct-abc-123")
 
 	ctx := s.withUsageObserver(context.Background(), headers)
-	callCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
-		APIKey: []byte("eyJhbGciOi.codex.jwt"), Source: credSourceCodexSubscription, OAuth: true,
+	callCtx := context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey: []byte("eyJhbGciOi.codex.jwt"), Source: requestcontext.SourceCodexSubscription, OAuth: true,
 	})
 
 	resp := http.Header{}

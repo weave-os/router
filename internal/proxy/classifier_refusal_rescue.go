@@ -7,6 +7,7 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -26,9 +27,9 @@ type classifierRescuePolicy struct {
 func newClassifierRescuePolicy(ctx context.Context, s *Service) classifierRescuePolicy {
 	return classifierRescuePolicy{
 		enabled: s.ResolveCyberRefusalRetry(ctx),
-		models:  append([]string{s.ResolveCyberRefusalFallbackModel(ctx)}, catalog.ClassifierRescueOrder(s.credentials.SubscriptionModels.ServedForCaller(CredentialsFromContext(ctx), s.clock.Now()))...),
+		models:  append([]string{s.ResolveCyberRefusalFallbackModel(ctx)}, catalog.ClassifierRescueOrder(s.credentials.SubscriptionModels.ServedForCaller(credentials.CredentialsFromContext(ctx), s.clock.Now()))...),
 		unavailable: func(model string) bool {
-			return s.credentials.SubscriptionModels.DeniedForCaller(CredentialsFromContext(ctx), model, s.clock.Now())
+			return s.credentials.SubscriptionModels.DeniedForCaller(credentials.CredentialsFromContext(ctx), model, s.clock.Now())
 		},
 		rejected: func(model string, err error) {
 			s.recordSubscriptionModelRejection(ctx, providers.ProviderAnthropic, model, err)

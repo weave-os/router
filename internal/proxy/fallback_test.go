@@ -868,15 +868,15 @@ func TestShouldFailover(t *testing.T) {
 	})
 	t.Run("inbound credentials in context skip failover", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
-		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, &Credentials{APIKey: []byte("sk-byok"), Source: "byok"})
+		ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{APIKey: []byte("sk-byok"), Source: "byok"})
 		assert.False(t, s.shouldFailover(ctx))
 	})
 	t.Run("subscription OAuth credential skips failover", func(t *testing.T) {
 		// A subscription token authenticates only against Anthropic; failing
 		// over to another vendor would 401, so it must bind to one provider.
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
-		ctx := context.WithValue(context.Background(), CredentialsContextKey{},
-			&Credentials{APIKey: []byte("sk-ant-oat01-token"), Source: "subscription", OAuth: true})
+		ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{},
+			&requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-token"), Source: "subscription", OAuth: true})
 		assert.False(t, s.shouldFailover(ctx))
 	})
 	t.Run("BYOK keys on context disable failover", func(t *testing.T) {
@@ -894,7 +894,7 @@ func TestShouldFailover(t *testing.T) {
 func TestResolveBindingsForDispatch(t *testing.T) {
 	t.Run("BYOK active returns single primary", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
-		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, &Credentials{APIKey: []byte("k"), Source: "client"})
+		ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{APIKey: []byte("k"), Source: "client"})
 		bs := s.resolveBindingsForDispatch(ctx, router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: "fireworks"})
 		require.Len(t, bs, 1)
 		assert.Equal(t, "fireworks", bs[0].Provider)
@@ -1176,7 +1176,7 @@ func TestResolveBindingsForDispatch_LinkedSubscriptionWithoutAPIKey(t *testing.T
 		assert.Empty(t, svc.resolveBindingsForDispatch(excluded, decision))
 	})
 	t.Run("API-only request cannot use linked binding", func(t *testing.T) {
-		paid := context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
+		paid := context.WithValue(ctx, credentials.SubscriptionAPIOnlyKey{}, true)
 		assert.Empty(t, svc.resolveBindingsForDispatch(paid, decision))
 	})
 	t.Run("unsupported transport cannot use linked binding", func(t *testing.T) {

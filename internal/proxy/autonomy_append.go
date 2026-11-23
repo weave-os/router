@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Service) autonomySystemAppendApplies(ctx context.Context, body []byte, env *translate.RequestEnvelope, tt turntype.TurnType) bool {
-	return claudeCodeSystemAppendApplies(ctx, s.ResolveCCAutonomySystemAppend(ctx), body, tt, env.HasAutonomySystemText)
+	return claudeCodeSystemAppendApplies(ctx, s.ingress.AutonomySystemAppend(ctx), body, tt, env.HasAutonomySystemText)
 }
 
 func autonomyAppendFired(opts translate.EmitOptions, servedProvider string) bool {

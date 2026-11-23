@@ -60,13 +60,13 @@ func TestApplySubscriberTelemetryCapacitySources(t *testing.T) {
 		{
 			name:             "linked claude",
 			ctx:              entitlement.WithProductScope(context.Background(), entitlement.PlanBoost),
-			credentialSource: credSourceSubscription,
+			credentialSource: requestcontext.SourceSubscription,
 			want:             entitlement.CapacitySourceLinkedClaude,
 		},
 		{
 			name:             "linked codex",
 			ctx:              entitlement.WithProductScope(context.Background(), entitlement.PlanBoost),
-			credentialSource: credSourceCodexSubscription,
+			credentialSource: requestcontext.SourceCodexSubscription,
 			want:             entitlement.CapacitySourceLinkedCodex,
 		},
 		{
@@ -152,7 +152,7 @@ func TestApplySubscriberTelemetryLeavesBYOKAndUnknownUsageUnattributed(t *testin
 	})
 	for _, telemetry := range []turnrecord.InsertTelemetryParams{
 		{
-			CredentialSource:   credSourceBYOK,
+			CredentialSource:   requestcontext.SourceBYOK,
 			InputTokens:        1,
 			ActualInputCostUSD: 0.25,
 		},
@@ -169,7 +169,7 @@ func TestApplySubscriberTelemetryLeavesUsageEmptyWithoutCapacitySource(t *testin
 	telemetry := turnrecord.InsertTelemetryParams{
 		ActualInputCostUSD:  0.25,
 		ActualOutputCostUSD: 0.75,
-		CredentialSource:    credSourceSubscription,
+		CredentialSource:    requestcontext.SourceSubscription,
 	}
 
 	applySubscriberTelemetry(context.Background(), &telemetry)

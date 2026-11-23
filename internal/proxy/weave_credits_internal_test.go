@@ -44,17 +44,17 @@ func TestWeaveCreditsFunding_AllowedLeavesProvidersAlone(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, enabled, got)
-	assert.Nil(t, CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderOpenAI)))
+	assert.Nil(t, credentials.CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderOpenAI)))
 }
 
 func TestPaidFallbackCredentials_UsesCustomerKeyWhenCreditsDenied(t *testing.T) {
 	ctx := deniedCtxWithKeys(&auth.ExternalAPIKey{Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok")})
 
-	creds := CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderAnthropic))
+	creds := credentials.CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderAnthropic))
 
 	require.NotNil(t, creds)
 	assert.True(t, credentials.CustomerFunded(creds))
-	assert.Nil(t, CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderOpenAI)))
+	assert.Nil(t, credentials.CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderOpenAI)))
 }
 
 func TestForcedModelBinding_UnfundedProviderReturnsCreditsError(t *testing.T) {

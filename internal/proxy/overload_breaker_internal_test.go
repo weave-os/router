@@ -233,7 +233,7 @@ func TestOverloadBreaker_ProbeOnlyWhereRescuable(t *testing.T) {
 			return flags.WithOverrides(orgCtx(probeTestOrg), flags.Overrides{Bools: map[flags.Key]bool{flags.KeySiblingFailover: false}})
 		}},
 		{name: "caller credentials", endpoint: router.EndpointAnthropicMessages, ctx: func() context.Context {
-			return requestcontext.WithCredentials(orgCtx(probeTestOrg), &Credentials{Source: credSourceBYOK})
+			return requestcontext.WithCredentials(orgCtx(probeTestOrg), &requestcontext.Credentials{Source: requestcontext.SourceBYOK})
 		}},
 	}
 	for _, tc := range cases {

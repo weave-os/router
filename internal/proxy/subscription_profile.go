@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -21,18 +22,18 @@ func (s *Service) WithClaudeSubscriptionPlanReader(reader providers.Subscription
 }
 
 func (s *Service) withClaudeSubscriptionProfile(ctx context.Context, headers http.Header) context.Context {
-	if s.credentials.ClaudePlans == nil || subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || anthropicBYOKFirst(ctx) {
+	if s.credentials.ClaudePlans == nil || credentials.SubscriptionRoutingDisabledForRequest(ctx) || credentials.SubscriptionFundingOutOfPlayForRequest(ctx) || credentials.AnthropicBYOKFirst(ctx) {
 		return ctx
 	}
 	var token []byte
-	creds := CredentialsFromContext(ctx)
-	if creds != nil && (!creds.OAuth || creds.Source != credSourceSubscription) {
+	creds := credentials.CredentialsFromContext(ctx)
+	if creds != nil && (!creds.OAuth || creds.Source != requestcontext.SourceSubscription) {
 		return ctx
 	}
 	if creds != nil {
 		token = creds.APIKey
 	} else {
-		_, presented := presentSubscriptionTokens(ctx, headers)
+		_, presented := credentials.PresentSubscriptionTokens(ctx, headers)
 		token = []byte(presented)
 	}
 	if len(token) == 0 {
@@ -46,13 +47,13 @@ func (s *Service) withClaudeSubscriptionProfile(ctx context.Context, headers htt
 	if creds != nil {
 		verified := *creds
 		verified.SubscriptionPlan = plan
-		ctx = context.WithValue(ctx, CredentialsContextKey{}, &verified)
+		ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &verified)
 	}
 	return ctx
 }
 
 func claudeSubscriptionPlan(ctx context.Context) providers.SubscriptionPlan {
-	if creds := CredentialsFromContext(ctx); creds != nil && creds.OAuth && creds.Source == credSourceSubscription && creds.SubscriptionPlan != "" {
+	if creds := credentials.CredentialsFromContext(ctx); creds != nil && creds.OAuth && creds.Source == requestcontext.SourceSubscription && creds.SubscriptionPlan != "" {
 		return creds.SubscriptionPlan
 	}
 	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); state != nil && state.ClaudeSubscriptionPlan != "" {

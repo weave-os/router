@@ -41,7 +41,6 @@ import (
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/timing"
 	"weave-os/router/internal/translate"
-	"weave-os/router/internal/websearch"
 
 	"github.com/google/uuid"
 )
@@ -52,8 +51,6 @@ type Service struct {
 	strategies                   map[router.Strategy]registeredStrategy
 	engine                       *dispatch.Engine
 	translationCompatibilityMode TranslationCompatibilityMode
-	scopedSearchRequirement      bool
-	searchRequirementDecayTurns  int
 	searchUse                    *searchUseTracker
 	turnTelemetry                turnTelemetry
 	translationMetrics           telemetry.TranslationMetrics
@@ -61,7 +58,6 @@ type Service struct {
 	escalation                   *floor.Helper
 	lifecycle                    *conversation.Lifecycle
 	prefixTrimFreeSwitch         bool
-	escapeNormalize              bool
 	captureMode                  capture.Mode
 	captureMaxBytes              int
 	redactor                     capture.Redactor
@@ -69,20 +65,14 @@ type Service struct {
 	credentials                  credentials.Brokerage
 	strategyServing
 
-	rescueConfig            dispatch.RescueConfig
-	openAIResponsesBroad    bool
-	armDemotion             dispatch.ArmDemotionPolicy
-	throttling              dispatch.Throttling
-	ingress                 ingress.Formats
-	effortEscalation        bool
-	ccOrchToolsCrossVendor  bool
-	ccTaskToolsCrossVendor  bool
-	ccAutonomySystemAppend  bool
-	ccWorkspaceSystemAppend bool
+	rescueConfig     dispatch.RescueConfig
+	armDemotion      dispatch.ArmDemotionPolicy
+	throttling       dispatch.Throttling
+	ingress          ingress.Formats
+	effortEscalation bool
 
-	webSearch websearch.Executor
-	billing   *billing.Service
-	clock     auth.Clock
+	billing *billing.Service
+	clock   auth.Clock
 }
 
 type registeredStrategy struct {
@@ -445,16 +435,6 @@ func (s *Service) routableUniverse() map[string]struct{} {
 	return candidates.RoutableUniverse(s.routing.AvailableModels())
 }
 
-func subscriptionRoutingDisabledForRequest(ctx context.Context) bool {
-	disabled, _ := ctx.Value(requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}).(bool)
-	return disabled
-}
-
-func subscriptionFundingOutOfPlayForRequest(ctx context.Context) bool {
-	plan, ok := entitlement.ProductScopeFromContext(ctx)
-	return ok && plan == entitlement.PlanMax
-}
-
 func hideTerminalSurfacesForRequest(ctx context.Context) bool {
 	if _, active := auth.BlindExperimentFrom(ctx); active {
 		return true
@@ -624,117 +604,42 @@ func shouldEnableExtendedContext(est, outputReserve int) bool {
 
 func subscriptionProvidersForRequest(ctx context.Context) map[string]struct{} {
 	available := map[string]struct{}{}
-	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
+	if credentials.SubscriptionRoutingDisabledForRequest(ctx) || credentials.SubscriptionFundingOutOfPlayForRequest(ctx) {
 		return available
 	}
-	if !credentials.ClaudeSubscriptionSuppressed(ctx) && (anthropicSubscriptionFromContext(ctx) != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude)) {
+	if !credentials.ClaudeSubscriptionSuppressed(ctx) && (credentials.AnthropicSubscriptionFromContext(ctx) != "" || credentials.ManagedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude)) {
 		available[providers.ProviderAnthropic] = struct{}{}
 	}
-	if !codexSubscriptionSuppressed(ctx) && (openaiSubscriptionFromContext(ctx) != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex)) {
+	if !credentials.CodexSubscriptionSuppressed(ctx) && (credentials.OpenAISubscriptionFromContext(ctx) != "" || credentials.ManagedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex)) {
 		available[providers.ProviderOpenAI] = struct{}{}
 	}
 	return available
 }
 
-func anthropicSubscriptionFromContext(ctx context.Context) string {
-	if anthropicBYOKFirst(ctx) {
-		return ""
-	}
-	v, _ := ctx.Value(credentials.AnthropicSubscriptionContextKey{}).(string)
-	return v
-}
-
-type suppressCodexSubscriptionContextKey struct{}
-
-func withSuppressedCodexSubscription(ctx context.Context) context.Context {
-	return context.WithValue(ctx, suppressCodexSubscriptionContextKey{}, true)
-}
-
-func codexSubscriptionSuppressed(ctx context.Context) bool {
-	v, _ := ctx.Value(suppressCodexSubscriptionContextKey{}).(bool)
-	return v
-}
-
-type suppressCodexModelContextKey struct{}
-
-func withSuppressedCodexModel(ctx context.Context, model string) context.Context {
-	previous, _ := ctx.Value(suppressCodexModelContextKey{}).(map[string]struct{})
-	models := make(map[string]struct{}, len(previous))
-	for id := range previous {
-		models[id] = struct{}{}
-	}
-	models[router.StripDateSuffix(model)] = struct{}{}
-	return context.WithValue(ctx, suppressCodexModelContextKey{}, models)
-}
-
-func codexModelSuppressed(ctx context.Context, model string) bool {
-	models, _ := ctx.Value(suppressCodexModelContextKey{}).(map[string]struct{})
-	_, suppressed := models[router.StripDateSuffix(model)]
-	return suppressed
-}
-
-type codexChatEndpointContextKey struct{}
-
-func withCodexChatEndpoint(ctx context.Context) context.Context {
-	return context.WithValue(ctx, codexChatEndpointContextKey{}, true)
-}
-
-func codexChatEndpoint(ctx context.Context) bool {
-	v, _ := ctx.Value(codexChatEndpointContextKey{}).(bool)
-	return v
-}
-
 func (s *Service) avoidCodexOnChatEndpoint(ctx context.Context, provider, model string, endpointResponses bool, headers http.Header) (context.Context, error) {
 	if provider != providers.ProviderOpenAI || endpointResponses ||
-		subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
+		credentials.SubscriptionRoutingDisabledForRequest(ctx) || credentials.SubscriptionFundingOutOfPlayForRequest(ctx) {
 		return ctx, nil
 	}
-	personalSubscription := servedOnCodexSubscription(resolveAndInjectCredentials(ctx, provider, model, headers))
-	managedSubscription := managedSubscriptionCanServe(ctx, provider, model)
+	personalSubscription := credentials.ServedOnCodexSubscription(credentials.ResolveAndInjectCredentials(ctx, provider, model, headers))
+	managedSubscription := credentials.ManagedSubscriptionCanServe(ctx, provider, model)
 	if !personalSubscription && !managedSubscription {
 		return ctx, nil
 	}
 	if !s.openaiFallbackKeyAvailable(ctx) {
 		return nil, credentials.SubscriptionOnlyUnavailable(ctx)
 	}
-	return withCodexChatEndpoint(ctx), nil
-}
-
-func servedOnCodexSubscription(ctx context.Context) bool {
-	creds := CredentialsFromContext(ctx)
-	return creds != nil && creds.OAuth && len(creds.AccountID) > 0
-}
-
-func servedOnSubscription(ctx context.Context) bool {
-	creds := CredentialsFromContext(ctx)
-	return (creds != nil && creds.OAuth) || managedSubscriptionServed(ctx)
-}
-
-func servedOnBYOK(ctx context.Context) bool {
-	creds := CredentialsFromContext(ctx)
-	return creds != nil && creds.Source == credSourceBYOK
-}
-
-func openaiSubscriptionFromContext(ctx context.Context) string {
-	if byokFirst(ctx, providers.ProviderOpenAI) {
-		return ""
-	}
-	v, _ := ctx.Value(credentials.OpenAISubscriptionContextKey{}).(string)
-	return v
-}
-
-func codexSubscriptionFromContext(ctx context.Context) *Credentials {
-	return codexSubscriptionCreds(openaiSubscriptionFromContext(ctx), requestcontext.OpenAIAccountIDFromContext(ctx))
+	return credentials.WithCodexChatEndpoint(ctx), nil
 }
 
 func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
-	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
+	if credentials.SubscriptionRoutingDisabledForRequest(ctx) || credentials.SubscriptionFundingOutOfPlayForRequest(ctx) {
 		return false
 	}
-	if codexSubscriptionFromContext(ctx) != nil {
+	if credentials.CodexSubscriptionFromContext(ctx) != nil {
 		return true
 	}
-	if c := ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth && !byokFirst(ctx, providers.ProviderOpenAI) {
+	if c := requestcontext.ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth && !credentials.ByokFirst(ctx, providers.ProviderOpenAI) {
 		return true
 	}
 	return false
@@ -749,9 +654,7 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 		pinStore:                     pinStore,
 		lifecycle:                    conversation.NewLifecycle(),
 		searchUse:                    newSearchUseTracker(),
-		searchRequirementDecayTurns:  DefaultSearchRequirementDecayTurns,
 		prefixTrimFreeSwitch:         true,
-		ccOrchToolsCrossVendor:       true,
 		strategyServing:              strategyServing{continuityConfig: continuity.DefaultConfig(), hmmConfig: continuity.DefaultAuthoritativeConfig()},
 		rescueConfig: dispatch.RescueConfig{
 			SiblingFailover:             true,
@@ -760,7 +663,6 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 			CyberRefusalFallbackModel:   "claude-sonnet-5",
 			AnthropicServerSideFallback: true,
 		},
-		openAIResponsesBroad: true,
 	}
 	s.routing = routingpolicy.New(nil).WithHardPins(overrides.HardPins{Explore: hardPinExplore, Provider: hardPinProvider, Model: hardPinModel})
 	s.escalationHelper()
@@ -774,14 +676,6 @@ func (s *Service) WithTranslationCompatibilityMode(mode TranslationCompatibility
 	switch mode {
 	case TranslationCompatibilityOff, TranslationCompatibilityShadow, TranslationCompatibilityEnforce:
 		s.translationCompatibilityMode = mode
-	}
-	return s
-}
-
-func (s *Service) WithScopedSearchRequirement(enabled bool, decayTurns int) *Service {
-	s.scopedSearchRequirement = enabled
-	if decayTurns > 0 {
-		s.searchRequirementDecayTurns = decayTurns
 	}
 	return s
 }
@@ -808,11 +702,6 @@ func (s *Service) WithAnthropicServerSideFallback(enabled bool) *Service {
 
 func (s *Service) WithSiblingFailover(enabled bool) *Service {
 	s.rescueConfig.SiblingFailover = enabled
-	return s
-}
-
-func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
-	s.openAIResponsesBroad = enabled
 	return s
 }
 
@@ -867,38 +756,13 @@ func (s *Service) WithPrefixTrimFreeSwitch(enabled bool) *Service {
 	return s
 }
 
-func (s *Service) WithEscapeNormalize(enabled bool) *Service {
-	s.escapeNormalize = enabled
-	return s
-}
-
 func (s *Service) WithEffortEscalation(enabled bool) *Service {
 	s.effortEscalation = enabled
 	return s
 }
 
-func (s *Service) WithCCOrchestrationToolsCrossVendor(enabled bool) *Service {
-	s.ccOrchToolsCrossVendor = enabled
-	return s
-}
-
-func (s *Service) WithCCTaskToolsCrossVendor(enabled bool) *Service {
-	s.ccTaskToolsCrossVendor = enabled
-	return s
-}
-
-func (s *Service) WithCCAutonomySystemAppend(enabled bool) *Service {
-	s.ccAutonomySystemAppend = enabled
-	return s
-}
-
 func (s *Service) WithEarlyStopRedo(mode flags.EarlyStopRedoMode) *Service {
 	s.rescueConfig.EarlyStopRedo = mode
-	return s
-}
-
-func (s *Service) WithCCWorkspaceSystemAppend(enabled bool) *Service {
-	s.ccWorkspaceSystemAppend = enabled
 	return s
 }
 
@@ -932,11 +796,6 @@ func forcedReasoningEffort(model string, escalate bool) string {
 	default:
 		return ""
 	}
-}
-
-func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
-	s.webSearch = ex
-	return s
 }
 
 func (s *Service) WithAvailableModels(models map[string]struct{}) *Service {
@@ -1094,7 +953,7 @@ func gatewayResponsesKey(ctx context.Context, provider string) string {
 	if !providers.IsGateway(provider) {
 		return ""
 	}
-	return EffectiveBaseURL(ctx, provider)
+	return requestcontext.EffectiveBaseURL(ctx, provider)
 }
 
 func gatewayModelKey(endpoint, provider, model string) string {
@@ -1113,7 +972,7 @@ func (s *Service) gatewayLacksModel(key string) bool {
 }
 
 func (s *Service) rememberGatewayLacksModel(ctx context.Context, provider, model string) {
-	key := gatewayModelKey(EffectiveBaseURL(ctx, ""), provider, model)
+	key := gatewayModelKey(requestcontext.EffectiveBaseURL(ctx, ""), provider, model)
 	if key == "" {
 		return
 	}
@@ -1451,12 +1310,12 @@ func isHMMTurn(ports continuity.StrategyPorts, res routingpolicy.TurnRoute) bool
 
 func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvider string, headers http.Header) map[string]struct{} {
 	subscriptionLanes := make(map[string]struct{}, 2)
-	if subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)) != nil ||
-		managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) && s.supportsSubscriptionTransport(providers.ProviderAnthropic) {
+	if credentials.SubscriptionCredsFromToken(credentials.AnthropicSubscriptionFromContext(ctx)) != nil ||
+		credentials.ManagedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) && s.supportsSubscriptionTransport(providers.ProviderAnthropic) {
 		subscriptionLanes[providers.ProviderAnthropic] = struct{}{}
 	}
-	if codexSubscriptionFromContext(ctx) != nil ||
-		managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !codexChatEndpoint(ctx) && s.supportsSubscriptionTransport(providers.ProviderOpenAI) {
+	if credentials.CodexSubscriptionFromContext(ctx) != nil ||
+		credentials.ManagedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !credentials.CodexChatEndpoint(ctx) && s.supportsSubscriptionTransport(providers.ProviderOpenAI) {
 		subscriptionLanes[providers.ProviderOpenAI] = struct{}{}
 	}
 	return s.credentials.EnabledProviders(credentials.EligibilityRequest{
@@ -1615,8 +1474,8 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID, reques
 		Pricing:            actPricing,
 		UsageModifiers:     usageMods,
 		HasOverride:        hasOverride,
-		SubscriptionServed: routeRes.UsageBypass || servedOnSubscription(ctx),
-		ByokServed:         servedOnBYOK(ctx),
+		SubscriptionServed: routeRes.UsageBypass || credentials.ServedOnSubscription(ctx),
+		ByokServed:         credentials.ServedOnBYOK(ctx),
 		APIKeyID:           apiKeyID,
 		RouterUserID:       auth.UserIDFrom(ctx),
 	})
@@ -1674,7 +1533,7 @@ func logBillingDebitFailure(ctx context.Context, p billing.DebitInferenceParams,
 	)
 }
 
-func upstreamStatus(err error) int { return dispatch.UpstreamStatus(err) }
+func upstreamStatus(err error) int { return providers.UpstreamStatus(err) }
 
 func finalizeAfterProxy(proxyErr error, fn func() error) error {
 	var statusErr *providers.UpstreamStatusError
