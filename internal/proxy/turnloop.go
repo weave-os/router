@@ -245,7 +245,7 @@ func (s *Service) runTurnLoop(
 			key := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 			params := turnrecord.InsertTelemetryParams{InstallationID: installationID.String(), RequestID: observability.RequestIDFromContext(ctx),
 				Timestamp: shadowStartedAt, SessionKey: key[:], Role: res.PinRole,
-				TurnType: string(turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx)))), ErrorClass: turnrecord.TurnErrorRoutingRefused}
+				TurnType: string(turntype.Detect(env, feats, subAgentHint, openCodeCaller(requestcontext.ClientIdentityFrom(ctx)))), ErrorClass: turnrecord.TurnErrorRoutingRefused}
 			applyAgreementShadowTelemetry(s.strategyPorts, ctx, &params, res)
 			if params.AgreementShadow != nil {
 				log := observability.FromContext(ctx)
@@ -272,7 +272,7 @@ func (s *Service) runTurnLoop(
 	}
 	ctx = context.WithValue(ctx, translationPlanAppliedContextKey{}, true)
 	req.Candidates.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
-	req.ClientApp = ClientIdentityFrom(ctx).ClientApp
+	req.ClientApp = requestcontext.ClientIdentityFrom(ctx).ClientApp
 	if transforms, ok := ctx.Value(responsesTransformsContextKey{}).([]translate.ResponseTransform); ok {
 		for _, transform := range transforms {
 			if metrics := s.translationMetrics; metrics != nil {
@@ -306,7 +306,7 @@ func (s *Service) runTurnLoop(
 		TranslationEnabledProviders: req.EnabledProviders,
 		InstallationID:              installationID,
 		Strategy:                    strategy,
-		TurnType:                    turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))),
+		TurnType:                    turntype.Detect(env, feats, subAgentHint, openCodeCaller(requestcontext.ClientIdentityFrom(ctx))),
 		PinTier:                     "miss",
 		RequestedTier:               catalog.TierFor(feats.Model),
 		StripThinkingBlocks:         stripsThinkingHistory(ctx),
@@ -351,7 +351,7 @@ func (s *Service) runTurnLoop(
 		forceModelFound = true
 	}
 	if !forceModelFound {
-		forceModelPin, forceModelFound, forceModelCleared = routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).Load(ctx, forceModelSessionKey, sessionKeyHex(threadSessionKey), turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
+		forceModelPin, forceModelFound, forceModelCleared = routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).Load(ctx, forceModelSessionKey, sessionKeyHex(threadSessionKey), turntype.IsSubAgent(env, subAgentHint, openCodeCaller(requestcontext.ClientIdentityFrom(ctx))))
 	}
 	if forcePinBindsNonClassifierTurn(forceModelFound, res.TurnType) {
 		binding, refusal := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)

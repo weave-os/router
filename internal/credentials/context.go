@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/requestcontext"
 )
 
 type ExternalAPIKeysContextKey struct{}
@@ -11,7 +12,8 @@ type ExternalAPIKeysContextKey struct{}
 type AnthropicSubscriptionContextKey struct{}
 
 type OpenAISubscriptionContextKey struct{}
-type OpenAIAccountIDContextKey struct{}
+
+type OpenAIAccountIDContextKey = requestcontext.OpenAIAccountIDContextKey
 
 type ManagedSubscriptionProvidersContextKey struct{}
 

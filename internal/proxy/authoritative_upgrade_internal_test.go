@@ -26,6 +26,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 )
 
@@ -213,7 +214,7 @@ func TestUpgradeShadowCapturesMarginOnStayButNotReplay(t *testing.T) {
 	zero := 0.0
 	fresh.Metadata.ClassifierMargin = &zero
 	served := upgradeTestPin().Decision()
-	obs := buildObservationContext(hmm.ServingPorts(), context.Background(), router.StrategyFromContext(context.Background()), served, fresh, CaptureOff)
+	obs := buildObservationContext(hmm.ServingPorts(), context.Background(), router.StrategyFromContext(context.Background()), served, fresh, capture.Off)
 	assert.Equal(t, &zero, obs.FreshClassifierMargin)
 	assert.Equal(t, string(escalation.High), obs.FreshPolicyGroup)
 	builder := telemetry.NewAttrBuilder(4)
@@ -226,7 +227,7 @@ func TestUpgradeShadowCapturesMarginOnStayButNotReplay(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
-	replay := buildObservationContext(hmm.ServingPorts(), context.Background(), router.StrategyFromContext(context.Background()), served, router.Decision{}, CaptureOff)
+	replay := buildObservationContext(hmm.ServingPorts(), context.Background(), router.StrategyFromContext(context.Background()), served, router.Decision{}, capture.Off)
 	assert.Nil(t, replay.FreshClassifierMargin)
 	assert.Empty(t, replay.FreshPolicyGroup)
 }

@@ -145,7 +145,7 @@ func applySubscriptionWinnerTelemetry(ctx context.Context, telemetry *turnrecord
 }
 
 func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *telemetry.AttrBuilder, requestedModel, selectedModel string) {
-	if keyID := apiKeyIDFromContext(ctx); keyID != "" {
+	if keyID := requestcontext.APIKeyIDFromContext(ctx); keyID != "" {
 		attrs.String("api_key_id", keyID)
 	}
 	_, _, source := s.credentialKeyParts(ctx)
@@ -173,7 +173,7 @@ func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *tel
 }
 
 func applySubscriptionDecisionSpanTelemetry(ctx context.Context, attrs *telemetry.AttrBuilder, requestedModel, selectedModel string) {
-	if keyID := apiKeyIDFromContext(ctx); keyID != "" {
+	if keyID := requestcontext.APIKeyIDFromContext(ctx); keyID != "" {
 		attrs.String("api_key_id", keyID)
 	}
 	intendedModel := requestedModel
