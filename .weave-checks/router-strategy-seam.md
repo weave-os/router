@@ -10,8 +10,9 @@ files: **/*.go
 Review only changed non-test Go under `internal/` or `cmd/`, excluding generated code and
 `internal/architecture/testdata/`. Otherwise PASS immediately. Continue only when the PR changes
 `router.Request`, `router.Decision`, `router.SessionView`, `policy.Capabilities`, a strategy package
-(`internal/router/hmm`, `internal/router/decisionmodel`, `internal/router/policy`) or code that
-consumes a `router.Decision`; otherwise PASS immediately.
+(`internal/router/hmm`, `internal/router/decisionmodel`, `internal/router/policy`), or serving-layer
+code that reads any of those types, a strategy capability or strategy configuration; otherwise PASS
+immediately.
 
 The serving layer decides which models can serve; one strategy decides which eligible model should
 serve (see `docs/ROUTER_ARCHITECTURE.md`). The seam is `router.Router`: filtered candidates in,
