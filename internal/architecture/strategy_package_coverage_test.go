@@ -22,8 +22,7 @@ var strategyRouterWrappers = []string{
 }
 
 func TestStrategyPackageRootsCoverEveryStrategy(t *testing.T) {
-	root := repositoryRoot(t)
-	found := strategyRouterTypes(loadTypedPackages(t, root, "./internal/...", "./cmd/..."))
+	found := strategyRouterTypes(loadTypedPackages(t, repositoryRoot(t), "./internal/...", "./cmd/..."))
 	assert.Empty(t, uncoveredStrategyRouters(found), "a router.Router implementation or policy.StrategySpec router lives outside strategyPackageRoots; add its package to strategyPackageRoots (so the strategy ratchets apply) or, for a delegating wrapper, to strategyRouterWrappers")
 	for _, wrapper := range strategyRouterWrappers {
 		assert.Contains(t, found, wrapper, "strategyRouterWrappers only shrinks; delete the entry for a wrapper that no longer implements router.Router")
@@ -31,9 +30,12 @@ func TestStrategyPackageRootsCoverEveryStrategy(t *testing.T) {
 }
 
 func TestStrategyPackageCoverageRejectsUnlistedRouter(t *testing.T) {
-	root := repositoryRoot(t)
-	fixture := strategyRouterTypes(loadTypedPackages(t, root, "./internal/architecture/testdata/strategy_coverage"))
-	require.Equal(t, []string{"internal/architecture/testdata/strategy_coverage.registeredStrategy", "internal/architecture/testdata/strategy_coverage.shadowStrategy"}, fixture)
+	fixture := strategyRouterTypes(loadTypedPackages(t, repositoryRoot(t), "./internal/architecture/testdata/strategy_coverage"))
+	require.Equal(t, []string{
+		"internal/architecture/testdata/strategy_coverage.positionalStrategy",
+		"internal/architecture/testdata/strategy_coverage.registeredStrategy",
+		"internal/architecture/testdata/strategy_coverage.shadowStrategy",
+	}, fixture)
 	assert.Equal(t, fixture, uncoveredStrategyRouters(fixture))
 	assert.Empty(t, uncoveredStrategyRouters([]string{"internal/router/hmm.Router", "internal/proxy.Service"}))
 }
@@ -88,12 +90,19 @@ func strategySpecRouterType(info *types.Info, node ast.Node) *types.Named {
 	if !ok || !isNamedType(info.TypeOf(literal), policyPackagePath, "StrategySpec") {
 		return nil
 	}
-	for _, element := range literal.Elts {
-		pair, ok := element.(*ast.KeyValueExpr)
-		if key, isIdent := pair.Key.(*ast.Ident); !ok || !isIdent || key.Name != "Router" {
+	fields, _ := info.TypeOf(literal).Underlying().(*types.Struct)
+	for i, element := range literal.Elts {
+		value := element
+		if pair, keyed := element.(*ast.KeyValueExpr); keyed {
+			key, isIdent := pair.Key.(*ast.Ident)
+			if !isIdent || key.Name != "Router" {
+				continue
+			}
+			value = pair.Value
+		} else if fields == nil || i >= fields.NumFields() || fields.Field(i).Name() != "Router" {
 			continue
 		}
-		typ := info.TypeOf(pair.Value)
+		typ := info.TypeOf(value)
 		if pointer, isPointer := typ.(*types.Pointer); isPointer {
 			typ = pointer.Elem()
 		}
