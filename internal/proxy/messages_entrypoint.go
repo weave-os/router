@@ -82,7 +82,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}()
 	}
 
-	clientBudget := credentials.ResolveClientBudget(facts.Client, r.Header, env.Model(), modelVariant1M)
+	clientBudget := resolveClientBudget(facts.Client, r.Header, env.Model(), modelVariant1M)
 	ctx = requestcontext.WithClientBudget(ctx, clientBudget)
 	agentShadowEval, agentShadowMode := requestcontext.AgentShadowEvalFromContext(ctx)
 
@@ -223,7 +223,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		ToolBearing: inboundToolCallCount > 0 || inboundLastUser.HasToolResult, ClientBudget: clientBudget, Scope: req,
 		LoopBreak:  newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, roleForTier(catalog.TierFor(feats.Model)), decision),
 		NoProgress: s.lifecycle.NoProgress(), Now: s.clock.Now, TextRepetitionEnabled: s.ResolveTextRepetitionBreakEnabled(ctx),
-		RecoverClientCompaction: !callerModelPassthroughActive(ctx), SummaryMaxTokens: DefaultCompactionMaxTokens, ClientDefaultWindow: credentials.ClaudeCodeDefaultWindow,
+		RecoverClientCompaction: !callerModelPassthroughActive(ctx), SummaryMaxTokens: DefaultCompactionMaxTokens, ClientDefaultWindow: claudeCodeDefaultWindow,
 		HandoverEligible: !subscriptionStateModelsEnabled(ctx) && decision.Provider != providers.ProviderAnthropic,
 		RunCompactionHandover: func(ctx context.Context) handover.Outcome {
 			return s.runCompactionHandover(ctx, env, r.Header, decision.Model, req)
