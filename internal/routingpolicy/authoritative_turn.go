@@ -72,7 +72,7 @@ type SessionTurn struct {
 type SessionServing interface {
 	BandSwap(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, req router.Request) router.Decision
 	Handover(ctx context.Context, req router.Request, pinModel, freshModel string) (outcome handover.Outcome, contextEstimate int, rewritten bool)
-	ScorerFallback(ctx context.Context, res *TurnRoute, err error, req router.Request) bool
+	TryServeScorerFallback(ctx context.Context, res *TurnRoute, err error, req router.Request) bool
 }
 
 func (t SessionTurn) Serve(ctx context.Context, res *TurnRoute) (TurnRoute, error) {

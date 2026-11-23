@@ -96,6 +96,6 @@ func (t turnServing) Handover(ctx context.Context, req router.Request, pinModel,
 	return outcome, t.env.ContextOverflowTokenEstimate(), true
 }
 
-func (t turnServing) ScorerFallback(ctx context.Context, res *routingpolicy.TurnRoute, err error, req router.Request) bool {
+func (t turnServing) TryServeScorerFallback(ctx context.Context, res *routingpolicy.TurnRoute, err error, req router.Request) bool {
 	return t.s.routing.Deadline().Fallback && isPolicyDeadlineErr(err) && servePolicyDeadlineFallback(ctx, t.s, res, err, req, t.pins, t.pin)
 }
