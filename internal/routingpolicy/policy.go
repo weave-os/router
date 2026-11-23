@@ -1,8 +1,10 @@
 package routingpolicy
 
 import (
+	"context"
 	"errors"
 
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/routingpolicy/overrides"
@@ -22,6 +24,8 @@ type Policy struct {
 	defaultBaselineModel   string
 	hardPins               overrides.HardPins
 	automaticExclusions    *GlobalAutomaticExclusionCache
+	prefixTrimFreeSwitch   bool
+	effortEscalation       bool
 }
 
 type PolicyDeadline struct {
@@ -142,6 +146,26 @@ func (p *Policy) WithGlobalAutomaticExclusions(store candidates.GlobalAutomaticE
 		out.automaticExclusions = NewGlobalAutomaticExclusionCache(store)
 	}
 	return out
+}
+
+func (p *Policy) WithPrefixTrimFreeSwitch(enabled bool) *Policy {
+	out := p.clone()
+	out.prefixTrimFreeSwitch = enabled
+	return out
+}
+
+func (p *Policy) ResolvePrefixTrimFreeSwitch(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyPrefixTrimFreeSwitch, p != nil && p.prefixTrimFreeSwitch)
+}
+
+func (p *Policy) WithEffortEscalation(enabled bool) *Policy {
+	out := p.clone()
+	out.effortEscalation = enabled
+	return out
+}
+
+func (p *Policy) ResolveEffortEscalation(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyEffortEscalation, p != nil && p.effortEscalation)
 }
 
 func (p *Policy) clone() *Policy {
