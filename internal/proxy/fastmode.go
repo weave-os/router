@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -109,7 +110,7 @@ func fastModeForAttempt(ctx context.Context, model, provider string) bool {
 	if _, ok := catalog.FastPriceFor(provider, model); !ok {
 		return false
 	}
-	return !servedOnSubscription(ctx)
+	return !credentials.ServedOnSubscription(ctx)
 }
 
 func servedPricing(provider, model string, fast bool) (catalog.Pricing, bool) {

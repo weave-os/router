@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/subscriptionlane"
@@ -22,7 +23,7 @@ func codexPlanSpentForTurn(ctx context.Context, headers http.Header, observer *u
 		return true
 	}
 	if observer != nil {
-		if token, _ := presentSubscriptionTokens(ctx, headers); token != "" && observer.Rejected(observer.Key([]byte(token))) {
+		if token, _ := credentials.PresentSubscriptionTokens(ctx, headers); token != "" && observer.Rejected(observer.Key([]byte(token))) {
 			return false
 		}
 	}
@@ -35,7 +36,7 @@ func dropFailedIncludedModels(includedModels []string, failed string, excluded m
 	for _, model := range includedModels {
 		switch {
 		case model == failed:
-		case planSpent && codexSubscriptionCanAttemptModel(model):
+		case planSpent && requestcontext.CodexSubscriptionCanAttemptModel(model):
 			spent[model] = struct{}{}
 		default:
 			remaining = append(remaining, model)

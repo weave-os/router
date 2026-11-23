@@ -19,7 +19,7 @@ import (
 
 func expiredRotationContext(provider auth.SubscriptionProvider) context.Context {
 	ctx := managedSubscriptionContext(provider)
-	return context.WithValue(ctx, subscriptionRotationBudgetKey{}, &subscriptionAdmissionBudget{})
+	return context.WithValue(ctx, credentials.SubscriptionRotationBudgetKey{}, &subscriptionAdmissionBudget{})
 }
 
 func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
@@ -33,7 +33,7 @@ func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 	var oauthCalls, apiCalls int
 	in.Attempt = func(attemptCtx context.Context, _ router.Decision, _ dispatch.Upstream) error {
 		require.NoError(t, attemptCtx.Err(), "paid recovery runs on the caller's live context")
-		if creds := CredentialsFromContext(attemptCtx); creds != nil && creds.OAuth {
+		if creds := credentials.CredentialsFromContext(attemptCtx); creds != nil && creds.OAuth {
 			oauthCalls++
 		} else {
 			apiCalls++

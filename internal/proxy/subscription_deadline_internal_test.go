@@ -25,9 +25,9 @@ const slowFirstOutput = 12 * time.Second
 
 // slowAttempt writes output after delay unless its context ends first, so a
 // pre-fix rotation timer that cancels in-flight inference makes it fail.
-func slowAttempt(buf *preludeBuffer, delay time.Duration, output string, seen *[]*Credentials) func(context.Context, router.Decision, dispatch.Upstream) error {
+func slowAttempt(buf *preludeBuffer, delay time.Duration, output string, seen *[]*requestcontext.Credentials) func(context.Context, router.Decision, dispatch.Upstream) error {
 	return func(ctx context.Context, _ router.Decision, _ dispatch.Upstream) error {
-		*seen = append(*seen, CredentialsFromContext(ctx))
+		*seen = append(*seen, credentials.CredentialsFromContext(ctx))
 		buf.Seal()
 		select {
 		case <-ctx.Done():
@@ -43,13 +43,13 @@ func TestLinkedClaudeSubscriptionSurvivesSlowFirstOutput(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic}}).
 			WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-		linked := &Credentials{APIKey: []byte("sk-ant-oat01-synthetic"), OAuth: true, Source: credSourceSubscription}
-		ctx := context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), CredentialsContextKey{}, linked)
+		linked := &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-synthetic"), OAuth: true, Source: requestcontext.SourceSubscription}
+		ctx := context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), requestcontext.CredentialsContextKey{}, linked)
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 		in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
-		var seen []*Credentials
+		var seen []*requestcontext.Credentials
 		in.Attempt = slowAttempt(buf, slowFirstOutput, "slow answer", &seen)
 
 		_, err := svc.dispatchWithFallback(ctx, in)
@@ -82,7 +82,7 @@ func TestManagedSubscriptionSurvivesSlowFirstOutput(t *testing.T) {
 				buf := newPreludeBuffer(rec)
 				in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: tc.upstream}}, nil)
 				in.InitialDecision = router.Decision{Provider: tc.upstream, Model: tc.model}
-				var seen []*Credentials
+				var seen []*requestcontext.Credentials
 				in.Attempt = slowAttempt(buf, slowFirstOutput, "slow seat answer", &seen)
 
 				_, err := svc.dispatchWithFallback(ctx, in)
@@ -109,7 +109,7 @@ func TestSecondAccountAdmittedBeforeBudgetMayFinishAfterIt(t *testing.T) {
 		in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
 		var seen []string
 		in.Attempt = func(ctx context.Context, _ router.Decision, _ dispatch.Upstream) error {
-			seen = append(seen, CredentialsFromContext(ctx).SubscriptionAccountID)
+			seen = append(seen, credentials.CredentialsFromContext(ctx).SubscriptionAccountID)
 			buf.Seal()
 			if len(seen) == 1 {
 				time.Sleep(9 * time.Second)
@@ -162,9 +162,9 @@ func TestCallerCancellationDuringSubscriptionAttemptIsTerminal(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic}}).
 			WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-		linked := &Credentials{APIKey: []byte("sk-ant-oat01-synthetic"), OAuth: true, Source: credSourceSubscription}
+		linked := &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-synthetic"), OAuth: true, Source: requestcontext.SourceSubscription}
 		parent, cancel := context.WithCancel(credentials.WithManagedSubscriptionUsage(context.Background()))
-		ctx := context.WithValue(parent, CredentialsContextKey{}, linked)
+		ctx := context.WithValue(parent, requestcontext.CredentialsContextKey{}, linked)
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)

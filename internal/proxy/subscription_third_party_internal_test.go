@@ -143,7 +143,7 @@ func TestDispatchWithFallbackKeepsManagedThirdPartyRefusalClientSpecific(t *test
 	assert.Equal(t, "served", recorder.Body.String())
 	assert.Equal(t, 2, upstream.subDispatches, "Claude Code still leases the account OpenCode was refused on")
 	assert.Zero(t, upstream.paidDispatches)
-	assert.True(t, servedOnSubscription(claudeCodeCtx))
+	assert.True(t, credentials.ServedOnSubscription(claudeCodeCtx))
 }
 
 func TestDispatchWithFallbackSurfacesManagedThirdPartyRefusalWithoutFallbackKey(t *testing.T) {
@@ -228,7 +228,7 @@ func TestRotationBudgetPaidRescueRejectsForcedThirdPartyRefusal(t *testing.T) {
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: parityAnthropicModel, Reason: translate.ReasonUserForceModel}
 	var apiCalls int
 	in.Attempt = func(attemptCtx context.Context, _ router.Decision, _ dispatch.Upstream) error {
-		if creds := CredentialsFromContext(attemptCtx); creds == nil || !creds.OAuth {
+		if creds := credentials.CredentialsFromContext(attemptCtx); creds == nil || !creds.OAuth {
 			apiCalls++
 		}
 		return nil

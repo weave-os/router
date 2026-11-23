@@ -192,7 +192,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				BuildAlternative: func(target router.Decision) (dispatch.UpstreamAttempt, error) {
 					return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 						servedModels = append(servedModels, decision.Model)
-						subscriptionFunding = append(subscriptionFunding, servedOnSubscription(attemptCtx))
+						subscriptionFunding = append(subscriptionFunding, credentials.ServedOnSubscription(attemptCtx))
 						buffer.Seal()
 						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 					}, nil
@@ -554,8 +554,8 @@ func TestSubscriptionStateModelsStrictDirectSubscription(t *testing.T) {
 		Purpose:         inference.PurposeAnthropicMessages,
 		BuildAlternative: func(target router.Decision) (dispatch.UpstreamAttempt, error) {
 			return func(attemptCtx context.Context, decision router.Decision, upstream dispatch.Upstream) error {
-				require.True(t, servedOnSubscription(attemptCtx))
-				require.Equal(t, conditionalModelsSubscriptionToken, string(CredentialsFromContext(attemptCtx).APIKey))
+				require.True(t, credentials.ServedOnSubscription(attemptCtx))
+				require.Equal(t, conditionalModelsSubscriptionToken, string(credentials.CredentialsFromContext(attemptCtx).APIKey))
 				buffer.Seal()
 				return upstream.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, requestcontext.RoutePathMessages, nil))
 			}, nil

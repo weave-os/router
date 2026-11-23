@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 )
@@ -52,7 +53,7 @@ func (s *Service) codexSubscriptionExhausted(ctx context.Context, headers http.H
 	if s.credentials.UsageObserver == nil || pickedModelOnOwnPlan(ctx) {
 		return false
 	}
-	codexTok, _ := presentSubscriptionTokens(ctx, headers)
+	codexTok, _ := credentials.PresentSubscriptionTokens(ctx, headers)
 	if codexTok == "" {
 		return false
 	}
@@ -140,11 +141,11 @@ func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.H
 	if !exhausted || s.credentials.UsageObserver == nil {
 		return
 	}
-	codexTok, _ := presentSubscriptionTokens(ctx, headers)
+	codexTok, _ := credentials.PresentSubscriptionTokens(ctx, headers)
 	s.recordCodexPlanSpent(ctx, codexTok, resetAt)
 }
 
-func (s *Service) recordCodexCredentialUnusable(ctx context.Context, creds *Credentials, err error) {
+func (s *Service) recordCodexCredentialUnusable(ctx context.Context, creds *requestcontext.Credentials, err error) {
 	recordCallerCodexFailureOnLinkedSeat(ctx, creds, err, s.clock.Now())
 	if s.credentials.UsageObserver == nil || creds == nil || !creds.OAuth {
 		return
@@ -175,7 +176,7 @@ func (s *Service) recordCodexPlanSpent(ctx context.Context, codexTok string, res
 func (s *Service) codexExtraCreditsAllowed() bool { return s.credentials.CodexExtraCredits }
 
 func codexSubscriptionRotates(credentialCtx context.Context, err error) bool {
-	if !servedOnCodexSubscription(credentialCtx) {
+	if !credentials.ServedOnCodexSubscription(credentialCtx) {
 		return false
 	}
 	_, quotaSpent := codexQuotaExhaustion(err)

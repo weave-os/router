@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/observability"
 )
@@ -25,7 +26,7 @@ func captureUnifiedLimitHeaders(ctx context.Context, h http.Header) {
 	if !ok || c == nil {
 		return
 	}
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	if creds == nil || !creds.OAuth {
 		return
 	}
