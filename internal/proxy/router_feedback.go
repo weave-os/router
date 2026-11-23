@@ -21,14 +21,6 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Service) WithRouterFeedbackStore(store feedback.RouterFeedbackStore) *Service {
-	if s.lifecycle == nil {
-		s.lifecycle = &conversation.Lifecycle{}
-	}
-	s.lifecycle.SetRouterFeedbackStore(store)
-	return s
-}
-
 type routerFeedbackPorts struct {
 	s *Service
 }
@@ -57,7 +49,7 @@ func (p routerFeedbackPorts) ServedModel(ctx context.Context, strategy router.St
 }
 
 func (p routerFeedbackPorts) UpsertRequestFeedback(ctx context.Context, request conversation.RequestFeedback) error {
-	return p.s.feedbackLinks.Repository().Upsert(ctx, feedback.UpsertFeedbackParams{
+	return p.s.lifecycle.FeedbackLinks().Repository().Upsert(ctx, feedback.UpsertFeedbackParams{
 		InstallationID: request.InstallationID,
 		ExternalID:     request.ExternalID,
 		RequestID:      request.RequestID,
@@ -91,7 +83,7 @@ func newRouterFeedback(s *Service) conversation.RouterFeedback {
 	if s.pinStore != nil {
 		recorder.ServedModels = ports
 	}
-	if s.feedbackLinks.Repository() != nil {
+	if s.lifecycle.FeedbackLinks().Repository() != nil {
 		recorder.Requests = ports
 	}
 	return recorder

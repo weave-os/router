@@ -11,7 +11,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 
@@ -21,14 +20,6 @@ import (
 func internalBetaSession(ctx context.Context) bool {
 	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
 	return managed && policyregistry.ExperimentalRoutingModelsPermitted(policyregistry.ServingTarget(identity.Target), entitlement.Plan(identity.Plan)) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != ""
-}
-
-func (s *Service) WithSessionStrategyStore(store sessionstrategy.Store) *Service {
-	if s.lifecycle == nil {
-		s.lifecycle = &conversation.Lifecycle{}
-	}
-	s.lifecycle.SetSessionStrategies(store)
-	return s
 }
 
 func (s *Service) applySessionStrategy(

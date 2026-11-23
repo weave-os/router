@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/turntype"
 
@@ -14,22 +13,15 @@ import (
 
 const HeaderRouterFeedbackURL = "x-router-feedback-url"
 
-type feedbackLinks = feedback.Links
-
-func (s *Service) WithFeedback(links *feedback.Links) *Service {
-	s.feedbackLinks = links
-	return s
-}
-
 func (s *Service) setFeedbackLinkHeader(ctx context.Context, w http.ResponseWriter, installationID uuid.UUID, externalID, requestID, routerUserID string) {
 	if hideTerminalSurfacesForRequest(ctx) {
 		return
 	}
-	token := s.feedbackLinks.MintToken(installationID, externalID, requestID, routerUserID)
+	token := s.lifecycle.FeedbackLinks().MintToken(installationID, externalID, requestID, routerUserID)
 	if token == "" {
 		return
 	}
-	w.Header().Set(HeaderRouterFeedbackURL, s.feedbackLinks.BaseURL()+"/f/"+token)
+	w.Header().Set(HeaderRouterFeedbackURL, s.lifecycle.FeedbackLinks().BaseURL()+"/f/"+token)
 }
 
 var terminalFeedbackClients = map[string]struct{}{

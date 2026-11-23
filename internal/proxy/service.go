@@ -80,10 +80,9 @@ type Service struct {
 	ccAutonomySystemAppend  bool
 	ccWorkspaceSystemAppend bool
 
-	webSearch     websearch.Executor
-	billing       *billing.Service
-	clock         auth.Clock
-	feedbackLinks *feedbackLinks
+	webSearch websearch.Executor
+	billing   *billing.Service
+	clock     auth.Clock
 }
 
 type registeredStrategy struct {
