@@ -60,7 +60,7 @@ func report(w io.Writer, title string, labels, changed []string) bool {
 	}
 	_, _ = fmt.Fprintf(w, "structural_pr_guard: a structural PR must not change goldens; %d protected file(s) changed:\n", len(blocked))
 	for _, file := range blocked {
-		_, _ = fmt.Fprintln(w, "  "+file)
+		_, _ = fmt.Fprintf(w, "  %q\n", file)
 	}
 	_, _ = fmt.Fprintln(w, "Revert those files, or split the behavior change into a PR that is neither titled refactor nor labeled structural.")
 	return false

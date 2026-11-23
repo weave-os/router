@@ -67,3 +67,10 @@ func TestReadPathsKeepsUnusualFilenamesVerbatim(t *testing.T) {
 	assert.Equal(t, []string{"internal/proxy/testdata/golden/caf\u00e9.json", "internal/proxy/testdata/golden/a b\tc.json"}, paths)
 	assert.Equal(t, paths, protectedChanges(paths))
 }
+
+func TestReportQuotesFilenamesSoTheyCannotForgeWorkflowCommands(t *testing.T) {
+	var out strings.Builder
+	assert.False(t, report(&out, "refactor: split", nil, []string{"internal/proxy/testdata/golden/x\n::error::forged.json"}))
+	assert.NotContains(t, out.String(), "\n::error::")
+	assert.Contains(t, out.String(), `"internal/proxy/testdata/golden/x\n::error::forged.json"`)
+}
