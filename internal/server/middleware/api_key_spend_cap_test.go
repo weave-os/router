@@ -8,7 +8,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -28,7 +28,7 @@ func runSpendCap(t *testing.T, keyID string, repo *stubBillingRepo) (*httptest.R
 		if keyID != "" {
 			c.Set("router_api_key", &auth.APIKey{ID: keyID})
 		}
-		middleware.WithAPIKeySpendCap(svc, proxy.RequestHasCustomerFunding)(c)
+		middleware.WithAPIKeySpendCap(svc, credentials.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -106,7 +106,7 @@ func runSpendCapSub(t *testing.T, keyID string, setInstall func(*gin.Context), a
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		setInstall(c)
 		c.Set("router_api_key", &auth.APIKey{ID: keyID})
-		middleware.WithAPIKeySpendCap(svc, proxy.RequestHasCustomerFunding)(c)
+		middleware.WithAPIKeySpendCap(svc, credentials.RequestHasCustomerFunding)(c)
 		if c.IsAborted() {
 			return
 		}
