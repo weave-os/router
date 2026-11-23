@@ -23,6 +23,9 @@ func (s *Service) shortcut(ctx context.Context, req router.Request) (router.Deci
 	return unchecked(ctx, req)
 }
 
+// Reported: a package-level function value of the unchecked path.
+var uncheckedRoute = (*Service).routeWithStrategyUnchecked
+
 // Reported: a strategy Route call outside the unchecked path.
 func bypass(ctx context.Context, strategy router.Router, req router.Request) (router.Decision, error) {
 	return strategy.Route(ctx, req)

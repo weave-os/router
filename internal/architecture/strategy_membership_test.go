@@ -37,6 +37,7 @@ func TestStrategyMembershipRejectsBypass(t *testing.T) {
 		"router.Router.Route callers: - internal/policyregistry.(*DynamicRouter).Route",
 		"router.Router.Route callers: - internal/proxy.(*Service).routeWithStrategyUnchecked",
 		"routeWithStrategyUnchecked callers: + internal/architecture/testdata/strategy_membership.(*Service).shortcut",
+		"routeWithStrategyUnchecked callers: + internal/architecture/testdata/strategy_membership.uncheckedRoute",
 		"routeWithStrategy does not call eligibleStrategyDecision",
 		"eligibleStrategyDecision does not call candidates.EnforceMembership",
 	}, strategyMembershipViolations(loaded, fixturePath, func(path string) bool { return path == fixturePath }))
@@ -81,18 +82,26 @@ func referenceSites(loaded []*packages.Package, inServingLayer func(string) bool
 		if !inServingLayer(pkg.PkgPath) {
 			continue
 		}
+		inspect := func(site string, node ast.Node) {
+			ast.Inspect(node, func(node ast.Node) bool {
+				if ident, ok := node.(*ast.Ident); ok && target(pkg.TypesInfo.Uses[ident]) {
+					sites = append(sites, relativePackage(pkg.PkgPath)+"."+site)
+				}
+				return true
+			})
+		}
 		for _, file := range pkg.Syntax {
 			for _, decl := range file.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok {
-					continue
-				}
-				ast.Inspect(fn, func(node ast.Node) bool {
-					if ident, ok := node.(*ast.Ident); ok && target(pkg.TypesInfo.Uses[ident]) {
-						sites = append(sites, relativePackage(pkg.PkgPath)+"."+funcDeclName(pkg.TypesInfo, fn))
+				switch decl := decl.(type) {
+				case *ast.FuncDecl:
+					inspect(funcDeclName(pkg.TypesInfo, decl), decl)
+				case *ast.GenDecl:
+					for _, spec := range decl.Specs {
+						if value, ok := spec.(*ast.ValueSpec); ok {
+							inspect(value.Names[0].Name, value)
+						}
 					}
-					return true
-				})
+				}
 			}
 		}
 	}
