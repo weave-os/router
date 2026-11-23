@@ -10,11 +10,6 @@ import (
 	"weave-os/router/internal/telemetry/turnrecord"
 )
 
-func (s *Service) WithSessionTurnClock(clock telemetry.SessionTurnClock) *Service {
-	s.turnTelemetry.turnClock = clock
-	return s
-}
-
 const sessionTurnClockTimeout = time.Second
 
 func advancesSessionTurnClock(p turnrecord.InsertTelemetryParams) bool {

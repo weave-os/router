@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func PassthroughHandler(svc *proxy.Service) gin.HandlerFunc {
+func PassthroughHandler(svc *proxy.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
@@ -29,7 +29,7 @@ func PassthroughHandler(svc *proxy.Service) gin.HandlerFunc {
 		}
 
 		if err := svc.PassthroughToProvider(c.Request.Context(), body, c.Writer, c.Request); err != nil {
-			cls, ok := proxy.ClassifyDispatchError(err)
+			cls, ok := vocab.Classify(err)
 			if ok && cls.Kind == ingress.DispatchErrorUpstreamStatus {
 				if c.Writer.Written() {
 					return
