@@ -88,21 +88,20 @@ func run(ctx context.Context, args []string, dsn string, stdout, stderr io.Write
 	if err != nil {
 		return fmt.Errorf("connect to telemetry database: %w", err)
 	}
-	defer func() { _ = conn.Close(context.Background()) }()
+	defer func() { _ = conn.Close(ctx) }()
 
-	// The two aggregates must see the same rows while the Router writes telemetry.
-	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	snapshot, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return fmt.Errorf("begin telemetry snapshot: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	queries := sqlc.New(tx)
-	window := sqlc.SummarizeRoutingObservationsParams{
+	defer func() { _ = snapshot.Rollback(ctx) }()
+	queries := sqlc.New(snapshot)
+	window := sqlc.GetRoutingObservationSummaryParams{
 		InstallationID: installationID,
 		FromTime:       pgtype.Timestamptz{Time: fromTime, Valid: true},
 		ToTime:         pgtype.Timestamptz{Time: toTime, Valid: true},
 	}
-	summary, err := queries.SummarizeRoutingObservations(ctx, window)
+	summary, err := queries.GetRoutingObservationSummary(ctx, window)
 	if err != nil {
 		return fmt.Errorf("summarize routing observations: %w", err)
 	}
@@ -110,7 +109,7 @@ func run(ctx context.Context, args []string, dsn string, stdout, stderr io.Write
 	if err != nil {
 		return fmt.Errorf("count routing model picks: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := snapshot.Commit(ctx); err != nil {
 		return fmt.Errorf("finish telemetry snapshot: %w", err)
 	}
 

@@ -64,7 +64,7 @@ func (q *Queries) CountRoutingObservationModelPicks(ctx context.Context, arg Cou
 	return items, nil
 }
 
-const summarizeRoutingObservations = `-- name: SummarizeRoutingObservations :one
+const getRoutingObservationSummary = `-- name: GetRoutingObservationSummary :one
 WITH observations AS MATERIALIZED (
     SELECT cluster_ids
     FROM router.model_router_request_telemetry
@@ -88,19 +88,19 @@ SELECT
 FROM observations
 `
 
-type SummarizeRoutingObservationsParams struct {
+type GetRoutingObservationSummaryParams struct {
 	InstallationID uuid.UUID
 	FromTime       pgtype.Timestamptz
 	ToTime         pgtype.Timestamptz
 }
 
-type SummarizeRoutingObservationsRow struct {
+type GetRoutingObservationSummaryRow struct {
 	UpstreamRows        int64
 	RowsWithoutClusters int64
 	ClusterIds          []int32
 }
 
-// SummarizeRoutingObservations
+// GetRoutingObservationSummary
 //
 //	WITH observations AS MATERIALIZED (
 //	    SELECT cluster_ids
@@ -123,9 +123,9 @@ type SummarizeRoutingObservationsRow struct {
 //	        ORDER BY cluster_id
 //	    )::int[] AS cluster_ids
 //	FROM observations
-func (q *Queries) SummarizeRoutingObservations(ctx context.Context, arg SummarizeRoutingObservationsParams) (SummarizeRoutingObservationsRow, error) {
-	row := q.db.QueryRow(ctx, summarizeRoutingObservations, arg.InstallationID, arg.FromTime, arg.ToTime)
-	var i SummarizeRoutingObservationsRow
+func (q *Queries) GetRoutingObservationSummary(ctx context.Context, arg GetRoutingObservationSummaryParams) (GetRoutingObservationSummaryRow, error) {
+	row := q.db.QueryRow(ctx, getRoutingObservationSummary, arg.InstallationID, arg.FromTime, arg.ToTime)
+	var i GetRoutingObservationSummaryRow
 	err := row.Scan(&i.UpstreamRows, &i.RowsWithoutClusters, &i.ClusterIds)
 	return i, err
 }

@@ -1,4 +1,4 @@
--- name: SummarizeRoutingObservations :one
+-- name: GetRoutingObservationSummary :one
 WITH observations AS MATERIALIZED (
     SELECT cluster_ids
     FROM router.model_router_request_telemetry
