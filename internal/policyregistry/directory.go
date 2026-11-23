@@ -17,7 +17,7 @@ import (
 const (
 	directoryHeadFile     = "head.json"
 	releaseObjectPrefix   = "router_policy/v1/releases/sha256/"
-	policyObjectPrefix    = "router_policy/v1/policies/sha256/"
+	PolicyObjectPrefix    = "router_policy/v1/policies/sha256/"
 	directoryHeadRevision = 1
 )
 
@@ -33,7 +33,7 @@ func NewDirectoryRegistry(dir, classifierURL string) (*DirectoryRegistry, error)
 		return nil, err
 	}
 	var probe LaneHead
-	if err := strictDecode(payload, &probe); err != nil {
+	if err := StrictDecode(payload, &probe); err != nil {
 		return nil, fmt.Errorf("decode local lane head: %w", err)
 	}
 	rootURI, found := strings.CutSuffix(probe.ReleaseURI, "/"+releaseObjectPrefix+probe.ReleaseSHA256+".json")
@@ -76,7 +76,7 @@ func (r *DirectoryRegistry) ReadRelease(_ context.Context, ref ObjectRef) (Relea
 }
 
 func (r *DirectoryRegistry) ReadPolicy(_ context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
-	payload, err := r.readExact(ref, policyObjectPrefix)
+	payload, err := r.readExact(ref, PolicyObjectPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func (r *DirectoryRegistry) readExact(ref ObjectRef, requiredPathPrefix string) 
 }
 
 func readDirectoryObject(dir, rootURI string, ref ObjectRef, requiredPathPrefix string) ([]byte, error) {
-	if !validDigest(ref.SHA256) {
+	if !ValidDigest(ref.SHA256) {
 		return nil, errors.New("immutable object reference has an invalid digest")
 	}
 	relative, found := strings.CutPrefix(ref.URI, rootURI+"/")
@@ -122,12 +122,12 @@ func readLocalObject(path string) ([]byte, error) {
 		return nil, fmt.Errorf("open local policy object: %w", err)
 	}
 	defer func() { _ = file.Close() }()
-	payload, err := io.ReadAll(io.LimitReader(file, maxPolicyObjectBytes+1))
+	payload, err := io.ReadAll(io.LimitReader(file, MaxPolicyObjectBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read local policy object: %w", err)
 	}
-	if len(payload) > maxPolicyObjectBytes {
-		return nil, fmt.Errorf("local policy object exceeds %d bytes", maxPolicyObjectBytes)
+	if len(payload) > MaxPolicyObjectBytes {
+		return nil, fmt.Errorf("local policy object exceeds %d bytes", MaxPolicyObjectBytes)
 	}
 	return payload, nil
 }
@@ -142,7 +142,7 @@ func WriteDirectoryRelease(dir string, head LaneHead, releasePayload, policyPayl
 	}
 	objects := map[string][]byte{
 		releaseObjectPrefix + head.ReleaseSHA256 + ".json":   releasePayload,
-		policyObjectPrefix + Digest(policyPayload) + ".json": policyPayload,
+		PolicyObjectPrefix + Digest(policyPayload) + ".json": policyPayload,
 	}
 	for relative, payload := range objects {
 		path := filepath.Join(dir, filepath.FromSlash(relative))

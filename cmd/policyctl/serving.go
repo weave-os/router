@@ -16,6 +16,7 @@ import (
 	gcppubsub "cloud.google.com/go/pubsub/v2"
 	"google.golang.org/api/idtoken"
 
+	"weave-os/router/internal/gcsregistry"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/servingvalidate"
 )
@@ -60,7 +61,7 @@ func runServing(ctx context.Context, args []string) (runErr error) {
 	}()
 	return runServingWith(ctx, args, servingDependencies{
 		openRegistry: func(ctx context.Context, root string) (servingRegistry, error) {
-			return policyregistry.NewGCSRegistry(ctx, root)
+			return gcsregistry.NewGCSRegistry(ctx, root)
 		},
 		endpoints: func() (policyregistry.DestinationEndpoints, error) {
 			client, err := servingvalidate.New(&http.Client{}, func(ctx context.Context, audience string) (string, error) {

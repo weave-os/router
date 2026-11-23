@@ -44,7 +44,7 @@ func validateDirectoryServingRoot(rootURI string) error {
 func (s *DirectoryServingStore) RootURI() string { return s.rootURI }
 
 func (s *DirectoryServingStore) ReadServingObject(_ context.Context, kind ServingKind, ref ObjectRef) (ServingManifest, []byte, error) {
-	namespace, err := servingRefNamespace(ref, s.rootURI, kind)
+	namespace, err := ServingRefNamespace(ref, s.rootURI, kind)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -60,7 +60,7 @@ func (s *DirectoryServingStore) ReadServingObject(_ context.Context, kind Servin
 }
 
 func (s *DirectoryServingStore) ReadServingPolicy(_ context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
-	payload, err := s.readPinned(ref, policyObjectPrefix)
+	payload, err := s.readPinned(ref, PolicyObjectPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (s *DirectoryServingStore) ReadServingState(_ context.Context, target Servi
 		return ServingStateSnapshot{}, err
 	}
 	var state ServingControlState
-	if err := strictDecode(payload, &state); err != nil {
+	if err := StrictDecode(payload, &state); err != nil {
 		return ServingStateSnapshot{}, err
 	}
 	if err := state.Validate(s.rootURI, target); err != nil {
@@ -96,10 +96,10 @@ func (s *DirectoryServingStore) CompareAndSwapServingState(context.Context, Serv
 }
 
 func (s *DirectoryServingStore) ReadClassifierRuntimeBinding(_ context.Context, environment Environment, releaseSHA256 string) (ResolvedClassifierRuntimeBinding, error) {
-	if !validDigest(releaseSHA256) {
+	if !ValidDigest(releaseSHA256) {
 		return ResolvedClassifierRuntimeBinding{}, errors.New("classifier runtime binding requires a release digest")
 	}
-	payload, err := readLocalObject(filepath.Join(s.dir, filepath.FromSlash(classifierRuntimeBindingRelativeName(environment, releaseSHA256))))
+	payload, err := readLocalObject(filepath.Join(s.dir, filepath.FromSlash(ClassifierRuntimeBindingRelativeName(environment, releaseSHA256))))
 	if err != nil {
 		return ResolvedClassifierRuntimeBinding{}, err
 	}
@@ -122,7 +122,7 @@ func DirectoryServingStatePath(target ServingTarget) (string, error) {
 }
 
 func DirectoryServingRuntimeBindingPath(environment Environment, releaseSHA256 string) string {
-	return classifierRuntimeBindingRelativeName(environment, releaseSHA256)
+	return ClassifierRuntimeBindingRelativeName(environment, releaseSHA256)
 }
 
 func (s *DirectoryServingStore) readPinned(ref ObjectRef, namespace string) ([]byte, error) {

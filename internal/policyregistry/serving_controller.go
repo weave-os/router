@@ -976,7 +976,7 @@ func readClassifierRuntimeBinding(ctx context.Context, store ServingStore, targe
 	if err != nil {
 		return nil, fmt.Errorf("resolve classifier runtime binding for release %s in %s: %w", releaseSHA256, environment, err)
 	}
-	if resolved.Binding.ReleaseSHA256 != releaseSHA256 || resolved.Binding.Environment != environment || resolved.Binding.ImageDigest != releaseImageDigest || !validDigest(resolved.Ref.SHA256) || resolved.Ref.Generation <= 0 {
+	if resolved.Binding.ReleaseSHA256 != releaseSHA256 || resolved.Binding.Environment != environment || resolved.Binding.ImageDigest != releaseImageDigest || !ValidDigest(resolved.Ref.SHA256) || resolved.Ref.Generation <= 0 {
 		return nil, errors.New("classifier runtime binding differs from the selected release or environment")
 	}
 	return &resolved, nil
