@@ -27,7 +27,9 @@ it when:
 
 Key retrieval sits behind the `auth.OIDCKeySet` port (`internal/oidcjwks`
 implements it), so another inbound method can plug in without touching the
-middleware.
+middleware. Keys are refreshed every 10 minutes, and at once (at most once a
+minute) for an unknown `kid`. If a refresh fails, keys the issuer last served
+keep verifying for up to 24 hours; an unknown `kid` or older keys fail closed.
 
 The issuer entry names an existing session issuer (`session_issuer_kid`). That
 binds the gateway to one installation: its routing policy, allowed models,

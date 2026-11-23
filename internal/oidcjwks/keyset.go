@@ -22,6 +22,7 @@ import (
 
 const (
 	DefaultTTL         = 10 * time.Minute
+	StaleKeyGrace      = 24 * time.Hour
 	minRefreshInterval = time.Minute
 	maxDocumentBytes   = 1 << 20
 	fetchTimeout       = 10 * time.Second
@@ -67,16 +68,30 @@ func (k *KeySet) VerificationKey(ctx context.Context, issuerURL, kid string) (cr
 		}
 	}
 	if k.recentlyFailed(issuerURL) {
-		return nil, ErrFetch
+		return k.lastGoodKey(set, ok, kid, ErrFetch)
 	}
 	refreshed, err := k.refresh(ctx, issuerURL)
 	if err != nil {
-		return nil, err
+		key, staleErr := k.lastGoodKey(set, ok, kid, err)
+		if staleErr == nil {
+			observability.FromContext(ctx).Warn("OIDC issuer key refresh failed; using last-good keys",
+				"issuer", issuerURL, "keys_age", k.now().Sub(set.fetchedAt).String(), "err", err)
+		}
+		return key, staleErr
 	}
 	if key, found := refreshed.keys[kid]; found {
 		return key, nil
 	}
 	return nil, auth.ErrInvalidToken
+}
+
+func (k *KeySet) lastGoodKey(set cachedSet, ok bool, kid string, refreshErr error) (crypto.PublicKey, error) {
+	if ok && k.now().Sub(set.fetchedAt) < StaleKeyGrace {
+		if key, found := set.keys[kid]; found {
+			return key, nil
+		}
+	}
+	return nil, refreshErr
 }
 
 func (k *KeySet) cached(issuerURL string) (cachedSet, bool) {

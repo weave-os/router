@@ -107,7 +107,7 @@ func TestKeySetRejectsAMismatchedDiscoveryIssuer(t *testing.T) {
 	assert.Zero(t, issuer.jwksHits.Load())
 }
 
-func TestKeySetFailsClosedWhenExpiredKeysCannotBeRefreshed(t *testing.T) {
+func TestKeySetServesLastGoodKeysWhileTheIssuerIsUnreachable(t *testing.T) {
 	issuer := newIssuerServer(t)
 	issuer.publish(t, "k1")
 	now := time.Date(2026, 5, 5, 0, 0, 0, 0, time.UTC)
@@ -118,7 +118,35 @@ func TestKeySetFailsClosedWhenExpiredKeysCannotBeRefreshed(t *testing.T) {
 	issuer.failing.Store(true)
 	now = now.Add(oidcjwks.DefaultTTL + time.Second)
 	_, err = keys.VerificationKey(context.Background(), issuer.server.URL, "k1")
-	require.ErrorIs(t, err, oidcjwks.ErrFetch, "keys past their TTL must not be trusted while the issuer is unreachable")
+	require.NoError(t, err, "a refresh outage must not reject a key that was last served by the issuer")
+	_, err = keys.VerificationKey(context.Background(), issuer.server.URL, "k1")
+	require.NoError(t, err, "the last-good key keeps working while refreshes are backing off")
+	assert.Equal(t, int32(2), issuer.discoveryHits.Load(), "backoff still rate limits refreshes during the outage")
+
+	now = now.Add(2 * time.Minute)
+	_, err = keys.VerificationKey(context.Background(), issuer.server.URL, "unknown")
+	require.ErrorIs(t, err, oidcjwks.ErrFetch, "a key the issuer never served must not be trusted during an outage")
+
+	issuer.failing.Store(false)
+	rotated := issuer.publish(t, "k2")
+	now = now.Add(2 * time.Minute)
+	got, err := keys.VerificationKey(context.Background(), issuer.server.URL, "k2")
+	require.NoError(t, err, "traffic recovers once the issuer is reachable again")
+	assert.Equal(t, &rotated.PublicKey, got)
+}
+
+func TestKeySetFailsClosedWhenLastGoodKeysOutliveTheGrace(t *testing.T) {
+	issuer := newIssuerServer(t)
+	issuer.publish(t, "k1")
+	now := time.Date(2026, 5, 5, 0, 0, 0, 0, time.UTC)
+	keys := oidcjwks.New(issuer.server.Client(), func() time.Time { return now })
+	_, err := keys.VerificationKey(context.Background(), issuer.server.URL, "k1")
+	require.NoError(t, err)
+
+	issuer.failing.Store(true)
+	now = now.Add(oidcjwks.StaleKeyGrace)
+	_, err = keys.VerificationKey(context.Background(), issuer.server.URL, "k1")
+	require.ErrorIs(t, err, oidcjwks.ErrFetch, "keys older than the grace must not be trusted while the issuer is unreachable")
 }
 
 func TestKeySetBacksOffAfterAFailedRefresh(t *testing.T) {
