@@ -53,7 +53,6 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/llmescalation"
@@ -1200,10 +1199,7 @@ func main() {
 		PolicyStatus:             policyStatus,
 		FeedbackLinks:            feedbackLinks,
 	}, servingAdmission, routingDistribution), defaultStrategy)), repo.Telemetry), captureMode))
-	serverFeatures.EscalationAdmin = &floor.Admin{
-		Dashboard: escalationDashboardStore, Sessions: llmEscalationStore, Configuration: llmEscalationStore, InvalidateSelection: authSvc.InvalidateInstallation,
-		SwitchyardJudge: escalationJudge, QwenJudge: qwenEscalationJudge, SwitchyardActive: escalationJudgeActiveEnabled, Clock: time.Now,
-	}
+	serverFeatures.EscalationAdmin = newEscalationAdmin(escalationDashboardStore, llmEscalationStore, authSvc.InvalidateInstallation, escalationJudge, qwenEscalationJudge, escalationJudgeActiveEnabled)
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
