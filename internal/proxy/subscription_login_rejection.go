@@ -19,7 +19,7 @@ const codexLoginRejectedMessage = "Your ChatGPT (Codex) login was rejected. Sign
 var codexLoginRejectedBody = []byte(`{"error":{"type":"authentication_error","code":"token_revoked","message":"` + codexLoginRejectedMessage + `"}}`)
 
 func attributeCodexLoginRejection(err error) error {
-	if !codexOAuthCredentialRejected(err) {
+	if !credentials.CodexOAuthCredentialRejected(err) {
 		return err
 	}
 	rejection := &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized, Body: codexLoginRejectedBody}
@@ -46,9 +46,9 @@ func ownCodexLoginRejected(ctx context.Context, headers http.Header, observer *u
 
 func includedFailureAfter(prev, err error, ownLoginRejected bool) error {
 	switch {
-	case codexOAuthCredentialRejected(prev):
+	case credentials.CodexOAuthCredentialRejected(prev):
 		return prev
-	case ownLoginRejected && codexOAuthCredentialRejected(err), providers.IsUpstreamRateLimited(err):
+	case ownLoginRejected && credentials.CodexOAuthCredentialRejected(err), providers.IsUpstreamRateLimited(err):
 		return err
 	}
 	return prev

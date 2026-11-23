@@ -19,7 +19,7 @@ import (
 
 func expiredRotationContext(provider auth.SubscriptionProvider) context.Context {
 	ctx := managedSubscriptionContext(provider)
-	return context.WithValue(ctx, credentials.SubscriptionRotationBudgetKey{}, &subscriptionAdmissionBudget{})
+	return context.WithValue(ctx, credentials.SubscriptionRotationBudgetKey{}, &credentials.SubscriptionAdmissionBudget{})
 }
 
 func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {

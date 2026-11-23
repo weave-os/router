@@ -101,7 +101,7 @@ func parityAnthropicIngress() parityIngress {
 		fallbackAvailable: func(s *Service, ctx context.Context) bool { return s.credentials.AnthropicFallbackKeyAvailable(ctx) },
 		exhausted:         (*Service).claudeSubscriptionExhausted,
 		suppress:          credentials.WithSuppressedClaudeSubscription,
-		tokenRejected:     anthropicOAuthCredentialRejected,
+		tokenRejected:     credentials.AnthropicOAuthCredentialRejected,
 		// A tool-bearing main-loop turn: a bare one-liner is hard-pinned as a
 		// classifier turn, which short-circuits the routing stages under test.
 		requestBody: func(stream bool) string {
@@ -143,7 +143,7 @@ func parityCodexIngress() parityIngress {
 		fallbackAvailable: (*Service).openaiFallbackKeyAvailable,
 		exhausted:         (*Service).codexSubscriptionExhausted,
 		suppress:          credentials.WithSuppressedCodexSubscription,
-		tokenRejected:     codexOAuthCredentialRejected,
+		tokenRejected:     credentials.CodexOAuthCredentialRejected,
 		requestBody: func(stream bool) string {
 			return `{"model":"` + parityCodexModel + `","max_tokens":4096,"stream":` + boolLit(stream) +
 				`,"tools":[{"type":"function","function":{"name":"bash","description":"run a command","parameters":{"type":"object","properties":{}}}}]` +
@@ -447,7 +447,7 @@ func TestSubscriptionFailoverParity_ErrorClassification(t *testing.T) {
 			// strictly worse than surfacing the 403.
 			wantRejected:  map[string]bool{"anthropic": false, "codex": false},
 			wantRetryable: false,
-			bug:           map[string]string{"codex": "B5: codexOAuthCredentialRejected accepts any 401/403, so a policy/entitlement 403 spends the paid key"},
+			bug:           map[string]string{"codex": "B5: credentials.CodexOAuthCredentialRejected accepts any 401/403, so a policy/entitlement 403 spends the paid key"},
 		},
 		{
 			name:          "429 plan throttle is generic-retryable, not a rejected token",
@@ -497,20 +497,20 @@ func TestSubscriptionFailoverParity_PlanSpentSignal(t *testing.T) {
 	resetAt := time.Now().Add(6 * 24 * time.Hour).Truncate(time.Second)
 
 	t.Run("codex reads usage_limit_reached and its reset instant from the body", func(t *testing.T) {
-		got, spent := codexQuotaExhaustion(upstreamErr(http.StatusTooManyRequests,
+		got, spent := credentials.CodexQuotaExhaustion(upstreamErr(http.StatusTooManyRequests,
 			`{"error":{"type":"usage_limit_reached","resets_at":`+strconv.FormatInt(resetAt.Unix(), 10)+`}}`))
 		require.True(t, spent)
 		assert.Equal(t, resetAt.UTC(), got)
 	})
 
 	t.Run("codex reads insufficient_quota without a reset instant", func(t *testing.T) {
-		got, spent := codexQuotaExhaustion(upstreamErr(http.StatusTooManyRequests, `{"error":{"type":"insufficient_quota"}}`))
+		got, spent := credentials.CodexQuotaExhaustion(upstreamErr(http.StatusTooManyRequests, `{"error":{"type":"insufficient_quota"}}`))
 		require.True(t, spent)
 		assert.True(t, got.IsZero(), "no resets_at means the window length must fall back to the plan default")
 	})
 
 	t.Run("codex treats a plain throttle as not-spent", func(t *testing.T) {
-		_, spent := codexQuotaExhaustion(upstreamErr(http.StatusTooManyRequests, `{"error":{"type":"rate_limit_error"}}`))
+		_, spent := credentials.CodexQuotaExhaustion(upstreamErr(http.StatusTooManyRequests, `{"error":{"type":"rate_limit_error"}}`))
 		assert.False(t, spent, "a transient throttle must not mark the plan spent for the rest of its window")
 	})
 
@@ -547,13 +547,13 @@ func TestSubscriptionFailoverParity_ObserverWrites(t *testing.T) {
 
 	t.Run("codex window outlives a reset that is days away", func(t *testing.T) {
 		now := time.Unix(1_700_000_000, 0).UTC()
-		weekly := codexExhaustionWindow(now.Add(6*24*time.Hour), now)
-		assert.Greater(t, weekly.WindowMinutes, codexQuotaWindowMinutes,
+		weekly := credentials.CodexExhaustionWindow(now.Add(6*24*time.Hour), now)
+		assert.Greater(t, weekly.WindowMinutes, credentials.CodexQuotaWindowMinutes,
 			"a weekly reset recorded in a 5-hour window would expire early and re-buy the rejection (B2)")
 		assert.Equal(t, now.Add(6*24*time.Hour), weekly.ResetAt)
 
-		short := codexExhaustionWindow(time.Time{}, now)
-		assert.Equal(t, codexQuotaWindowMinutes, short.WindowMinutes,
+		short := credentials.CodexExhaustionWindow(time.Time{}, now)
+		assert.Equal(t, credentials.CodexQuotaWindowMinutes, short.WindowMinutes,
 			"with no upstream reset the plan default window applies")
 		assert.True(t, usage.Snapshot{Primary: short}.Exhausted())
 	})

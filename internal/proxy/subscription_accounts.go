@@ -25,14 +25,14 @@ type subscriptionAccountPool struct {
 var _ dispatch.SubscriptionAccountPool = subscriptionAccountPool{}
 
 func (p subscriptionAccountPool) Begin(ctx context.Context, initial router.Decision) (context.Context, dispatch.SubscriptionAccounts) {
-	ctx, budget := withSubscriptionAdmissionBudget(ctx)
+	ctx, budget := credentials.WithSubscriptionAdmissionBudget(ctx)
 	ctx = credentials.WithClientAppRefusalPaidFallback(ctx, initial)
 	return ctx, &subscriptionAccounts{s: p.s, rotationBudget: budget}
 }
 
 type subscriptionAccounts struct {
 	s              *Service
-	rotationBudget *subscriptionAdmissionBudget
+	rotationBudget *credentials.SubscriptionAdmissionBudget
 	managedBinding bool
 }
 
@@ -111,7 +111,7 @@ func (l *accountLoop) serveAccount(ctx, attemptCtx context.Context, account int)
 		return nil, true, attemptErr
 	}
 	attemptCtx, rotate := l.rotationAfterFailure(bookkeepingCtx, credentialCtx, attemptCtx, leased, attemptErr)
-	if credentialRejectionStands(l.lastSubscriptionErr, attemptErr, codexOAuthCredentialRejected) {
+	if credentialRejectionStands(l.lastSubscriptionErr, attemptErr, credentials.CodexOAuthCredentialRejected) {
 		return nil, true, l.lastSubscriptionErr
 	}
 	if committed(l.in.Prelude) || !rotate {
@@ -150,10 +150,10 @@ func (l *accountLoop) oauthTransportFallback(ctx, attemptCtx context.Context) (c
 
 func (l *accountLoop) leaseAccount(ctx, attemptCtx context.Context, account int) (context.Context, leasedAccount, error) {
 	s, decision, rotationBudget := l.s, l.decision, l.rotationBudget
-	if !credentials.SubscriptionAPIOnly(attemptCtx) && rotationBudget.remaining <= 0 {
+	if !credentials.SubscriptionAPIOnly(attemptCtx) && rotationBudget.Remaining <= 0 {
 		return nil, leasedAccount{}, dispatch.Abort{Err: s.afterSubscriptionRotationBudget(ctx, decision, account, credentials.SubscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable))}
 	}
-	leaseCtx, finishLease := rotationBudget.leaseContext(attemptCtx, s.clock.Now)
+	leaseCtx, finishLease := rotationBudget.LeaseContext(attemptCtx, s.clock.Now)
 	if credentials.SubscriptionAPIOnly(attemptCtx) {
 		finishLease()
 		leaseCtx = attemptCtx
@@ -254,13 +254,13 @@ func (l *accountLoop) rotationAfterFailure(bookkeepingCtx, credentialCtx, attemp
 	if leased.managed && !committed(l.in.Prelude) {
 		recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr, s.clock.Now())
 	}
-	if !leased.managed && !committed(l.in.Prelude) && codexSubscriptionRotates(credentialCtx, attemptErr) {
+	if !leased.managed && !committed(l.in.Prelude) && credentials.CodexSubscriptionRotates(credentialCtx, attemptErr) {
 		s.recordCodexCredentialUnusable(bookkeepingCtx, credentials.CredentialsFromContext(credentialCtx), attemptErr)
 		recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr, s.clock.Now())
 		attemptCtx = credentials.ResolveAndInjectCredentials(credentials.WithSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
 		rotate = true
 	}
-	if next, capped := claudeEnterpriseCapRotation(credentialCtx, attemptCtx, decision, attemptErr); capped && !leased.managed && !committed(l.in.Prelude) {
+	if next, capped := credentials.ClaudeEnterpriseCapRotation(credentialCtx, attemptCtx, decision, attemptErr); capped && !leased.managed && !committed(l.in.Prelude) {
 		attemptCtx, rotate = next, true
 	}
 	return attemptCtx, rotate
@@ -272,7 +272,7 @@ func (l *accountLoop) prepareNextAccount(ctx context.Context, leased leasedAccou
 		l.trace.BeginAttempt(l.attempt.Target, gatewayDeploymentBaseURL(l.attempt.Target.Provider, l.client), l.s.clock.Now())
 	}
 	l.lastSubscriptionErr = attemptErr
-	if l.rotationBudget.remaining <= 0 {
+	if l.rotationBudget.Remaining <= 0 {
 		return l.s.afterSubscriptionRotationBudget(ctx, l.decision, leased.account+1, attemptErr)
 	}
 	if l.in.Prelude != nil {

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/tidwall/sjson"
 
@@ -36,8 +35,6 @@ func committed(b *dispatch.PreludeBuffer) bool {
 	}
 	return b.Committed()
 }
-
-const subscriptionRotationBudget = 10 * time.Second
 
 func (s *Service) shouldFailover(ctx context.Context) bool {
 	if s.credentials.BYOKOnly {

@@ -66,8 +66,8 @@ func (subscriptionCoverage) PaidFallbackForbidden(ctx context.Context) bool {
 }
 
 func (subscriptionCoverage) RotationBudgetSpent(ctx context.Context) bool {
-	_, budget := withSubscriptionAdmissionBudget(ctx)
-	return budget.remaining <= 0
+	_, budget := credentials.WithSubscriptionAdmissionBudget(ctx)
+	return budget.Remaining <= 0
 }
 
 func (subscriptionCoverage) NoteIntendedModel(ctx context.Context, model string) {

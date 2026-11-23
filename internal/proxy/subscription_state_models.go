@@ -154,14 +154,14 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispat
 		ctx = pickCtx
 		includedModels = nil
 	}
-	ctx, rotationBudget := withSubscriptionAdmissionBudget(ctx)
+	ctx, rotationBudget := credentials.WithSubscriptionAdmissionBudget(ctx)
 	hasFixedTarget := request.ForceModel != "" || callerModelPassthroughActive(ctx) ||
 		in.Origin == policy.OverrideSourceDeployment || in.Origin == policy.OverrideSourceRequest
 	readmitted := false
 	var includedFailure error
 	var throttleWaited time.Duration
 	var spentCodexModels map[string]struct{}
-	for len(includedModels) > 0 && rotationBudget.remaining > 0 {
+	for len(includedModels) > 0 && rotationBudget.Remaining > 0 {
 		attemptModels := includedModels
 		if !hasFixedTarget {
 			attemptModels = s.withoutHeldSubscriptionModels(ctx, includedModels)
@@ -213,7 +213,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispat
 			return winner, err
 		}
 		if !credentials.IsSubscriptionPoolError(err) && !credentials.SubscriptionLaneRefused(err) && !providers.IsRetryable(err) &&
-			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !credentials.AnthropicClientAppRefused(ctx, err) {
+			!credentials.CodexSubscriptionModelRejected(err) && !credentials.AnthropicSubscriptionModelRejected(err) && !credentials.CodexOAuthCredentialRejected(err) && !credentials.AnthropicOAuthCredentialRejected(err) && !credentials.AnthropicClientAppRefused(ctx, err) {
 			return winner, err
 		}
 		if !anotherSeatPoolCanServe(ctx, seatAdmissionOf(s), includedModels, target) && credentials.WaitOutShortSeatThrottle(ctx, target.Provider, target.Model, err, s.clock.Now(), s.engine.RetrySleep(), &throttleWaited) {
@@ -221,7 +221,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispat
 		}
 		includedFailure = includedFailureAfter(includedFailure, err, ownCodexLoginRejected(ctx, in.SubscriptionStateHeaders, s.credentials.UsageObserver))
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
-		strikeModelUnlessFundingFailure(ctx, target.Model, err)
+		credentials.StrikeModelUnlessFundingFailure(ctx, target.Model, err)
 		if !hasFixedTarget {
 			s.holdSessionOffSubscriptionPool(ctx, target.Provider, target.Model)
 		}
