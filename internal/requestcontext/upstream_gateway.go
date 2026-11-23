@@ -37,10 +37,6 @@ func UpstreamGatewayFrom(ctx context.Context) (UpstreamGateway, bool) {
 	return upstreamGateway, ok
 }
 
-func IsUpstreamGatewayHop(inbound http.Header) bool {
-	return inbound.Get(UpstreamGatewayHopHeader) != ""
-}
-
 func gatewaySessionID(sessionHeaders []string, inbound http.Header) string {
 	for _, name := range sessionHeaders {
 		if id := NormalizeClientIdentifier(inbound.Get(name)); id != "" {

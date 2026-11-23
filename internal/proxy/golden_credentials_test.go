@@ -413,9 +413,8 @@ func goldenSubscriptionOnlyCtx(ctx context.Context) context.Context {
 
 func goldenUpstreamGatewayCredentialScenarios() []goldenScenario {
 	ok := anthropicOK(false, "ok")
-	anthropicDecisions := []router.Decision{goldenAnthropicDecision}
 	cases := []credentialCase{
-		{name: "upstream_gateway_mode_serves_on_gateway_key", supplies: []string{goldenBYOKAnthropic}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
+		{name: "upstream_gateway_mode_serves_on_gateway_key", supplies: []string{goldenBYOKAnthropic}, decisions: []router.Decision{goldenAnthropicDecision}, upstreams: anthropicUp(ok),
 			ctx: chainCtx(goldenUpstreamGatewayCtx, withBYOK(&auth.ExternalAPIKey{ID: "golden-ext-gateway", Provider: providers.ProviderAnthropic,
 				Plaintext: []byte(goldenBYOKAnthropic), BaseURL: "https://gateway.example.test", ForwardedClientHeaders: []string{"traceparent"}, BaggageHeader: "baggage"})),
 			headers: map[string]string{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01", "baggage": "on-behalf-of=user@example.test"}},

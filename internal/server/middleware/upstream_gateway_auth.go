@@ -18,7 +18,7 @@ func upstreamGatewayRefusal(c *gin.Context) (refusal.Kind, bool) {
 	if c.FullPath() != upstreamGatewayRoute {
 		return refusal.UpstreamGatewaySurfaceRejected, true
 	}
-	if requestcontext.IsUpstreamGatewayHop(c.Request.Header) {
+	if c.Request.Header.Get(requestcontext.UpstreamGatewayHopHeader) != "" {
 		return refusal.UpstreamGatewayLoopDetected, true
 	}
 	return 0, false
