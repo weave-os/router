@@ -7,6 +7,6 @@ import (
 )
 
 func withErrorVocabulary(features server.Features) server.Features {
-	features.Errors = ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage}
+	features.ErrorVocab = ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage}
 	return features
 }

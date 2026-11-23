@@ -65,7 +65,7 @@ const (
 )
 
 func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service) {
-	RegisterWithFeatures(engine, authSvc, proxySvc, hmmModels, mode, nil, readinessChecker, hmmRosterSources, analyticsSvc, Features{Errors: ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage}})
+	RegisterWithFeatures(engine, authSvc, proxySvc, hmmModels, mode, nil, readinessChecker, hmmRosterSources, analyticsSvc, Features{ErrorVocab: ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage}})
 }
 
 const deploymentDefaultStrategy = router.StrategyHMMEmbedding
@@ -101,7 +101,7 @@ type Features struct {
 	DefaultStrategy          router.Strategy
 	InternalServiceToken     string
 	Admin                    admin.Config
-	Errors                   ingress.ErrorVocabulary
+	ErrorVocab               ingress.ErrorVocabulary
 	FeedbackLinks            *feedback.Links
 }
 
@@ -307,8 +307,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	messagesMiddleware = append(messagesMiddleware, policyPinMiddleware...)
 	messagesMiddleware = append(messagesMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	messagesGroup := engine.Group("", messagesMiddleware...)
-	messagesGroup.POST("/v1/messages", anthropicapi.MessagesHandler(proxySvc, authSvc, features.Errors))
-	messagesGroup.POST("/v1/route/handoff", anthropicapi.PrepareHandoffHandler(proxySvc, authSvc, features.Errors))
+	messagesGroup.POST("/v1/messages", anthropicapi.MessagesHandler(proxySvc, authSvc, features.ErrorVocab))
+	messagesGroup.POST("/v1/route/handoff", anthropicapi.PrepareHandoffHandler(proxySvc, authSvc, features.ErrorVocab))
 
 	chatCompletionMiddleware := []gin.HandlerFunc{
 		middleware.WithTimingEntry(),
@@ -338,10 +338,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	chatCompletionWithoutPolicyPin := append([]gin.HandlerFunc(nil), chatCompletionMiddleware...)
 	chatCompletionMiddleware = append(chatCompletionMiddleware, policyPinMiddleware...)
 	chatCompletionGroup := engine.Group("", chatCompletionMiddleware...)
-	chatCompletionGroup.POST("/v1/chat/completions", openaiapi.ChatCompletionHandler(proxySvc, authSvc, features.Errors))
+	chatCompletionGroup.POST("/v1/chat/completions", openaiapi.ChatCompletionHandler(proxySvc, authSvc, features.ErrorVocab))
 	chatCompletionWithoutPolicyPinGroup := engine.Group("", chatCompletionWithoutPolicyPin...)
-	chatCompletionWithoutPolicyPinGroup.POST("/v1/responses", openaiapi.ResponsesHandler(proxySvc, authSvc, features.Errors))
-	chatCompletionWithoutPolicyPinGroup.POST("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler(proxySvc, authSvc, features.Errors))
+	chatCompletionWithoutPolicyPinGroup.POST("/v1/responses", openaiapi.ResponsesHandler(proxySvc, authSvc, features.ErrorVocab))
+	chatCompletionWithoutPolicyPinGroup.POST("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler(proxySvc, authSvc, features.ErrorVocab))
 
 	registerClientPassthroughRoutes(engine, authSvc, proxySvc, byokRequiresOptIn, servingAdmissionMiddleware, features)
 

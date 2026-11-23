@@ -32,9 +32,9 @@ func registerClientPassthroughRoutes(engine *gin.Engine, authSvc *auth.Service, 
 		middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission),
 	)
 	passthroughGroup.Use(servingAdmissionMiddleware...)
-	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(proxySvc, features.Errors))
-	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(proxySvc, features.Errors), proxySvc.CodexModelCatalog))
-	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc, features.Errors))
+	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(proxySvc, features.ErrorVocab))
+	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(proxySvc, features.ErrorVocab), proxySvc.CodexModelCatalog))
+	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc, features.ErrorVocab))
 	passthroughGroup.GET("/v1/codex/models", openaiapi.CodexCatalogHandler(proxySvc.CodexSelectionCatalog))
 	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler(authSvc, func(c *gin.Context) context.Context {
 		ctx := requestcontext.WithClientIdentity(c.Request.Context(), requestcontext.ClientIdentityFromHeaders(c.Request.Header))
