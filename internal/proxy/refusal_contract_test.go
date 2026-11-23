@@ -50,7 +50,7 @@ func TestRefusalContract_Dispatch(t *testing.T) {
 			assert.Equal(t, scenario.retryAfter, class.RetryAfter)
 			assert.Equal(t, scenario.noClientRetry, class.NoClientRetry)
 			assert.Equal(t, scenario.clientError, class.Kind.IsClientError())
-			assert.Empty(t, proxy.OpenAIErrorCode(class.Kind))
+			assert.Empty(t, ingress.OpenAIErrorCode(class.Kind))
 			assert.NotEmpty(t, class.Message)
 			require.NotNil(t, class.Refusal)
 			assert.Equal(t, class.Status, class.Refusal.Status)

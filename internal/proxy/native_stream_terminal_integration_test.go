@@ -172,7 +172,7 @@ func TestProxyMessages_NativeCutAfterMessageDeltaIsProviderOwned(t *testing.T) {
 	svc := makeProxyService(
 		router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"},
 		map[string]providers.Client{providers.ProviderAnthropic: provider},
-	).WithNativeAnthropicResponseSignals(true)
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
