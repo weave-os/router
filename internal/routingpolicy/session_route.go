@@ -120,7 +120,7 @@ func (t SessionTurn) score(ctx context.Context, res *TurnRoute) (fresh router.De
 	}
 	dec, err := t.Scorer.Route(ctx, req)
 	if err != nil {
-		if t.Serving.ScorerFallback(ctx, res, err, req) {
+		if t.Serving.TryServeScorerFallback(ctx, res, err, req) {
 			return router.Decision{}, true, nil
 		}
 		log.Error("turnloop scorer failed", "err", err, "requested_model", req.RequestedModel)
