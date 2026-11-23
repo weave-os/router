@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/config"
+	"weave-os/router/internal/gcsregistry"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
@@ -146,7 +147,7 @@ func openServingStore(ctx context.Context, mode server.DeploymentMode, registryU
 		store, err := policyregistry.NewDirectoryServingStore(registryURI)
 		return store, func() {}, err
 	}
-	registry, err := policyregistry.NewGCSRegistry(ctx, registryURI)
+	registry, err := gcsregistry.NewGCSRegistry(ctx, registryURI)
 	if err != nil {
 		return nil, nil, err
 	}

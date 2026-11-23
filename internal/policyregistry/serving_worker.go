@@ -25,7 +25,7 @@ func (w WorkerIdentity) Validate() error {
 	if w.Project == "" || w.Region == "" || w.Revision == "" || !validImageDigest(w.ImageDigest) {
 		return errors.New("managed worker requires exact attested boot identity")
 	}
-	return validateArtifactRef(w.Configuration)
+	return ValidateArtifactRef(w.Configuration)
 }
 
 func (w WorkerIdentity) ValidateBinding(target ServingTarget, binding LaneBinding) error {

@@ -190,8 +190,8 @@ func TestForwardingRuntimeGuardsRejectUnsafeLegacyConfiguration(t *testing.T) {
 		IdentityHeader:         "Cookie",
 	}
 
-	ctx := proxy.WithForwardedHeaderSnapshot(context.Background(), []*auth.ExternalAPIKey{legacyKey}, inbound)
-	snapshot, _ := ctx.Value(proxy.ForwardedHeaderSnapshotContextKey{}).(http.Header)
+	ctx := requestcontext.WithForwardedHeaderSnapshot(context.Background(), []*auth.ExternalAPIKey{legacyKey}, inbound)
+	snapshot, _ := ctx.Value(requestcontext.ForwardedHeaderSnapshotContextKey{}).(http.Header)
 	assert.Empty(t, snapshot, "protected values must not be retained in a request snapshot")
 
 	creds := &proxy.Credentials{
@@ -203,7 +203,7 @@ func TestForwardingRuntimeGuardsRejectUnsafeLegacyConfiguration(t *testing.T) {
 	ctx = identityCtx(creds, identity)
 	upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	proxy.ApplyIdentityHeader(ctx, upstream)
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, inbound)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, inbound)
 	assert.Empty(t, upstream.Header, "protected values must not be emitted by runtime-only credentials")
 }
 
@@ -216,7 +216,7 @@ func TestForwardingRuntimeGuardsRejectBaggageOnlyCredentialRelay(t *testing.T) {
 			creds := &proxy.Credentials{BaggageHeader: "Authorization"}
 			ctx := identityCtx(creds, identity)
 			upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
-			proxy.ApplyForwardedClientHeaders(ctx, upstream, http.Header{"Authorization": []string{"Bearer inbound-secret"}})
+			requestcontext.ApplyForwardedClientHeaders(ctx, upstream, http.Header{"Authorization": []string{"Bearer inbound-secret"}})
 			assert.Empty(t, upstream.Header.Get("Authorization"))
 		})
 	}
@@ -228,7 +228,7 @@ func TestForwardingRuntimeGuardsPreserveUpstreamEstablishedHeaders(t *testing.T)
 	upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	upstream.Header.Set("X-Correlation-ID", "provider-value")
 
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, http.Header{"X-Correlation-ID": []string{"client-value"}})
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, http.Header{"X-Correlation-ID": []string{"client-value"}})
 
 	assert.Equal(t, "provider-value", upstream.Header.Get("X-Correlation-ID"))
 }
@@ -243,7 +243,7 @@ func TestForwardingRuntimeGuardsRejectCollidingLegacyDestinations(t *testing.T) 
 	upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	proxy.ApplyIdentityHeader(ctx, upstream)
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, http.Header{"X-Correlation-ID": []string{"client-value"}})
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, http.Header{"X-Correlation-ID": []string{"client-value"}})
 
 	assert.Empty(t, upstream.Header.Get("X-Correlation-ID"))
 }

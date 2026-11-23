@@ -63,11 +63,11 @@ func TestPresentSubscriptionTokens_DisabledReportsNone(t *testing.T) {
 	assert.Empty(t, anthro, "toggle off must report no Claude sub so billing paths gate prepaid")
 	assert.Empty(t, codex)
 
-	assert.False(t, RequestPresentsCoveringSubscription(ctx, h, routePathMessages),
+	assert.False(t, RequestPresentsCoveringSubscription(ctx, h, requestcontext.RoutePathMessages),
 		"toggle off must not exempt the balance gate")
 
 	// Sanity: the same request WITH the toggle on does present the sub.
-	assert.True(t, RequestPresentsCoveringSubscription(context.Background(), h, routePathMessages))
+	assert.True(t, RequestPresentsCoveringSubscription(context.Background(), h, requestcontext.RoutePathMessages))
 }
 
 // Paid extra usage means included quota is spent: OAuth is suppressed and the deployment key serves.
@@ -93,8 +93,8 @@ func TestPresentSubscriptionTokens_MaxProductScopeReportsNone(t *testing.T) {
 	codex, anthro := presentSubscriptionTokens(ctx, h)
 	assert.Empty(t, anthro)
 	assert.Empty(t, codex)
-	assert.False(t, RequestPresentsCoveringSubscription(ctx, h, routePathMessages))
+	assert.False(t, RequestPresentsCoveringSubscription(ctx, h, requestcontext.RoutePathMessages))
 
 	enrolled := context.WithValue(ctx, credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
-	assert.False(t, RequestPresentsCoveringSubscription(enrolled, http.Header{}, routePathMessages))
+	assert.False(t, RequestPresentsCoveringSubscription(enrolled, http.Header{}, requestcontext.RoutePathMessages))
 }

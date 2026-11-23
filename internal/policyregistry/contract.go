@@ -56,7 +56,7 @@ func (c ClassifierIdentity) Equal(other ClassifierIdentity) bool {
 
 func (c ClassifierIdentity) validateVariants() error {
 	for strategy, artifact := range c.Variants {
-		if !router.IsBetaStrategy(strategy) || strings.TrimSpace(artifact.ArtifactID) == "" || !validDigest(artifact.PackageSHA256) {
+		if !router.IsBetaStrategy(strategy) || strings.TrimSpace(artifact.ArtifactID) == "" || !ValidDigest(artifact.PackageSHA256) {
 			return fmt.Errorf("invalid alternate classifier %q", strategy)
 		}
 		switch strategy {
@@ -66,7 +66,7 @@ func (c ClassifierIdentity) validateVariants() error {
 			}
 		case router.StrategyHMMQwen:
 			endpoint, err := url.Parse(artifact.Endpoint)
-			if err != nil || endpoint.Scheme != "https" || !strings.HasSuffix(endpoint.Hostname(), ".modal.run") || endpoint.User != nil || endpoint.Port() != "" || endpoint.Path != "" && endpoint.Path != "/" || endpoint.RawQuery != "" || endpoint.Fragment != "" || strings.TrimSpace(artifact.Audience) == "" || artifact.ServingRevision != "" && !validDigest(artifact.ServingRevision) {
+			if err != nil || endpoint.Scheme != "https" || !strings.HasSuffix(endpoint.Hostname(), ".modal.run") || endpoint.User != nil || endpoint.Port() != "" || endpoint.Path != "" && endpoint.Path != "/" || endpoint.RawQuery != "" || endpoint.Fragment != "" || strings.TrimSpace(artifact.Audience) == "" || artifact.ServingRevision != "" && !ValidDigest(artifact.ServingRevision) {
 				return fmt.Errorf("invalid alternate Qwen classifier")
 			}
 		default:
@@ -147,7 +147,7 @@ func Digest(payload []byte) string {
 
 func DecodeRelease(payload []byte, registryRoot string) (Release, error) {
 	var release Release
-	if err := strictDecode(payload, &release); err != nil {
+	if err := StrictDecode(payload, &release); err != nil {
 		return Release{}, fmt.Errorf("decode router policy release: %w", err)
 	}
 	if err := release.Validate(registryRoot); err != nil {
@@ -158,7 +158,7 @@ func DecodeRelease(payload []byte, registryRoot string) (Release, error) {
 
 func DecodeLaneHead(payload []byte, registryRoot string, environment Environment, lane Lane) (LaneHead, error) {
 	var head LaneHead
-	if err := strictDecode(payload, &head); err != nil {
+	if err := StrictDecode(payload, &head); err != nil {
 		return LaneHead{}, fmt.Errorf("decode router policy lane head: %w", err)
 	}
 	if err := head.Validate(registryRoot, environment, lane); err != nil {
@@ -171,13 +171,13 @@ func (r Release) Validate(registryRoot string) error {
 	if r.SchemaVersion != ReleaseSchemaV1 {
 		return fmt.Errorf("unsupported release schema_version %q", r.SchemaVersion)
 	}
-	if strings.TrimSpace(r.Classifier.ArtifactID) == "" || !validDigest(r.Classifier.PackageSHA256) {
+	if strings.TrimSpace(r.Classifier.ArtifactID) == "" || !ValidDigest(r.Classifier.PackageSHA256) {
 		return errors.New("release classifier artifact_id and package_sha256 are required")
 	}
-	if !strings.HasPrefix(r.Classifier.ImageDigest, "sha256:") || !validDigest(strings.TrimPrefix(r.Classifier.ImageDigest, "sha256:")) {
+	if !strings.HasPrefix(r.Classifier.ImageDigest, "sha256:") || !ValidDigest(strings.TrimPrefix(r.Classifier.ImageDigest, "sha256:")) {
 		return errors.New("release classifier image_digest must be sha256:<digest>")
 	}
-	if r.Classifier.WireSchema != ClassifierWireSchemaV4 || len(r.Classifier.ClassOrder) == 0 || !validDigest(r.Classifier.TaxonomySHA256) {
+	if r.Classifier.WireSchema != ClassifierWireSchemaV4 || len(r.Classifier.ClassOrder) == 0 || !ValidDigest(r.Classifier.TaxonomySHA256) {
 		return errors.New("release classifier wire schema, class order, and taxonomy digest are required")
 	}
 	if TaxonomyDigest(r.Classifier.ClassOrder) != r.Classifier.TaxonomySHA256 {
@@ -186,7 +186,7 @@ func (r Release) Validate(registryRoot string) error {
 	if err := r.Classifier.validateVariants(); err != nil {
 		return err
 	}
-	if r.Policy.SchemaVersion != rosterdata.SchemaVersionPolicyV1 || !validDigest(r.Policy.SHA256) || r.Policy.Generation <= 0 {
+	if r.Policy.SchemaVersion != rosterdata.SchemaVersionPolicyV1 || !ValidDigest(r.Policy.SHA256) || r.Policy.Generation <= 0 {
 		return errors.New("release selection policy schema, digest, and generation are invalid")
 	}
 	if !withinRegistry(r.Policy.URI, registryRoot, "router_policy/v1/policies/sha256/"+r.Policy.SHA256+".json") {
@@ -201,7 +201,7 @@ func (r Release) Validate(registryRoot string) error {
 	if (r.Provenance.EvidenceURI == "") != (r.Provenance.EvidenceSHA256 == "") {
 		return errors.New("release evidence URI and digest must be supplied together")
 	}
-	if r.Provenance.EvidenceSHA256 != "" && !validDigest(r.Provenance.EvidenceSHA256) {
+	if r.Provenance.EvidenceSHA256 != "" && !ValidDigest(r.Provenance.EvidenceSHA256) {
 		return errors.New("release evidence_sha256 is invalid")
 	}
 	return nil
@@ -220,7 +220,7 @@ func (h LaneHead) Validate(registryRoot string, environment Environment, lane La
 	if h.Environment != environment || h.Lane != lane {
 		return fmt.Errorf("lane head facet %s/%s does not match requested %s/%s", h.Environment, h.Lane, environment, lane)
 	}
-	if !validDigest(h.ReleaseSHA256) || h.ReleaseGeneration <= 0 {
+	if !ValidDigest(h.ReleaseSHA256) || h.ReleaseGeneration <= 0 {
 		return errors.New("lane head release digest and generation are invalid")
 	}
 	if !withinRegistry(h.ReleaseURI, registryRoot, "router_policy/v1/releases/sha256/"+h.ReleaseSHA256+".json") {
@@ -229,7 +229,7 @@ func (h LaneHead) Validate(registryRoot string, environment Environment, lane La
 	if (h.PreviousReleaseURI == "") != (h.PreviousReleaseSHA256 == "") {
 		return errors.New("lane head previous release URI and digest must be supplied together")
 	}
-	if h.PreviousReleaseURI != "" && (!validDigest(h.PreviousReleaseSHA256) || !withinRegistry(h.PreviousReleaseURI, registryRoot, "router_policy/v1/releases/sha256/"+h.PreviousReleaseSHA256+".json")) {
+	if h.PreviousReleaseURI != "" && (!ValidDigest(h.PreviousReleaseSHA256) || !withinRegistry(h.PreviousReleaseURI, registryRoot, "router_policy/v1/releases/sha256/"+h.PreviousReleaseSHA256+".json")) {
 		return errors.New("lane head previous release binding is invalid")
 	}
 	parsedRevisionURL, err := url.Parse(h.ClassifierRevisionURL)
@@ -268,7 +268,7 @@ func TaxonomyDigest(classOrder []string) string {
 	return Digest(payload)
 }
 
-func strictDecode(payload []byte, target any) error {
+func StrictDecode(payload []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
@@ -286,7 +286,7 @@ func strictDecode(payload []byte, target any) error {
 
 var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-func validDigest(value string) bool { return digestPattern.MatchString(value) }
+func ValidDigest(value string) bool { return digestPattern.MatchString(value) }
 
 func withinRegistry(candidate, registryRoot, suffix string) bool {
 	root := strings.TrimRight(registryRoot, "/")

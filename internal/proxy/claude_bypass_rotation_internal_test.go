@@ -67,7 +67,7 @@ func TestFundingBypassPartialStreamRecoversOnLinkedSubscription(t *testing.T) {
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-direct-partial")
 				ctx = billing.WithSubscriptionOnly(ctx, reason)
 				if !classifier {
-					ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+					ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
 				}
 				body := `{"model":"` + model + `","stream":true,"max_tokens":` + strconv.Itoa(maxTokens) + `,"messages":[{"role":"user","content":"hello"}]}`
 				rec := httptest.NewRecorder()
@@ -131,7 +131,7 @@ func TestClaudeBypassDepletedCreditsRotatesLinkedAccounts(t *testing.T) {
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-direct-spent")
 				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 				if !classifier {
-					ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+					ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
 				}
 				body := `{"model":"` + model + `","max_tokens":` + strconv.Itoa(maxTokens) + `,"messages":[{"role":"user","content":"hello"}]}`
 				rec := httptest.NewRecorder()
