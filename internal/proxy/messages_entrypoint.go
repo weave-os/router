@@ -276,7 +276,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	if s.claudeSubscriptionExhausted(ctx, r.Header) {
 		ctx = credentials.WithSuppressedClaudeSubscription(ctx)
-		if s.linkedSeatCanCover(ctx, decision.Provider, decision.Model) {
+		if s.credentials.LinkedSeatCanCover(ctx, decision.Provider, decision.Model) {
 			ctx = withDeferredReconnectNudge(ctx, claudeSubscriptionReconnectNudge(ctx, r.Header, s.credentials.UsageObserver))
 		} else {
 			ctx = withSubscriptionReconnectNudge(ctx, claudeSubscriptionReconnectNudge(ctx, r.Header, s.credentials.UsageObserver))

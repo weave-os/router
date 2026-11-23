@@ -60,7 +60,7 @@ func TestClassifierSearchChildIsolationAndReplay(t *testing.T) {
 	require.Equal(t, "Synthetic answer", inputs[2].User.PrecedingResponses[0].Content)
 
 	// Parent advancement cannot change a retry's child identity.
-	replica := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: svc.clock}
+	replica := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: svc.clock})
 	require.NoError(t, replica.WithClassifierSessions(svc.classifierSessions.config, store, svc.classifierSessions.classifier))
 	var workers sync.WaitGroup
 	for range 8 {

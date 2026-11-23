@@ -644,7 +644,7 @@ func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 }
 
 func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Emitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetryRepo turnrecord.TelemetryRepository) *Service {
-	s := &Service{
+	s := wireCredentialPorts(&Service{
 		engine:                       dispatch.NewEngine(clients),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
 		turnTelemetry:                turnTelemetry{emitter: emitter, repo: telemetryRepo, flags: TelemetryFlags{TurnSignalCapture: true, NativeAnthropicResponseSignals: true, NativeOpenAIResponseSignals: true}},
@@ -660,7 +660,7 @@ func NewService(r router.Router, clients *dispatch.Clients, emitter telemetry.Em
 			CyberRefusalFallbackModel:   "claude-sonnet-5",
 			AnthropicServerSideFallback: true,
 		},
-	}
+	})
 	s.routing = routingpolicy.New(nil).WithHardPins(overrides.HardPins{Explore: hardPinExplore, Provider: hardPinProvider, Model: hardPinModel}).WithPrefixTrimFreeSwitch(true)
 	s.escalationHelper()
 	if r == nil {

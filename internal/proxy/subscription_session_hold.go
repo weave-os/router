@@ -25,7 +25,7 @@ func sessionHoldOwner(ctx context.Context) string {
 func (s *Service) holdSessionOffSubscriptionPool(ctx context.Context, provider, model string) {
 	owner := sessionHoldOwner(ctx)
 	pool, compatible := credentials.ManagedSubscriptionProviderFromUpstream(provider, model)
-	if owner == "" || !compatible || !s.subscriptionPoolUnavailable(ctx, provider, model) {
+	if owner == "" || !compatible || !s.credentials.SubscriptionPoolUnavailable(ctx, provider, model) {
 		return
 	}
 	s.credentials.SessionHolds.Hold(owner, pool, s.clock.Now().Add(subscriptionSessionHold))

@@ -152,7 +152,7 @@ func TestSubscriptionModelAccessLearnsServedModelsPerSubscription(t *testing.T) 
 
 func TestSubscriptionModelAccessFollowsTheWinningCredentialOfAFinishedManagedTurn(t *testing.T) {
 	now := time.Now()
-	svc := &Service{clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{clock: func() time.Time { return now }})
 	requested := &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-requested"), OAuth: true}
 	winning := &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-winning"), OAuth: true}
 	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, requested)
@@ -178,7 +178,7 @@ func (blankPurposePlan) Purpose() inference.Purpose { return inference.Purpose("
 
 func TestLeasedProviderAttemptMarksTheModelServedForTheWinningCredential(t *testing.T) {
 	now := time.Now()
-	svc := &Service{clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{clock: func() time.Time { return now }})
 	ctx, requested, winning := finishedManagedTurnOnAnotherCredential()
 	succeedingAttempt := func(context.Context, router.Decision, dispatch.Upstream) error { return nil }
 
@@ -194,7 +194,7 @@ func TestLeasedProviderAttemptMarksTheModelServedForTheWinningCredential(t *test
 
 func TestClassifierRescuePolicyReadsServedAndDeniedModelsOfTheWinningCredential(t *testing.T) {
 	now := time.Now()
-	svc := &Service{clock: func() time.Time { return now }}
+	svc := wireCredentialPorts(&Service{clock: func() time.Time { return now }})
 	ctx, requested, winning := finishedManagedTurnOnAnotherCredential()
 	access := &svc.credentials.SubscriptionModels
 	access.MarkServedForCaller(winning, providers.ProviderAnthropic, "claude-sonnet-5-5", now)

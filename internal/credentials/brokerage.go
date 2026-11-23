@@ -23,6 +23,9 @@ type Brokerage struct {
 	ClaudePlans               *subscriptions.PlanResolver
 	ExternalKeyUsage          ExternalKeyUsageRecorder
 	UsageObserver             *usage.Observer
+	Clock                     auth.Clock
+	SubscriptionTransport     func(provider string) bool
+	CallerPassthrough         func(ctx context.Context) bool
 }
 
 var _ Broker = (*Brokerage)(nil)

@@ -12,17 +12,17 @@ import (
 
 func codexLossyRescueNeeded(ctx context.Context, s *Service, headers http.Header) func(model string) bool {
 	return func(model string) bool {
-		return s.codexSubscriptionExhausted(ctx, headers) && !s.linkedSeatCanCover(ctx, providers.ProviderOpenAI, model) &&
+		return s.codexSubscriptionExhausted(ctx, headers) && !s.credentials.LinkedSeatCanCover(ctx, providers.ProviderOpenAI, model) &&
 			(requestcontext.CodexSubscriptionCanAttemptModel(model) || !codexPoolHasFreeSeat(ctx, s))
 	}
 }
 
 func codexPoolHasFreeSeat(ctx context.Context, s *Service) bool {
-	if s.credentials.ManagedSubscriptions == nil || managedSubscriptionEnrollmentUnavailable(ctx) {
+	if s.credentials.ManagedSubscriptions == nil || credentials.ManagedSubscriptionEnrollmentUnavailable(ctx) {
 		return false
 	}
 	now := s.clock.Now()
-	return managedSeatCanCover(ctx, subscriptions.ProviderCodex, now, func(candidate credentials.ManagedSubscriptionCandidate) bool {
-		return s.managedAccountQuotaExhausted(ctx, candidate, now)
+	return credentials.ManagedSeatCanCover(ctx, subscriptions.ProviderCodex, now, func(candidate credentials.ManagedSubscriptionCandidate) bool {
+		return s.credentials.ManagedAccountQuotaExhausted(ctx, candidate, now)
 	})
 }
