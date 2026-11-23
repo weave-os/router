@@ -114,6 +114,9 @@ func TestAtomizationRatchetsDetectSyntheticViolations(t *testing.T) {
 			ratchetStrategyFromContext:    {"internal/architecture/testdata/atomization/proxy_hmm": 1},
 			ratchetProxyReasonComparisons: {"internal/architecture/testdata/atomization/proxy_hmm": 3},
 		}},
+		{fixture: "strategy_from_context_value", want: atomizationCounts{
+			ratchetStrategyFromContext: {"internal/architecture/testdata/atomization/strategy_from_context_value": 2},
+		}},
 		{fixture: "strategy_adapter", want: atomizationCounts{
 			ratchetStrategyAdapterImports: {"internal/architecture/testdata/atomization/strategy_adapter -> internal/billing": 1},
 		}},
@@ -281,11 +284,12 @@ func nodeViolations(info *types.Info, node ast.Node, scope atomizationScope) []s
 				found = append(found, ratchetHMMPinFields)
 			}
 		}
-	case *ast.CallExpr:
-		object := calledObject(info, n.Fun)
-		if isRouterFunc(object, "StrategyFromContext") {
+	case *ast.Ident:
+		if isRouterFunc(info.Uses[n], "StrategyFromContext") {
 			found = append(found, ratchetStrategyFromContext)
 		}
+	case *ast.CallExpr:
+		object := calledObject(info, n.Fun)
 		if scope.proxy {
 			found = append(found, proxyCallViolations(info, n, object)...)
 		}

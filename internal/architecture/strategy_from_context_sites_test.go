@@ -35,6 +35,9 @@ func TestStrategyFromContextSitesRejectNewCaller(t *testing.T) {
 	require.Equal(t, []string{"internal/architecture/testdata/atomization/proxy_hmm.selectedGroup"}, fixture)
 
 	assert.Equal(t, []string{"+ internal/architecture/testdata/atomization/proxy_hmm.selectedGroup"}, unexpectedStrategyFromContextSites(append(slices.Clone(sites), fixture...)))
+	values := strategyFromContextCallSites(loadTypedPackages(t, root, atomizationFixturePackage+"strategy_from_context_value"))
+	require.Equal(t, []string{"internal/architecture/testdata/atomization/strategy_from_context_value.readStrategy", "internal/architecture/testdata/atomization/strategy_from_context_value.selectedVia"}, values)
+	assert.Equal(t, []string{"+ internal/architecture/testdata/atomization/strategy_from_context_value.readStrategy", "+ internal/architecture/testdata/atomization/strategy_from_context_value.selectedVia"}, unexpectedStrategyFromContextSites(append(slices.Clone(sites), values...)))
 	assert.Equal(t, []string{"+ internal/proxy.withTurnClassifierInput"}, unexpectedStrategyFromContextSites(append(slices.Clone(sites), "internal/proxy.withTurnClassifierInput")))
 	assert.Equal(t, []string{"- internal/proxy.(*Service).Route"}, unexpectedStrategyFromContextSites(slices.DeleteFunc(slices.Clone(sites), func(site string) bool { return site == "internal/proxy.(*Service).Route" })))
 }
@@ -66,13 +69,10 @@ func strategyFromContextCallSites(loaded []*packages.Package) []string {
 				continue
 			}
 			for _, decl := range file.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok {
-					continue
-				}
-				ast.Inspect(fn, func(node ast.Node) bool {
-					if call, ok := node.(*ast.CallExpr); ok && isRouterFunc(calledObject(pkg.TypesInfo, call.Fun), "StrategyFromContext") {
-						sites = append(sites, relativePackage(pkg.PkgPath)+"."+funcDeclName(pkg.TypesInfo, fn))
+				site := relativePackage(pkg.PkgPath) + "." + declSiteName(pkg.TypesInfo, decl)
+				ast.Inspect(decl, func(node ast.Node) bool {
+					if ident, ok := node.(*ast.Ident); ok && isRouterFunc(pkg.TypesInfo.Uses[ident], "StrategyFromContext") {
+						sites = append(sites, site)
 					}
 					return true
 				})
@@ -81,6 +81,27 @@ func strategyFromContextCallSites(loaded []*packages.Package) []string {
 	}
 	slices.Sort(sites)
 	return sites
+}
+
+// declSiteName names a top-level declaration: a function or method, or the
+// names a var/const/type block declares, so a package-level function value
+// such as `var read = router.StrategyFromContext` is a site too.
+func declSiteName(info *types.Info, decl ast.Decl) string {
+	if fn, ok := decl.(*ast.FuncDecl); ok {
+		return funcDeclName(info, fn)
+	}
+	var names []string
+	for _, spec := range decl.(*ast.GenDecl).Specs {
+		switch spec := spec.(type) {
+		case *ast.ValueSpec:
+			for _, name := range spec.Names {
+				names = append(names, name.Name)
+			}
+		case *ast.TypeSpec:
+			names = append(names, spec.Name.Name)
+		}
+	}
+	return strings.Join(names, ",")
 }
 
 func funcDeclName(info *types.Info, fn *ast.FuncDecl) string {
