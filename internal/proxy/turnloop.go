@@ -40,10 +40,6 @@ func addToSet(set map[string]struct{}, model string) map[string]struct{} {
 	return out
 }
 
-func applyPinEvidence(ports continuity.StrategyPorts, res *routingpolicy.TurnRoute, pin sessionpin.Pin, now time.Time) {
-	routingpolicy.ApplyPinEvidence(ports, res, pin, now)
-}
-
 func clearPinEvidence(res *routingpolicy.TurnRoute) {
 	res.PinModel = ""
 	res.PinProvider = ""
@@ -102,8 +98,6 @@ func isHMMDecision(ports continuity.StrategyPorts, dec router.Decision) bool {
 }
 
 const policyDeadlineFallbackReason = "policy_deadline_last_known_good"
-
-const unscorableHMMStickyReason = routingpolicy.UnscorableHMMStickyReason
 
 func isPolicyDeadlineErr(err error) bool {
 	if err == nil {
@@ -542,7 +536,7 @@ func (s *Service) runTurnLoop(
 	if pinFound {
 		res.PinTurnCount = pin.TurnCount + 1
 		res.PinFirstPinnedAt = pin.FirstPinnedAt
-		applyPinEvidence(s.strategyPorts, &res, pin, s.clock.Now())
+		routingpolicy.ApplyPinEvidence(s.strategyPorts, &res, pin, s.clock.Now())
 		log.Info("turnloop pin lookup hit",
 			"pin_model", pin.Model,
 			"pin_provider", pin.Provider,

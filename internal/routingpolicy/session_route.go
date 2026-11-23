@@ -18,8 +18,8 @@ import (
 const UnscorableHMMStickyReason = "hmm_no_user_boundary_sticky"
 
 func (t SessionTurn) Route(ctx context.Context, res *TurnRoute) (TurnRoute, error) {
-	pin, pinFound := t.Pin, t.PinFound
-	t.Request.Session.Pin = router.SessionPin{Found: pinFound, Provider: pin.Provider, Model: pin.Model, LastTurnEndedAt: pin.LastTurnEndedAt, LastOutputTokens: pin.LastOutputTokens}
+	pin := t.Pin
+	t.Request.Session.Pin = router.SessionPin{Found: t.PinFound, Provider: pin.Provider, Model: pin.Model, LastTurnEndedAt: pin.LastTurnEndedAt, LastOutputTokens: pin.LastOutputTokens}
 	req := t.Request
 	holdToolResult := res.AuthoritativePerTurn && req.Escalation == nil &&
 		res.TurnType == turntype.ToolResult && t.Settings.HMMToolResultHold
