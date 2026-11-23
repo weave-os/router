@@ -332,7 +332,7 @@ func TestWithRoutingPolicyKeepsDeadlineSettingsInEitherOrder(t *testing.T) {
 		WithPolicyDeadlineFallback(true).WithPolicyDeadlineDefaultModel("model-a").
 		WithRoutingPolicy(routingpolicy.New(nil))
 	assert.Equal(t, want, before.routing.Deadline())
-	assert.Equal(t, []string{"model-x"}, before.ExcludedModelsOverride())
+	assert.Equal(t, []string{"model-x"}, NewRoutingCatalog(before).ExcludedModelsOverride())
 
 	after := (&Service{}).WithRoutingPolicy(routingpolicy.New(nil)).
 		WithPolicyDeadlineFallback(true).WithPolicyDeadlineDefaultModel("model-a")

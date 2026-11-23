@@ -186,17 +186,13 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	engine.GET("/startupz", middleware.WithTimeout(startupTimeout), admin.StartupHandler(features.StartupDatabasePing))
 
 	engine.GET("/v1/version", middleware.WithTimeout(healthTimeout), admin.VersionHandler(features.PolicyStatus))
-	var registeredStrategies []router.Strategy
-	var strategyAvailability middleware.StrategyAvailability
-	if proxySvc != nil {
-		registeredStrategies = proxySvc.RegisteredStrategies()
-		strategyAvailability = proxySvc.PolicyStrategyAvailable
-	}
+	var routingCatalog admin.RoutingCatalog = proxy.NewRoutingCatalog(proxySvc)
+	registeredStrategies, strategyAvailability := registeredStrategyAvailability(proxySvc, routingCatalog)
 	defaultStrategy := middleware.NormalizeRouterStrategyDefault(features.defaultStrategy(), registeredStrategies...)
 	discovery.GET(
 		"/v1/router/policies",
 		middleware.WithTimeout(healthTimeout),
-		admin.PolicyCatalogHandler(proxySvc, defaultStrategy),
+		admin.PolicyCatalogHandler(routingCatalog, defaultStrategy),
 	)
 
 	if hmmModels != nil {
@@ -283,12 +279,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		mgmt.GET("/fast-mode-models", admin.GetFastModeModelsHandler(authSvc))
 		mgmt.PUT("/fast-mode-models", admin.UpdateFastModeModelsHandler(authSvc))
 		if hmmModels != nil {
-			mgmt.GET("/excluded-models", admin.GetExcludedModelsHandler(authSvc, proxySvc))
-			mgmt.PUT("/excluded-models", admin.UpdateExcludedModelsHandler(authSvc, proxySvc))
+			mgmt.GET("/excluded-models", admin.GetExcludedModelsHandler(authSvc, routingCatalog))
+			mgmt.PUT("/excluded-models", admin.UpdateExcludedModelsHandler(authSvc, routingCatalog))
 			mgmt.GET("/allowed-models", admin.GetAllowedModelsHandler(authSvc))
-			mgmt.PUT("/allowed-models", admin.UpdateAllowedModelsHandler(authSvc, proxySvc))
-			mgmt.GET("/excluded-providers", admin.GetExcludedProvidersHandler(authSvc, hmmModels, proxySvc))
-			mgmt.PUT("/excluded-providers", admin.UpdateExcludedProvidersHandler(authSvc, hmmModels, proxySvc))
+			mgmt.PUT("/allowed-models", admin.UpdateAllowedModelsHandler(authSvc, routingCatalog))
+			mgmt.GET("/excluded-providers", admin.GetExcludedProvidersHandler(authSvc, hmmModels, routingCatalog))
+			mgmt.PUT("/excluded-providers", admin.UpdateExcludedProvidersHandler(authSvc, hmmModels, routingCatalog))
 		}
 	}
 
@@ -430,6 +426,13 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		feedbackGroup.GET("/assets/wooly-wave.png", feedbackapi.WoolyWaveHandler())
 		feedbackGroup.GET("/assets/weave.svg", feedbackapi.WeaveLogoHandler())
 	}
+}
+
+func registeredStrategyAvailability(proxySvc *proxy.Service, catalog admin.PolicyCatalogSource) ([]router.Strategy, middleware.StrategyAvailability) {
+	if proxySvc == nil {
+		return nil, nil
+	}
+	return catalog.RegisteredStrategies(), catalog.PolicyStrategyAvailable
 }
 
 func registerUIStatic(engine *gin.Engine, root string) {

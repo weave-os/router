@@ -1,10 +1,10 @@
 package admin
 
 import (
+	"context"
 	"net/http"
 	"sort"
 
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 
@@ -17,7 +17,20 @@ type policyCatalogEntry struct {
 	Capabilities policy.Capabilities `json:"capabilities"`
 }
 
-func PolicyCatalogHandler(service *proxy.Service, defaultStrategy router.Strategy) gin.HandlerFunc {
+type PolicyCatalogSource interface {
+	RegisteredStrategies() []router.Strategy
+	PolicyCapabilitiesForRequest(ctx context.Context, strategy router.Strategy) (policy.Capabilities, bool)
+	PolicyStrategyAvailable(strategy router.Strategy) bool
+}
+
+type RoutingCatalog interface {
+	RoutableModelsSource
+	ExclusionOverrideSource
+	ProviderExclusionOverrideSource
+	PolicyCatalogSource
+}
+
+func PolicyCatalogHandler(service PolicyCatalogSource, defaultStrategy router.Strategy) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		entries := []policyCatalogEntry{}
 		if service != nil {

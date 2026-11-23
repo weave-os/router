@@ -1537,8 +1537,8 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 		require.NotNil(t, fr.capturedReq)
 		assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "gpt-4o")
 		assert.NotContains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-opus-4-7")
-		assert.True(t, svc.HasExcludedModelsOverride())
-		assert.Equal(t, []string{"gpt-4o"}, svc.ExcludedModelsOverride())
+		assert.True(t, proxy.NewRoutingCatalog(svc).HasExcludedModelsOverride())
+		assert.Equal(t, []string{"gpt-4o"}, proxy.NewRoutingCatalog(svc).ExcludedModelsOverride())
 	})
 }
 

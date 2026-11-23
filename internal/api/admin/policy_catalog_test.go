@@ -43,7 +43,7 @@ func TestPolicyCatalogHandlerReportsDefaultAndCapabilities(t *testing.T) {
 	engine := gin.New()
 	engine.GET(
 		"/v1/router/policies",
-		admin.PolicyCatalogHandler(service, router.StrategyHMM),
+		admin.PolicyCatalogHandler(proxy.NewRoutingCatalog(service), router.StrategyHMM),
 	)
 
 	recorder := httptest.NewRecorder()

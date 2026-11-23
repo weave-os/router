@@ -7,7 +7,6 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 )
@@ -105,5 +104,3 @@ func allowlistLosesRoutability(models []string, catalogIDs map[string]struct{}, 
 	}
 	return true
 }
-
-var _ RoutableModelsSource = (*proxy.Service)(nil)
