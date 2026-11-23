@@ -19,11 +19,6 @@ func codexSubscriptionCoversModel(model string) bool {
 	return requestcontext.CodexSubscriptionCoversModel(model)
 }
 
-func (s *Service) WithUsageObserver(obs *usage.Observer) *Service {
-	s.credentials.UsageObserver = obs
-	return s
-}
-
 func restrictToSubscriptionProviders(ctx context.Context, headers http.Header, enabled map[string]struct{}) map[string]struct{} {
 	return restrictToProviders(enabled, credentials.SubscriptionServableProviders(ctx, headers))
 }

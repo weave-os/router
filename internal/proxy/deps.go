@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/ingress"
@@ -28,6 +29,7 @@ type Deps struct {
 	Routing                  *RoutingDeps
 	BYOKOnly                 bool
 	DeploymentKeyedProviders map[string]struct{}
+	Credentials              *credentials.Brokerage
 	Dispatch                 *dispatch.Config
 }
 
@@ -94,6 +96,9 @@ func WithDeps(s *Service, deps Deps) *Service {
 	}
 	s.credentials.BYOKOnly = deps.BYOKOnly
 	s.credentials.KeyedProviders = maps.Clone(deps.DeploymentKeyedProviders)
+	if deps.Credentials != nil {
+		applyCredentialDeps(s, deps.Credentials)
+	}
 	if deps.Dispatch != nil {
 		applyDispatchConfig(s, *deps.Dispatch)
 	}
@@ -102,6 +107,16 @@ func WithDeps(s *Service, deps Deps) *Service {
 	}
 	s.lifecycle.Configure(deps.Conversation)
 	return s
+}
+
+func applyCredentialDeps(s *Service, b *credentials.Brokerage) {
+	s.credentials.ExternalKeyUsage = b.ExternalKeyUsage
+	s.credentials.UsageObserver = b.UsageObserver
+	s.credentials.ClaudePlans = b.ClaudePlans
+	s.credentials.CodexExtraCredits = b.CodexExtraCredits
+	s.credentials.ManagedSubscriptions = b.ManagedSubscriptions
+	s.credentials.PassthroughEligible = maps.Clone(b.PassthroughEligible)
+	s.credentials.ExcludedProvidersOverride = maps.Clone(b.ExcludedProvidersOverride)
 }
 
 func applyDispatchConfig(s *Service, cfg dispatch.Config) {

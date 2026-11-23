@@ -6,11 +6,6 @@ import (
 	"weave-os/router/internal/credentials"
 )
 
-func (s *Service) WithExternalKeyUsageRecorder(recorder credentials.ExternalKeyUsageRecorder) *Service {
-	s.credentials.ExternalKeyUsage = recorder
-	return s
-}
-
 func (s *Service) markServedExternalKeyUsed(ctx context.Context, servedErr error) {
 	if servedErr != nil || managedSubscriptionCredentialSource(ctx) != "" {
 		return
