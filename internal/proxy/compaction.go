@@ -167,7 +167,7 @@ func (s *Service) crossGatewayRescuers(ctx context.Context, primary compactionSu
 		if !held || provider == primary.provider || catalog.TierFor(model) < catalog.TierMid {
 			continue
 		}
-		if _, excluded := req.Candidates.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
+		if _, excluded := req.Candidates.ExcludedModels[model]; excluded || candidates.AutomaticallyDisabled(req, model) {
 			continue
 		}
 		if s.routing.AvailableModels() != nil {

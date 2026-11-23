@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/sessionpin"
@@ -283,7 +284,7 @@ func (rescueRoutingPort) LowerTierCandidates(target string, candidates []string)
 }
 
 func (rescueRoutingPort) BaseModelOf(servedIdentity string) string {
-	return baseModelOf(servedIdentity)
+	return candidates.BaseModelOf(servedIdentity)
 }
 
 func (p rescueRoutingPort) EarlyStopRedoMode(ctx context.Context, routeRes dispatch.RescueTurn, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode {

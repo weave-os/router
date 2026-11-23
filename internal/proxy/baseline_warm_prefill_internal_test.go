@@ -86,10 +86,10 @@ func TestApplySwitchHistory_ReadsThePriorTurnFromTheSelectedPin(t *testing.T) {
 func TestPriorPromptTokens_AnthropicFamilyAddsDisjointCacheCounters(t *testing.T) {
 	for _, provider := range []string{providers.ProviderAnthropic, providers.ProviderAnthropicGateway, providers.ProviderWaferAnthropic} {
 		pin := sessionpin.Pin{Provider: provider, LastInputTokens: 2_000, LastCachedReadTokens: 90_000, LastCachedWriteTokens: 8_000}
-		assert.Equal(t, 100_000, priorPromptTokens(pin), provider)
+		assert.Equal(t, 100_000, routingpolicy.PriorPromptTokens(pin), provider)
 	}
 	openAI := sessionpin.Pin{Provider: providers.ProviderOpenAI, LastInputTokens: 100_000, LastCachedReadTokens: 90_000}
-	assert.Equal(t, 100_000, priorPromptTokens(openAI), "OpenAI prompt_tokens already include cached tokens")
+	assert.Equal(t, 100_000, routingpolicy.PriorPromptTokens(openAI), "OpenAI prompt_tokens already include cached tokens")
 }
 
 func TestBaselineWarmPrefillTokens_BaselineWouldAlsoBeCold(t *testing.T) {

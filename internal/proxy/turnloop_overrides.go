@@ -66,7 +66,7 @@ func utilityHardPinTarget(ctx context.Context, req router.Request, turnType turn
 		if _, excluded := req.Candidates.ExcludedModels[model]; excluded {
 			return "", "", fmt.Errorf("hard-pin model %q is ineligible for %s: %w", model, turnType, router.ErrNoEligibleProvider)
 		}
-		if automaticallyDisabled(req, model) {
+		if candidates.AutomaticallyDisabled(req, model) {
 			log.Warn("Hard-pin model is disabled for automatic routing; serving it anyway",
 				"turn_type", string(turnType),
 				"hard_pin_model", model,

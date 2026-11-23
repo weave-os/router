@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
 
@@ -76,7 +77,7 @@ func describeAttempt(ctx context.Context, trace *dispatch.AttemptTrace, attempt 
 
 func lastFailureOn(trace *dispatch.AttemptTrace, model string) (dispatch.TracedAttempt, bool) {
 	return trace.LastFailureWhere(func(target inference.Target) bool {
-		return baseModelOf(target.CatalogID) == baseModelOf(model)
+		return candidates.BaseModelOf(target.CatalogID) == candidates.BaseModelOf(model)
 	})
 }
 

@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -25,7 +26,7 @@ func TestCacheablePrefixUsesMeasuredRatioNotCurrentEstimate(t *testing.T) {
 	}
 	// Prior turn: 90k cached of 100k total = 0.9. Projected onto a 50k prompt
 	// that is 45k, even though 90k cached exceeds this turn's whole estimate.
-	got, known := cacheablePrefixTokens(pin, 50_000, false)
+	got, known := routingpolicy.CacheablePrefixTokens(pin, 50_000, false)
 	assert.True(t, known)
 	assert.Equal(t, 45_000, got, "share is scale-free; it must not clamp to the current total")
 }
@@ -37,13 +38,13 @@ func TestCacheablePrefixHonoursProviderTokenBasis(t *testing.T) {
 
 	anthropic := counters
 	anthropic.Provider = providers.ProviderAnthropic
-	got, _ := cacheablePrefixTokens(anthropic, 100_000, false)
+	got, _ := routingpolicy.CacheablePrefixTokens(anthropic, 100_000, false)
 	// Disjoint: 80k / (100k + 80k) = 0.444
 	assert.Equal(t, 44_444, got)
 
 	compat := counters
 	compat.Provider = providers.ProviderOpenAI
-	got, _ = cacheablePrefixTokens(compat, 100_000, false)
+	got, _ = routingpolicy.CacheablePrefixTokens(compat, 100_000, false)
 	// Inclusive: 80k / 100k = 0.8
 	assert.Equal(t, 80_000, got)
 }
@@ -51,10 +52,10 @@ func TestCacheablePrefixHonoursProviderTokenBasis(t *testing.T) {
 // A pin with no usage telemetry must report "unknown" so the planner can take
 // the legacy fallback, while a client trim is a MEASURED eviction of zero.
 func TestCacheablePrefixDistinguishesUnknownFromMeasuredZero(t *testing.T) {
-	_, known := cacheablePrefixTokens(sessionpin.Pin{}, 50_000, false)
+	_, known := routingpolicy.CacheablePrefixTokens(sessionpin.Pin{}, 50_000, false)
 	assert.False(t, known, "a pin that never completed a turn has no evidence")
 
-	trimmed, trimmedKnown := cacheablePrefixTokens(
+	trimmed, trimmedKnown := routingpolicy.CacheablePrefixTokens(
 		sessionpin.Pin{Provider: providers.ProviderAnthropic, LastInputTokens: 10_000, LastCachedReadTokens: 90_000},
 		50_000, true,
 	)

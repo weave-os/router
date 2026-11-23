@@ -6,6 +6,7 @@ import (
 	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/turntype"
 )
@@ -16,7 +17,7 @@ func modelSelectionMarkerForRequest(ports continuity.StrategyPorts, ctx context.
 	}
 	show, _ := ctx.Value(requestcontext.InstallationShowModelSelectionReasoningContextKey{}).(bool)
 	if !show || marker == "" || servedModel == "" || res.SuggestionMode || res.HardPinned ||
-		isUnpinnedScoredTurn(res.TurnType) || baseModelOf(res.PriorServedModel) == servedModel {
+		isUnpinnedScoredTurn(res.TurnType) || candidates.BaseModelOf(res.PriorServedModel) == servedModel {
 		return marker
 	}
 	lineEnd := strings.IndexByte(marker, '\n')
