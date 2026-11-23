@@ -12,8 +12,10 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/continuity"
+	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/router/turntype"
 )
 
 type AuthoritativePinTier string
@@ -27,7 +29,7 @@ const (
 	PinTierAuthoritativeExcludedReroute         AuthoritativePinTier = "authoritative_excluded_reroute"
 )
 
-type AuthoritativeSettings struct {
+type SessionSettings struct {
 	UpgradePolicy                  flags.AuthoritativeUpgradePolicy
 	UpgradeGate                    bool
 	UpgradeVotes                   int
@@ -39,9 +41,10 @@ type AuthoritativeSettings struct {
 	AvailableModels                map[string]struct{}
 	CostGate                       continuity.CostGateConfig
 	Planner                        planner.EVConfig
+	PlannerEnabled                 bool
 }
 
-type AuthoritativeTurn struct {
+type SessionTurn struct {
 	Request        router.Request
 	Pin            sessionpin.Pin
 	PinFound       bool
@@ -53,11 +56,17 @@ type AuthoritativeTurn struct {
 	InstallationID uuid.UUID
 	Ports          continuity.StrategyPorts
 	Scorer         router.Router
-	Settings       AuthoritativeSettings
+	Settings       SessionSettings
+	Serving        SessionServing
 	Now            func() time.Time
 }
 
-func (t AuthoritativeTurn) Serve(ctx context.Context, res *TurnRoute) (TurnRoute, error) {
+type SessionServing interface {
+	BandSwap(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, req router.Request) router.Decision
+	Handover(ctx context.Context, req router.Request, pinModel, freshModel string) (outcome handover.Outcome, contextEstimate int, rewritten bool)
+}
+
+func (t SessionTurn) Serve(ctx context.Context, res *TurnRoute) (TurnRoute, error) {
 	log := observability.FromContext(ctx)
 	activePin := sessionpin.Pin{}
 	if t.PinFound {
@@ -93,7 +102,7 @@ func (t AuthoritativeTurn) Serve(ctx context.Context, res *TurnRoute) (TurnRoute
 	return *res, nil
 }
 
-func (t AuthoritativeTurn) serveExcluded(ctx context.Context, res *TurnRoute) (TurnRoute, error) {
+func (t SessionTurn) serveExcluded(ctx context.Context, res *TurnRoute) (TurnRoute, error) {
 	log := observability.FromContext(ctx)
 	if t.PinFound && candidates.AutomaticPinEligible(t.Pin, t.Request) {
 		decision := t.Pin.Decision()
@@ -128,7 +137,7 @@ func (t AuthoritativeTurn) serveExcluded(ctx context.Context, res *TurnRoute) (T
 	return *res, nil
 }
 
-func (t AuthoritativeTurn) guards(slidingServed bool) continuity.AuthoritativeGuards {
+func (t SessionTurn) guards(slidingServed bool) continuity.AuthoritativeGuards {
 	return continuity.AuthoritativeGuards{
 		ConfidenceThreshold:   t.Settings.HMMConfig.UpgradeConfidenceThreshold,
 		UpgradeGate:           t.Settings.UpgradeGate && t.Settings.UpgradePolicy != flags.AuthoritativeUpgradePolicyOff && !slidingServed,
@@ -138,7 +147,7 @@ func (t AuthoritativeTurn) guards(slidingServed bool) continuity.AuthoritativeGu
 	}
 }
 
-func (t AuthoritativeTurn) holdPin(ctx context.Context, res *TurnRoute, verdict continuity.AuthoritativeVerdict) bool {
+func (t SessionTurn) holdPin(ctx context.Context, res *TurnRoute, verdict continuity.AuthoritativeVerdict) bool {
 	if !t.Ports.Ownership.Owns(res.Strategy) {
 		return false
 	}

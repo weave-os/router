@@ -11,9 +11,9 @@ import (
 )
 
 func authoritativeUpgradeFor(s *Service, ctx context.Context, req router.Request, pin sessionpin.Pin, fresh router.Decision, res routingpolicy.TurnRoute) *routingpolicy.AuthoritativeUpgradeDecision {
-	return routingpolicy.AuthoritativeTurn{
+	return routingpolicy.SessionTurn{
 		Request: req, Fresh: fresh, PlannerTokens: 1000, Ports: s.strategyPorts,
-		Settings: authoritativeSettingsFor(ctx, s), Now: s.clock.Now,
+		Settings: sessionSettingsFor(ctx, s), Now: s.clock.Now,
 	}.UpgradeDecision(pin, res)
 }
 

@@ -16,7 +16,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-func (t AuthoritativeTurn) UpgradeDecision(pin sessionpin.Pin, res TurnRoute) *AuthoritativeUpgradeDecision {
+func (t SessionTurn) UpgradeDecision(pin sessionpin.Pin, res TurnRoute) *AuthoritativeUpgradeDecision {
 	fresh, req, inputTokens := t.Fresh, t.Request, t.PlannerTokens
 	if !t.Ports.Ownership.Owns(res.Strategy) || !t.Ports.Ownership.IsDecision(fresh) {
 		return nil
@@ -86,7 +86,7 @@ func (t AuthoritativeTurn) UpgradeDecision(pin sessionpin.Pin, res TurnRoute) *A
 	return decision
 }
 
-func (t AuthoritativeTurn) cacheShadow(activePin sessionpin.Pin) AuthorityCacheShadow {
+func (t SessionTurn) cacheShadow(activePin sessionpin.Pin) AuthorityCacheShadow {
 	fresh := t.Fresh
 	if !t.Settings.CacheShadowEnabled || !t.Ports.Ownership.IsDecision(fresh) {
 		return AuthorityCacheShadow{}

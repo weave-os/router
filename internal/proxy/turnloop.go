@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
@@ -731,7 +730,7 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 		if res.AuthoritativePerTurn {
-			return serveAuthoritativeTurn(ctx, s, &res, authoritativeTurn{env: env, feats: feats, strategy: strategy, req: req, pin: pin, pinFound: pinFound, switchHistory: switchHistory, fresh: fresh, prefixBroken: prefixBroken, sessionPins: sessionPins, installationID: installationID})
+			return serveAuthoritativeTurn(ctx, s, &res, sessionTurnInput{env: env, feats: feats, strategy: strategy, req: req, pin: pin, pinFound: pinFound, switchHistory: switchHistory, fresh: fresh, prefixBroken: prefixBroken, sessionPins: sessionPins, installationID: installationID})
 		}
 		if isHMMDecision(s.strategyPorts, fresh) {
 			activePin := sessionpin.Pin{}
@@ -766,73 +765,7 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 
-		if !pinFound && pin.Model != "" && !prefixBroken {
-			switch continuity.JudgeReanchor(pin, fresh, req, s.routing.AvailableModels()) {
-			case continuity.ReanchorNone:
-			case continuity.ReanchorSkipMaxedOut:
-				log.Info("Expired session pin maxed out on previous turn; skipping re-anchor", "pin_model", pin.Model, "pin_provider", pin.Provider, "last_output_tokens", pin.LastOutputTokens)
-			case continuity.ReanchorSkipTextOnly:
-				log.Info("Expired session pin is text-only for image-bearing turn; skipping re-anchor", "pin_model", pin.Model, "pin_provider", pin.Provider)
-			case continuity.ReanchorServe:
-				priorDecision := pin.Decision()
-				res.Decision = priorDecision
-				res.StickyHit = true
-				res.PinTier = "postgres_reanchor"
-				sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, priorDecision)
-				log.Info("router re-anchored expired session pin", "prior_model", pin.Model, "prior_provider", pin.Provider, "fresh_model", fresh.Model, "fresh_provider", fresh.Provider, "prior_tier", catalog.TierFor(pin.Model).String(), "fresh_tier", catalog.TierFor(fresh.Model).String())
-				return res, nil
-			}
-		}
-
-		if !continuityCfg.PlannerEnabled {
-			res.Decision = fresh
-			sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
-			return res, nil
-		}
-
-		plannerTokens := s.plannerTokensFor(ctx, env, feats)
-		prefixTokens, prefixKnown := cacheablePrefixTokens(pin, plannerTokens, prefixBroken)
-		decision := continuity.Plan(req.Session, fresh, continuity.PlanInputs{
-			EstimatedInputTokens:  plannerTokens,
-			CacheablePrefixTokens: prefixTokens,
-			CachePrefixKnown:      prefixKnown,
-			PinCacheCold:          pinCacheCold(pin, prefixBroken, s.clock.Now()),
-			AvailableModels:       s.routing.AvailableModels(),
-		}, plannerConfigFor(ctx, s.continuityConfig.Planner))
-		res.PlannerDecision = decision
-
-		outcome := continuity.Settle(decision, pinFound, prefixBroken)
-		if outcome.Stay {
-			anchor := pin.Decision()
-			served := s.bandSwapServed(ctx, res.TurnType, pin, fresh, req.HasImages, req.ImageCount, req.EnabledProviders, req.Candidates.ExcludedModels)
-			res.Decision = served
-			res.StickyHit = true
-			res.PinTier = outcome.PinTier
-			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, anchor)
-			return res, nil
-		}
-
-		if outcome.Handover == continuity.HandoverSkippedTrimmedHistory {
-			log.Info("Handover summarizer skipped: client history trim already bounded this switch turn", "pin_model", pin.Model, "fresh_model", fresh.Model)
-		}
-		if outcome.Handover == continuity.HandoverSummarize {
-			var rewritten bool
-			res.Handover, rewritten = conversation.ModelSwitchSummary{
-				Summarizer: s.lifecycle.Summarizer(),
-				Access:     summarizerAccess{s: s, headers: reqHeaders},
-				Now:        s.clock.Now,
-			}.Run(ctx, env, req, pin.Model, fresh.Model)
-			if rewritten {
-				res.ContextEstimate = env.ContextOverflowTokenEstimate()
-			}
-		}
-
-		res.Decision = fresh
-		if outcome.PinTier != "" {
-			res.PinTier = outcome.PinTier
-		}
-		sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
-		return res, nil
+		return settleFreshTurn(ctx, s, &res, sessionTurnInput{env: env, feats: feats, strategy: strategy, req: req, pin: pin, pinFound: pinFound, switchHistory: switchHistory, fresh: fresh, prefixBroken: prefixBroken, sessionPins: sessionPins, installationID: installationID, reqHeaders: reqHeaders})
 	}
 	res, routeErr = routeRemaining()
 	if escalationTurn != nil {
