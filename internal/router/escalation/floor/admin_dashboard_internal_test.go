@@ -1,4 +1,4 @@
-package proxy
+package floor
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router/escalationdashboard"
 )
 
@@ -44,7 +43,7 @@ func TestEscalationDashboardCapturesSnapshotTimeAndReturnsStoreResult(t *testing
 			Sessions:         []escalationdashboard.Session{{}, {}},
 		},
 	}}
-	service := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithEscalationDashboard(store)
+	service := (&Admin{Dashboard: store})
 	before := time.Now().UTC()
 
 	snapshot, err := service.EscalationDashboard(context.Background(), escalationdashboard.Filter{
@@ -80,7 +79,7 @@ func TestEscalationDashboardReadsContinuationFromSameSnapshot(t *testing.T) {
 		},
 	}}
 
-	snapshot, err := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithEscalationDashboard(store).EscalationDashboard(
+	snapshot, err := (&Admin{Dashboard: store}).EscalationDashboard(
 		context.Background(), escalationdashboard.Filter{Limit: 50, Cursor: cursor},
 	)
 
@@ -100,15 +99,15 @@ func TestEscalationDashboardReadsContinuationFromSameSnapshot(t *testing.T) {
 }
 
 func TestEscalationDashboardRejectsInvalidPageAndPropagatesStoreErrors(t *testing.T) {
-	service := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithEscalationDashboard(&escalationDashboardStoreStub{})
+	service := (&Admin{Dashboard: &escalationDashboardStoreStub{}})
 	_, err := service.EscalationDashboard(context.Background(), escalationdashboard.Filter{Limit: 0})
 	require.ErrorContains(t, err, "invalid escalation dashboard page")
 
 	wantErr := errors.New("snapshot failed")
-	service = (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithEscalationDashboard(&escalationDashboardStoreStub{err: wantErr})
+	service = (&Admin{Dashboard: &escalationDashboardStoreStub{err: wantErr}})
 	_, err = service.EscalationDashboard(context.Background(), escalationdashboard.Filter{Limit: 50})
 	require.ErrorIs(t, err, wantErr)
 
-	_, err = (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).EscalationDashboard(context.Background(), escalationdashboard.Filter{Limit: 50})
+	_, err = (&Admin{}).EscalationDashboard(context.Background(), escalationdashboard.Filter{Limit: 50})
 	require.ErrorIs(t, err, ErrEscalationJudgeUnavailable)
 }

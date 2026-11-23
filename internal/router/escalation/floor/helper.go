@@ -4,15 +4,15 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/uuid"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -38,9 +38,6 @@ type Helper struct {
 	switchyardActiveEnabled bool
 	recordJudge             JudgeRecorder
 	redactReason            func(string) string
-	dashboard               escalationdashboard.Store
-	configuration           llmescalation.ConfigurationStore
-	invalidateSelection     func(string)
 }
 
 func New(recordJudge JudgeRecorder, redactReason func(string) string) *Helper {
@@ -74,16 +71,6 @@ func (h *Helper) WithShadowDefault(classifier flags.EscalationClassifier) {
 func (h *Helper) WithSwitchyardActive(enabled bool) {
 	h.switchyardActiveEnabled = enabled
 }
-
-func (h *Helper) LLMStore() llmescalation.Store {
-	return h.llmStore
-}
-
-func (h *Helper) SwitchyardJudgeReady() bool { return h.llmJudge != nil }
-
-func (h *Helper) QwenJudgeReady() bool { return h.qwenJudge != nil }
-
-func (h *Helper) SwitchyardActiveEnabled() bool { return h.switchyardActiveEnabled }
 
 func (h *Helper) selection(ctx context.Context) flags.EscalationConfig {
 	return flags.EscalationWithDeploymentShadow(ctx, h.shadowDefault)
@@ -182,23 +169,4 @@ type Completion struct {
 func (h *Helper) Complete(ctx context.Context, completion Completion) {
 	h.recordXGBOutcome(ctx, completion)
 	h.completeLLM(ctx, completion)
-}
-
-func (h *Helper) WithDashboard(store escalationdashboard.Store) {
-	h.dashboard = store
-}
-
-func (h *Helper) Dashboard() escalationdashboard.Store { return h.dashboard }
-
-func (h *Helper) WithConfiguration(store llmescalation.ConfigurationStore, invalidate func(string)) {
-	h.configuration = store
-	h.invalidateSelection = invalidate
-}
-
-func (h *Helper) Configuration() llmescalation.ConfigurationStore { return h.configuration }
-
-func (h *Helper) InvalidateSelection(installationID string) {
-	if h.invalidateSelection != nil {
-		h.invalidateSelection(installationID)
-	}
 }
