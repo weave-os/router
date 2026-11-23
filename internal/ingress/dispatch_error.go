@@ -90,3 +90,17 @@ func LogDispatchErrorClass(log *slog.Logger, cls DispatchErrorClass, err error) 
 		log.Error(cls.LogMessage, "err", err)
 	}
 }
+
+type ErrorVocabulary struct {
+	Classify        func(error) (DispatchErrorClass, bool)
+	TerminalMessage func(error) string
+}
+
+const OpenAIContextOverflowCode = "context_length_exceeded"
+
+func OpenAIErrorCode(kind DispatchErrorKind) string {
+	if kind == DispatchErrorContextWindowExceeded {
+		return OpenAIContextOverflowCode
+	}
+	return ""
+}

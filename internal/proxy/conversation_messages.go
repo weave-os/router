@@ -57,7 +57,7 @@ func routingTurnInputForRequest(ctx context.Context, env *translate.RequestEnvel
 }
 
 func routingHistoryProfile(ctx context.Context) translate.RoutingHistoryProfile {
-	switch ClientIdentityFrom(ctx).ClientApp {
+	switch requestcontext.ClientIdentityFrom(ctx).ClientApp {
 	case requestcontext.ClientAppClaudeCode:
 		return translate.RoutingHistoryClaudeCode
 	case requestcontext.ClientAppOpencode:

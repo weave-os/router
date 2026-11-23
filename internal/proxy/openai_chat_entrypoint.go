@@ -66,7 +66,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	codexTitleGen, _ := ctx.Value(codexTitleGenerationContextKey{}).(bool)
 	feats := env.RoutingFeatures()
-	ctx = withRequestImageCount(ctx, feats.ImageCount)
+	ctx = requestcontext.WithRequestImageCount(ctx, feats.ImageCount)
 	if codexTitleGen {
 		feats.TitleGenHint = true
 	}
@@ -114,7 +114,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	if requestBodyChanged {
 		feats = env.RoutingFeatures()
-		ctx = withRequestImageCount(ctx, feats.ImageCount)
+		ctx = requestcontext.WithRequestImageCount(ctx, feats.ImageCount)
 		if codexTitleGen {
 			feats.TitleGenHint = true
 		}

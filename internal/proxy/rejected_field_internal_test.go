@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 )
 
@@ -36,7 +37,7 @@ func TestRejectedFieldUnchanged(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, rejectedFieldUnchanged(tc.err, inbound, tc.sent))
+			assert.Equal(t, tc.want, ingress.RejectedFieldUnchanged(tc.err, inbound, tc.sent))
 		})
 	}
 }

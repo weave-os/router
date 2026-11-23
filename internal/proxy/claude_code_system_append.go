@@ -12,7 +12,7 @@ func claudeCodeSystemAppendApplies(ctx context.Context, enabled bool, body []byt
 	if !enabled {
 		return false
 	}
-	if ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppClaudeCode {
+	if requestcontext.ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppClaudeCode {
 		return false
 	}
 	if tt != turntype.MainLoop && tt != turntype.ToolResult {

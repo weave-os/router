@@ -37,7 +37,7 @@ func isOwnLoginRejection(err error) bool {
 }
 
 func ownCodexLoginRejected(ctx context.Context, headers http.Header, observer *usage.Observer) bool {
-	if ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppCodex {
+	if requestcontext.ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppCodex {
 		return false
 	}
 	token, _ := presentSubscriptionTokens(ctx, headers)

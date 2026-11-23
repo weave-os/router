@@ -14,7 +14,7 @@ import (
 const subscriptionSessionHold = 5 * time.Minute
 
 func sessionHoldOwner(ctx context.Context) string {
-	session := ClientIdentityFrom(ctx).SessionID
+	session := requestcontext.ClientIdentityFrom(ctx).SessionID
 	if session == "" {
 		return ""
 	}
