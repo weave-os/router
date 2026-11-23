@@ -403,7 +403,7 @@ func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
 	var allowed map[string]struct{}
 	if !planHasDedicatedServingPolicy(ctx) || subscriptionStateModelsEnabled(ctx) {
 		if base := installationAllowedModelsFromContext(ctx); len(base) > 0 {
-			allowed = modelSet(base)
+			allowed = candidates.ModelSet(base)
 		}
 	}
 	if !subscriptionStateModelsEnabled(ctx) {
@@ -473,7 +473,7 @@ func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]stru
 }
 
 func (s *Service) productIneligibleModels(ctx context.Context) map[string]struct{} {
-	return modelSet(catalog.IneligibleIDs(entitlement.ModelBoundaryFromContext(ctx)))
+	return candidates.ModelSet(catalog.IneligibleIDs(entitlement.ModelBoundaryFromContext(ctx)))
 }
 
 func installationExcludedProvidersFromContext(ctx context.Context) []string {

@@ -96,7 +96,7 @@ func (s *Service) anthropicRoutingRequest(
 		s.routing.AvailableModels(),
 	)
 	excluded, _ = candidates.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.routing.AvailableModels())
-	excluded, _ = excludeAdvisorOutrankingModels(env, excluded, s.routableUniverse())
+	excluded, _ = candidates.ExcludeAdvisorOutrankingModels(env, excluded, s.routableUniverse())
 
 	organizationID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 	installationID := ""

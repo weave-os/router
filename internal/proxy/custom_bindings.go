@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 )
 
@@ -78,5 +79,5 @@ func gatewayContextWindow(cortexGateways map[string]struct{}, modelID, provider 
 			return w
 		}
 	}
-	return contextWindowForRequest(modelID, provider)
+	return candidates.ContextWindow(modelID, provider)
 }

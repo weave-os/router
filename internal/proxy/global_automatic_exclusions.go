@@ -43,5 +43,3 @@ func (s *Service) globalAutomaticExclusionReason(ctx context.Context, model stri
 	}
 	return "", false
 }
-
-func modelSet(ids []string) map[string]struct{} { return candidates.ModelSet(ids) }

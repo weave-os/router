@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
 )
@@ -130,7 +131,7 @@ func (l *accountLoop) writeAttemptHeaders() {
 	decision, header := l.decision, l.in.Writer.Header()
 	header.Set(requestcontext.HeaderRouterProvider, decision.Provider)
 	header.Set(requestcontext.HeaderRouterModel, decision.Model)
-	header.Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	header.Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(candidates.ContextWindow(decision.Model, decision.Provider)))
 	if l.attempt.Index > 0 {
 		header.Set(requestcontext.HeaderRouterFallbackFrom, l.in.Bindings[0].Provider)
 		header.Set(requestcontext.HeaderRouterFallbackAttempt, attemptIdxLabel(l.attempt.Index))

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
@@ -33,7 +34,7 @@ func contextSnapshotJSON(headers http.Header, requestID, requestedModel string, 
 func contextSnapshotJSONForDecision(headers http.Header, requestID, requestedModel, servedModel, servedProvider string, requestedAt, recordedAt time.Time) []byte {
 	estimate, _ := strconv.Atoi(headers.Get(requestcontext.HeaderRouterContextEstimate))
 	reserve, _ := strconv.Atoi(headers.Get(requestcontext.HeaderRouterContextReserve))
-	window := contextWindowForRequest(servedModel, servedProvider)
+	window := candidates.ContextWindow(servedModel, servedProvider)
 	snapshot := turnrecord.ContextSnapshot{
 		Version: turnrecord.ContextSnapshotVersion, EstimateKind: turnrecord.ContextEstimateKind(headers.Get(requestcontext.HeaderRouterContextEstimateKind)),
 		EstimateTokens: estimate, ContextWindow: window, OutputReserveTokens: reserve,

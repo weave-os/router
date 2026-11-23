@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	candidatefilter "weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 )
@@ -352,7 +353,7 @@ func siblingFitsContext(cortexGateways map[string]struct{}, model, provider stri
 		return true
 	}
 	needed := est + outputReserve
-	if sigSavings > 0 && modelStripsAnthropicSignatures(model) {
+	if sigSavings > 0 && candidates.StripsAnthropicSignatures(model) {
 		needed -= sigSavings
 	}
 	return needed <= gatewayContextWindow(cortexGateways, model, provider)

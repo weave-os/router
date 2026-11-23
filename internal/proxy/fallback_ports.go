@@ -6,6 +6,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
@@ -37,7 +38,7 @@ func (subscriptionCoverage) StateModelsEnabled(ctx context.Context) bool {
 }
 
 func (subscriptionCoverage) CoversWhenInactive(ctx context.Context, model string) bool {
-	_, allowed := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]
+	_, allowed := candidates.ModelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]
 	return allowed
 }
 
