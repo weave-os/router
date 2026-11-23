@@ -1,0 +1,615 @@
+#!/usr/bin/env bash
+#
+# Offline integrity tests for every fetched-code path shipped from install/.
+#
+# Fetched-code surfaces (keep this list in step with the inventory comment in
+# install.sh, "uninstall delegation"; every surface below must have cases here):
+#   1. cc-statusline.sh weave_self_refresh: downloads cc-statusline.sh and
+#      swaps it over the installed copy, which runs on the next turn.
+#   2. cc-statusline.sh weave_sync_commands: downloads commands/*.md bodies and
+#      overwrites installed slash-command wrappers.
+#   3. codex-status.sh weave_self_refresh: downloads codex-status.sh and swaps
+#      it over the installed Codex hook.
+#   4. install.sh --uninstall without a sibling uninstall.sh: downloads
+#      uninstall.sh and runs it with `exec bash -c`.
+# uninstall.sh and the npm dispatcher (install/npm/bin.js) run only local
+# bytes; a new fetched path must be added here alongside its verification.
+#
+# Each surface may admit downloaded bytes only after a MANIFEST signed with the
+# embedded release key verifies and the body's SHA-256 matches its row. The
+# cases replay the default victim path: the scripts run with no WEAVE_*_URL
+# override, and a curl shim maps https://raw.githubusercontent.com/ (and a
+# stand-in self-hoster host) onto file:// trees under a temp dir, so nothing
+# here touches the network. Every key is generated per run in that temp dir and
+# removed on exit; no key material is committed. The copies under test carry
+# the per-run public key in place of the embedded placeholder.
+
+set -uo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cc_src="$script_dir/../cc-statusline.sh"
+codex_src="$script_dir/../codex-status.sh"
+installer_src="$script_dir/../install.sh"
+for f in "$cc_src" "$codex_src" "$installer_src"; do
+  [ -f "$f" ] || { echo "cannot find $f" >&2; exit 1; }
+done
+for tool in openssl curl jq; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "FATAL: $tool is required" >&2; exit 1; }
+done
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+probe="$work/probe.txt"
+echo probe >"$probe"
+if ! curl -fsS "file://$probe" >/dev/null 2>&1; then
+  echo "FATAL: this curl has no file:// support; cannot run offline integrity tests" >&2
+  exit 1
+fi
+
+pass=0
+fail=0
+ok() { echo "  ok   $1"; pass=$((pass + 1)); }
+no() { echo "  FAIL $1"; echo "         expected: $2"; echo "         actual:   $3"; fail=$((fail + 1)); }
+check() { # check <name> <actual> <expected>
+  if [ "$2" = "$3" ]; then ok "$1"; else no "$1" "$3" "$2"; fi
+}
+check_contains() { # check_contains <name> <haystack> <needle>
+  case "$2" in *"$3"*) ok "$1" ;; *) no "$1" "contains '$3'" "$2" ;; esac
+}
+check_not_contains() { # check_not_contains <name> <haystack> <needle>
+  case "$2" in *"$3"*) no "$1" "no '$3'" "$2" ;; *) ok "$1" ;; esac
+}
+wait_for() { # wait_for <timeout_seconds> <command...>
+  local deadline=$(( $(date +%s) + $1 )); shift
+  while ! "$@"; do
+    [ "$(date +%s)" -ge "$deadline" ] && return 1
+    sleep 0.1
+  done
+}
+sha() { # sha <file>: lowercase hex SHA-256
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum <"$1" | awk '{print $1}'
+  else shasum -a 256 <"$1" | awk '{print $1}'; fi
+}
+file_absent() { [ ! -e "$1" ]; }
+log_has() { grep -q -- "$2" "$1" 2>/dev/null; }
+no_glob_match() { # no_glob_match <pattern>: no file matches the glob
+  compgen -G "$1" >/dev/null && return 1 || return 0
+}
+
+# ---------- keys and signing ----------
+
+keys="$work/keys"
+mkdir -p "$keys"
+for k in release other; do
+  if ! { openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$keys/$k.key" 2>/dev/null \
+      && openssl pkey -in "$keys/$k.key" -pubout -out "$keys/$k.pub" 2>/dev/null; }; then
+    echo "FATAL: could not generate a test RSA key" >&2; exit 1
+  fi
+done
+
+# with_key <src> <dest> <pub.pem>: copy <src> with every embedded PEM public
+# key block replaced by <pub.pem>.
+with_key() {
+  awk -v pub="$3" '
+    $0 == "-----BEGIN PUBLIC KEY-----" { while ((getline line < pub) > 0) print line; close(pub); skip = 1; next }
+    skip && $0 == "-----END PUBLIC KEY-----" { skip = 0; next }
+    !skip { print }
+  ' "$1" >"$2"
+  chmod 755 "$2"
+}
+
+# sign <manifest> <key> <out.sig.b64>
+sign() {
+  openssl dgst -sha256 -sign "$2" -out "$3.bin" "$1" \
+    && openssl base64 -A -in "$3.bin" -out "$3" \
+    && rm -f "$3.bin"
+}
+
+# manifest_row <path-in-manifest> <file>
+manifest_row() { printf '%s  %s\n' "$(sha "$2")" "$1"; }
+
+cc_keyed="$work/cc-statusline.keyed.sh"
+codex_keyed="$work/codex-status.keyed.sh"
+installer_keyed="$work/install.keyed.sh"
+with_key "$cc_src" "$cc_keyed" "$keys/release.pub"
+with_key "$codex_src" "$codex_keyed" "$keys/release.pub"
+with_key "$installer_src" "$installer_keyed" "$keys/release.pub"
+
+current_tag="$(sed -n 's/^WEAVE_RELEASE_TAG="\(router-v[0-9.]*\)"$/\1/p' "$cc_src" | head -n 1)"
+[[ "$current_tag" =~ ^router-v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] \
+  || { echo "FATAL: cannot read WEAVE_RELEASE_TAG from cc-statusline.sh" >&2; exit 1; }
+next_tag="router-v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$(( BASH_REMATCH[3] + 1 ))"
+
+# retag <file> <tag>: rewrite the WEAVE_RELEASE_TAG assignment in place.
+retag() { sed -i.bak "s/^WEAVE_RELEASE_TAG=\".*\"$/WEAVE_RELEASE_TAG=\"$2\"/" "$1" && rm -f "$1.bak"; }
+
+# with_canary <src> <dest> <canary_name>: a shape-valid copy that records each
+# run in $HOME/<canary_name> before doing anything else.
+with_canary() {
+  awk -v c="$3" '{ print } !done && /^export PATH=/ { print "printf \"ran\\n\" >>\"$HOME/" c "\""; done = 1 }' "$1" >"$2"
+  chmod 755 "$2"
+}
+
+# ---------- offline publisher ----------
+
+real_curl="$(command -v curl)"
+shim_bin="$work/shim-bin"
+mkdir -p "$shim_bin"
+cat >"$shim_bin/curl" <<'SHIM'
+#!/usr/bin/env bash
+# Map the publisher hosts onto file:// trees and refuse every other network URL.
+args=()
+for a in "$@"; do
+  case "$a" in
+    https://raw.githubusercontent.com/*) a="file://$MIT_PUB_ROOT/raw/${a#https://raw.githubusercontent.com/}" ;;
+    https://selfhost.example.test/*) a="file://$MIT_PUB_ROOT/selfhost/${a#https://selfhost.example.test/}" ;;
+    http://*|https://*) echo "blocked $a" >>"$MIT_CURL_LOG"; exit 7 ;;
+  esac
+  case "$a" in file://*) echo "$a" >>"$MIT_CURL_LOG" ;; esac
+  args+=("$a")
+done
+exec "$MIT_REAL_CURL" "${args[@]}"
+SHIM
+chmod 755 "$shim_bin/curl"
+
+# A PATH that resolves every tool except openssl, for the fail-closed cases.
+no_openssl_bin="$work/no-openssl-bin"
+mkdir -p "$no_openssl_bin"
+IFS=: read -r -a path_dirs <<<"$PATH"
+for d in "${path_dirs[@]}"; do
+  [ -d "$d" ] || continue
+  for exe in "$d"/*; do
+    name="${exe##*/}"
+    [ "$name" = "openssl" ] && continue
+    [ -x "$exe" ] && [ ! -d "$exe" ] && [ ! -e "$no_openssl_bin/$name" ] && ln -s "$exe" "$no_openssl_bin/$name"
+  done
+done
+[ ! -e "$no_openssl_bin/openssl" ] || { echo "FATAL: could not build an openssl-free PATH" >&2; exit 1; }
+
+# A lab is one victim machine (scratch $HOME, cache) plus one publisher tree.
+# Paths under the publisher mirror the real URLs.
+new_lab() { # new_lab <name>: sets c, home, pub, log
+  c="$work/$1"; home="$c/home"; pub="$c/pub"; log="$c/curl.log"
+  mkdir -p "$home" "$c/cache" "$pub/raw/weave-os/router/main/install" "$pub/selfhost/install"
+  : >"$log"
+}
+rel_dir() { printf '%s\n' "$pub/raw/weave-os/router/$1/install"; } # rel_dir <tag>
+
+# victim_env <path_dir>: the clean environment every victim process runs in.
+# Only HOME, cache, PATH and the shim's own variables; no WEAVE_* override.
+victim_env() {
+  printf '%s\n' env -i "HOME=$home" "XDG_CACHE_HOME=$c/cache" "TMPDIR=$c" \
+    "PATH=$shim_bin:$1" "MIT_PUB_ROOT=$pub" "MIT_CURL_LOG=$log" "MIT_REAL_CURL=$real_curl"
+}
+
+cc_payload() { printf '{"model":{"id":"claude-opus-5"},"transcript_path":"%s/none.jsonl"}' "$c"; }
+codex_payload() { printf '%s' '{"session_id":"s-integrity","model":"gpt-5.6-terra","last_assistant_message":"done"}'; }
+
+# run_tool <tool> <installed> [VAR=value...]: one victim invocation; stderr is
+# captured in $c/stderr. The extra assignments are the case's own overrides.
+run_tool() {
+  local tool="$1" installed="$2" path_dir="$PATH"; shift 2
+  local extra=() a
+  for a in "$@"; do
+    case "$a" in MIT_PATH=*) path_dir="${a#MIT_PATH=}" ;; *) extra+=("$a") ;; esac
+  done
+  local env_cmd=()
+  mapfile -t env_cmd < <(victim_env "$path_dir")
+  if [ "$tool" = "cc" ]; then
+    cc_payload | "${env_cmd[@]}" "${extra[@]+"${extra[@]}"}" bash "$installed" >/dev/null 2>"$c/stderr"
+  else
+    codex_payload | "${env_cmd[@]}" "WEAVE_CODEX_STATUS_TITLE_FILE=$c/title" "${extra[@]+"${extra[@]}"}" \
+      bash "$installed" >/dev/null 2>"$c/stderr"
+  fi
+}
+
+# settle <installed> <url_fragment>: bounded wait for the detached refresh to
+# fetch <url_fragment> and then clean up its temp files.
+settle() {
+  wait_for 20 log_has "$log" "$2" || return 1
+  wait_for 20 no_glob_match "$1.tmp.*" || return 1
+  sleep 0.3
+}
+
+tool_file() { [ "$1" = "cc" ] && echo cc-statusline.sh || echo codex-status.sh; }
+tool_keyed() { [ "$1" = "cc" ] && echo "$cc_keyed" || echo "$codex_keyed"; }
+tool_url_var() { [ "$1" = "cc" ] && echo WEAVE_STATUSLINE_URL || echo WEAVE_CODEX_STATUS_URL; }
+tool_installed() { [ "$1" = "cc" ] && echo "$home/.weave/cc-statusline.sh" || echo "$home/.codex/weave-status.sh"; }
+
+# self_refresh_lab <tool> <name>: install the current release, have main
+# advertise $next_tag, and stage a genuine signed release at that tag. Sets
+# installed, served (the tag's body), good (the genuine body), rd (tag dir).
+self_refresh_lab() {
+  local tool="$1" file
+  file="$(tool_file "$tool")"
+  new_lab "$2"
+  installed="$(tool_installed "$tool")"
+  mkdir -p "$(dirname "$installed")"
+  cp "$(tool_keyed "$tool")" "$installed"; chmod 755 "$installed"
+  rd="$(rel_dir "$next_tag")"; mkdir -p "$rd"
+  good="$c/genuine.sh"
+  cp "$(tool_keyed "$tool")" "$good"; retag "$good" "$next_tag"
+  printf '# genuine %s release body\n' "$next_tag" >>"$good"
+  cp "$good" "$pub/raw/weave-os/router/main/install/$file"
+  served="$rd/$file"
+  cp "$good" "$served"
+  manifest_row "install/$file" "$good" >"$rd/MANIFEST"
+  sign "$rd/MANIFEST" "$keys/release.key" "$rd/MANIFEST.sig.b64"
+}
+
+# tamper_served <tool>: serve a shape-valid body with a canary that the signed
+# MANIFEST does not list.
+tamper_served() {
+  with_canary "$good" "$served" canary.txt
+}
+
+expect_refused() { # expect_refused <label> <before_sha>
+  check "$1: installed copy unchanged" "$(sha "$installed")" "$2"
+}
+
+# ---------- verification helpers ----------
+
+echo "release manifest helpers"
+
+extract_helpers() { # extract_helpers <script> <dest>
+  awk '/^WEAVE_VERIFY_UNAVAILABLE=2$/ { on = 1 } on && /^# ---------- unsigned self-hoster opt-in ----------$/ { exit } on' "$1" >"$2"
+}
+extract_helpers "$cc_src" "$work/helpers.cc"
+extract_helpers "$codex_src" "$work/helpers.codex"
+extract_helpers "$installer_src" "$work/helpers.installer"
+[ -s "$work/helpers.cc" ] || { echo "FATAL: cannot locate the verification helpers in cc-statusline.sh" >&2; exit 1; }
+check "codex-status.sh carries the same verification helpers" "$(sha "$work/helpers.codex")" "$(sha "$work/helpers.cc")"
+check "install.sh carries the same verification helpers" "$(sha "$work/helpers.installer")" "$(sha "$work/helpers.cc")"
+
+u="$work/unit"; mkdir -p "$u"
+printf 'payload\n' >"$u/body"
+manifest_row "install/cc-statusline.sh" "$u/body" >"$u/MANIFEST"
+sign "$u/MANIFEST" "$keys/release.key" "$u/MANIFEST.sig.b64"
+sign "$u/MANIFEST" "$keys/other.key" "$u/other.sig.b64"
+unit() { # unit <PATH> <bash snippet>: run a snippet against the helpers, print its status
+  env -i "PATH=$1" "TMPDIR=$u" bash -c "source '$work/helpers.cc'; $2" >/dev/null 2>&1
+  echo "$?"
+}
+check "a manifest signed with the embedded key verifies" \
+  "$(unit "$PATH" "weave_verify_manifest '$u/MANIFEST' '$u/MANIFEST.sig.b64' \"\$(cat '$keys/release.pub')\"")" 0
+check "a manifest signed with another key is rejected" \
+  "$(unit "$PATH" "weave_verify_manifest '$u/MANIFEST' '$u/other.sig.b64' \"\$(cat '$keys/release.pub')\"")" 1
+check "a missing signature is rejected" \
+  "$(unit "$PATH" "weave_verify_manifest '$u/MANIFEST' '$u/absent.sig.b64' \"\$(cat '$keys/release.pub')\"")" 1
+check "a matching body verifies against its row" \
+  "$(unit "$PATH" "weave_verify_file '$u/MANIFEST' install/cc-statusline.sh '$u/body'")" 0
+printf 'payload!\n' >"$u/other-body"
+check "a body that does not match its row is rejected" \
+  "$(unit "$PATH" "weave_verify_file '$u/MANIFEST' install/cc-statusline.sh '$u/other-body'")" 1
+check "a body is never matched against another file's row" \
+  "$(unit "$PATH" "weave_verify_file '$u/MANIFEST' install/codex-status.sh '$u/body'")" 1
+check "missing openssl reports verification unavailable" \
+  "$(unit "$no_openssl_bin" "weave_verify_manifest '$u/MANIFEST' '$u/MANIFEST.sig.b64' \"\$(cat '$keys/release.pub')\"")" 2
+
+# ---------- self-refresh (surfaces 1 and 3) ----------
+
+for tool in cc codex; do
+  file="$(tool_file "$tool")"
+  url_var="$(tool_url_var "$tool")"
+  echo "$file self-refresh"
+
+  # Happy path: the default publisher advertises a newer tag whose signed
+  # MANIFEST lists the served body.
+  self_refresh_lab "$tool" "$tool-happy"
+  run_tool "$tool" "$installed"
+  if wait_for 20 cmp -s "$installed" "$served"; then
+    ok "$tool: a signed release replaces the installed copy"
+  else
+    no "$tool: a signed release replaces the installed copy" "installed == served" "still the old copy"
+  fi
+  check "$tool: the replacement is byte-identical to the signed body" "$(sha "$installed")" "$(sha "$served")"
+  if bash -n "$installed" 2>/dev/null; then ok "$tool: the replacement still parses"; else no "$tool: the replacement still parses" "valid bash" "syntax error"; fi
+  check_contains "$tool: the release was fetched from its immutable tag" "$(cat "$log")" "/raw/weave-os/router/$next_tag/install/$file"
+
+  # Tampered body: shape-valid, served at the tag, absent from the MANIFEST.
+  self_refresh_lab "$tool" "$tool-tampered"
+  tamper_served
+  before="$(sha "$installed")"
+  run_tool "$tool" "$installed"
+  settle "$installed" "$next_tag/install/$file"
+  expect_refused "$tool: a body that does not match the signed MANIFEST is refused" "$before"
+  run_tool "$tool" "$installed"
+  sleep 0.3
+  if file_absent "$home/canary.txt"; then ok "$tool: the refused body never runs"; else no "$tool: the refused body never runs" "no canary" "$(cat "$home/canary.txt")"; fi
+
+  # Missing signature.
+  self_refresh_lab "$tool" "$tool-nosig"
+  rm -f "$rd/MANIFEST.sig.b64"
+  before="$(sha "$installed")"
+  run_tool "$tool" "$installed"
+  settle "$installed" "$next_tag/install/MANIFEST.sig.b64"
+  expect_refused "$tool: a release without MANIFEST.sig.b64 is refused" "$before"
+
+  # An attacker's own key signing an attacker's MANIFEST that lists the body.
+  self_refresh_lab "$tool" "$tool-otherkey"
+  tamper_served
+  manifest_row "install/$file" "$served" >"$rd/MANIFEST"
+  sign "$rd/MANIFEST" "$keys/other.key" "$rd/MANIFEST.sig.b64"
+  before="$(sha "$installed")"
+  run_tool "$tool" "$installed"
+  settle "$installed" "$next_tag/install/$file"
+  expect_refused "$tool: a MANIFEST signed with a different key is refused" "$before"
+
+  # The genuine signature, served beside a different (edited) MANIFEST.
+  self_refresh_lab "$tool" "$tool-swapped-manifest"
+  tamper_served
+  manifest_row "install/$file" "$served" >"$rd/MANIFEST"
+  before="$(sha "$installed")"
+  run_tool "$tool" "$installed"
+  settle "$installed" "$next_tag/install/$file"
+  expect_refused "$tool: a signature over a different MANIFEST is refused" "$before"
+
+  # The signed MANIFEST lists the served body only under another file's name,
+  # and this file's row holds a different digest.
+  self_refresh_lab "$tool" "$tool-wrong-row"
+  tamper_served
+  { manifest_row "install/$file" "$good"; manifest_row "install/uninstall.sh" "$served"; } >"$rd/MANIFEST"
+  sign "$rd/MANIFEST" "$keys/release.key" "$rd/MANIFEST.sig.b64"
+  before="$(sha "$installed")"
+  run_tool "$tool" "$installed"
+  settle "$installed" "$next_tag/install/$file"
+  expect_refused "$tool: a body listed only under another filename is refused" "$before"
+
+  # The shape checks remain a second line of defence behind the signature.
+  self_refresh_lab "$tool" "$tool-shape"
+  printf '#!/bin/sh\necho short\n' >"$served"
+  manifest_row "install/$file" "$served" >"$rd/MANIFEST"
+  sign "$rd/MANIFEST" "$keys/release.key" "$rd/MANIFEST.sig.b64"
+  before="$(sha "$installed")"
+  run_tool "$tool" "$installed"
+  settle "$installed" "$next_tag/install/$file"
+  expect_refused "$tool: a signed but malformed body is still refused" "$before"
+
+  # No downgrade or re-fetch: main advertising this copy's own tag fetches
+  # nothing from any tag.
+  self_refresh_lab "$tool" "$tool-current"
+  cp "$installed" "$pub/raw/weave-os/router/main/install/$file"
+  tamper_served
+  before="$(sha "$installed")"
+  run_tool "$tool" "$installed"
+  settle "$installed" "main/install/$file"
+  expect_refused "$tool: main advertising the installed tag swaps nothing" "$before"
+  check_not_contains "$tool: main advertising the installed tag fetches no release" "$(cat "$log")" "/$next_tag/"
+
+  # The opt-in is not honored for the default publisher.
+  self_refresh_lab "$tool" "$tool-optin-default"
+  tamper_served
+  rm -f "$rd/MANIFEST" "$rd/MANIFEST.sig.b64"
+  before="$(sha "$installed")"
+  run_tool "$tool" "$installed" WEAVE_STATUSLINE_TRUST_UNSIGNED=1 \
+    "$url_var=https://raw.githubusercontent.com/weave-os/router/$next_tag/install/$file"
+  settle "$installed" "$next_tag/install/MANIFEST"
+  expect_refused "$tool: WEAVE_STATUSLINE_TRUST_UNSIGNED=1 is refused for the default publisher" "$before"
+  check_not_contains "$tool: no opt-in warning for the default publisher" "$(cat "$c/stderr")" "skipping signature verification"
+  run_tool "$tool" "$installed"
+  sleep 0.3
+  if file_absent "$home/canary.txt"; then ok "$tool: the unsigned body never runs"; else no "$tool: the unsigned body never runs" "no canary" "$(cat "$home/canary.txt")"; fi
+
+  # A non-default host still verifies unless the user opts in.
+  self_refresh_lab "$tool" "$tool-selfhost-signed-required"
+  cp "$good" "$pub/selfhost/install/$file"
+  before="$(sha "$installed")"
+  run_tool "$tool" "$installed" "$url_var=https://selfhost.example.test/install/$file"
+  settle "$installed" "selfhost/install/MANIFEST"
+  expect_refused "$tool: an overridden host without a signed MANIFEST is refused" "$before"
+
+  # The opt-in is honored for an overridden non-default host, with a warning.
+  self_refresh_lab "$tool" "$tool-optin-selfhost"
+  cp "$good" "$pub/selfhost/install/$file"
+  run_tool "$tool" "$installed" WEAVE_STATUSLINE_TRUST_UNSIGNED=1 \
+    "$url_var=https://selfhost.example.test/install/$file"
+  if wait_for 20 cmp -s "$installed" "$pub/selfhost/install/$file"; then
+    ok "$tool: WEAVE_STATUSLINE_TRUST_UNSIGNED=1 swaps an unsigned self-hosted copy"
+  else
+    no "$tool: WEAVE_STATUSLINE_TRUST_UNSIGNED=1 swaps an unsigned self-hosted copy" "installed == self-hosted copy" "not swapped"
+  fi
+  check_contains "$tool: the opt-in prints its warning to stderr" "$(cat "$c/stderr")" \
+    "WEAVE_STATUSLINE_TRUST_UNSIGNED=1: skipping signature verification."
+  check_not_contains "$tool: the opt-in fetched no MANIFEST" "$(cat "$log")" "MANIFEST"
+
+  # Without openssl the refresh fails closed, even for a genuine release.
+  self_refresh_lab "$tool" "$tool-no-openssl"
+  before="$(sha "$installed")"
+  run_tool "$tool" "$installed" "MIT_PATH=$no_openssl_bin"
+  settle "$installed" "$next_tag/install/$file"
+  expect_refused "$tool: without openssl a genuine release is not swapped in" "$before"
+done
+
+# ---------- slash-command refresh (surface 2) ----------
+
+echo "cc-statusline.sh wrapper refresh"
+
+# commands_lab <name>: a user-scope install of the current release with fm and
+# rf wrappers, a pre-manifest baseline (what install.sh or an older statusline
+# wrote), and a release dir for the current tag. Main advertises the current
+# tag so the self-refresh is a no-op. Sets installed, cmd_dir, baseline, rd.
+commands_lab() {
+  new_lab "$1"
+  installed="$home/.weave/cc-statusline.sh"
+  cmd_dir="$home/.claude/commands"
+  mkdir -p "$home/.weave" "$cmd_dir"
+  cp "$cc_keyed" "$installed"; chmod 755 "$installed"
+  cp "$cc_keyed" "$pub/raw/weave-os/router/main/install/cc-statusline.sh"
+  rd="$(rel_dir "$current_tag")"; mkdir -p "$rd/commands"
+  baseline="$c/cache/weave-router/commands$(printf '%s' "$(cd "$cmd_dir" && pwd -P)" | tr -c 'A-Za-z0-9._-' '_')"
+  mkdir -p "$baseline"
+  local name
+  for name in fm rf; do
+    cp "$script_dir/../commands/$name.md" "$cmd_dir/$name.md"
+    cp "$script_dir/../commands/$name.md" "$baseline/$name.md"
+    cp "$script_dir/../commands/$name.md" "$rd/commands/$name.md"
+  done
+}
+sign_commands() { # sign_commands [key]: sign a MANIFEST of the release dir's wrappers
+  local f
+  : >"$rd/MANIFEST"
+  for f in "$rd/commands"/*.md; do manifest_row "install/commands/${f##*/}" "$f" >>"$rd/MANIFEST"; done
+  sign "$rd/MANIFEST" "$keys/${1:-release}.key" "$rd/MANIFEST.sig.b64"
+}
+upstream_wrapper() { # upstream_wrapper <name> <description>
+  printf '%s\n' '---' "description: $2" '---' '' "/$1 \$ARGUMENTS" >"$rd/commands/$1.md"
+}
+sync_settle() { # sync_settle <fragment>: bounded wait for the wrapper cycle to finish
+  wait_for 20 log_has "$log" "$1" || return 1
+  wait_for 20 no_glob_match "$baseline/*.tmp.*" || return 1
+  wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*" || return 1
+  sleep 0.3
+}
+age_commands_stamp() { rm -f "$c/cache/weave-router/"checked-at*.commands; }
+
+# One-shot re-seed: with no sentinel the pre-manifest baseline is untrusted, so
+# the first verified cycle installs the verified bodies and writes the sentinel.
+commands_lab cmd-seed
+upstream_wrapper fm "release fm."
+sign_commands
+printf '%s\n' 'EDITED BEFORE UPGRADE' >"$cmd_dir/rf.md"
+if file_absent "$baseline/.manifest-seeded"; then ok "sentinel absent before the first verified cycle"; else no "sentinel absent before the first verified cycle" "absent" "present"; fi
+run_tool cc "$installed"
+if wait_for 20 test -f "$baseline/.manifest-seeded"; then
+  ok "the first verified cycle writes the .manifest-seeded sentinel"
+else
+  no "the first verified cycle writes the .manifest-seeded sentinel" "present" "absent"
+fi
+sync_settle "commands/rf.md"
+check "re-seed installs the verified wrapper body" "$(cat "$cmd_dir/fm.md")" "$(cat "$rd/commands/fm.md")"
+check "re-seed records the verified body as the baseline" "$(sha "$baseline/fm.md")" "$(sha "$rd/commands/fm.md")"
+check "re-seed resets a wrapper edited before the upgrade once" "$(cat "$cmd_dir/rf.md")" "$(cat "$rd/commands/rf.md")"
+
+# After the re-seed the baseline comparison preserves local edits again.
+printf '%s\n' 'MY OWN FM' >"$cmd_dir/fm.md"
+upstream_wrapper fm "release fm, take two."
+upstream_wrapper rf "release rf, take two."
+sign_commands
+age_commands_stamp
+: >"$log"
+run_tool cc "$installed"
+if wait_for 20 grep -q 'take two' "$cmd_dir/rf.md"; then
+  ok "a post-seed cycle still refreshes an unedited wrapper"
+else
+  no "a post-seed cycle still refreshes an unedited wrapper" "refreshed rf" "$(cat "$cmd_dir/rf.md")"
+fi
+sync_settle "commands/rf.md"
+check "a post-seed local edit is preserved across refresh" "$(cat "$cmd_dir/fm.md")" "MY OWN FM"
+
+# A wrapper body that does not match the signed MANIFEST is skipped and its
+# baseline is left byte-for-byte as it was.
+commands_lab cmd-tampered
+: >"$baseline/.manifest-seeded"
+upstream_wrapper rf "release rf."
+sign_commands
+upstream_wrapper fm "tampered fm."
+fm_before="$(cat "$cmd_dir/fm.md")"; fm_baseline_before="$(sha "$baseline/fm.md")"
+run_tool cc "$installed"
+wait_for 20 grep -q 'release rf.' "$cmd_dir/rf.md" || true
+sync_settle "commands/rf.md"
+check "the same cycle refreshes a wrapper that matches the MANIFEST" "$(grep -c 'release rf.' "$cmd_dir/rf.md")" 1
+check "a tampered wrapper body is not installed" "$(cat "$cmd_dir/fm.md")" "$fm_before"
+check "a tampered wrapper body leaves the baseline untouched" "$(sha "$baseline/fm.md")" "$fm_baseline_before"
+
+# A MANIFEST signed with another key touches no wrapper, baseline or sentinel.
+commands_lab cmd-otherkey
+upstream_wrapper fm "other-key fm."
+sign_commands other
+fm_before="$(cat "$cmd_dir/fm.md")"; fm_baseline_before="$(sha "$baseline/fm.md")"
+run_tool cc "$installed"
+wait_for 20 log_has "$log" "$current_tag/install/MANIFEST.sig.b64"
+wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*"
+sleep 0.5
+check "a wrapper MANIFEST signed with another key installs nothing" "$(cat "$cmd_dir/fm.md")" "$fm_before"
+check "a wrapper MANIFEST signed with another key keeps the baseline" "$(sha "$baseline/fm.md")" "$fm_baseline_before"
+if file_absent "$baseline/.manifest-seeded"; then ok "a rejected MANIFEST writes no sentinel"; else no "a rejected MANIFEST writes no sentinel" "absent" "present"; fi
+check_not_contains "a rejected MANIFEST fetches no wrapper body" "$(cat "$log")" "commands/fm.md"
+
+# The opt-in is not honored for a wrapper source on the default publisher.
+commands_lab cmd-optin-default
+: >"$baseline/.manifest-seeded"
+upstream_wrapper fm "unsigned fm."
+fm_before="$(cat "$cmd_dir/fm.md")"
+run_tool cc "$installed" WEAVE_STATUSLINE_TRUST_UNSIGNED=1 \
+  "WEAVE_COMMANDS_URL_BASE=https://raw.githubusercontent.com/weave-os/router/$current_tag/install/commands"
+wait_for 20 log_has "$log" "$current_tag/install/MANIFEST"
+wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*"
+sleep 0.5
+check "WEAVE_STATUSLINE_TRUST_UNSIGNED=1 is refused for default-publisher wrappers" "$(cat "$cmd_dir/fm.md")" "$fm_before"
+
+# Without openssl the wrapper cycle fails closed.
+commands_lab cmd-no-openssl
+: >"$baseline/.manifest-seeded"
+upstream_wrapper fm "release fm."
+sign_commands
+fm_before="$(cat "$cmd_dir/fm.md")"
+run_tool cc "$installed" "MIT_PATH=$no_openssl_bin"
+wait_for 20 log_has "$log" "$current_tag/install/MANIFEST.sig.b64"
+wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*"
+sleep 0.5
+check "without openssl no wrapper is refreshed" "$(cat "$cmd_dir/fm.md")" "$fm_before"
+
+# ---------- fetched uninstaller (surface 4) ----------
+
+echo "install.sh --uninstall"
+
+# uninstall_lab <name>: install.sh with no sibling uninstall.sh, main
+# advertising $next_tag, and a genuine signed uninstall.sh at that tag that
+# records each run.
+uninstall_lab() {
+  new_lab "$1"
+  mkdir -p "$c/bin-dir"
+  cp "$installer_keyed" "$c/bin-dir/install.sh"
+  cp "$cc_keyed" "$pub/raw/weave-os/router/main/install/cc-statusline.sh"
+  retag "$pub/raw/weave-os/router/main/install/cc-statusline.sh" "$next_tag"
+  rd="$(rel_dir "$next_tag")"; mkdir -p "$rd"
+  # The body expands $HOME when it runs, not here.
+  # shellcheck disable=SC2016
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "genuine\n" >>"$HOME/uninstall-ran"' >"$rd/uninstall.sh"
+  manifest_row "install/uninstall.sh" "$rd/uninstall.sh" >"$rd/MANIFEST"
+  sign "$rd/MANIFEST" "$keys/release.key" "$rd/MANIFEST.sig.b64"
+}
+run_uninstall() { # run_uninstall [VAR=value...]: sets rc
+  local env_cmd=()
+  mapfile -t env_cmd < <(victim_env "$PATH")
+  "${env_cmd[@]}" "$@" bash "$c/bin-dir/install.sh" --uninstall </dev/null >"$c/stdout" 2>"$c/stderr"
+  rc=$?
+}
+
+uninstall_lab un-happy
+run_uninstall
+check "a signed uninstaller runs" "$rc:$(cat "$home/uninstall-ran" 2>/dev/null)" "0:genuine"
+
+uninstall_lab un-tampered
+# shellcheck disable=SC2016
+printf '%s\n' 'printf "tampered\n" >>"$HOME/canary.txt"' >>"$rd/uninstall.sh"
+run_uninstall
+check "a tampered uninstaller is refused" "$([ "$rc" -ne 0 ] && echo refused)" refused
+check_contains "the refusal names the manifest check" "$(cat "$c/stderr")" "Refusing to run uninstall.sh"
+if file_absent "$home/canary.txt" && file_absent "$home/uninstall-ran"; then
+  ok "a tampered uninstaller never runs"
+else
+  no "a tampered uninstaller never runs" "no run" "it ran"
+fi
+
+uninstall_lab un-nosig
+rm -f "$rd/MANIFEST.sig.b64"
+run_uninstall
+check "an uninstaller without MANIFEST.sig.b64 is refused" "$([ "$rc" -ne 0 ] && file_absent "$home/uninstall-ran" && echo refused)" refused
+
+uninstall_lab un-otherkey
+sign "$rd/MANIFEST" "$keys/other.key" "$rd/MANIFEST.sig.b64"
+run_uninstall
+check "an uninstaller MANIFEST signed with another key is refused" "$([ "$rc" -ne 0 ] && file_absent "$home/uninstall-ran" && echo refused)" refused
+
+uninstall_lab un-optin-default
+rm -f "$rd/MANIFEST" "$rd/MANIFEST.sig.b64"
+run_uninstall WEAVE_STATUSLINE_TRUST_UNSIGNED=1 \
+  "WEAVE_UNINSTALL_URL=https://raw.githubusercontent.com/weave-os/router/$next_tag/install/uninstall.sh"
+check "WEAVE_STATUSLINE_TRUST_UNSIGNED=1 is refused for the default-publisher uninstaller" \
+  "$([ "$rc" -ne 0 ] && file_absent "$home/uninstall-ran" && echo refused)" refused
+
+echo
+echo "$pass passed, $fail failed"
+[ "$fail" -eq 0 ]

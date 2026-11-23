@@ -521,12 +521,34 @@ sleep 0.5
 #
 # Codex only reruns the installer when a user remembers to, so the lifecycle
 # hook doubles as the update check. A `file://` source keeps this offline.
+#
+# The refresh admits a download only when the MANIFEST beside it verifies under
+# the embedded release key, so the helper under test carries a per-run test key
+# in place of the embedded one and the fixture publishes a MANIFEST signed with
+# it. manifest_integrity_test.sh covers the refusal cases.
+
+command -v openssl >/dev/null 2>&1 || {
+  echo "openssl is required for the signed self-refresh tests" >&2
+  exit 1
+}
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$work/release.key" 2>/dev/null
+openssl pkey -in "$work/release.key" -pubout -out "$work/release.pub" 2>/dev/null
+keyed_helper="$work/keyed-codex-status.sh"
+awk -v pub="$work/release.pub" '
+  $0 == "-----BEGIN PUBLIC KEY-----" { while ((getline line < pub) > 0) print line; close(pub); skip = 1; next }
+  skip && $0 == "-----END PUBLIC KEY-----" { skip = 0; next }
+  !skip { print }
+' "$helper" >"$keyed_helper"
+grep -qxF "$(sed -n 2p "$work/release.pub")" "$keyed_helper" || {
+  echo "could not swap the test key into codex-status.sh" >&2
+  exit 1
+}
 
 refresh_home="$work/refresh-home"
 mkdir -p "$refresh_home"
 refresh_helper="$work/refresh/weave-status.sh"
 mkdir -p "$(dirname "$refresh_helper")"
-cp "$helper" "$refresh_helper"
+cp "$keyed_helper" "$refresh_helper"
 chmod 700 "$refresh_helper"
 
 newer_helper="$work/newer-codex-status.sh"
@@ -538,6 +560,16 @@ newer_helper="$work/newer-codex-status.sh"
   awk 'BEGIN { while (i++ < 40) print "# padding padding padding padding padding padding" }'
   printf '%s\n' 'exit 0'
 } >"$newer_helper"
+
+# The refresh reads MANIFEST from the directory holding its source.
+if command -v sha256sum >/dev/null 2>&1; then
+  newer_sha="$(sha256sum <"$newer_helper" | awk '{print $1}')"
+else
+  newer_sha="$(shasum -a 256 <"$newer_helper" | awk '{print $1}')"
+fi
+printf '%s  install/codex-status.sh\n' "$newer_sha" >"$work/MANIFEST"
+openssl dgst -sha256 -sign "$work/release.key" -out "$work/MANIFEST.sig" "$work/MANIFEST"
+openssl base64 -A -in "$work/MANIFEST.sig" -out "$work/MANIFEST.sig.b64"
 
 run_refresh_turn() {
   printf '%s\n' '{"session_id":"session-refresh","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
@@ -560,7 +592,7 @@ cmp -s "$refresh_helper" "$newer_helper" || {
 # after the stamp was written stays put. Recopy the real helper first — the
 # first turn replaced it with the stub from $newer_helper, which never
 # enters weave_self_refresh.
-cp "$helper" "$refresh_helper"
+cp "$keyed_helper" "$refresh_helper"
 chmod 700 "$refresh_helper"
 printf '\n# mutated after stamp\n' >>"$refresh_helper"
 before_rate_limit="$(cat "$refresh_helper")"

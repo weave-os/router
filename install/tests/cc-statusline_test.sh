@@ -4,7 +4,13 @@
 #
 # Fully offline: every case points WEAVE_STATUSLINE_URL at a file:// copy under
 # a temp dir, so no test ever reaches raw.githubusercontent.com. Run directly or
-# via `make test-statusline`.
+# via `make test-statusline`, which also runs manifest_integrity_test.sh from
+# the end of this file.
+#
+# A refresh admits a download only when a MANIFEST beside it verifies under the
+# embedded release key, so the copies under test carry a per-run test key in
+# place of the embedded one and the fixtures publish a MANIFEST signed with it.
+# The key lives in the temp dir and is removed on exit.
 #
 # Deliberately exercises the script through its real entrypoint (JSON on stdin,
 # a transcript on disk) rather than sourcing individual functions — the bugs
@@ -115,10 +121,45 @@ cat > "$cache_transcript" <<'JSONL'
 {"type":"assistant","message":{"id":"msg_cache_1","model":"gpt-5.4","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000000}}}
 JSONL
 
+# Per-run release key. with_test_key swaps it in for the embedded public key.
+command -v openssl >/dev/null 2>&1 || { echo "FATAL: openssl is required for the signed refresh tests" >&2; exit 1; }
+test_key="$work/release.key"
+if ! { openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$test_key" 2>/dev/null \
+    && openssl pkey -in "$test_key" -pubout -out "$work/release.pub" 2>/dev/null; }; then
+  echo "FATAL: could not generate a test RSA key" >&2; exit 1
+fi
+with_test_key() { # with_test_key <src> <dest>
+  awk -v pub="$work/release.pub" '
+    $0 == "-----BEGIN PUBLIC KEY-----" { while ((getline line < pub) > 0) print line; close(pub); skip = 1; next }
+    skip && $0 == "-----END PUBLIC KEY-----" { skip = 0; next }
+    !skip { print }
+  ' "$1" > "$2"
+}
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum < "$1" | awk '{print $1}'
+  else shasum -a 256 < "$1" | awk '{print $1}'; fi
+}
+
 # "upstream" is the real script; "installed" copies are mutated per-case to
 # simulate an older on-disk copy.
 upstream="$work/upstream.sh"
-cp "$statusline" "$upstream"
+with_test_key "$statusline" "$upstream"
+
+# sign_upstream publishes $work/MANIFEST (+ .sig.b64), which both refreshes
+# read from the parent of their source: upstream.sh and every wrapper under
+# $work/commands-upstream. Re-run after mutating either.
+sign_upstream() {
+  local f
+  {
+    printf '%s  %s\n' "$(sha256_of "$upstream")" install/cc-statusline.sh
+    for f in "$work/commands-upstream"/*.md; do
+      [ -f "$f" ] && printf '%s  %s\n' "$(sha256_of "$f")" "install/commands/${f##*/}"
+    done
+  } > "$work/MANIFEST"
+  openssl dgst -sha256 -sign "$test_key" -out "$work/MANIFEST.sig" "$work/MANIFEST" \
+    && openssl base64 -A -in "$work/MANIFEST.sig" -out "$work/MANIFEST.sig.b64"
+}
+sign_upstream
 
 # Strip a model's price entries to simulate a copy written before that model
 # shipped. PRICED_MODEL stays in the table; STALE_MODEL is removed.
@@ -387,9 +428,13 @@ echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}"
   | PATH="$c/bin:$PATH" WEAVE_TEST_CURL_LOG="$curl_log" WEAVE_TEST_REAL_CURL="$real_curl" \
     XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_URL="file://$upstream" \
     bash "$c/cc.sh" >/dev/null 2>&1
-wait_for 20 line_count_at_least "$curl_log" 2
-downloads="$(wc -l < "$curl_log" | tr -d ' ')"
-distinct="$(sort -u "$curl_log" | wc -l | tr -d ' ')"
+# Each refresh also downloads MANIFEST and MANIFEST.sig.b64; count only the
+# script downloads, which are the ones that land on $self.
+script_targets() { grep -v 'MANIFEST' "$curl_log"; }
+script_downloads_at_least() { [ "$(script_targets | wc -l | tr -d ' ')" -ge "$1" ]; }
+wait_for 20 script_downloads_at_least 2
+downloads="$(script_targets | wc -l | tr -d ' ')"
+distinct="$(script_targets | sort -u | wc -l | tr -d ' ')"
 check "cold cache fires both the periodic and price-miss refresh" "$downloads" 2
 check "concurrent refreshes use distinct temp files" "$distinct" "$downloads"
 # Counting -o targets alone would pass even if every download failed, so assert
@@ -448,10 +493,13 @@ check "missing transcript exits 0" "$?" 0
 commands_upstream="$work/commands-upstream"
 mkdir -p "$commands_upstream"
 cp "$script_dir/../commands"/*.md "$commands_upstream/"
+sign_upstream
 
 # Lay out a user-scope install: statusline under .weave/, wrappers under
-# .claude/commands/, and a seeded baseline (what install.sh writes) holding the
-# unrendered canonical bodies.
+# .claude/commands/, and a baseline holding the unrendered canonical bodies.
+# The .manifest-seeded sentinel marks that baseline as written under the signed
+# manifest, so these cases exercise the steady-state baseline guard;
+# manifest_integrity_test.sh covers the one-shot re-seed without it.
 make_command_install() { # make_command_install <root> <cache_home> [scope_args]
   local root="$1" cache="$2" scope_args="${3:-}" name body
   mkdir -p "$root/.weave" "$root/.claude/commands"
@@ -468,12 +516,14 @@ make_command_install() { # make_command_install <root> <cache_home> [scope_args]
       >"$root/.claude/commands/$(basename "$name").weave-router"
     cp "$name" "$baseline/$(basename "$name")"
   done
+  : > "$baseline/.manifest-seeded"
 }
 
 # WEAVE_STATUSLINE_UPDATE=0 is a master kill switch that covers this path too,
 # so these cases can't use it to isolate the wrapper refresh. Point the script's
 # own refresh at the same offline fixture instead — it lands as a content no-op.
 sync_commands() { # sync_commands <root> <cache_home> <commands_url_base>
+  sign_upstream
   echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
     | XDG_CACHE_HOME="$2" WEAVE_STATUSLINE_URL="file://$upstream" WEAVE_COMMANDS_URL_BASE="$3" \
       bash "$1/.weave/cc-statusline.sh" >/dev/null 2>&1
@@ -977,4 +1027,10 @@ check_not_contains "display-settings refresh drops unrelated headers" "$headers"
 
 echo
 echo "$pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+
+# The signed-manifest cases for every fetched-code path live in their own file;
+# run them here so `make test-statusline` covers them.
+echo
+manifest_status=0
+bash "$script_dir/manifest_integrity_test.sh" || manifest_status=$?
+[ "$fail" -eq 0 ] && [ "$manifest_status" -eq 0 ]
