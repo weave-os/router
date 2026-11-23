@@ -25,19 +25,16 @@ func newFlagTestService() *proxy.Service {
 
 func TestResolversFallBackToDeploymentDefault(t *testing.T) {
 	svc := newFlagTestService().
-		WithTurnSignalCapture(true).
 		WithTextRepetitionBreak(false).
 		WithSiblingFailover(false)
 
 	ctx := context.Background()
-	assert.True(t, svc.ResolveTurnSignalCaptureEnabled(ctx))
 	assert.False(t, svc.ResolveTextRepetitionBreakEnabled(ctx))
 	assert.False(t, svc.ResolveSiblingFailover(ctx))
 }
 
 func TestPerOrgOverrideBeatsDeploymentDefault(t *testing.T) {
 	svc := newFlagTestService().
-		WithTurnSignalCapture(true).
 		WithSiblingFailover(false).
 		WithTextRepetitionBreak(true)
 
@@ -48,7 +45,6 @@ func TestPerOrgOverrideBeatsDeploymentDefault(t *testing.T) {
 		},
 	})
 
-	assert.False(t, svc.ResolveTurnSignalCaptureEnabled(ctx), "org override should turn a default-on flag off")
 	assert.True(t, svc.ResolveSiblingFailover(ctx), "org override should turn a default-off flag on")
 
 	// An unoverridden flag on the same context keeps its deployment default.

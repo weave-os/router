@@ -986,13 +986,15 @@ func main() {
 	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
-	proxySvc := proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(providerMap), telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry), hmm.ServingPorts()).
-		WithClock(time.Now).WithTranslationMetrics(otel.NewTranslationMetrics()).
+	proxySvc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(providerMap), telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry), hmm.ServingPorts()), proxy.Deps{
+		Telemetry: proxy.TelemetryDeps{Clock: time.Now, SessionTurnClock: sessionTurnClock, ContentCapture: captureMode, ContentCaptureMaxBytes: captureMaxBytes, Billing: billingSvc, Flags: &proxy.TelemetryFlags{
+			TurnSignalCapture: turnSignalCaptureEnabled, NativeAnthropicResponseSignals: nativeAnthropicResponseSignals, NativeOpenAIResponseSignals: nativeOpenAIResponseSignals}},
+		BYOKOnly: byokOnly, DeploymentKeyedProviders: deploymentEligible,
+	}).WithTranslationMetrics(otel.NewTranslationMetrics()).
 		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithExternalKeyUsageRecorder(authSvc).
 		WithCodexExtraCredits(allowCodexCredits).
 		WithSessionStrategyStore(sessionStrategyStore).
-		WithSessionTurnClock(sessionTurnClock).
 		WithEscalation(escalationStore, escalationObserver).
 		WithEscalationDashboard(escalationDashboardStore).
 		WithLLMEscalation(llmEscalationStore, escalationJudge).
@@ -1021,11 +1023,8 @@ func main() {
 			Strategy: router.StrategyDecisionModel, Router: buildDecisionModelRouter(logger), Unavailable: decisionmodel.ErrUnavailable,
 			Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true},
 		}).
-		WithContentCapture(captureMode, captureMaxBytes, nil).
 		WithFeedback(feedbackLinks).
 		WithPiHandoffSecret(config.GetOr("ROUTER_PI_HANDOFF_SECRET", "")).
-		WithByokOnly(byokOnly).
-		WithDeploymentKeyedProviders(deploymentEligible).
 		WithPassthroughEligibleProviders(passthroughEligible).
 		WithHardPinResolver(hardPinResolver).
 		WithExplicitUtilityHardPin(hardPinOverrideConfigured).
@@ -1041,8 +1040,6 @@ func main() {
 		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
 		WithTransientRateLimit(transientRateLimit, rateLimitCooldownSeconds).
 		WithProviderOverloaded(providerOverloaded, breaker.New(breaker.Defaults(), nil)).
-		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
-		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
 		WithIngress(ingressFormatsFor(allowedModelsHeader)).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMConfig(hmmConfig).
@@ -1057,15 +1054,13 @@ func main() {
 		WithCCWorkspaceSystemAppend(ccWorkspaceSystemAppend).
 		WithBandSwap(bandSwapEnabled).
 		WithGlobalAutomaticExclusions(repo.GlobalAutomaticExclusions).
-		WithTurnSignalCapture(turnSignalCaptureEnabled).
 		WithTextRepetitionBreak(textRepetitionBreakEnabled).
 		WithRouterFeedbackStore(repo.Telemetry).
 		WithSummarizer(summarizer).
 		WithCompactionHandoverSummarizer(compactionHandoverSz).
 		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithAvailableModels(servedModels).
-		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
-		WithBillingService(billingSvc)
+		WithDefaultBaselineModel(resolveDefaultBaselineModel())
 	inferenceDeployment.RoutableModels = servedModels
 	if err := configureAtomicClassifier(proxySvc, pool, availableProviders); err != nil {
 		logger.Error("Failed to configure atomic classifier", "err", err)
@@ -1192,7 +1187,7 @@ func main() {
 	waitForKeepWarm := startSubscriptionKeepWarm(processCtx, subscriptionRuntime, logger)
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
-	serverFeatures := withContentCaptureMode(withTelemetryQueries(withCredentialPorts(withEnvServerConfig(withHMMAdminPorts(server.Features{
+	serverFeatures := withErrorVocabulary(withContentCaptureMode(withTelemetryQueries(withCredentialPorts(withEnvServerConfig(withHMMAdminPorts(server.Features{
 		SeatUsage:                seatUsage,
 		SubscriptionLogins:       subscriptionLogins,
 		SubscriptionRefresh:      subscriptionRuntime,
@@ -1204,7 +1199,7 @@ func main() {
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 		PolicyStatus:             policyStatus,
 		FeedbackLinks:            feedbackLinks,
-	}, servingAdmission, routingDistribution), defaultStrategy)), repo.Telemetry), captureMode)
+	}, servingAdmission, routingDistribution), defaultStrategy)), repo.Telemetry), captureMode))
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}

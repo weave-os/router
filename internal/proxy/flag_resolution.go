@@ -11,10 +11,6 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-func (s *Service) ResolveTurnSignalCaptureEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyTurnSignalCapture, s.turnSignalCaptureEnabled)
-}
-
 func (s *Service) ResolveTextRepetitionBreakEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyTextRepetitionBreak, s.lifecycle.TextRepetitionBreak())
 }
@@ -113,14 +109,6 @@ func (s *Service) ResolveTransientRateLimit(ctx context.Context) bool {
 
 func (s *Service) ResolveRateLimitCooldown(ctx context.Context) time.Duration {
 	return s.throttling.RateLimit.Cooldown(ctx)
-}
-
-func (s *Service) ResolveNativeAnthropicResponseSignals(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyNativeAnthropicResponseSignals, s.nativeAnthropicResponseSignals)
-}
-
-func (s *Service) ResolveNativeOpenAIResponseSignals(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyNativeOpenAIResponseSignals, s.nativeOpenAIResponseSignals)
 }
 
 func (s *Service) ResolveEffortEscalation(ctx context.Context) bool {

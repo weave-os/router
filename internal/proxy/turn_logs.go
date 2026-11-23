@@ -20,15 +20,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func (s *Service) WithContentCapture(mode capture.Mode, maxBytes int, redactor capture.Redactor) *Service {
-	s.captureMode = mode
-	if maxBytes > 0 {
-		s.captureMaxBytes = maxBytes
-	}
-	s.redactor = redactor
-	return s
-}
-
 func (s *Service) effectiveCaptureMode(ctx context.Context) capture.Mode {
 	override, ok := ctx.Value(requestcontext.InstallationCaptureModeContextKey{}).(capture.Mode)
 	if !ok {
