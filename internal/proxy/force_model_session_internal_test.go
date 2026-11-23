@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -242,9 +243,9 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 		Strategy:       router.StrategyHMMEmbedding,
 		PinnedUntil:    time.Now().Add(time.Hour),
 	}
-	store.pins[forceModelMapKey(threadKey, hmmHistoryRole(role))] = sessionpin.Pin{
+	store.pins[forceModelMapKey(threadKey, hmm.HistoryRole(role))] = sessionpin.Pin{
 		SessionKey: threadKey,
-		Role:       hmmHistoryRole(role),
+		Role:       hmm.HistoryRole(role),
 		DemotionCooldowns: map[string]time.Time{
 			catalog.ModelGPT6Luna: time.Now().Add(-time.Minute),
 		},

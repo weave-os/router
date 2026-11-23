@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -51,7 +52,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 			Strategy: strategy, Decision: decision,
 		}, decision.Provider, decision.Model, 100, 10, 0, 0, false)
 	}
-	history, found, err := store.Get(ctx, sessionKey, hmmHistoryRole(sessionpin.DefaultRole))
+	history, found, err := store.Get(ctx, sessionKey, hmm.HistoryRole(sessionpin.DefaultRole))
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, router.StrategyHMMEmbedding, history.Strategy)
@@ -90,12 +91,12 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	sessionPins := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(ctx))
 	_, active := sessionPins.Load(ctx, sessionKey, sessionpin.DefaultRole)
 	assert.False(t, active, "ordinary routing must still reject another strategy's pin")
-	assert.Empty(t, sessionPins.LoadHMMHistory(ctx, sessionKey, sessionpin.DefaultRole).LastServedModel)
+	assert.Empty(t, hmm.LoadHistory(ctx, sessionPins.HistoryRows(), sessionKey, sessionpin.DefaultRole).LastServedModel)
 }
 
 func TestCodexCompactionDispatchAcrossStrategies(t *testing.T) {
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(sessionpin.DefaultRole): {
+		hmm.HistoryRole(sessionpin.DefaultRole): {
 			Provider: providers.ProviderOpenAI, LastServedModel: compactionStrategyModel,
 			Strategy: router.StrategyHMMEmbedding, LastTurnEndedAt: time.Now(),
 		},
@@ -131,7 +132,7 @@ func TestCompactionCrossStrategyHistoryHonorsEligibility(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-				hmmHistoryRole(sessionpin.DefaultRole): {
+				hmm.HistoryRole(sessionpin.DefaultRole): {
 					Provider: providers.ProviderOpenAI, LastServedModel: compactionStrategyModel,
 					Strategy: router.StrategyHMMEmbedding, LastTurnEndedAt: time.Now(),
 				},
@@ -141,6 +142,7 @@ func TestCompactionCrossStrategyHistoryHonorsEligibility(t *testing.T) {
 				providers: map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}},
 				available: test.available,
 				now:       time.Now(),
+				history:   hmm.ServingPorts().History,
 			}
 			ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
 			_, _, ok := session.decision(ctx, [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, test.req)

@@ -362,7 +362,7 @@ func TestTurnLoop_HMMHistoryMaxedOutExcludesServedModelBeforeRouting(t *testing.
 	endedAt := time.Now().Add(-30 * time.Second)
 	store := newFakePinStore()
 	store.hasHMMHistory = true
-	store.hmmHistory = sessionpin.Pin{
+	store.switchHistory = sessionpin.Pin{
 		Provider:          providers.ProviderAnthropic,
 		LastServedModel:   "claude-sonnet-5",
 		LastOutputTokens:  8192,
@@ -401,7 +401,7 @@ func TestTurnLoop_HMMExpiredHistoryMaxedOutStillExcludesServedModel(t *testing.T
 	store.hasHMMHistory = true
 	// Expired history row (PinnedUntil in the past) that maxed out its output
 	// cap: the maxed model must still be excluded, matching the active-pin path.
-	store.hmmHistory = sessionpin.Pin{
+	store.switchHistory = sessionpin.Pin{
 		Provider:          providers.ProviderAnthropic,
 		LastServedModel:   "claude-sonnet-5",
 		LastOutputTokens:  8192,

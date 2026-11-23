@@ -23,7 +23,7 @@ type sessionTurnInput struct {
 	req            router.Request
 	pin            sessionpin.Pin
 	pinFound       bool
-	hmmHistory     sessionpin.Pin
+	switchHistory  sessionpin.Pin
 	fresh          router.Decision
 	prefixBroken   bool
 	sessionPins    routingpolicy.SessionPins
@@ -36,7 +36,7 @@ func sessionTurnFor(ctx context.Context, s *Service, in sessionTurnInput) routin
 	settings := sessionSettingsFor(ctx, s)
 	settings.HMMToolResultHold = s.ResolveHMMToolResultHold(ctx, in.strategy)
 	return routingpolicy.SessionTurn{
-		Strategy: in.strategy, Request: in.req, Pin: in.pin, PinFound: in.pinFound, HMMHistory: in.hmmHistory, Fresh: in.fresh, PrefixBroken: in.prefixBroken,
+		Strategy: in.strategy, Request: in.req, Pin: in.pin, PinFound: in.pinFound, SwitchHistory: in.switchHistory, Fresh: in.fresh, PrefixBroken: in.prefixBroken,
 		PlannerTokens: s.plannerTokensFor(ctx, in.env, in.feats), Pins: in.sessionPins, InstallationID: in.installationID,
 		Ports: s.strategyPorts, Scorer: strategyScorer{s: s, strategy: in.strategy}, Settings: settings,
 		Serving: turnServing{s: s, env: in.env, headers: in.reqHeaders, pins: in.sessionPins, pin: pinIfFound(in.pin, in.pinFound)}, Now: s.clock.Now,

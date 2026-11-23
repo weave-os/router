@@ -22,7 +22,7 @@ func (tp *turnPin) drop() {
 	tp.pin = sessionpin.Pin{}
 }
 
-func dropPinRuledOutLastTurn(ctx context.Context, s *Service, env *translate.RequestEnvelope, req *router.Request, res *routingpolicy.TurnRoute, tp *turnPin, hmmHistory sessionpin.Pin) {
+func dropPinRuledOutLastTurn(ctx context.Context, s *Service, env *translate.RequestEnvelope, req *router.Request, res *routingpolicy.TurnRoute, tp *turnPin, switchHistory sessionpin.Pin) {
 	log := observability.FromContext(ctx)
 	if tp.found && !isUserForcedReason(tp.pin.Reason) && automaticallyDisabled(*req, tp.pin.Model) {
 		reason, _ := s.globalAutomaticExclusionReason(ctx, tp.pin.Model)
@@ -46,11 +46,11 @@ func dropPinRuledOutLastTurn(ctx context.Context, s *Service, env *translate.Req
 		*req = candidates.ExcludeMaxedModel(*req, maxedModel)
 		tp.drop()
 	}
-	if maxedModel := maxedOutServedModel(hmmHistory); maxedModel != "" {
+	if maxedModel := maxedOutServedModel(switchHistory); maxedModel != "" {
 		log.Info("HMM history maxed out on previous turn; excluding for this turn",
-			"history_provider", hmmHistory.Provider,
+			"history_provider", switchHistory.Provider,
 			"maxed_model", maxedModel,
-			"last_output_tokens", hmmHistory.LastOutputTokens,
+			"last_output_tokens", switchHistory.LastOutputTokens,
 		)
 		*req = candidates.ExcludeMaxedModel(*req, maxedModel)
 		if tp.found && baseModelOf(tp.pin.Model) == maxedModel {

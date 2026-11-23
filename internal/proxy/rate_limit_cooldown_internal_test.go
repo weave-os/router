@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
@@ -88,7 +89,7 @@ func TestRescued429_CoolsDownInsteadOfDemoting(t *testing.T) {
 	until := rateLimitTestNow.Add(45 * time.Second)
 	assert.Equal(t, []cooldownCall{
 		{role: sessionpin.DefaultRole, model: demotedArm, until: until, reason: sessionpin.DemotionReasonRateLimited},
-		{role: hmmHistoryRole(sessionpin.DefaultRole), model: demotedArm, until: until, reason: sessionpin.DemotionReasonRateLimited},
+		{role: hmm.HistoryRole(sessionpin.DefaultRole), model: demotedArm, until: until, reason: sessionpin.DemotionReasonRateLimited},
 	}, store.cooldowns)
 
 	fields := turn.CompletionLogFields()
@@ -168,7 +169,7 @@ func TestRescued429_FlagOffKeepsPermanentDemotion(t *testing.T) {
 	assert.Empty(t, store.cooldowns)
 	assert.Equal(t, []demotionCall{
 		{role: sessionpin.DefaultRole, model: demotedArm, reason: sessionpin.DemotionReasonRescuedFailure},
-		{role: hmmHistoryRole(sessionpin.DefaultRole), model: demotedArm, reason: sessionpin.DemotionReasonRescuedFailure},
+		{role: hmm.HistoryRole(sessionpin.DefaultRole), model: demotedArm, reason: sessionpin.DemotionReasonRescuedFailure},
 	}, store.demotions)
 	assert.Equal(t, armDemotionLogFields("", model), armStrikeLogFields("", model, reason))
 }
@@ -491,8 +492,8 @@ func TestTurnLoopReadmitsArmAfterCooldownExpiry(t *testing.T) {
 func TestTurnLoopHonoursCooldownRecordedOnHMMHistory(t *testing.T) {
 	until := rateLimitTestNow.Add(30 * time.Second)
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		sessionpin.DefaultRole:                 demotedPin(demotedPinModel),
-		hmmHistoryRole(sessionpin.DefaultRole): coolingPin(map[string]time.Time{demotedPinModel: until}),
+		sessionpin.DefaultRole:                  demotedPin(demotedPinModel),
+		hmm.HistoryRole(sessionpin.DefaultRole): coolingPin(map[string]time.Time{demotedPinModel: until}),
 	}}
 	svc, scorer := cooldownTurnLoopService(store, true)
 
