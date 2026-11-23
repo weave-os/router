@@ -597,6 +597,18 @@ toggles — in a detached fork, so no Codex turn blocks on it, and it skips the
 replacement when the bytes are unchanged. The `WEAVE_STATUSLINE_*` variables
 above are accepted as fallbacks for users who configure both clients together.
 
+**Release manifest.** The code these refreshes download is described by
+`install/MANIFEST`: one `<sha256>  <path>` row per fetched file, in
+`sha256sum` format with repository-relative paths, covering
+`cc-statusline.sh`, `codex-status.sh`, `uninstall.sh` and every file under
+`commands/`. `install/MANIFEST.sig.b64` is the base64 signature over that
+file, checked with `openssl dgst -sha256 -verify` against the verify-only key
+`WEAVE_RELEASE_PUBKEY_PEM` embedded in the scripts. A fetched body is
+admissible only when the signature verifies and the body's SHA-256 equals its
+manifest row. The committed key is a placeholder until the release pipeline
+stamps the real one; key format, signing and rotation are in
+[RELEASE_SIGNING.md](RELEASE_SIGNING.md).
+
 **Codex skill invocations are answered by the router.** `$fm`/`$force-model`, `$force-parent`,
 `$ufm`/`$unforce-model`, `$rf`/`$router-feedback`, `$router-session` and
 `$list-models` reach the router; the local toggles do not, and are covered below. Codex sends a

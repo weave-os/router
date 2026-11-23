@@ -108,6 +108,27 @@
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
 
+# ---------- release signing key ----------
+#
+# PLACEHOLDER — release signing key is installed by the release pipeline.
+# Verify-only RSA-2048 public key (SPKI PEM) for install/MANIFEST.sig.b64,
+# the signature over install/MANIFEST. Fetched code is admitted only when
+# MANIFEST verifies under this key and the body's SHA-256 matches its row.
+# Nobody holds the private half of the placeholder, so until the pipeline
+# stamps the real key every verification fails closed. See
+# install/RELEASE_SIGNING.md.
+IFS= read -r -d '' WEAVE_RELEASE_PUBKEY_PEM <<'WEAVE_RELEASE_PUBKEY_EOF' || true
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqGz9B3LhWVSNpBZ1cck6
+EGUcKmUuAickojEl+En+d2ZtcD3pl63A3Yk0CpfpsFd0TF1/ALseyfNfkYRXl6B1
+CZJcbJ8+MTSM4XzCNp3ELLwPqDmVGd0xGnB4e6aTYi63DJrUC5q9gmn5lLQLM1NW
+AWPzXlOH/+goGDRcycuqjZxdpAhdsPKbkzCquEmdsT2/ftbqskcmAOTMwWsKR5Tf
+GH3LCbInZUgVi64Y5wqgMy3jlooPAVZXa5GqwOgV2fXwWT+UJRf4MKtx80DzWhGk
+E56DB1TSwErC9jp6jTWqKgdcdgMBTykjN58gD/7AIDbUhcgdIx9+tF6yoezyjuoE
+jQIDAQAB
+-----END PUBLIC KEY-----
+WEAVE_RELEASE_PUBKEY_EOF
+
 # ---------- defaults ----------
 
 # The public hosted Weave Router URL. Override with --base-url for self-hosted.
@@ -5595,6 +5616,27 @@ install_codex_status_script() {
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
 
+# ---------- release signing key ----------
+#
+# PLACEHOLDER — release signing key is installed by the release pipeline.
+# Verify-only RSA-2048 public key (SPKI PEM) for install/MANIFEST.sig.b64,
+# the signature over install/MANIFEST. Fetched code is admitted only when
+# MANIFEST verifies under this key and the body's SHA-256 matches its row.
+# Nobody holds the private half of the placeholder, so until the pipeline
+# stamps the real key every verification fails closed. See
+# install/RELEASE_SIGNING.md.
+IFS= read -r -d '' WEAVE_RELEASE_PUBKEY_PEM <<'WEAVE_RELEASE_PUBKEY_EOF' || true
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqGz9B3LhWVSNpBZ1cck6
+EGUcKmUuAickojEl+En+d2ZtcD3pl63A3Yk0CpfpsFd0TF1/ALseyfNfkYRXl6B1
+CZJcbJ8+MTSM4XzCNp3ELLwPqDmVGd0xGnB4e6aTYi63DJrUC5q9gmn5lLQLM1NW
+AWPzXlOH/+goGDRcycuqjZxdpAhdsPKbkzCquEmdsT2/ftbqskcmAOTMwWsKR5Tf
+GH3LCbInZUgVi64Y5wqgMy3jlooPAVZXa5GqwOgV2fXwWT+UJRf4MKtx80DzWhGk
+E56DB1TSwErC9jp6jTWqKgdcdgMBTykjN58gD/7AIDbUhcgdIx9+tF6yoezyjuoE
+jQIDAQAB
+-----END PUBLIC KEY-----
+WEAVE_RELEASE_PUBKEY_EOF
+
 # ---------- background self-refresh ----------
 #
 # Codex runs this helper on SessionStart and after every turn. Once per
@@ -7160,6 +7202,27 @@ cat > "$statusline_file" << 'STATUSLINE_EOF'
 
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
+
+# ---------- release signing key ----------
+#
+# PLACEHOLDER — release signing key is installed by the release pipeline.
+# Verify-only RSA-2048 public key (SPKI PEM) for install/MANIFEST.sig.b64,
+# the signature over install/MANIFEST. Fetched code is admitted only when
+# MANIFEST verifies under this key and the body's SHA-256 matches its row.
+# Nobody holds the private half of the placeholder, so until the pipeline
+# stamps the real key every verification fails closed. See
+# install/RELEASE_SIGNING.md.
+IFS= read -r -d '' WEAVE_RELEASE_PUBKEY_PEM <<'WEAVE_RELEASE_PUBKEY_EOF' || true
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqGz9B3LhWVSNpBZ1cck6
+EGUcKmUuAickojEl+En+d2ZtcD3pl63A3Yk0CpfpsFd0TF1/ALseyfNfkYRXl6B1
+CZJcbJ8+MTSM4XzCNp3ELLwPqDmVGd0xGnB4e6aTYi63DJrUC5q9gmn5lLQLM1NW
+AWPzXlOH/+goGDRcycuqjZxdpAhdsPKbkzCquEmdsT2/ftbqskcmAOTMwWsKR5Tf
+GH3LCbInZUgVi64Y5wqgMy3jlooPAVZXa5GqwOgV2fXwWT+UJRf4MKtx80DzWhGk
+E56DB1TSwErC9jp6jTWqKgdcdgMBTykjN58gD/7AIDbUhcgdIx9+tF6yoezyjuoE
+jQIDAQAB
+-----END PUBLIC KEY-----
+WEAVE_RELEASE_PUBKEY_EOF
 
 # ---------- /router-status prompt hook ----------
 #
