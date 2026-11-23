@@ -889,7 +889,7 @@ func TestService_RouterFeedbackCommand_SequenceNoteOnlySkipsRequestFeedbackUpser
 	telem.seqResult = turnrecord.TelemetryTurnResult{RequestID: "req-note-only", DecisionModel: "claude-opus-4-7"}
 	repo := &recordingFeedbackRepo{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvcWithTelemetry(fr, store, telem).WithRouterFeedbackStore(feedback).WithFeedback(repo, nil, "")
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithRouterFeedbackStore(feedback).WithFeedback(repoOnlyFeedbackLinks(repo))
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -915,7 +915,7 @@ func TestService_RouterFeedbackCommand_SequenceWithRatingUpsertsRequestFeedback(
 	telem.seqResult = turnrecord.TelemetryTurnResult{RequestID: "req-rated", DecisionModel: "claude-opus-4-7"}
 	repo := &recordingFeedbackRepo{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvcWithTelemetry(fr, store, telem).WithRouterFeedbackStore(feedback).WithFeedback(repo, nil, "")
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithRouterFeedbackStore(feedback).WithFeedback(repoOnlyFeedbackLinks(repo))
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -1076,4 +1076,8 @@ func TestService_RouterFeedbackCommand_ClusterResolvedTurnSkipsPolicyFeedback(t 
 	// Policy feedback must not fire: give the async path a moment, then confirm silence.
 	time.Sleep(50 * time.Millisecond)
 	assert.Empty(t, hmmReporter.Payloads(), "a cluster-resolved turn must not be credited to the active HMM reporter")
+}
+
+func repoOnlyFeedbackLinks(repo feedback.FeedbackRepository) *feedback.Links {
+	return feedback.NewLinks(repo, nil, "", nil, time.Now)
 }
