@@ -69,7 +69,7 @@ func TestPrepareRouterModelUsesAdmittedClassifierAndRejectsReleaseChanges(t *tes
 	snapshot.HeadSnapshot.Head.ReleaseSHA256 = identity.ReleaseID
 	ctx = requestcontext.WithServingIdentity(ctx, identity)
 	_, err = service.PrepareRouterModel(ctx, router.ModelQwen, warming.OperationID)
-	require.ErrorIs(t, err, ErrModelPreparationOperation)
+	require.ErrorIs(t, err, policy.ErrModelPreparationOperation)
 	require.Len(t, preparer.operations, 2)
 }
 
@@ -144,8 +144,8 @@ func TestPrepareRouterModelRejectsUntrustedIdentityAndUnsafeOperation(t *testing
 	}
 	ctx, _, preparer := preparationContext()
 	_, err := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).PrepareRouterModel(ctx, router.ModelHMM, "")
-	require.ErrorIs(t, err, ErrModelPreparationForbidden)
+	require.ErrorIs(t, err, policy.ErrModelPreparationForbidden)
 	_, err = (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).PrepareRouterModel(ctx, router.ModelQwen, strings.Repeat("a", 64)+".hmm_qwen.fc-../route")
-	require.ErrorIs(t, err, ErrModelPreparationOperation)
+	require.ErrorIs(t, err, policy.ErrModelPreparationOperation)
 	require.Empty(t, preparer.operations)
 }
