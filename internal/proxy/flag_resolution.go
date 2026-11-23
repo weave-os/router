@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"time"
 
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/flags"
@@ -67,10 +66,6 @@ func (s *Service) ResolveAuthorityCacheShadow(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAuthorityCacheShadow, s.hmmConfig.AuthorityCacheShadow)
 }
 
-func (s *Service) ResolveSiblingFailover(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeySiblingFailover, s.rescueConfig.SiblingFailover)
-}
-
 func (s *Service) ResolveAllowedModelsHeader(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAllowedModelsHeader, s.ingress.AllowedModelsHeader)
 }
@@ -87,48 +82,16 @@ func (s *Service) ResolveCCAutonomySystemAppend(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCCAutonomySystemAppend, s.ccAutonomySystemAppend)
 }
 
-func (s *Service) ResolveEarlyStopRedo(ctx context.Context) flags.EarlyStopRedoMode {
-	return s.rescueConfig.EarlyStopRedoMode(ctx)
-}
-
 func (s *Service) ResolveCCWorkspaceSystemAppend(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCCWorkspaceSystemAppend, s.ccWorkspaceSystemAppend)
-}
-
-func (s *Service) ResolveCommittedStreamArmDemotion(ctx context.Context) bool {
-	return s.armDemotion.CommittedStreamEnabled(ctx)
-}
-
-func (s *Service) ResolveRescuedFailureArmDemotion(ctx context.Context) bool {
-	return s.armDemotion.RescuedFailureEnabled(ctx)
 }
 
 func (s *Service) ResolveTransientRateLimit(ctx context.Context) bool {
 	return s.throttling.RateLimit.Transient(ctx)
 }
 
-func (s *Service) ResolveRateLimitCooldown(ctx context.Context) time.Duration {
-	return s.throttling.RateLimit.Cooldown(ctx)
-}
-
 func (s *Service) ResolveEffortEscalation(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyEffortEscalation, s.effortEscalation)
-}
-
-func (s *Service) ResolveCyberRefusalRepin(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyCyberRefusalRepin, s.rescueConfig.CyberRefusalRepin)
-}
-
-func (s *Service) ResolveCyberRefusalRetry(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyCyberRefusalRetry, s.rescueConfig.CyberRefusalRetry)
-}
-
-func (s *Service) ResolveCyberRefusalFallbackModel(ctx context.Context) string {
-	return flags.StringOr(ctx, flags.KeyCyberRefusalFallback, s.rescueConfig.CyberRefusalFallbackModel)
-}
-
-func (s *Service) ResolveAnthropicServerSideFallback(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyAnthropicServerFallback, s.rescueConfig.AnthropicServerSideFallback)
 }
 
 func plannerConfigFor(ctx context.Context, cfg planner.EVConfig) planner.EVConfig {

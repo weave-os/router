@@ -25,8 +25,8 @@ type classifierRescuePolicy struct {
 
 func newClassifierRescuePolicy(ctx context.Context, s *Service) classifierRescuePolicy {
 	return classifierRescuePolicy{
-		enabled: s.ResolveCyberRefusalRetry(ctx),
-		models:  append([]string{s.ResolveCyberRefusalFallbackModel(ctx)}, catalog.ClassifierRescueOrder(s.credentials.SubscriptionModels.ServedForCaller(CredentialsFromContext(ctx), s.clock.Now()))...),
+		enabled: s.rescueConfig.CyberRefusalRetryEnabled(ctx),
+		models:  append([]string{s.rescueConfig.CyberRefusalFallbackModelFor(ctx)}, catalog.ClassifierRescueOrder(s.credentials.SubscriptionModels.ServedForCaller(CredentialsFromContext(ctx), s.clock.Now()))...),
 		unavailable: func(model string) bool {
 			return s.credentials.SubscriptionModels.DeniedForCaller(CredentialsFromContext(ctx), model, s.clock.Now())
 		},

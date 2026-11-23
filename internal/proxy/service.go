@@ -1419,7 +1419,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, strategy router.Str
 	if s.pinStore == nil {
 		return
 	}
-	if !s.ResolveCyberRefusalRepin(ctx) {
+	if !s.rescueConfig.CyberRefusalRepinEnabled(ctx) {
 		return
 	}
 	installationID := requestcontext.InstallationIDFromContext(ctx)

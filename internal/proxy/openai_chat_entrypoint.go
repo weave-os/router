@@ -233,7 +233,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Capabilities:             router.Lookup(decision.Model),
 		IncludeStreamUsage:       s.usageRequired(),
 		SessionAffinity:          sessionAffinityHint(routeRes.SessionKey),
-		EnableServerSideFallback: s.ResolveAnthropicServerSideFallback(ctx),
+		EnableServerSideFallback: s.rescueConfig.AnthropicServerSideFallbackEnabled(ctx),
 		ModelSwitched:            routeRes.ModelSwitched(),
 		EnableExtendedContext:    shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
 	}
