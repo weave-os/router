@@ -51,14 +51,14 @@ func TestProtectedChanges(t *testing.T) {
 }
 
 func TestReportFailsOnlyForStructuralGoldenChanges(t *testing.T) {
-	golden := []string{"internal/proxy/service.go", "internal/proxy/golden_credentials_test.go"}
+	changedFiles := []string{"internal/proxy/service.go", "internal/proxy/golden_credentials_test.go"}
 	var out strings.Builder
-	assert.False(t, report(&out, "refactor(proxy): split service", nil, golden))
+	assert.False(t, checkStructuralGoldens(&out, "refactor(proxy): split service", nil, changedFiles))
 	assert.Contains(t, out.String(), "internal/proxy/golden_credentials_test.go")
 	assert.NotContains(t, out.String(), "service.go\n")
-	assert.False(t, report(&strings.Builder{}, "fix: pins", []string{"structural"}, golden))
-	assert.True(t, report(&strings.Builder{}, "fix: pins", nil, golden))
-	assert.True(t, report(&strings.Builder{}, "refactor: split", nil, golden[:1]))
+	assert.False(t, checkStructuralGoldens(&strings.Builder{}, "fix: pins", []string{"structural"}, changedFiles))
+	assert.True(t, checkStructuralGoldens(&strings.Builder{}, "fix: pins", nil, changedFiles))
+	assert.True(t, checkStructuralGoldens(&strings.Builder{}, "refactor: split", nil, changedFiles[:1]))
 }
 
 func TestReadPathsKeepsUnusualFilenamesVerbatim(t *testing.T) {
@@ -70,7 +70,7 @@ func TestReadPathsKeepsUnusualFilenamesVerbatim(t *testing.T) {
 
 func TestReportQuotesFilenamesSoTheyCannotForgeWorkflowCommands(t *testing.T) {
 	var out strings.Builder
-	assert.False(t, report(&out, "refactor: split", nil, []string{"internal/proxy/testdata/golden/x\n::error::forged.json"}))
+	assert.False(t, checkStructuralGoldens(&out, "refactor: split", nil, []string{"internal/proxy/testdata/golden/x\n::error::forged.json"}))
 	assert.NotContains(t, out.String(), "\n::error::")
 	assert.Contains(t, out.String(), `"internal/proxy/testdata/golden/x\n::error::forged.json"`)
 }

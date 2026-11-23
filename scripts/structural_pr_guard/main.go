@@ -43,12 +43,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, "structural_pr_guard: read changed files:", err)
 		os.Exit(2)
 	}
-	if !report(os.Stdout, os.Getenv("PR_TITLE"), labels, changed) {
+	if !checkStructuralGoldens(os.Stdout, os.Getenv("PR_TITLE"), labels, changed) {
 		os.Exit(1)
 	}
 }
 
-func report(w io.Writer, title string, labels, changed []string) bool {
+func checkStructuralGoldens(w io.Writer, title string, labels, changed []string) bool {
 	if !isStructural(title, labels) {
 		_, _ = fmt.Fprintln(w, "structural_pr_guard: not a structural PR (no refactor title, no structural label); nothing to check")
 		return true
