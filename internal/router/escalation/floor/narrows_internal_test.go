@@ -7,7 +7,6 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
@@ -109,10 +108,10 @@ func TestEscalationNarrowsOnlyRejectsAWidenedCandidateSet(t *testing.T) {
 		req.Candidates.ExcludedModels = nil
 		req.Candidates.AllowedModels = nil
 	}
-	assert.Error(t, quick.Check(escalationNarrowsOnly(widen), &quick.Config{MaxCount: 2000}))
+	require.Error(t, quick.Check(escalationNarrowsOnly(widen), &quick.Config{MaxCount: 2000}))
 	forceModel := func(turn *Turn, req *router.Request) {
 		turn.Apply(req)
 		req.ForceModel = "model-a"
 	}
-	assert.Error(t, quick.Check(escalationNarrowsOnly(forceModel), &quick.Config{MaxCount: 2000}))
+	require.Error(t, quick.Check(escalationNarrowsOnly(forceModel), &quick.Config{MaxCount: 2000}))
 }
