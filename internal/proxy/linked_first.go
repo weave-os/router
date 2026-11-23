@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/subscriptionlane"
 )
 
@@ -44,7 +45,7 @@ func paidFallbackForbiddenForModelOnProvider(ctx context.Context, provider, mode
 }
 
 func subscriptionStatePaidRescueContext(ctx context.Context, model string) context.Context {
-	if _, exhaustedModel := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]; exhaustedModel {
+	if _, exhaustedModel := candidates.ModelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]; exhaustedModel {
 		return context.WithValue(ctx, credentials.SubscriptionAPIOnlyKey{}, true)
 	}
 	return ctx

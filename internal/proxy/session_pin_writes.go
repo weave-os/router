@@ -36,6 +36,9 @@ func (s *Service) recordSwitchHistory(ctx context.Context, res routingpolicy.Tur
 			ServedProvider:      servedProvider,
 			PriorServedModel:    res.PriorServedModel,
 			SessionEverSwitched: res.SessionEverSwitched,
+			PromptTokens:        servedPromptTokens(servedProvider, in, cacheRead, cacheCreation),
+			MessageCount:        res.CacheShape().MessageCount,
+			CacheWriteTTL:       res.CacheShape().CacheWriteTTL,
 		},
 	})
 	if usageRecorded {

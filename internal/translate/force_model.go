@@ -51,10 +51,22 @@ func isSkillAttachment(msgs []gjson.Result, i int) bool {
 	if i <= 0 || msgs[i].Get("role").String() != "user" {
 		return false
 	}
-	if msgs[i-1].Get("role").String() != "user" {
+	prev := i - 1
+	for prev >= 0 && isInstructionMessage(msgs[prev]) {
+		prev--
+	}
+	if prev < 0 || msgs[prev].Get("role").String() != "user" {
 		return false
 	}
 	return isSkillInstructionsOnly(msgs[i].Get("content"))
+}
+
+func isInstructionMessage(msg gjson.Result) bool {
+	switch msg.Get("role").String() {
+	case "system", "developer":
+		return true
+	}
+	return false
 }
 
 func isSkillInstructionsOnly(content gjson.Result) bool {

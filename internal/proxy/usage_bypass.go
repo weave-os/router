@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/telemetry/respobserve"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -22,6 +24,7 @@ import (
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
@@ -220,7 +223,7 @@ func (s *Service) bypassToAnthropic(
 		ModelSwitched:            modelSwitched,
 		FastMode:                 fastModeForAttempt(ctx, decision.Model, decision.Provider),
 	}
-	prep, emitErr := prepareAnthropicForTurn(env, r.Header, opts, turnType)
+	prep, emitErr := routingpolicy.PrepareAnthropicForTurn(env, r.Header, opts, turnType)
 	if emitErr != nil {
 		log.Error("Failed to emit Anthropic body on usage-bypass path", "err", emitErr)
 		return fmt.Errorf("emit bypass body: %w", emitErr)
@@ -253,27 +256,27 @@ func (s *Service) bypassToAnthropic(
 		streamCost.source = extractor.UsageFacts
 	}
 
-	var terminal *streamTerminalObserver
+	var terminal *dispatch.StreamTerminalObserver
 	if env.Stream() {
-		terminal = newStreamTerminalObserver(respW, nativeStreamAnthropic)
+		terminal = dispatch.NewStreamTerminalObserver(respW, dispatch.NativeStreamAnthropic)
 		respW = terminal
 	}
 	preludeBuf.Seal()
 
 	proxyStart := s.clock.Now()
 	inferenceParentCtx := ctx
-	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
-	passiveRefusal := newPassiveRefusalObserver(respW)
+	ctx, inferenceSpan := spans.StartInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
+	passiveRefusal := respobserve.NewPassiveRefusalObserver(respW)
 	toolNames := translate.NewAnthropicToolNameWriter(passiveRefusal, prep.ResponseToolNames)
 	decision, proxyErr := proxyClassifierWithRefusalRescue(ctx, func(d router.Decision, prep providers.PreparedRequest, out http.ResponseWriter) error {
 		return p.Proxy(ctx, d, prep, out, r)
 	}, decision, prep, newClassifierRefusalRescue(ctx, newClassifierRescuePolicy(ctx, s), turnType, decision, env, r.Header, opts), toolNames)
 	proxyErr = finalizeAfterProxy(proxyErr, toolNames.Finalize)
 	if proxyErr == nil && terminal != nil {
-		proxyErr = terminal.streamErr()
+		proxyErr = terminal.StreamErr()
 	}
-	finishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
-	ctx = restoreParentSpan(ctx, inferenceParentCtx)
+	spans.FinishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
+	ctx = spans.RestoreParentSpan(ctx, inferenceParentCtx)
 	var upstreamErr *providers.UpstreamErrorResponse
 	recordSubscriptionModelOutcome(s, ctx, decision.Provider, decision.Model, proxyErr)
 	if proxyErr != nil {
@@ -303,7 +306,7 @@ func (s *Service) bypassToAnthropic(
 	outputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, pricing, usageMods)
 
 	clientID := requestcontext.ClientIdentityFrom(ctx)
-	stopReason := passiveRefusal.stopReason(extractor)
+	stopReason := passiveRefusal.StopReason(extractor)
 	outcomeErr := proxyErr
 	if upstreamErr != nil {
 		outcomeErr = upstreamErr
@@ -318,7 +321,7 @@ func (s *Service) bypassToAnthropic(
 		String("decision.model", decision.Model).
 		String("decision.provider", decision.Provider).
 		String("decision.reason", decision.Reason).
-		String("upstream.stop_reason", stopReason).Bool("upstream.refusal", passiveRefusal.scan.refused).String("upstream.refusal_category", passiveRefusal.scan.category).
+		String("upstream.stop_reason", stopReason).Bool("upstream.refusal", passiveRefusal.Scan.Refused).String("upstream.refusal_category", passiveRefusal.Scan.Category).
 		Bool("cost.subscription_served", proxyErr == nil && upstreamErr == nil && s.costNeutralSubscriptionServed(ctx)).
 		Int64("usage.input_tokens", int64(in)).
 		Int64("usage.output_tokens", int64(out)).
@@ -409,7 +412,7 @@ func (s *Service) bypassToAnthropic(
 		"proxy_ms", s.clock.Now().Sub(proxyStart).Milliseconds(),
 		"total_ms", s.clock.Now().Sub(requestStart).Milliseconds(),
 		"proxy_err", proxyErr,
-		"resp_stop_reason", stopReason, "resp_refusal", passiveRefusal.scan.refused, "resp_refusal_category", passiveRefusal.scan.category,
+		"resp_stop_reason", stopReason, "resp_refusal", passiveRefusal.Scan.Refused, "resp_refusal_category", passiveRefusal.Scan.Category,
 		"credential_source", servedCredentialSource,
 		"subscription_tier", servedSubscriptionTier,
 	)

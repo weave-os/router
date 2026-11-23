@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -190,7 +191,7 @@ func TestClassifierThreadTicketRoundTripAcrossTimeZones(t *testing.T) {
 			now := time.Now().In(zone)
 			svc.clock = func() time.Time { return now }
 			ctx = classifierAdmit(t, svc, ctx)
-			input, err := classifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "first")))
+			input, err := routingpolicy.ClassifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "first")))
 			require.NoError(t, err)
 			prediction, err := svc.classifyThread(ctx, input)
 			require.NoError(t, err)
@@ -207,7 +208,7 @@ func TestClassifierPredictionsSurviveRetriesReplicasAndToolLoops(t *testing.T) {
 	})
 	ctx = classifierAdmit(t, svc, ctx)
 	first := classifierTestText(translate.EscalationRoleUser, "first")
-	input, err := classifierContextForCall(classifierTestObservation(first))
+	input, err := routingpolicy.ClassifierContextForCall(classifierTestObservation(first))
 	require.NoError(t, err)
 	var group sync.WaitGroup
 	errorsCh := make(chan error, 8)
@@ -225,7 +226,7 @@ func TestClassifierPredictionsSurviveRetriesReplicasAndToolLoops(t *testing.T) {
 		translate.EscalationMessage{Role: translate.EscalationRoleAssistant, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockText, Text: ""}, {Type: translate.EscalationBlockToolCall, ID: "call", Name: "test"}}},
 		translate.EscalationMessage{Role: translate.EscalationRoleTool, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockToolResult, CallID: "call", IsError: func() *bool { b := true; return &b }()}}},
 	)
-	input, err = classifierContextForCall(loop)
+	input, err = routingpolicy.ClassifierContextForCall(loop)
 	require.NoError(t, err)
 	replica := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: time.Now})
 	require.NoError(t, replica.WithClassifierSessions(svc.classifierSessions.config, store, svc.classifierSessions.classifier))
@@ -236,14 +237,14 @@ func TestClassifierPredictionsSurviveRetriesReplicasAndToolLoops(t *testing.T) {
 	require.Equal(t, router.ClassifierFeatures{UserMessageCount: 1, ToolCallCount: 1, ToolErrorCount: 1}, requests[1].User.Features)
 	require.Equal(t, []router.PredictedClassifierResponse{{ResponseIndex: 0, Content: "", Complexity: router.ClassifierMedium}}, requests[1].User.PrecedingResponses)
 	loop.Messages = append(loop.Messages, classifierTestText(translate.EscalationRoleUser, "next"))
-	input, err = classifierContextForCall(loop)
+	input, err = routingpolicy.ClassifierContextForCall(loop)
 	require.NoError(t, err)
 	_, err = replica.classifyThread(ctx, input)
 	require.NoError(t, err)
 	require.Len(t, requests, 3)
 	require.Equal(t, router.ClassifierFeatures{UserMessageCount: 2, ToolCallCount: 1, ToolErrorCount: 1}, requests[2].User.Features)
 	require.Equal(t, []router.PredictedClassifierResponse{{ResponseIndex: 0, Content: "", Complexity: router.ClassifierMedium}}, requests[2].User.PrecedingResponses)
-	compacted, err := classifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "summary")))
+	compacted, err := routingpolicy.ClassifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "summary")))
 	require.NoError(t, err)
 	_, err = replica.classifyThread(ctx, compacted)
 	require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
@@ -259,7 +260,7 @@ func TestClassifierLastTenAtomicResponsesUseHistoricalPredictions(t *testing.T) 
 	ctx = classifierAdmit(t, svc, ctx)
 	observation := classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "first"))
 	for turn := 0; turn < 13; turn++ {
-		input, err := classifierContextForCall(observation)
+		input, err := routingpolicy.ClassifierContextForCall(observation)
 		require.NoError(t, err)
 		_, err = svc.classifyThread(ctx, input)
 		require.NoError(t, err)
@@ -280,7 +281,7 @@ func TestClassifierImportedHistoryAndFailedInferenceNeverCommit(t *testing.T) {
 	})
 	ctx = classifierAdmit(t, svc, ctx)
 	observation := classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "first"))
-	input, err := classifierContextForCall(observation)
+	input, err := routingpolicy.ClassifierContextForCall(observation)
 	require.NoError(t, err)
 	_, err = svc.classifyThread(ctx, input)
 	require.ErrorIs(t, err, failure)
@@ -288,7 +289,7 @@ func TestClassifierImportedHistoryAndFailedInferenceNeverCommit(t *testing.T) {
 		require.Empty(t, turns)
 	}
 	observation.Messages = append(observation.Messages, classifierTestText(translate.EscalationRoleAssistant, "previous"), classifierTestText(translate.EscalationRoleUser, "second"))
-	input, err = classifierContextForCall(observation)
+	input, err = routingpolicy.ClassifierContextForCall(observation)
 	require.NoError(t, err)
 	_, err = svc.classifyThread(ctx, input)
 	require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
@@ -321,7 +322,7 @@ func TestClassifierNativeInputGroupsPersistExactBoundaries(t *testing.T) {
 			require.NoError(t, err)
 			observation, err := envelope.EscalationObservation()
 			require.NoError(t, err)
-			first, err := classifierContextForCall(observation)
+			first, err := routingpolicy.ClassifierContextForCall(observation)
 			require.NoError(t, err)
 			require.True(t, first.AtUserBoundary)
 			require.Equal(t, fixture.userText, first.CurrentUserMessage)
@@ -345,7 +346,7 @@ func TestClassifierNativeInputGroupsPersistExactBoundaries(t *testing.T) {
 				}},
 				classifierTestText(translate.EscalationRoleSystem, "tool-loop instructions"),
 			)
-			loop, err := classifierContextForCall(observation)
+			loop, err := routingpolicy.ClassifierContextForCall(observation)
 			require.NoError(t, err)
 			require.False(t, loop.AtUserBoundary)
 			require.NotEqual(t, first.TurnDigest, loop.TurnDigest)
@@ -356,7 +357,7 @@ func TestClassifierNativeInputGroupsPersistExactBoundaries(t *testing.T) {
 			require.Len(t, classificationRequests, 2)
 			instructionIndex := len(observation.Messages) - 1
 			observation.Messages[instructionIndex].Blocks[0].Text = "rewritten tool-loop instructions"
-			rewritten, err := classifierContextForCall(observation)
+			rewritten, err := routingpolicy.ClassifierContextForCall(observation)
 			require.NoError(t, err)
 			_, err = replica.classifyThread(ctx, rewritten)
 			require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
@@ -364,7 +365,7 @@ func TestClassifierNativeInputGroupsPersistExactBoundaries(t *testing.T) {
 			// Appending instructions is a new call; reverting the committed
 			// causal fence must not be accepted later.
 			observation.Messages = append(observation.Messages, classifierTestText(translate.EscalationRoleDeveloper, "additional tool-loop instructions"))
-			extended, err := classifierContextForCall(observation)
+			extended, err := routingpolicy.ClassifierContextForCall(observation)
 			require.NoError(t, err)
 			_, err = replica.classifyThread(ctx, extended)
 			require.NoError(t, err)
@@ -378,7 +379,7 @@ func TestClassifierNativeInputGroupsPersistExactBoundaries(t *testing.T) {
 				classifierTestText(translate.EscalationRoleUser, "second request"),
 				classifierTestText(translate.EscalationRoleSystem, "final instructions"),
 			)
-			next, err := classifierContextForCall(observation)
+			next, err := routingpolicy.ClassifierContextForCall(observation)
 			require.NoError(t, err)
 			require.True(t, next.AtUserBoundary)
 			_, err = replica.classifyThread(ctx, next)
@@ -394,7 +395,7 @@ func TestClassifierNativeInputGroupsPersistExactBoundaries(t *testing.T) {
 			for _, index := range []int{0, len(observation.Messages) - 1} {
 				original := observation.Messages[index].Blocks[0].Text
 				observation.Messages[index].Blocks[0].Text = "rewritten instructions"
-				changed, err := classifierContextForCall(observation)
+				changed, err := routingpolicy.ClassifierContextForCall(observation)
 				require.NoError(t, err)
 				_, err = replica.classifyThread(ctx, changed)
 				require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
@@ -419,7 +420,7 @@ func TestClassifierClaudeTransientToolHintReplay(t *testing.T) {
 			svc, ctx, _ := classifierSessionFixture(t, classifierMedium)
 			ctx = classifierAdmit(t, svc, ctx)
 			observation := classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "first"))
-			first, err := classifierContextForCall(observation)
+			first, err := routingpolicy.ClassifierContextForCall(observation)
 			require.NoError(t, err)
 			_, err = svc.classifyThread(ctx, first)
 			require.NoError(t, err)
@@ -427,10 +428,10 @@ func TestClassifierClaudeTransientToolHintReplay(t *testing.T) {
 				classifierTestText(translate.EscalationRoleAssistant, "intermediate"),
 				translate.EscalationMessage{Role: translate.EscalationRoleSystem, Blocks: []translate.EscalationBlock{
 					{Type: translate.EscalationBlockText, Text: budget},
-					{Type: translate.EscalationBlockText, Text: classifierClaudeToolHint},
+					{Type: translate.EscalationBlockText, Text: routingpolicy.ClassifierClaudeToolHint},
 				}},
 			)
-			loop, err := classifierContextForCall(observation)
+			loop, err := routingpolicy.ClassifierContextForCall(observation)
 			require.NoError(t, err)
 			_, err = svc.classifyThread(ctx, loop)
 			require.NoError(t, err)
@@ -441,18 +442,18 @@ func TestClassifierClaudeTransientToolHintReplay(t *testing.T) {
 				classifierTestText(translate.EscalationRoleUser, "next"),
 				classifierTestText(translate.EscalationRoleSystem, "<total_tokens>15000000 tokens left</total_tokens>\n\nUSD budget: $0/$2; $2 remaining"),
 			)
-			next, err := classifierContextForCall(observation)
+			next, err := routingpolicy.ClassifierContextForCall(observation)
 			require.NoError(t, err)
 			_, err = svc.classifyThread(ctx, next)
 			require.NoError(t, err)
 			require.Len(t, next.PrecedingResponses, 2)
 			observation.Messages[2].Blocks[0].Text = "<total_tokens>42 tokens left</total_tokens>"
-			rewritten, err := classifierContextForCall(observation)
+			rewritten, err := routingpolicy.ClassifierContextForCall(observation)
 			require.NoError(t, err)
 			_, err = svc.classifyThread(ctx, rewritten)
 			require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
 
-			for _, instruction := range []string{"arbitrary instructions", classifierClaudeToolHint + " extra instructions"} {
+			for _, instruction := range []string{"arbitrary instructions", routingpolicy.ClassifierClaudeToolHint + " extra instructions"} {
 				changed := classifierTestObservation(
 					classifierTestText(translate.EscalationRoleUser, "first"),
 					classifierTestText(translate.EscalationRoleAssistant, "intermediate"),
@@ -461,7 +462,7 @@ func TestClassifierClaudeTransientToolHintReplay(t *testing.T) {
 						{Type: translate.EscalationBlockText, Text: instruction},
 					}},
 				)
-				input, err := classifierContextForCall(changed)
+				input, err := routingpolicy.ClassifierContextForCall(changed)
 				require.NoError(t, err)
 				require.NotEqual(t, loop.PrefixDigests, input.PrefixDigests, "only the exact ephemeral hint is excluded")
 			}
@@ -469,12 +470,12 @@ func TestClassifierClaudeTransientToolHintReplay(t *testing.T) {
 				observation.Messages = observation.Messages[:3]
 				observation.Messages[2].Blocks = []translate.EscalationBlock{
 					{Type: translate.EscalationBlockText, Text: budget + suffix},
-					{Type: translate.EscalationBlockText, Text: classifierClaudeToolHint},
+					{Type: translate.EscalationBlockText, Text: routingpolicy.ClassifierClaudeToolHint},
 				}
-				withHint, err := classifierContextForCall(observation)
+				withHint, err := routingpolicy.ClassifierContextForCall(observation)
 				require.NoError(t, err)
 				observation.Messages[2].Blocks = observation.Messages[2].Blocks[:1]
-				withoutHint, err := classifierContextForCall(observation)
+				withoutHint, err := routingpolicy.ClassifierContextForCall(observation)
 				require.NoError(t, err)
 				require.NotEqual(t, withHint.PrefixDigests, withoutHint.PrefixDigests, "unrecognized instructions must remain identity-bearing")
 			}
@@ -492,14 +493,14 @@ func TestClassifierNativeWebSearchReplay(t *testing.T) {
 					return classifierMedium(ctx, request)
 				})
 				ctx = classifierAdmit(t, svc, ctx)
-				first, err := classifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "find documentation")))
+				first, err := routingpolicy.ClassifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "find documentation")))
 				require.NoError(t, err)
 				_, err = svc.classifyThread(ctx, first)
 				require.NoError(t, err)
 				searchPrefix := fmt.Sprintf(`{"input":[{"role":"user","content":"find documentation"},{"type":"web_search_call",%s"status":%q,"action":{"type":"search","query":"synthetic query"}}`, callIDField, status)
 				observation, err := translate.ParseResponsesEscalationObservation([]byte(searchPrefix + `]}`))
 				require.NoError(t, err)
-				loop, err := classifierContextForCall(observation)
+				loop, err := routingpolicy.ClassifierContextForCall(observation)
 				require.NoError(t, err)
 				_, err = svc.classifyThread(ctx, loop)
 				require.NoError(t, err)
@@ -507,7 +508,7 @@ func TestClassifierNativeWebSearchReplay(t *testing.T) {
 				nextBody := searchPrefix + `,{"role":"assistant","content":"documentation summary"},{"role":"user","content":"next question"}]}`
 				observation, err = translate.ParseResponsesEscalationObservation([]byte(nextBody))
 				require.NoError(t, err)
-				next, err := classifierContextForCall(observation)
+				next, err := routingpolicy.ClassifierContextForCall(observation)
 				require.NoError(t, err)
 				_, err = svc.classifyThread(ctx, next)
 				require.NoError(t, err)
@@ -529,7 +530,7 @@ func TestClassifierNativeWebSearchReplay(t *testing.T) {
 				} {
 					observation, err = translate.ParseResponsesEscalationObservation([]byte(rewritten))
 					require.NoError(t, err)
-					changed, err := classifierContextForCall(observation)
+					changed, err := routingpolicy.ClassifierContextForCall(observation)
 					require.NoError(t, err)
 					_, err = svc.classifyThread(ctx, changed)
 					require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)

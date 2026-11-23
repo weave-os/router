@@ -297,7 +297,9 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "gpt-5.5",
             "ServedProvider": "openai",
             "Strategy": "hmm_embedding"

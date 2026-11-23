@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,5 +62,5 @@ func TestForceableModels_ShorthandsResolveToTheirRow(t *testing.T) {
 			assert.Equal(t, m.ID, resolved, "shorthand %q resolves elsewhere", name)
 		}
 	}
-	assert.Contains(t, forceableByID(models)[forceModelAliases["opus"]].Shorthands, "opus")
+	assert.Contains(t, forceableByID(models)[routingpolicy.ForceModelAliases["opus"]].Shorthands, "opus")
 }

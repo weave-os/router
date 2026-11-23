@@ -448,3 +448,15 @@ func TestAuthorityCacheShadowEarlyExitLeavesEVColumnsNull(t *testing.T) {
 		"the zero Outcome renders as \"stay\"; an uncomputed verdict must stay NULL")
 	assert.Nil(t, params.AuthorityShadowCorrectedSavingsUSD)
 }
+
+func candidateScoreFor(ports continuity.StrategyPorts, dec router.Decision, servedIdentity string) *float64 {
+	return candidateScoreForWithProvider(ports, dec, servedIdentity, dec.Provider)
+}
+
+func candidateScoreForWithProvider(ports continuity.StrategyPorts, dec router.Decision, servedIdentity, provider string) *float64 {
+	return candidateScoreForWithArm(ports, dec, servedIdentity, provider, "")
+}
+
+func candidateScoreForWithArm(ports continuity.StrategyPorts, dec router.Decision, servedIdentity, provider, rosterArmID string) *float64 {
+	return ports.Facts.CandidateScore(dec, servedIdentity, provider, rosterArmID)
+}

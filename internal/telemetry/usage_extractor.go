@@ -87,6 +87,13 @@ func (u *UsageExtractor) SetRequestCacheTTL1h(oneHour func() bool) {
 	}
 }
 
+func (u *UsageExtractor) RequestCacheTTL1h() (oneHour, known bool) {
+	if u == nil || u.requestCacheTTL1h == nil {
+		return false, false
+	}
+	return u.requestCacheTTL1h(), true
+}
+
 func (u *UsageExtractor) RecordOutputLimitReached() {
 	if u != nil {
 		u.outputLimitReached = true

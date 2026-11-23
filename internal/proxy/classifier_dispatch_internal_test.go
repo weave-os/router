@@ -25,6 +25,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rosterdata"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -295,7 +296,7 @@ func TestClassifierUtilityRequestsDoNotEstablishThreadRoot(t *testing.T) {
 			require.Empty(t, pins.upserts)
 		})
 	}
-	input, err := classifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "real request")))
+	input, err := routingpolicy.ClassifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "real request")))
 	require.NoError(t, err)
 	prediction, err := svc.classifyThread(ctx, input)
 	require.NoError(t, err)

@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry/capture"
+	"weave-os/router/internal/telemetry/iolog"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -101,7 +102,7 @@ func assembleMessagesPreRoute(ctx context.Context, s *Service, in messagesPreRou
 	}
 
 	if s.effectiveCaptureMode(ctx) != capture.Off {
-		logInboundRequestDiagnostics(log, env)
+		iolog.LogInboundRequestDiagnostics(log, env)
 	}
 
 	eligibility, eligibilityErr := requestEligibility(ctx, s, providers.ProviderAnthropic, r.Header)

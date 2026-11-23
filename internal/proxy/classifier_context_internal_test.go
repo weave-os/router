@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/require"
@@ -46,7 +47,7 @@ func TestClassifierContextProtocolParity(t *testing.T) {
 			require.NoError(t, err)
 			observation, err := envelope.EscalationObservation()
 			require.NoError(t, err)
-			input, err := classifierContextForCall(observation)
+			input, err := routingpolicy.ClassifierContextForCall(observation)
 			require.NoError(t, err)
 			require.Equal(t, "second", input.CurrentUserMessage)
 			require.Equal(t, router.ClassifierFeatures{UserMessageCount: 2, ToolCallCount: 1, ToolErrorCount: 1}, input.Features)
@@ -85,7 +86,7 @@ func TestClassifierContextWindowAndWholePrefixCounters(t *testing.T) {
 		)
 	}
 	messages = append(messages, classifierTestText(translate.EscalationRoleUser, "next"))
-	input, err := classifierContextForCall(classifierTestObservation(messages...))
+	input, err := routingpolicy.ClassifierContextForCall(classifierTestObservation(messages...))
 	require.NoError(t, err)
 	require.Equal(t, 14, input.CompletedResponseCount)
 	require.Equal(t, router.ClassifierFeatures{UserMessageCount: 2, ToolCallCount: 14, ToolErrorCount: 14}, input.Features)
@@ -98,7 +99,7 @@ func TestClassifierContextWindowAndWholePrefixCounters(t *testing.T) {
 
 func TestClassifierContextRetriesReuseCallButToolLoopsRefresh(t *testing.T) {
 	first := classifierTestText(translate.EscalationRoleUser, "first")
-	initial, err := classifierContextForCall(classifierTestObservation(first))
+	initial, err := routingpolicy.ClassifierContextForCall(classifierTestObservation(first))
 	require.NoError(t, err)
 	loop := classifierTestObservation(first,
 		translate.EscalationMessage{Role: translate.EscalationRoleAssistant, Blocks: []translate.EscalationBlock{
@@ -111,7 +112,7 @@ func TestClassifierContextRetriesReuseCallButToolLoopsRefresh(t *testing.T) {
 	)
 	var continuation router.ClassifierContext
 	for attempt := range 3 {
-		input, err := classifierContextForCall(loop)
+		input, err := routingpolicy.ClassifierContextForCall(loop)
 		require.NoError(t, err)
 		require.False(t, input.AtUserBoundary)
 		require.Equal(t, initial.PrefixDigests, input.PrefixDigests[:len(initial.PrefixDigests)])
@@ -125,7 +126,7 @@ func TestClassifierContextRetriesReuseCallButToolLoopsRefresh(t *testing.T) {
 		continuation = input
 	}
 	loop.Messages = append(loop.Messages, classifierTestText(translate.EscalationRoleUser, "next"))
-	next, err := classifierContextForCall(loop)
+	next, err := routingpolicy.ClassifierContextForCall(loop)
 	require.NoError(t, err)
 	require.NotEqual(t, initial.TurnDigest, next.TurnDigest)
 	require.Equal(t, initial.TurnDigest, next.PrecedingResponses[0].PrefixDigest)
@@ -139,11 +140,11 @@ func TestClassifierContextNoClippingAndBranchIdentity(t *testing.T) {
 		classifierTestText(translate.EscalationRoleAssistant, longResponse),
 		classifierTestText(translate.EscalationRoleUser, "next"),
 	)
-	input, err := classifierContextForCall(prefix)
+	input, err := routingpolicy.ClassifierContextForCall(prefix)
 	require.NoError(t, err)
 	require.Equal(t, longResponse, input.PrecedingResponses[0].Content)
 	prefix.Messages[1].Blocks[0].Text += "changed"
-	branch, err := classifierContextForCall(prefix)
+	branch, err := routingpolicy.ClassifierContextForCall(prefix)
 	require.NoError(t, err)
 	require.NotEqual(t, input.TurnDigest, branch.TurnDigest)
 	require.Equal(t, input.PrecedingResponses[0].PrefixDigest, branch.PrecedingResponses[0].PrefixDigest)
@@ -175,7 +176,7 @@ func TestClassifierContextRejectsIncompleteAndAmbiguousHistory(t *testing.T) {
 	}
 	for name, fixture := range fixtures {
 		t.Run(name, func(t *testing.T) {
-			_, err := classifierContextForCall(fixture)
+			_, err := routingpolicy.ClassifierContextForCall(fixture)
 			require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
 		})
 	}

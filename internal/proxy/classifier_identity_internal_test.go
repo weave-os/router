@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/require"
@@ -32,9 +33,9 @@ func TestClassifierInstructionIdentityAcrossProtocols(t *testing.T) {
 				require.NoError(t, err)
 				observation, err := envelope.EscalationObservation()
 				require.NoError(t, err)
-				input, err := classifierContextForCall(observation)
+				input, err := routingpolicy.ClassifierContextForCall(observation)
 				require.NoError(t, err)
-				retry, err := classifierContextForCall(observation)
+				retry, err := routingpolicy.ClassifierContextForCall(observation)
 				require.NoError(t, err)
 				require.Equal(t, input, retry)
 				require.Equal(t, "next", input.CurrentUserMessage)
@@ -67,10 +68,10 @@ func TestClassifierInstructionsBeforeNextUserBoundary(t *testing.T) {
 				classifierTestText(role, "instruction A"),
 				classifierTestText(translate.EscalationRoleUser, "next"),
 			)
-			initial, err := classifierContextForCall(observation)
+			initial, err := routingpolicy.ClassifierContextForCall(observation)
 			require.NoError(t, err)
 			observation.Messages[2].Blocks[0].Text = "instruction B"
-			changed, err := classifierContextForCall(observation)
+			changed, err := routingpolicy.ClassifierContextForCall(observation)
 			require.NoError(t, err)
 			require.NotEqual(t, initial.TurnDigest, changed.TurnDigest)
 			require.Equal(t, initial.PrecedingResponses, changed.PrecedingResponses)
@@ -103,14 +104,14 @@ func TestClassifierRejectsOmittedMediaAcrossProtocols(t *testing.T) {
 				require.NoError(t, err)
 				require.Len(t, observation.Messages, 1)
 				require.True(t, observation.Messages[0].HasOmittedMedia)
-				_, err = classifierContextForCall(observation)
+				_, err = routingpolicy.ClassifierContextForCall(observation)
 				require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
 				// Adding text must not conceal the same omitted media identity.
 				observation.Messages[0].Blocks = append(observation.Messages[0].Blocks, translate.EscalationBlock{Type: translate.EscalationBlockText, Text: "describe it"})
-				_, err = classifierContextForCall(observation)
+				_, err = routingpolicy.ClassifierContextForCall(observation)
 				require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
 				observation.Messages = append(observation.Messages, classifierTestText(translate.EscalationRoleUser, "next"))
-				_, err = classifierContextForCall(observation)
+				_, err = routingpolicy.ClassifierContextForCall(observation)
 				require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
 			}
 		})
@@ -118,7 +119,7 @@ func TestClassifierRejectsOmittedMediaAcrossProtocols(t *testing.T) {
 }
 
 func TestClassifierExplicitEmptyUserTextIsNotOmittedMedia(t *testing.T) {
-	input, err := classifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "")))
+	input, err := routingpolicy.ClassifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "")))
 	require.NoError(t, err)
 	require.Empty(t, input.CurrentUserMessage)
 	require.Equal(t, 1, input.Features.UserMessageCount)

@@ -17,6 +17,7 @@ import (
 
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/hmm"
@@ -80,26 +81,26 @@ func TestDispatchErrorKindOwner_EveryKindLabeled(t *testing.T) {
 }
 
 func TestStreamFailureOwner_EveryClassLabeled(t *testing.T) {
-	classes := map[string]streamFailureClass{
-		"streamFailureUpstreamEOF": streamFailureUpstreamEOF, "streamFailureUpstreamReset": streamFailureUpstreamReset,
-		"streamFailureIdleWatchdog": streamFailureIdleWatchdog, "streamFailureOutputStallWatchdog": streamFailureOutputStallWatchdog,
-		"streamFailureSlowThroughputWatchdog": streamFailureSlowThroughputWatchdog, "streamFailureUpstreamErrorFrame": streamFailureUpstreamErrorFrame,
-		"streamFailureUpstreamIncomplete": streamFailureUpstreamIncomplete, "streamFailureUpstreamEmpty": streamFailureUpstreamEmpty,
-		"streamFailureUpstreamTimeout": streamFailureUpstreamTimeout, "streamFailureClientCanceled": streamFailureClientCanceled,
-		"streamFailureDeadline": streamFailureDeadline, "streamFailureOther": streamFailureOther,
+	classes := map[string]dispatch.StreamFailureClass{
+		"StreamFailureUpstreamEOF": dispatch.StreamFailureUpstreamEOF, "StreamFailureUpstreamReset": dispatch.StreamFailureUpstreamReset,
+		"StreamFailureIdleWatchdog": dispatch.StreamFailureIdleWatchdog, "StreamFailureOutputStallWatchdog": dispatch.StreamFailureOutputStallWatchdog,
+		"StreamFailureSlowThroughputWatchdog": dispatch.StreamFailureSlowThroughputWatchdog, "StreamFailureUpstreamErrorFrame": dispatch.StreamFailureUpstreamErrorFrame,
+		"StreamFailureUpstreamIncomplete": dispatch.StreamFailureUpstreamIncomplete, "StreamFailureUpstreamEmpty": dispatch.StreamFailureUpstreamEmpty,
+		"StreamFailureUpstreamTimeout": dispatch.StreamFailureUpstreamTimeout, "StreamFailureClientCanceled": dispatch.StreamFailureClientCanceled,
+		"StreamFailureDeadline": dispatch.StreamFailureDeadline, "StreamFailureOther": dispatch.StreamFailureOther,
 	}
-	for _, name := range declaredConstsOfType(t, ".", "streamFailureClass") {
+	for _, name := range declaredConstsOfType(t, "../dispatch", "StreamFailureClass") {
 		class, ok := classes[name]
 		require.True(t, ok, "%s is not covered by this test; add it and give it an owner", name)
 		owner := streamFailureOwner(class)
-		if class == streamFailureOther {
+		if class == dispatch.StreamFailureOther {
 			assert.Equal(t, turnrecord.FailureOwnerUnknown, owner)
 			continue
 		}
 		assert.NotEqual(t, turnrecord.FailureOwnerUnknown, owner, "%s has no failure owner", name)
 	}
-	assert.Equal(t, turnrecord.FailureOwnerProvider, streamFailureOwner(streamFailureIdleWatchdog))
-	assert.Equal(t, turnrecord.FailureOwnerClient, streamFailureOwner(streamFailureClientCanceled))
+	assert.Equal(t, turnrecord.FailureOwnerProvider, streamFailureOwner(dispatch.StreamFailureIdleWatchdog))
+	assert.Equal(t, turnrecord.FailureOwnerClient, streamFailureOwner(dispatch.StreamFailureClientCanceled))
 }
 
 func TestClassifyFailureOwner_TranslatedVersusUntranslated400(t *testing.T) {
