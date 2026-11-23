@@ -59,7 +59,7 @@ func upstreamModelsEngine(authSvc *auth.Service, proxySvc *proxy.Service) *gin.E
 	engine := gin.New()
 	engine.GET("/admin/v1/provider-keys/:id/models", func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{ID: testInstallationID})
-	}, admin.ListUpstreamModelsHandler(authSvc, proxySvc))
+	}, admin.ListUpstreamModelsHandler(authSvc, proxy.DispatchEngine(proxySvc)))
 	return engine
 }
 
@@ -134,7 +134,7 @@ func TestListUpstreamModelsHandler_UnsupportedProviderIs501(t *testing.T) {
 func discoverModelsEngine(proxySvc *proxy.Service) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.POST("/admin/v1/provider-keys/discover-models", admin.DiscoverModelsHandler(proxySvc))
+	engine.POST("/admin/v1/provider-keys/discover-models", admin.DiscoverModelsHandler(proxy.DispatchEngine(proxySvc)))
 	return engine
 }
 

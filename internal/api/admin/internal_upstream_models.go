@@ -6,8 +6,8 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,7 +17,7 @@ type internalUpstreamModelsRequest struct {
 	KeyID          string `json:"key_id" binding:"required"`
 }
 
-func InternalListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) gin.HandlerFunc {
+func InternalListUpstreamModelsHandler(authSvc *auth.Service, lister dispatch.UpstreamModelLister) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req internalUpstreamModelsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -45,7 +45,7 @@ func InternalListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Se
 			return
 		}
 		creds := credentials.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[key.Provider]
-		models, err := proxySvc.ListUpstreamModels(c.Request.Context(), key.Provider, creds)
+		models, err := lister.ListUpstreamModels(c.Request.Context(), key.Provider, creds)
 		if err != nil {
 			abortForListingError(c, key.Provider, key.ID, err)
 			return
