@@ -58,12 +58,12 @@ func (s *Service) applySessionStrategy(
 }
 
 type betaCommands struct {
-	s *Service
+	s        *Service
+	strategy router.Strategy
 }
 
 func (b betaCommands) handle(
 	ctx context.Context,
-	strategy router.Strategy,
 	w http.ResponseWriter,
 	env *translate.RequestEnvelope,
 	cmd translate.BetaCommandResult,
@@ -82,7 +82,7 @@ func (b betaCommands) handle(
 		SessionKey:      sessionKey,
 		PreferenceKey:   preferenceKey,
 		ClientSessionID: clientSessionIDForRequest(ctx, env),
-		Strategy:        strategy,
+		Strategy:        b.strategy,
 	})
 	if err != nil {
 		return err

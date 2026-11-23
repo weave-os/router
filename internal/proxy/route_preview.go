@@ -150,3 +150,22 @@ func (s *Service) PreviewAnthropicRoute(ctx context.Context, body []byte, header
 	}
 	return previewer.PreviewRoute(ctx, req)
 }
+
+func (s *Service) Route(ctx context.Context, req router.Request) (router.Decision, error) {
+	return routeWithSpan(ctx, s, router.StrategyFromContext(ctx), req)
+}
+
+func routeWithSpan(ctx context.Context, s *Service, strategy router.Strategy, req router.Request) (router.Decision, error) {
+	routeCtx, span := startRoutingSpan(ctx, strategy, req)
+	decision, err := s.routeFor(routeCtx, strategy, req)
+	finishRoutingSpan(span, decision, err)
+	return decision, err
+}
+
+func (s *Service) RouteAnthropicRequest(ctx context.Context, body []byte, headers http.Header) (decision router.Decision, err error) {
+	ctx, strategy, req, err := s.anthropicRoutingRequest(ctx, body, headers, "anthropic_route")
+	if err != nil {
+		return decision, err
+	}
+	return routeWithSpan(ctx, s, strategy, req)
+}
