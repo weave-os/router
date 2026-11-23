@@ -905,7 +905,7 @@ func (s *Service) anthropicNativeAttempt(
 	sink http.ResponseWriter,
 	preludeBuf *preludeBuffer,
 	preludeState *requestNoticeStream,
-	streamCut *streamCutObserver,
+	streamCut *dispatch.StreamCutObserver,
 	notice translate.RouterNotice,
 	setExtractor func(*telemetry.UsageExtractor),
 	setStreamCost func(router.Decision, bool, func() bool),
@@ -920,22 +920,22 @@ func (s *Service) anthropicNativeAttempt(
 		ex, proxyWriter := s.turnTelemetry.newUsageExtractor(attemptSink, d.Provider)
 		ex.SetRequestCacheTTL1h(requestCacheTTL1h)
 		setExtractor(ex)
-		var terminal *streamTerminalObserver
+		var terminal *dispatch.StreamTerminalObserver
 		if env.Stream() {
-			terminal = newStreamTerminalObserver(proxyWriter, nativeStreamAnthropic)
+			terminal = dispatch.NewStreamTerminalObserver(proxyWriter, dispatch.NativeStreamAnthropic)
 			proxyWriter = terminal
 		}
 		if preludeBuf != nil {
 			preludeBuf.Seal()
 		}
 		toolNames := translate.NewAnthropicToolNameWriter(proxyWriter, prep.ResponseToolNames)
-		err := p.Proxy(actx, d, prep, streamCut.attach(toolNames), r)
+		err := p.Proxy(actx, d, prep, streamCut.Attach(toolNames), r)
 		err = finalizeAfterProxy(err, toolNames.Finalize)
 		if err == nil && terminal != nil {
-			err = terminal.streamErr()
+			err = terminal.StreamErr()
 		}
 		if err != nil && env.Stream() && preludeBuf.Committed() {
-			streamCut.noteCut(err)
+			streamCut.NoteCut(err)
 			err = emitAnthropicSSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
 		}
 		return err
