@@ -143,10 +143,10 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 					if trueCap && action == 3 {
 						upstream.stopReason, upstream.output = "max_tokens", 128
 					}
-					svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, store, false,
-						providers.ProviderAnthropic, outputLimitFirstModel, nil)).
+					svc := WithDeps(withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, store, false,
+						providers.ProviderAnthropic, outputLimitFirstModel, nil)),
+						Deps{Telemetry: TelemetryDeps{Flags: &TelemetryFlags{TurnSignalCapture: true, NativeOpenAIResponseSignals: true}}}).
 						EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
-						WithNativeAnthropicResponseSignals(false).
 						WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routes,
 							Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
 					body, err := json.Marshal(map[string]any{"model": outputLimitSecondModel, "max_tokens": 64000, "stream": stream,
