@@ -148,7 +148,7 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 			Status:  http.StatusBadGateway,
 			Message: "Provider not configured.",
 		}, true
-	case errors.Is(err, ErrRequestNotJSONObject):
+	case errors.Is(err, ingress.ErrRequestNotJSONObject):
 		return ingress.DispatchErrorClass{
 			Kind:    ingress.DispatchErrorRequestNotJSONObject,
 			Status:  http.StatusBadRequest,
