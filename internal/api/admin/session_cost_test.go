@@ -12,10 +12,7 @@ import (
 
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/dispatch"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/gin-gonic/gin"
@@ -41,13 +38,12 @@ func (r *sessionCostRepo) GetSessionCost(_ context.Context, installationID, sess
 
 func sessionCostEngine(t *testing.T, repo turnrecord.TelemetryRepository, installation *auth.Installation) *gin.Engine {
 	t.Helper()
-	svc := proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(nil), nil, nil, false, "", "", repo), hmm.ServingPorts())
 	engine := gin.New()
 	engine.GET("/v1/sessions/:session_id/cost", func(c *gin.Context) {
 		if installation != nil {
 			c.Set("router_installation", installation)
 		}
-	}, admin.SessionCostHandler(svc))
+	}, admin.SessionCostHandler(turnrecord.Queries{Repo: repo}))
 	return engine
 }
 
