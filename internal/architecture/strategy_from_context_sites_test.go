@@ -87,11 +87,19 @@ func strategyFromContextCallSites(loaded []*packages.Package) []string {
 // names a var/const/type block declares, so a package-level function value
 // such as `var read = router.StrategyFromContext` is a site too.
 func declSiteName(info *types.Info, decl ast.Decl) string {
-	if fn, ok := decl.(*ast.FuncDecl); ok {
-		return funcDeclName(info, fn)
-	}
 	var names []string
-	for _, spec := range decl.(*ast.GenDecl).Specs {
+	switch decl := decl.(type) {
+	case *ast.FuncDecl:
+		return funcDeclName(info, decl)
+	case *ast.GenDecl:
+		names = genDeclNames(decl)
+	}
+	return strings.Join(names, ",")
+}
+
+func genDeclNames(decl *ast.GenDecl) []string {
+	var names []string
+	for _, spec := range decl.Specs {
 		switch spec := spec.(type) {
 		case *ast.ValueSpec:
 			for _, name := range spec.Names {
@@ -101,7 +109,7 @@ func declSiteName(info *types.Info, decl ast.Decl) string {
 			names = append(names, spec.Name.Name)
 		}
 	}
-	return strings.Join(names, ",")
+	return names
 }
 
 func funcDeclName(info *types.Info, fn *ast.FuncDecl) string {
