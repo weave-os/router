@@ -208,7 +208,9 @@
           "role": "default_force_hist",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "gpt-5.6-sol",
             "ServedProvider": "openai",
             "Strategy": "hmm_embedding"

@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/translate/toolcheck"
 
@@ -106,7 +107,7 @@ func dispatchChatTurn(ctx, credentialCtx context.Context, t *chatTurnDispatch) (
 	}
 	t.proxyStart = t.s.clock.Now()
 	t.inferenceParentCtx = ctx
-	ctx, t.inferenceSpan = startInferenceSpan(ctx, t.decision, clientSessionIDForRequest(ctx, t.env))
+	ctx, t.inferenceSpan = spans.StartInferenceSpan(ctx, t.decision, clientSessionIDForRequest(ctx, t.env))
 	defer t.inferenceSpan.End()
 	ctx, err = t.dispatchAttempts(ctx, fundingCtx)
 	if err != nil {
@@ -210,7 +211,7 @@ func (t *chatTurnDispatch) dispatchAttempts(ctx, fundingCtx context.Context) (co
 	var attemptBuildErr error
 	t.attempt, attemptBuildErr = t.buildAttempt(t.decision, t.opts, t.marker, fundingCtx)
 	if attemptBuildErr != nil {
-		finishInferenceSpan(t.inferenceSpan, t.decision, t.decision.Provider, -1, attemptBuildErr)
+		spans.FinishInferenceSpan(t.inferenceSpan, t.decision, t.decision.Provider, -1, attemptBuildErr)
 		return ctx, attemptBuildErr
 	}
 
@@ -280,8 +281,8 @@ func (t *chatTurnDispatch) finish(ctx context.Context) (context.Context, error) 
 	}
 
 	proxyMs := t.s.clock.Now().Sub(t.proxyStart).Milliseconds()
-	finishInferenceSpan(t.inferenceSpan, t.decision, t.finalProvider, t.winnerIdx, t.proxyErr)
-	ctx = restoreParentSpan(ctx, t.inferenceParentCtx)
+	spans.FinishInferenceSpan(t.inferenceSpan, t.decision, t.finalProvider, t.winnerIdx, t.proxyErr)
+	ctx = spans.RestoreParentSpan(ctx, t.inferenceParentCtx)
 
 	return ctx, finishChatTurn(ctx, t.s, &chatFinishedTurn{
 		w: t.w, body: t.body, requestStart: t.requestStart, facts: t.facts, rateLimit: t.rateLimit, log: t.log, env: t.env, sessionKey: t.sessionKey, feats: t.feats,

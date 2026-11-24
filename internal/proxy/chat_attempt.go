@@ -82,11 +82,11 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				nativeOpts.TargetProvider = d.Provider
 				nativeOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
 				*deps.fastServed = nativeOpts.FastMode
-				outBody, setErr = codexNativeFastMode(outBody, nativeOpts, deps.routeRes.TurnType)
+				outBody, setErr = routingpolicy.CodexNativeFastMode(outBody, nativeOpts, deps.routeRes.TurnType)
 				if setErr != nil {
 					return fmt.Errorf("set codex service_tier: %w", setErr)
 				}
-				outBody, setErr = codexNativeEffort(outBody, nativeOpts, deps.routeRes.TurnType)
+				outBody, setErr = routingpolicy.CodexNativeEffort(outBody, nativeOpts, deps.routeRes.TurnType)
 				if setErr != nil {
 					return fmt.Errorf("set codex reasoning effort: %w", setErr)
 				}
@@ -103,13 +103,13 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				attemptOpts.TargetProvider = d.Provider
 				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
 				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-				attemptOpts.ReasoningReplayScope = deps.svc.reasoningReplayScope(actx, d)
+				attemptOpts.ReasoningReplayScope = deps.svc.engine.ReasoningReplayScope(actx, d)
 				*deps.fastServed = attemptOpts.FastMode
 				var emitErr error
 				if surface == surfaceResponsesTranslated {
 					prep, emitErr = deps.env.PrepareOpenAIResponses(deps.request.Header, attemptOpts)
 				} else {
-					prep, emitErr = prepareOpenAIForTurn(deps.env, deps.request.Header, attemptOpts, deps.routeRes.TurnType)
+					prep, emitErr = routingpolicy.PrepareOpenAIForTurn(deps.env, deps.request.Header, attemptOpts, deps.routeRes.TurnType)
 				}
 				if emitErr != nil {
 					deps.log.Error("Failed to emit OpenAI body", "err", emitErr,
@@ -171,9 +171,9 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			if surface == surfaceChat && deps.isResponses {
 				deps.responsesWriter.SetUsageSource((*deps.extractor).UsageFacts)
 			}
-			var chatTerminal *streamTerminalObserver
+			var chatTerminal *dispatch.StreamTerminalObserver
 			if surface == surfaceChat && !deps.isResponses && deps.env.Stream() {
-				chatTerminal = newStreamTerminalObserver(proxyWriter, nativeStreamOpenAIChat)
+				chatTerminal = dispatch.NewStreamTerminalObserver(proxyWriter, dispatch.NativeStreamOpenAIChat)
 				proxyWriter = chatTerminal
 			}
 			if deps.preludeBuf != nil {
@@ -193,7 +193,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				}
 			}
 			if err == nil && chatTerminal != nil {
-				err = chatTerminal.streamErr()
+				err = chatTerminal.StreamErr()
 			}
 			if err != nil && surface != surfaceResponsesNative && deps.env.Stream() && deps.preludeBuf.Committed() {
 				_ = emitOpenAISSEErrorEvent(deps.sink, attributeStreamError(actx, d.Provider, err))
@@ -213,7 +213,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				if err == nil && deps.env.Stream() {
 					err = nativeTerminal.Err()
 				}
-				if isStreamTerminalMissing(err) {
+				if dispatch.IsStreamTerminalMissing(err) {
 					refusalGate.Abandon()
 				}
 				if nativeTerminal.Observed() && nativeTerminal.Signals().OutputLimitReached {
@@ -316,8 +316,8 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			return finalize, rawErr
 		}
 		return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
-			retry := geminiToolModeAttempt{log: deps.log, buffer: deps.preludeBuf, env: deps.env, headers: deps.request.Header, opts: targetOpts}
-			return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
+			retry := dispatch.GeminiToolModeAttempt{Log: deps.log, Buffer: deps.preludeBuf, Env: deps.env, Headers: deps.request.Header, Opts: targetOpts}
+			return retry.Dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
 				return dispatchGemini(actx, d, p, prepared)
 			})
 		}, nil

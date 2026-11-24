@@ -158,7 +158,9 @@
           "role": "default_mid_hmm_history",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "claude-opus-4-7",
             "ServedProvider": "anthropic",
             "Strategy": "hmm_embedding"
@@ -382,6 +384,12 @@
             "LastInputTokens": 12,
             "LastOutputTokens": 7,
             "LastServedModel": "claude-opus-4-7",
+            "ModelCaches": {
+              "claude-opus-4-7": {
+                "MessageCount": 1,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "anthropic",
             "Reason": "hmm_policy",
             "Role": "default_mid_hmm_history",
@@ -394,8 +402,10 @@
           "role": "default_mid_hmm_history",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "PriorServedModel": "claude-opus-4-7",
+            "PromptTokens": 12,
             "ServedModel": "claude-opus-4-7",
             "ServedProvider": "anthropic",
             "Strategy": "hmm_embedding"

@@ -23,8 +23,10 @@ import (
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
@@ -45,18 +47,18 @@ func TestForcedSubscriptionContextEstimatePreservesHardExclusions(t *testing.T) 
 		t.Run(scenario.name, func(t *testing.T) {
 			request := router.Request{
 				Candidates: router.Candidates{
-					ExcludedModels:       modelSet([]string{gatewayCompactionOpusModel}),
-					SafetyExcludedModels: modelSet([]string{gatewayCompactionOpusModel}),
+					ExcludedModels:       candidates.ModelSet([]string{gatewayCompactionOpusModel}),
+					SafetyExcludedModels: candidates.ModelSet([]string{gatewayCompactionOpusModel}),
 				},
 			}
 			if scenario.forced {
 				request.ForceModel = gatewayCompactionOpusModel
 			}
 			if scenario.estimate {
-				request.Candidates.ContextWindowExcludedModels = modelSet([]string{gatewayCompactionOpusModel})
+				request.Candidates.ContextWindowExcludedModels = candidates.ModelSet([]string{gatewayCompactionOpusModel})
 			}
 			if scenario.unsignedHistory {
-				request.Candidates.UnsignedHistoryExcludedModels = modelSet([]string{gatewayCompactionOpusModel})
+				request.Candidates.UnsignedHistoryExcludedModels = candidates.ModelSet([]string{gatewayCompactionOpusModel})
 			}
 			_, narrowed := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).subscriptionStateRequest(context.Background(), request, []string{gatewayCompactionOpusModel})
 			_, allowed := narrowed.Candidates.AllowedModels[gatewayCompactionOpusModel]
@@ -120,15 +122,15 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 			defer upstream.Close()
 			store := &forcedPinStore{pin: sessionpin.Pin{
 				Provider: providers.ProviderAnthropic, Model: gatewayCompactionOpusModel,
-				Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires,
+				Reason: translate.ReasonUserForceModel, PinnedUntil: routingpolicy.PinNeverExpires,
 			}}
 			svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{
 				providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL),
 				providers.ProviderOpenAI:    planClient{&fakeClient{name: providers.ProviderOpenAI}},
 			}), nil, store, false, "", "", nil)).
 				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true}}).
-				WithAvailableModels(modelSet([]string{gatewayCompactionOpusModel, catalog.ModelGPT6Luna})).
-				WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})).
+				WithAvailableModels(candidates.ModelSet([]string{gatewayCompactionOpusModel, catalog.ModelGPT6Luna})).
+				WithDeploymentKeyedProviders(candidates.ModelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})).
 				WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 			ctx := context.WithValue(withClaudeCreditFallback(context.Background()), requestcontext.APIKeyIDContextKey{}, "synthetic-key")
 			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())

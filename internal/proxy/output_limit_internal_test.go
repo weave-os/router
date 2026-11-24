@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -80,7 +81,7 @@ func TestRefreshPin_PreservesOutputLimitEvidence(t *testing.T) {
 	routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(context.Background())).Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{1}, pin, sessionpin.DefaultRole,
 		router.Decision{Provider: providers.ProviderAnthropic, Model: outputLimitSecondModel})
 	require.Len(t, store.upserts, 1)
-	assert.Equal(t, outputLimitFirstModel, maxedOutServedModel(store.upserts[0]), "refreshing the anchor cannot lose the prior served outcome")
+	assert.Equal(t, outputLimitFirstModel, candidates.MaxedOutServedModel(store.upserts[0]), "refreshing the anchor cannot lose the prior served outcome")
 }
 
 type outputLimitSequenceRouter struct {

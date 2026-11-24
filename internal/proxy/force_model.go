@@ -35,7 +35,7 @@ func (e *ForcedModelUnknownError) Error() string {
 func (e *ForcedModelUnknownError) Unwrap() error { return ErrForcedModelUnknown }
 
 var forceModelExamples = fmt.Sprintf("opus, %s, %s, or %s",
-	forceModelAliases["opus"], forceModelAliases["gpt"], forceModelAliases["gemini"])
+	routingpolicy.ForceModelAliases["opus"], routingpolicy.ForceModelAliases["gpt"], routingpolicy.ForceModelAliases["gemini"])
 
 func resolveForceModel(model string) (canonicalID, provider string, known bool) {
 	canon, prov, kn, _ := resolveForceModelWithEffort(model)
@@ -43,7 +43,7 @@ func resolveForceModel(model string) (canonicalID, provider string, known bool) 
 }
 
 func resolveForceModelWithEffort(model string) (canonicalID, provider string, known bool, effort string) {
-	effortLevel, stripped := stripEffortSuffix(model)
+	effortLevel, stripped := routingpolicy.StripEffortSuffix(model)
 	model = stripped
 	model = strings.ToLower(strings.TrimSpace(model))
 	effort = effortLevel
@@ -59,14 +59,14 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 		unknownID = variant
 	}
 	if id, ok := lookupForceModelName(model); ok {
-		if m, ok := servableForceModel(id, requiredProvider); ok {
+		if m, ok := routingpolicy.ServableForceModel(id, requiredProvider); ok {
 			return m.ID, m.Providers[0].Provider, true, effort
 		}
 	} else if effort == "" {
-		if head, level, ok := cutSpelledEffort(model); ok {
+		if head, level, ok := routingpolicy.CutSpelledEffort(model); ok {
 			head, _ = translate.CanonicalModel(head)
 			if id, ok := lookupForceModelName(head); ok {
-				if m, ok := servableForceModel(id, requiredProvider); ok {
+				if m, ok := routingpolicy.ServableForceModel(id, requiredProvider); ok {
 					return m.ID, m.Providers[0].Provider, true, router.CanonicalizeEffort(level)
 				}
 			}
@@ -91,16 +91,8 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 	}
 }
 
-func servableForceModel(id, requiredProvider string) (catalog.Model, bool) {
-	m, ok := catalog.ByID(id)
-	if !ok || len(m.Providers) == 0 || (requiredProvider != "" && m.Providers[0].Provider != requiredProvider) {
-		return catalog.Model{}, false
-	}
-	return m, true
-}
-
 func lookupForceModelName(name string) (string, bool) {
-	if alias, ok := forceModelAliases[name]; ok {
+	if alias, ok := routingpolicy.ForceModelAliases[name]; ok {
 		return alias, true
 	}
 	if canonical, ok := bareCatalogNames[name]; ok {
@@ -109,18 +101,12 @@ func lookupForceModelName(name string) (string, bool) {
 	if _, ok := catalog.ByID(name); ok {
 		return name, true
 	}
-	id, ok := foldedForceModelNames[foldModelSpelling(name)]
+	id, ok := foldedForceModelNames[routingpolicy.FoldModelSpelling(name)]
 	return id, ok
 }
 
-var modelSpellingSeparators = regexp.MustCompile(`[._ -]+`)
-
-func foldModelSpelling(name string) string {
-	return modelSpellingSeparators.ReplaceAllString(name, "-")
-}
-
 func forceModelNames() map[string]string {
-	names := make(map[string]string, len(catalog.Models)*2+len(forceModelAliases))
+	names := make(map[string]string, len(catalog.Models)*2+len(routingpolicy.ForceModelAliases))
 	for _, m := range catalog.Models {
 		if len(m.Providers) == 0 {
 			continue
@@ -136,7 +122,7 @@ func forceModelNames() map[string]string {
 	for bare, id := range bareCatalogNames {
 		names[bare] = id
 	}
-	for alias, id := range forceModelAliases {
+	for alias, id := range routingpolicy.ForceModelAliases {
 		names[alias] = id
 	}
 	return names
@@ -156,7 +142,7 @@ var foldedForceModelNames = func() map[string]string {
 	out := make(map[string]string)
 	ambiguous := make(map[string]bool)
 	for name, id := range forceModelNames() {
-		key := foldModelSpelling(name)
+		key := routingpolicy.FoldModelSpelling(name)
 		if prev, seen := out[key]; seen && prev != id {
 			ambiguous[key] = true
 		}
@@ -183,7 +169,7 @@ func (c forceModelSuggestion) preferredOver(o forceModelSuggestion) bool {
 var forceModelSuggestions = func() map[string]forceModelSuggestion {
 	out := make(map[string]forceModelSuggestion, len(foldedForceModelNames))
 	for name := range forceModelNames() {
-		key := foldModelSpelling(name)
+		key := routingpolicy.FoldModelSpelling(name)
 		id, ok := foldedForceModelNames[key]
 		if !ok {
 			continue
@@ -198,9 +184,9 @@ var forceModelSuggestions = func() map[string]forceModelSuggestion {
 }()
 
 func suggestForceModel(input string) string {
-	effort, model := stripEffortSuffix(input)
+	effort, model := routingpolicy.StripEffortSuffix(input)
 	model, _ = translate.CanonicalModel(strings.ToLower(strings.TrimSpace(model)))
-	key := foldModelSpelling(model)
+	key := routingpolicy.FoldModelSpelling(model)
 	if len(key) < 3 {
 		return ""
 	}
@@ -283,7 +269,7 @@ var bareCatalogNames = func() map[string]string {
 		if _, isFullID := catalog.ByID(tail); isFullID {
 			continue
 		}
-		if _, aliased := forceModelAliases[tail]; aliased {
+		if _, aliased := routingpolicy.ForceModelAliases[tail]; aliased {
 			continue
 		}
 		out[tail] = ids[0]
@@ -323,10 +309,10 @@ func (s *Service) clearLegacyForceModelPins(
 		if err != nil {
 			return fmt.Errorf("load legacy force-model pin for role %q: %w", role, err)
 		}
-		if !found || !isUserForcedReason(pin.Reason) {
+		if !found || !routingpolicy.IsUserForcedReason(pin.Reason) {
 			continue
 		}
-		if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, userUnforcedReason); err != nil {
+		if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, routingpolicy.ReasonUserUnforced); err != nil {
 			return err
 		}
 	}
@@ -404,11 +390,11 @@ func (f forceModelCommands) handle(
 	w http.ResponseWriter,
 	env *translate.RequestEnvelope,
 	cmd translate.ForceModelResult,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
-	_, ack, err := f.apply(ctx, target.strategy, cmd, target.installationID, target.sessionKey, forceModelSessionKey)
+	_, ack, err := f.apply(ctx, target.Strategy, cmd, target.InstallationID, target.SessionKey, forceModelSessionKey)
 	if err != nil {
 		return err
 	}

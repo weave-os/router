@@ -175,7 +175,7 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 		Model:             forcedModel,
 		Reason:            translate.ReasonUserForceModel,
 		Strategy:          router.StrategyHMMEmbedding,
-		PinnedUntil:       pinNeverExpires,
+		PinnedUntil:       routingpolicy.PinNeverExpires,
 		LastOutputTokens:  32000,
 		LastTurnEndedAt:   endedAt,
 		LastOutputLimitAt: endedAt,
@@ -204,10 +204,10 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	_, controlStillPresent := store.pins[forceModelMapKey(forceSessionKey, forceModelSessionRole)]
-	_, historyPresent := store.pins[forceModelMapKey(childThreadKey, forceModelHistoryRole(result.PinRole))]
+	_, historyPresent := store.pins[forceModelMapKey(childThreadKey, routingpolicy.ForceModelHistoryRole(result.PinRole))]
 	assert.True(t, controlStillPresent)
 	assert.True(t, historyPresent)
-	assert.Equal(t, pinNeverExpires, store.pins[forceModelMapKey(childThreadKey, forceModelHistoryRole(result.PinRole))].PinnedUntil)
+	assert.Equal(t, routingpolicy.PinNeverExpires, store.pins[forceModelMapKey(childThreadKey, routingpolicy.ForceModelHistoryRole(result.PinRole))].PinnedUntil)
 }
 
 func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
@@ -231,7 +231,7 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 		Provider:       providers.ProviderAnthropic,
 		Model:          "claude-opus-5",
 		Reason:         translate.ReasonUserForceModel,
-		PinnedUntil:    pinNeverExpires,
+		PinnedUntil:    routingpolicy.PinNeverExpires,
 	}
 	store.pins[forceModelMapKey(threadKey, role)] = sessionpin.Pin{
 		SessionKey:     threadKey,
@@ -292,15 +292,15 @@ func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 		SessionKey:     forceKey,
 		Role:           forceModelSessionRole,
 		InstallationID: installationID,
-		Reason:         userUnforcedReason,
-		PinnedUntil:    pinNeverExpires,
+		Reason:         routingpolicy.ReasonUserUnforced,
+		PinnedUntil:    routingpolicy.PinNeverExpires,
 	}
-	store.pins[forceModelMapKey(threadKey, forceModelHistoryRole(role))] = sessionpin.Pin{
+	store.pins[forceModelMapKey(threadKey, routingpolicy.ForceModelHistoryRole(role))] = sessionpin.Pin{
 		SessionKey:      threadKey,
-		Role:            forceModelHistoryRole(role),
+		Role:            routingpolicy.ForceModelHistoryRole(role),
 		LastServedModel: "claude-opus-5",
 		LastTurnEndedAt: time.Now(),
-		PinnedUntil:     pinNeverExpires,
+		PinnedUntil:     routingpolicy.PinNeverExpires,
 	}
 	freshRouter := &tierProbeRouter{
 		available: map[string]struct{}{"claude-haiku-4-5": {}},
@@ -339,7 +339,7 @@ func TestRunTurnLoop_SessionForceOverridesAuxiliaryHardPin(t *testing.T) {
 		Provider:       providers.ProviderAnthropic,
 		Model:          "claude-opus-5",
 		Reason:         translate.ReasonUserForceModel,
-		PinnedUntil:    pinNeverExpires,
+		PinnedUntil:    routingpolicy.PinNeverExpires,
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
 	svc := withHMMPorts(NewService(freshRouter, dispatch.NewClients(nil), nil, store, false,
@@ -387,7 +387,7 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	assert.Equal(t, fableModelID, pin.Model)
 	assert.Equal(t, providers.ProviderAnthropic, pin.Provider)
 	assert.Equal(t, translate.ReasonUserForceModel, pin.Reason)
-	assert.Equal(t, pinNeverExpires, pin.PinnedUntil)
+	assert.Equal(t, routingpolicy.PinNeverExpires, pin.PinnedUntil)
 	for _, role := range forceModelClearRoles() {
 		_, threadForceFound, getErr := store.Get(ctx, threadKey, role)
 		require.NoError(t, getErr)
@@ -408,11 +408,11 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	cleared, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
 	require.NoError(t, err)
 	require.True(t, found)
-	assert.Equal(t, pinNeverExpires, cleared.PinnedUntil, "the clear tombstone prevents legacy child pins from reviving")
+	assert.Equal(t, routingpolicy.PinNeverExpires, cleared.PinnedUntil, "the clear tombstone prevents legacy child pins from reviving")
 	assert.Empty(t, cleared.Model)
 	assert.Equal(t, astraModelID, cleared.LastServedModel)
 	assert.True(t, cleared.HasEverSwitched)
-	assert.Equal(t, userUnforcedReason, cleared.Reason)
+	assert.Equal(t, routingpolicy.ReasonUserUnforced, cleared.Reason)
 }
 
 func TestRecordTurnUsage_ForcedDecisionWritesThreadHistoryOnly(t *testing.T) {
@@ -430,9 +430,9 @@ func TestRecordTurnUsage_ForcedDecisionWritesThreadHistoryOnly(t *testing.T) {
 		Model:      "claude-opus-5",
 		Reason:     translate.ReasonUserForceModel,
 	}
-	store.pins[forceModelMapKey(threadKey, forceModelHistoryRole(role))] = sessionpin.Pin{
+	store.pins[forceModelMapKey(threadKey, routingpolicy.ForceModelHistoryRole(role))] = sessionpin.Pin{
 		SessionKey: threadKey,
-		Role:       forceModelHistoryRole(role),
+		Role:       routingpolicy.ForceModelHistoryRole(role),
 	}
 
 	svc.recordTurnUsage(context.Background(), routingpolicy.TurnRoute{
@@ -447,7 +447,7 @@ func TestRecordTurnUsage_ForcedDecisionWritesThreadHistoryOnly(t *testing.T) {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	require.Equal(t, []string{forceModelHistoryRole(role)}, store.usageRoles)
+	require.Equal(t, []string{routingpolicy.ForceModelHistoryRole(role)}, store.usageRoles)
 	require.Equal(t, [][sessionpin.SessionKeyLen]byte{threadKey}, store.usageKeys)
 	assert.Empty(t, store.pins[forceModelMapKey(controlKey, forceModelSessionRole)].LastServedModel)
 }

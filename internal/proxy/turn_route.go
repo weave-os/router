@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry/spans"
 )
 
 type routeTurnRequest struct {
@@ -19,9 +20,9 @@ type routeTurnRequest struct {
 }
 
 func routeTurn(ctx context.Context, s *Service, clock auth.Clock, log *slog.Logger, turn routeTurnRequest, route func(routeCtx context.Context) (routingpolicy.TurnRoute, error)) (routingpolicy.TurnRoute, int64, error) {
-	routeCtx, routeSpan := startRoutingSpan(ctx, turn.Failure.Strategy, turn.Request)
+	routeCtx, routeSpan := spans.StartRoutingSpan(ctx, turn.Failure.Strategy, turn.Request)
 	routeRes, err := route(routeCtx)
-	finishRoutingSpan(routeSpan, routeRes.Decision, err)
+	spans.FinishRoutingSpan(routeSpan, routeRes.Decision, err)
 	routeMs := clock.Now().Sub(turn.Started).Milliseconds()
 	if err != nil {
 		log.Error(turn.FailureMessage, "err", err, "route_ms", routeMs, "requested_model", turn.Request.RequestedModel, "total_input_tokens", turn.Request.EstimatedInputTokens)

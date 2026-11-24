@@ -113,9 +113,9 @@ func TestPinCacheCold_OrdinaryAndHMMShareTheSameRule(t *testing.T) {
 	cold := warm
 	cold.LastTurnEndedAt = time.Now().Add(-2 * time.Hour)
 
-	assert.False(t, pinCacheCold(warm, false, time.Now()), "a warm unmodified prefix remains cache-eligible")
-	assert.True(t, pinCacheCold(warm, true, time.Now()), "a prefix break makes a warm pin cold")
-	assert.True(t, pinCacheCold(cold, false, time.Now()), "an expired pin is cold without a prefix break")
+	assert.False(t, routingpolicy.PinCacheCold(warm, false, time.Now()), "a warm unmodified prefix remains cache-eligible")
+	assert.True(t, routingpolicy.PinCacheCold(warm, true, time.Now()), "a prefix break makes a warm pin cold")
+	assert.True(t, routingpolicy.PinCacheCold(cold, false, time.Now()), "an expired pin is cold without a prefix break")
 }
 
 func TestConsumePostCommandContinuation_RequiresEffectiveStrategy(t *testing.T) {
@@ -175,21 +175,21 @@ func TestCacheablePrefixTokens_UsesReadOrWriteEvidence(t *testing.T) {
 	// Read and write both count as prior-turn cache evidence. The prior total
 	// is 10k (compat basis: LastInputTokens already includes cached).
 	writeOnly := sessionpin.Pin{LastInputTokens: 10_000, LastCachedWriteTokens: 4_000}
-	got, known := cacheablePrefixTokens(writeOnly, 10_000, false)
+	got, known := routingpolicy.CacheablePrefixTokens(writeOnly, 10_000, false)
 	assert.True(t, known)
 	assert.Equal(t, 4_000, got)
 
 	// The share is scale-free: the same 0.4 on a 2k prompt is 800 tokens, not
 	// the old min(evidence, total) clamp.
 	readOnly := sessionpin.Pin{LastInputTokens: 10_000, LastCachedReadTokens: 4_000}
-	got, _ = cacheablePrefixTokens(readOnly, 2_000, false)
+	got, _ = routingpolicy.CacheablePrefixTokens(readOnly, 2_000, false)
 	assert.Equal(t, 800, got)
 
 	both := sessionpin.Pin{LastInputTokens: 10_000, LastCachedReadTokens: 4_000, LastCachedWriteTokens: 3_000}
-	got, _ = cacheablePrefixTokens(both, 10_000, false)
+	got, _ = routingpolicy.CacheablePrefixTokens(both, 10_000, false)
 	assert.Equal(t, 7_000, got)
 
-	trimmed, trimmedKnown := cacheablePrefixTokens(both, 10_000, true)
+	trimmed, trimmedKnown := routingpolicy.CacheablePrefixTokens(both, 10_000, true)
 	assert.Zero(t, trimmed)
 	assert.True(t, trimmedKnown, "a client trim is a measured eviction, not missing evidence")
 }

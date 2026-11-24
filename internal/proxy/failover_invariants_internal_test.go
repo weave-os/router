@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -65,7 +66,7 @@ func TestCommittedStreamStrikeLandsAfterClientCancel(t *testing.T) {
 		false,
 		fmt.Errorf("stream: %w", providers.ErrUpstreamIdleTimeout),
 		demotedArm,
-		"hmm:authoritative model=claude-opus-4-7", sessionTarget{strategy: router.StrategyFromContext(canceledContext()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		"hmm:authoritative model=claude-opus-4-7", routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(canceledContext()), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
@@ -82,7 +83,7 @@ func TestPinEvictionSecondStrikeLandsAfterClientCancel(t *testing.T) {
 		canceledContext(),
 		true,
 		&providers.UpstreamStatusError{Status: http.StatusBadRequest},
-		"cluster:v0.57 model=gpt-5.5 provider=openai", sessionTarget{strategy: router.StrategyFromContext(canceledContext()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		"cluster:v0.57 model=gpt-5.5 provider=openai", routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(canceledContext()), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole)
 
@@ -184,7 +185,7 @@ func TestCyberRefusalRetryTarget_NeverLandsOnRefusingVendor(t *testing.T) {
 
 	_, found := svc.cyberRefusalRetryTarget(ctx,
 		router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol"},
-		sessionTarget{strategy: router.StrategyFromContext(ctx), sessionKey: nonZeroSessionKey()}, sessionpin.DefaultRole, 1000, 0, 0)
+		routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(ctx), SessionKey: nonZeroSessionKey()}, sessionpin.DefaultRole, 1000, 0, 0)
 
 	assert.False(t, found, "with the off-vendor runner-up unreachable, the OpenAI fallback must not be used")
 }

@@ -32,7 +32,7 @@ type messagesAttemptDeps struct {
 	preludeBuf              *preludeBuffer
 	sink                    http.ResponseWriter
 	anthropicPrelude        *requestNoticeStream
-	streamCut               *streamCutObserver
+	streamCut               *dispatch.StreamCutObserver
 	setExtractor            func(e *telemetry.UsageExtractor)
 	setStreamCost           func(d router.Decision, inputIncludesCache bool, requestCacheTTL1h func() bool)
 	fastServed              *bool
@@ -48,7 +48,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 	targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(deps.svc), target.Provider, target.Model, targetNotice)
 	switch providers.FamilyFor(target.Provider) {
 	case providers.FamilyAnthropic:
-		prep, emitErr := prepareAnthropicForTurn(deps.env, deps.request.Header, targetOpts, deps.routeRes.TurnType)
+		prep, emitErr := routingpolicy.PrepareAnthropicForTurn(deps.env, deps.request.Header, targetOpts, deps.routeRes.TurnType)
 		if emitErr != nil {
 			deps.log.Error("Failed to emit Anthropic body", "err", emitErr)
 			return nil, fmt.Errorf("emit body: %w", emitErr)
@@ -84,7 +84,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 			attemptOpts.TargetProvider = d.Provider
 			attemptOpts.StripPromptCacheKey = stripPromptCacheKey
 			attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-			attemptOpts.ReasoningReplayScope = deps.svc.reasoningReplayScope(actx, d)
+			attemptOpts.ReasoningReplayScope = deps.svc.engine.ReasoningReplayScope(actx, d)
 			*deps.fastServed = attemptOpts.FastMode
 			deps.setStreamCost(d, true, nil)
 			*deps.respSummary = translate.ResponseSummary{}
@@ -147,10 +147,10 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 				deps.preludeBuf.Seal()
 			}
 			toolNames := translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
-			rawErr := p.Proxy(actx, d, prep, deps.streamCut.attach(toolNames), deps.request)
+			rawErr := p.Proxy(actx, d, prep, deps.streamCut.Attach(toolNames), deps.request)
 			finalize := func(err error) error {
 				if err != nil && deps.env.Stream() && deps.preludeBuf.Committed() {
-					deps.streamCut.noteCut(err)
+					deps.streamCut.NoteCut(err)
 					err = emitAnthropicSSEErrorEvent(deps.sink, attributeStreamError(actx, d.Provider, err))
 				}
 				finErr := finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
@@ -231,10 +231,10 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 			}
 			geminiTr := translate.NewGeminiToOpenAISSETranslator(anthropicTr, d.Model, usage)
 			anthropicTr.SetUsageSource(geminiTr.UsageFacts)
-			rawErr := p.Proxy(actx, d, pr, deps.streamCut.attach(geminiTr), deps.request)
+			rawErr := p.Proxy(actx, d, pr, deps.streamCut.Attach(geminiTr), deps.request)
 			finalize := func(err error) error {
 				if err != nil && deps.env.Stream() && deps.preludeBuf.Committed() {
-					deps.streamCut.noteCut(err)
+					deps.streamCut.NoteCut(err)
 					err = emitAnthropicSSEErrorEvent(deps.sink, attributeStreamError(actx, d.Provider, err))
 				}
 				err = finalizeAfterProxy(err, geminiTr.Finalize)
@@ -245,8 +245,8 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 			return finalize, rawErr
 		}
 		return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
-			retry := geminiToolModeAttempt{log: deps.log, buffer: deps.preludeBuf, env: deps.env, headers: deps.request.Header, opts: targetOpts}
-			return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
+			retry := dispatch.GeminiToolModeAttempt{Log: deps.log, Buffer: deps.preludeBuf, Env: deps.env, Headers: deps.request.Header, Opts: targetOpts}
+			return retry.Dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
 				*deps.reqStats = prepared.Stats
 				logUpstreamBody(deps.log, deps.routeRes.SessionKey, d, deps.feats, prepared.Body)
 				return dispatchGemini(actx, d, p, prepared)

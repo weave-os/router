@@ -380,7 +380,9 @@
           "role": "default",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 6,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "deepseek/deepseek-v4-pro",
             "ServedProvider": "fireworks",
             "Strategy": "hmm_embedding"

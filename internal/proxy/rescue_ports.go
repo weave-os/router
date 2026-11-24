@@ -11,10 +11,12 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -26,7 +28,7 @@ func rescuePortsFor(s *Service) dispatch.RescuePorts {
 		Attempts:    rescueAttemptPort{s},
 		Overflow:    rescueOverflowPort{s},
 		Render:      rescueRenderPort{},
-		Dispatch:    s.dispatchWithFallback,
+		Dispatch:    fallbackFor(s).Dispatch,
 	}
 }
 
@@ -135,7 +137,7 @@ func (p rescueRoutingPort) IsHardPinnedTurn(ctx context.Context, strategy router
 }
 
 func (p rescueRoutingPort) CyberRefusalRetryTarget(ctx context.Context, failed router.Decision, target dispatch.RescueSessionTarget, role string, est, sigSavings, outputReserve int) (router.Decision, bool) {
-	return p.s.cyberRefusalRetryTarget(ctx, failed, sessionTarget{strategy: target.Strategy, installationID: target.InstallationID, sessionKey: target.SessionKey}, role, est, sigSavings, outputReserve)
+	return p.s.cyberRefusalRetryTarget(ctx, failed, routingpolicy.SessionTarget{Strategy: target.Strategy, InstallationID: target.InstallationID, SessionKey: target.SessionKey}, role, est, sigSavings, outputReserve)
 }
 
 func (rescueRoutingPort) RescueBasis(decision router.Decision, turn dispatch.RescueTurn) router.Decision {
@@ -172,7 +174,7 @@ type rescueAttemptPort struct{ svc effortResolver }
 var _ dispatch.RescueAttempts = rescueAttemptPort{}
 
 func (p rescueAttemptPort) SwitchedOptions(ctx context.Context, base translate.EmitOptions, target router.Decision, escalate bool) (translate.EmitOptions, dispatch.EffortResolution) {
-	return switchedAttemptOptions(ctx, base, target, escalate, p.svc.resolveEffort)
+	return dispatch.SwitchedAttemptOptions(ctx, base, target, escalate, p.svc.resolveEffort)
 }
 
 func (rescueAttemptPort) FastMode(ctx context.Context, model, provider string) bool {
@@ -282,11 +284,11 @@ func (rescueRoutingPort) LowerTierCandidates(target string, candidates []string)
 }
 
 func (rescueRoutingPort) BaseModelOf(servedIdentity string) string {
-	return baseModelOf(servedIdentity)
+	return candidates.BaseModelOf(servedIdentity)
 }
 
 func (p rescueRoutingPort) EarlyStopRedoMode(ctx context.Context, routeRes dispatch.RescueTurn, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode {
-	return p.s.earlyStopRedoMode(ctx, routeRes, decision, streaming, agentShadow)
+	return p.s.rescueConfig.EarlyStopRedoModeFor(ctx, routeRes, decision, streaming, agentShadow)
 }
 
 func (p rescueRoutingPort) RedoEarlyStop(ctx context.Context, redo dispatch.EarlyStopRedo) (bool, error) {

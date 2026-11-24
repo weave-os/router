@@ -21,6 +21,8 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
+	"weave-os/router/internal/telemetry/iolog"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/translate"
 )
 
@@ -43,7 +45,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 
 	if subscriptionStateModelsEnabled(ctx) {
-		ctx = context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
+		ctx = context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, candidates.ModelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
 		ctx = context.WithValue(ctx, credentials.SubscriptionAPIOnlyKey{}, true)
 	}
 	ctx, rateLimit := s.withRateLimitTurn(ctx)
@@ -84,7 +86,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	)
 
 	if s.effectiveCaptureMode(ctx) != capture.Off {
-		logInboundRequestDiagnostics(log, env)
+		iolog.LogInboundRequestDiagnostics(log, env)
 	}
 
 	subAgentHint := r.Header.Get("x-weave-subagent-type")
@@ -107,9 +109,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	prefiltered := candidates.Prefilter(candidates.PrefilterRequest{
 		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserve, Eligibility: eligibility,
 		Excluded: excluded, Available: s.routing.AvailableModels(),
-		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()),
+		AdvisorExclusions: candidates.AdvisorExclusions(env, s.routableUniverse()),
 	})
-	logPrefilter(log, env, feats.ImageCount, outputReserve, prefiltered)
+	candidates.LogPrefilter(log, env, feats.ImageCount, outputReserve, prefiltered)
 	excluded, overflowEstimate := prefiltered.Excluded, prefiltered.OverflowEstimate
 
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
@@ -131,7 +133,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		EnabledProviders:             enabledProviders,
 		CustomBindings:               eligibility.CustomBindings,
 		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
-		Candidates:                   prefilteredCandidates(ctx, excluded, prefiltered),
+		Candidates:                   candidates.PrefilteredCandidates(excluded, allowedModelsForRequest(ctx), prefiltered),
 		PreferredModels:              preferredModelsForRequest(ctx),
 		RoutingKnobs:                 router.RoutingKnobsFromContext(ctx),
 		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
@@ -191,7 +193,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	effortServed.Apply(&opts)
 	ctx = credentials.ResolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
-	prep, emitErr := env.PrepareGemini(r.Header, geminiOptionsForTurn(opts, routeRes.TurnType))
+	prep, emitErr := env.PrepareGemini(r.Header, routingpolicy.GeminiOptionsForTurn(opts, routeRes.TurnType))
 	if emitErr != nil {
 		log.Error("Failed to emit Gemini body", "err", emitErr)
 		return fmt.Errorf("emit body: %w", emitErr)
@@ -199,7 +201,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	proxyStart := s.clock.Now()
 	inferenceParentCtx := ctx
-	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
+	ctx, inferenceSpan := spans.StartInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
 	defer inferenceSpan.End()
 	var extractor *telemetry.UsageExtractor
 	clientSink := w
@@ -235,7 +237,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		}
 		return err
 	}
-	winnerIdx, proxyErr := s.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+	winnerIdx, proxyErr := fallbackFor(s).Dispatch(ctx, dispatch.FailoverInputs{
 		Writer:          contentSink,
 		Prelude:         preludeBuf,
 		InitialDecision: decision,
@@ -258,8 +260,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if winnerIdx >= 0 && winnerIdx < len(bindings) {
 		finalProvider = bindings[winnerIdx].Provider
 	}
-	finishInferenceSpan(inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
-	ctx = restoreParentSpan(ctx, inferenceParentCtx)
+	spans.FinishInferenceSpan(inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
+	ctx = spans.RestoreParentSpan(ctx, inferenceParentCtx)
 	decision.Provider = finalProvider
 	if actBindingPricing, ok := servedPricing(finalProvider, decision.Model, false); ok {
 		actPricing = actBindingPricing

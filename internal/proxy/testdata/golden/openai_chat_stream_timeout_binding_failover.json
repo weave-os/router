@@ -233,7 +233,9 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "deepseek/deepseek-v4-pro",
             "ServedProvider": "openrouter",
             "Strategy": "hmm_embedding"

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
-	"sort"
 
 	"github.com/google/uuid"
 
@@ -52,7 +51,7 @@ func utilityHardPinTarget(ctx context.Context, req router.Request, turnType turn
 			log.Warn(
 				"Hard-pin: no eligible provider for request",
 				"turn_type", string(turnType),
-				"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
+				"enabled_providers", routingpolicy.SortedEnabledKeys(req.EnabledProviders),
 				"err", hardPinErr,
 			)
 			return "", "", fmt.Errorf("hard-pin: no eligible provider for %s: %w", turnType, hardPinErr)
@@ -67,7 +66,7 @@ func utilityHardPinTarget(ctx context.Context, req router.Request, turnType turn
 		if _, excluded := req.Candidates.ExcludedModels[model]; excluded {
 			return "", "", fmt.Errorf("hard-pin model %q is ineligible for %s: %w", model, turnType, router.ErrNoEligibleProvider)
 		}
-		if automaticallyDisabled(req, model) {
+		if candidates.AutomaticallyDisabled(req, model) {
 			log.Warn("Hard-pin model is disabled for automatic routing; serving it anyway",
 				"turn_type", string(turnType),
 				"hard_pin_model", model,
@@ -136,7 +135,7 @@ func (t *hardPinnedTurnServing) serveForcedPin(ctx context.Context) bool {
 		}
 		res.SessionKey = t.threadSessionKey
 		res.PinModel = forceModelPin.Model
-		res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
+		res.PinAgeSec = routingpolicy.PinAge(forceModelPin, s.clock.Now())
 		applySwitchHistory(res, threadPin, switchHistory, forceHistory)
 		res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
 			(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
@@ -152,7 +151,7 @@ func (t *hardPinnedTurnServing) serveForcedPin(ctx context.Context) bool {
 		"pin_model", forceModelPin.Model,
 		"pin_provider", forceModelPin.Provider,
 		"drop_reason", res.ForcedPinDropReason,
-		"enabled_providers", sortedEnabledKeys(t.req.EnabledProviders),
+		"enabled_providers", routingpolicy.SortedEnabledKeys(t.req.EnabledProviders),
 		"role", res.PinRole,
 	)
 	return false
@@ -190,16 +189,4 @@ func (t *hardPinnedTurnServing) serveDeploymentHardPin(ctx context.Context) (boo
 	t.res.Origin = policy.OverrideSourceDeployment
 	t.res.PinTier = candidates.HardPinReason(t.res.TurnType)
 	return true, nil
-}
-
-func sortedEnabledKeys(m map[string]struct{}) []string {
-	if len(m) == 0 {
-		return []string{}
-	}
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }

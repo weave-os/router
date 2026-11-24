@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 
@@ -105,11 +106,11 @@ func heldCodexOnlyService(t *testing.T) (*fakeClient, func() router.Decision) {
 
 	serve := func() router.Decision {
 		ctx := turnCtx()
-		req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
+		req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: candidates.ModelSet([]string{providers.ProviderOpenAI})}
 		rec := httptest.NewRecorder()
 		buffer := newPreludeBuffer(rec)
 		var winner router.Decision
-		_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+		_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 			Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
 			SubscriptionStateWinnerProvider: new(string),
 			InitialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
@@ -142,18 +143,18 @@ func TestMemberPickNoSubscriptionServesSkipsTheIncludedLane(t *testing.T) {
 	paid := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("member pick")}}}
 	svc := withHMMPorts(NewService(stateModelRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}), nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderCodex: true}}).
-		WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderOpenRouter}))
+		WithDeploymentKeyedProviders(candidates.ModelSet([]string{providers.ProviderOpenRouter}))
 	ctx := flags.WithOverrides(managedSubscriptionTestContext(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyPlanUserClusterLists: true}})
 	ctx = context.WithValue(ctx, auth.UserClusterModelListsContextKey{}, map[string][]string{"member-cluster": {statePaidModel}})
 	ctx = context.WithValue(ctx, credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	ctx = requestcontext.WithTurnFailures(ctx)
-	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI, providers.ProviderOpenRouter})}
+	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: candidates.ModelSet([]string{providers.ProviderOpenAI, providers.ProviderOpenRouter})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
 	var winner router.Decision
-	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 		Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
 		SubscriptionStateWinnerProvider: new(string),
 		InitialDecision:                 router.Decision{Model: statePaidModel, Provider: providers.ProviderOpenRouter},

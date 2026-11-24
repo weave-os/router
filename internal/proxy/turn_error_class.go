@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
@@ -13,7 +14,7 @@ func classifyTurnError(err error, stopReason string, invalidToolArgsBlocks int) 
 		if isUpstreamWatchdogError(err) {
 			return turnrecord.TurnErrorStreamStalled
 		}
-		if isStreamTerminalMissing(err) {
+		if dispatch.IsStreamTerminalMissing(err) {
 			return turnrecord.TurnErrorStreamCut
 		}
 		if status := upstreamStatus(err); status != 0 {
@@ -22,14 +23,14 @@ func classifyTurnError(err error, stopReason string, invalidToolArgsBlocks int) 
 		if class, ok := fundingRefusalTurnClass(err); ok {
 			return class
 		}
-		switch classifyStreamFailure(err, "") {
-		case streamFailureIdleWatchdog, streamFailureOutputStallWatchdog, streamFailureSlowThroughputWatchdog:
+		switch dispatch.ClassifyStreamFailure(err, "") {
+		case dispatch.StreamFailureIdleWatchdog, dispatch.StreamFailureOutputStallWatchdog, dispatch.StreamFailureSlowThroughputWatchdog:
 			return turnrecord.TurnErrorStreamStalled
-		case streamFailureClientCanceled:
+		case dispatch.StreamFailureClientCanceled:
 			return turnrecord.TurnErrorClientCanceled
-		case streamFailureDeadline, streamFailureUpstreamTimeout:
+		case dispatch.StreamFailureDeadline, dispatch.StreamFailureUpstreamTimeout:
 			return turnrecord.TurnErrorTimeout
-		case streamFailureUpstreamEOF, streamFailureUpstreamReset, streamFailureUpstreamErrorFrame:
+		case dispatch.StreamFailureUpstreamEOF, dispatch.StreamFailureUpstreamReset, dispatch.StreamFailureUpstreamErrorFrame:
 			return turnrecord.TurnErrorStreamCut
 		default:
 			return turnrecord.TurnErrorOther

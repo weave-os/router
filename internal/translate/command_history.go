@@ -44,12 +44,13 @@ func (e *RequestEnvelope) StripHistoricalCommands() (int, error) {
 	keptUser, droppedUser := false, false
 	for i, msg := range messages {
 		if dropAttachment {
-			dropAttachment = false
 			if isSkillAttachment(messages, i) {
+				dropAttachment = false
 				skillExec.path = skillEmitPath(msg.Get("content"))
 				changed++
 				continue
 			}
+			dropAttachment = isInstructionMessage(msg)
 		}
 		role := msg.Get("role").String()
 		if role == "user" && !isSkillAttachment(messages, i) && classifyLastMessageGJSON(role, msg.Get("content")) == "user_prompt" {
@@ -293,12 +294,13 @@ func StripHistoricalCommandsFromResponsesInput(body []byte) ([]byte, error) {
 	var skillExec skillExecTracker
 	for i, item := range items {
 		if dropAttachment {
-			dropAttachment = false
 			if isSkillAttachment(items, i) {
+				dropAttachment = false
 				skillExec.path = skillEmitPath(item.Get("content"))
 				changed = true
 				continue
 			}
+			dropAttachment = isInstructionMessage(item)
 		}
 		if responsesUserMessage(item) && !isSkillAttachment(items, i) {
 			skillExec.path = ""

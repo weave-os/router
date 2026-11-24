@@ -108,7 +108,7 @@ func TestDispatchWithFallback_PrimarySucceedsNoRetry(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
@@ -136,7 +136,7 @@ func TestDispatchWithFallback_RejectsMissingPurposeBeforeAnyAttempt(t *testing.T
 	s := newServiceWithProviders(t, map[string]providers.Client{"fireworks": primary})
 
 	rec := httptest.NewRecorder()
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
 		Bindings:        []catalog.ProviderBinding{{Provider: "fireworks"}},
@@ -170,7 +170,7 @@ func TestDispatchWithFallback_RetriesOnRetryableBufferedError(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
@@ -221,7 +221,7 @@ func TestDispatchWithFallback_SchemaRejectionDoesNotFailoverCrossBinding(t *test
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	_, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "moonshotai/kimi-k3"},
@@ -260,7 +260,7 @@ func TestDispatchWithFallback_RetriesOnTransportError(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
@@ -301,7 +301,7 @@ func TestDispatchWithFallback_RetriesOnResponseHeaderTimeout(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-flash"},
@@ -346,7 +346,7 @@ func TestDispatchWithFallback_RetriesOnUpstreamIdleTimeout(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "gpt-5.5"},
@@ -385,7 +385,7 @@ func TestDispatchWithFallback_NoRetryOnNonRetryableStatus(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
@@ -431,7 +431,7 @@ func TestDispatchWithFallback_ModelNotFoundFailsOverToNextBinding(t *testing.T) 
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "qwen/qwen3-next-80b-a3b-instruct"},
@@ -467,7 +467,7 @@ func TestDispatchWithFallback_ModelNotFoundSingleBindingFlushes(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	_, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "qwen/qwen3-next-80b-a3b-instruct"},
@@ -509,7 +509,7 @@ func TestDispatchWithFallback_BillingBlockedFailsOverToNextBinding(t *testing.T)
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
@@ -546,7 +546,7 @@ func TestDispatchWithFallback_BillingBlockedSingleBindingFlushes(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	_, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
@@ -586,7 +586,7 @@ func TestDispatchWithFallback_NoRetryAfterBytesFlushed(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
@@ -626,7 +626,7 @@ func TestDispatchWithFallback_BothFailFinalBodyFlushed(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
@@ -674,7 +674,7 @@ func TestDispatchWithFallback_SingleBindingExhaustsRetries(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "claude-opus-4-7"},
@@ -734,7 +734,7 @@ func TestDispatchWithFallback_SlowAttemptsStopBeforeRetryCount(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	_, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "claude-opus-4-7"},
@@ -770,7 +770,7 @@ func TestDispatchWithFallback_SingleBindingRetrySucceeds(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "claude-opus-4-7"},
@@ -804,7 +804,7 @@ func TestDispatchWithFallback_SingleBindingNonRetryableNoRetry(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	_, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "claude-opus-4-7"},
@@ -840,7 +840,7 @@ func TestDispatchWithFallback_SingleBindingBackoffAbortsOnCancel(t *testing.T) {
 	buf := dispatch.NewPreludeBuffer(rec)
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := s.dispatchWithFallback(context.Background(), dispatch.FailoverInputs{
+	_, err := fallbackFor(s).Dispatch(context.Background(), dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: "claude-opus-4-7"},

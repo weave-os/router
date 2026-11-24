@@ -44,7 +44,7 @@ func blindExperimentModelSource(ctx context.Context, routed *routingpolicy.TurnR
 		return auth.BlindExperimentModelSourceNotDispatched
 	case routed.UsageBypass:
 		return auth.BlindExperimentModelSourceUsageBypass
-	case isUserForcedReason(routed.Decision.Reason):
+	case routingpolicy.IsUserForcedReason(routed.Decision.Reason):
 		return auth.BlindExperimentModelSourceForceModel
 	case routed.HardPinned:
 		return auth.BlindExperimentModelSourceHardPin

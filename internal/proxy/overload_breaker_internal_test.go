@@ -266,13 +266,13 @@ func TestRecordOverloadOutcome_OnlyTheProbeResolves(t *testing.T) {
 	require.True(t, claimed)
 	probeCtx := withOverloadProbe(h.ctx(), probe)
 
-	h.svc.recordOverloadOutcome(h.ctx(), rescuedPrimaryModel, providers.ProviderAnthropic, false, nil)
+	h.svc.throttling.Overload.RecordOutcome(h.ctx(), overloadOrg(h.ctx()), rescuedPrimaryModel, providers.ProviderAnthropic, false, nil)
 	assert.True(t, h.withdrawn(), "a success without the probe does not close the circuit")
 
 	_, _, reclaimed := h.svc.claimOverloadProbe(h.ctx(), router.Request{})
 	assert.False(t, reclaimed, "the probe is still held")
 
-	h.svc.recordOverloadOutcome(probeCtx, rescuedPrimaryModel, providers.ProviderAnthropic, false, overloaded529())
+	h.svc.throttling.Overload.RecordOutcome(probeCtx, overloadOrg(probeCtx), rescuedPrimaryModel, providers.ProviderAnthropic, false, overloaded529())
 	assert.True(t, h.withdrawn(), "the probe's own 529 reopens it")
 	_, _, reclaimed = h.svc.claimOverloadProbe(h.ctx(), router.Request{})
 	assert.False(t, reclaimed, "a reopened circuit waits out its doubled recovery")
@@ -379,7 +379,7 @@ func TestRecordOverloadOutcome_IgnoresNonOverloadSignals(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newOverloadHarness(true)
 			for range 3 {
-				h.svc.recordOverloadOutcome(h.ctx(), rescuedPrimaryModel, tc.provider, tc.committed, tc.err)
+				h.svc.throttling.Overload.RecordOutcome(h.ctx(), overloadOrg(h.ctx()), rescuedPrimaryModel, tc.provider, tc.committed, tc.err)
 			}
 			assert.False(t, h.withdrawn())
 		})
@@ -387,7 +387,7 @@ func TestRecordOverloadOutcome_IgnoresNonOverloadSignals(t *testing.T) {
 	t.Run("no organization", func(t *testing.T) {
 		h := newOverloadHarness(true)
 		for range 3 {
-			h.svc.recordOverloadOutcome(context.Background(), rescuedPrimaryModel, providers.ProviderAnthropic, false, overloaded529())
+			h.svc.throttling.Overload.RecordOutcome(context.Background(), overloadOrg(context.Background()), rescuedPrimaryModel, providers.ProviderAnthropic, false, overloaded529())
 		}
 		assert.Empty(t, h.registry.Withdrawn(""), "failures without an organization must not reach the registry")
 	})
@@ -443,19 +443,19 @@ func TestOverloadBreaker_GatewayOrganizationIsIsolated(t *testing.T) {
 	h := newOverloadHarness(true)
 	cortex := uuid.NewString()
 	for range 3 {
-		h.svc.recordOverloadOutcome(orgCtx(cortex), rescuedPrimaryModel, providers.ProviderAnthropicGateway, false, overloaded529())
+		h.svc.throttling.Overload.RecordOutcome(orgCtx(cortex), overloadOrg(orgCtx(cortex)), rescuedPrimaryModel, providers.ProviderAnthropicGateway, false, overloaded529())
 	}
 
 	assert.Contains(t, h.registry.Withdrawn(cortex), rescuedPrimaryModel)
-	assert.Contains(t, h.svc.overloadOpenModels(orgCtx(cortex)), rescuedPrimaryModel)
+	assert.Contains(t, h.svc.throttling.Overload.OpenModels(orgCtx(cortex), overloadOrg(orgCtx(cortex))), rescuedPrimaryModel)
 	assert.False(t, h.withdrawn(), "gateway failures are not shared evidence")
-	assert.Empty(t, h.svc.overloadOpenModels(h.ctx()))
+	assert.Empty(t, h.svc.throttling.Overload.OpenModels(h.ctx(), overloadOrg(h.ctx())))
 
 	for range 3 {
-		h.svc.recordOverloadOutcome(h.ctx(), rescuedPrimaryModel, providers.ProviderAnthropic, false, overloaded529())
+		h.svc.throttling.Overload.RecordOutcome(h.ctx(), overloadOrg(h.ctx()), rescuedPrimaryModel, providers.ProviderAnthropic, false, overloaded529())
 	}
 	require.True(t, h.withdrawn())
-	assert.Equal(t, map[string]struct{}{rescuedPrimaryModel: {}}, h.svc.overloadOpenModels(orgCtx(cortex)), "shared evidence does not confirm for the gateway organization")
+	assert.Equal(t, map[string]struct{}{rescuedPrimaryModel: {}}, h.svc.throttling.Overload.OpenModels(orgCtx(cortex), overloadOrg(orgCtx(cortex))), "shared evidence does not confirm for the gateway organization")
 	assert.Contains(t, h.registry.Withdrawn(cortex), rescuedPrimaryModel)
 }
 
@@ -478,7 +478,7 @@ func TestOverloadBreaker_GatewayTwoModelRosterStillServes(t *testing.T) {
 		WithProviderOverloaded(true, registry)
 	ctx := twoModelGatewayContext()
 	registry.RecordOverload(requestcontext.InstallationIDFromContext(ctx).String(), recoveryOpusModel, true)
-	require.Contains(t, svc.overloadOpenModels(ctx), recoveryOpusModel)
+	require.Contains(t, svc.throttling.Overload.OpenModels(ctx, overloadOrg(ctx)), recoveryOpusModel)
 
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic recovery check"}]}`)

@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
@@ -89,7 +90,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 			metadata := &router.RoutingMetadata{CandidateModels: eligible, SelectionTrace: &router.SelectionTrace{SelectedGroup: "high", EffectiveOrders: map[string][]string{"high": {codexCoveredModel, alternative}}, CandidateRosterIDs: eligible}}
 			var pins sessionpin.Store
 			if scenario.sessionPinned {
-				pins = &overwritingPinStore{pin: sessionpin.Pin{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires}, found: true}
+				pins = &overwritingPinStore{pin: sessionpin.Pin{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: translate.ReasonUserForceModel, PinnedUntil: routingpolicy.PinNeverExpires}, found: true}
 			}
 			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: metadata, Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, pins, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 			ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
