@@ -77,3 +77,68 @@ func TestDecideSwitchPricesTheRewriteOfALargePrompt(t *testing.T) {
 		})
 	}
 }
+
+func TestDecideSwitchHoldsAnUpgradeTheHMMGateIsNotConfidentIn(t *testing.T) {
+	cases := []struct {
+		name   string
+		input  routingpolicy.SwitchInput
+		serve  string
+		reason routingpolicy.SwitchReason
+	}{
+		{"low-confidence upgrade holds", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestHigh, UpgradeConfidence: 0.3, UpgradeConfidenceLow: true}, switchTestLow, routingpolicy.SwitchReasonUpgradeConfidenceLow},
+		{"low-confidence upgrade on a cold cache holds", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestHigh, CacheCold: true, UpgradeConfidenceLow: true}, switchTestLow, routingpolicy.SwitchReasonUpgradeConfidenceLow},
+		{"confident upgrade moves", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestHigh, UpgradeConfidence: 0.8}, switchTestHigh, routingpolicy.SwitchReasonUpgrade},
+		{"low confidence does not hold a downgrade", routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestLow, UpgradeConfidence: 0.3, UpgradeConfidenceLow: true}, switchTestLow, routingpolicy.SwitchReasonDowngrade},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.input.EstimatedInputTokens = 10_000
+			tc.input.Now = switchTestNow
+			verdict := routingpolicy.DecideSwitch(tc.input)
+			assert.Equal(t, tc.serve, verdict.Serve)
+			assert.Equal(t, tc.reason, verdict.Reason)
+			assert.Equal(t, tc.serve != tc.input.Current, verdict.Switch)
+			assert.True(t, verdict.Economics.Priced)
+		})
+	}
+}
+
+// Parallel threads of one session (for example agent sub-threads) share a
+// session pin, so a recorded cache state can belong to a longer sibling
+// thread. A state recorded at more messages than this turn carries says
+// nothing about this thread's cache and is priced as unknown.
+func TestDecideSwitchIgnoresCacheStateRecordedByALongerSiblingThread(t *testing.T) {
+	sibling := routingpolicy.SwitchInput{
+		Current: "gpt-6-luna", Fresh: switchTestPrefixCached, EstimatedInputTokens: 40_000, PromptTokens: 800_000,
+		Now: switchTestNow, MessageCount: 40,
+		ModelCaches: sessionpin.ModelCaches{
+			"gpt-6-luna":           {ServedAt: switchTestNow.Add(-10 * time.Second), PromptTokens: 800_000, MessageCount: 600},
+			switchTestPrefixCached: {ServedAt: switchTestNow.Add(-time.Minute), PromptTokens: 790_000, MessageCount: 590},
+		},
+	}
+	unknown := sibling
+	unknown.PromptTokens = 0
+	unknown.ModelCaches = nil
+
+	got := routingpolicy.DecideSwitch(sibling)
+	want := routingpolicy.DecideSwitch(unknown)
+	assert.Equal(t, want, got)
+
+	view := routingpolicy.FreshCacheView(sibling)
+	assert.False(t, view.Known)
+	assert.True(t, view.OtherThread)
+	assert.Zero(t, view.MessagesSinceServed)
+}
+
+func TestDecideSwitchPricesATrimmedTurnAtItsPriorPromptSize(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	trimmed := routingpolicy.SwitchInput{
+		Current: "gpt-6.1-sol", Fresh: "gpt-6-luna", EstimatedInputTokens: 100_000, PromptTokens: 300_000,
+		PrefixBroken: true, Now: now, MessageCount: 250,
+		ModelCaches: sessionpin.ModelCaches{"gpt-6.1-sol": {ServedAt: now.Add(-20 * time.Second), PromptTokens: 300_000, MessageCount: 400}},
+	}
+	atPriorSize := trimmed
+	atPriorSize.EstimatedInputTokens = trimmed.PromptTokens
+
+	assert.Equal(t, routingpolicy.DecideSwitch(atPriorSize).Economics, routingpolicy.DecideSwitch(trimmed).Economics)
+}

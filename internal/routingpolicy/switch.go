@@ -10,15 +10,16 @@ import (
 type SwitchReason string
 
 const (
-	SwitchReasonFirstTurn          SwitchReason = "first_turn"
-	SwitchReasonSameModel          SwitchReason = "same_model"
-	SwitchReasonCurrentUnavailable SwitchReason = "current_unavailable"
-	SwitchReasonPricingMissing     SwitchReason = "pricing_missing"
-	SwitchReasonDowngrade          SwitchReason = "downgrade"
-	SwitchReasonUpgrade            SwitchReason = "upgrade"
-	SwitchReasonUpgradePending     SwitchReason = "upgrade_rewrite_exceeds_value"
-	SwitchReasonSideRequest        SwitchReason = "side_request"
-	SwitchReasonDowngradePending   SwitchReason = "downgrade_rewrite_exceeds_savings"
+	SwitchReasonFirstTurn            SwitchReason = "first_turn"
+	SwitchReasonSameModel            SwitchReason = "same_model"
+	SwitchReasonCurrentUnavailable   SwitchReason = "current_unavailable"
+	SwitchReasonPricingMissing       SwitchReason = "pricing_missing"
+	SwitchReasonDowngrade            SwitchReason = "downgrade"
+	SwitchReasonUpgrade              SwitchReason = "upgrade"
+	SwitchReasonUpgradePending       SwitchReason = "upgrade_rewrite_exceeds_value"
+	SwitchReasonSideRequest          SwitchReason = "side_request"
+	SwitchReasonDowngradePending     SwitchReason = "downgrade_rewrite_exceeds_savings"
+	SwitchReasonUpgradeConfidenceLow SwitchReason = "upgrade_confidence_low"
 )
 
 const (
@@ -41,6 +42,8 @@ type SwitchInput struct {
 	UserPrompt           bool
 	CacheWriteTTL        time.Duration
 	ModelCaches          sessionpin.ModelCaches
+	UpgradeConfidence    float64
+	UpgradeConfidenceLow bool
 }
 
 type SwitchVerdict struct {
@@ -74,6 +77,7 @@ func DecideSwitch(input SwitchInput) SwitchVerdict {
 	if input.SideRequest {
 		return SwitchVerdict{Serve: input.Fresh, Reason: SwitchReasonSideRequest}
 	}
+	input = withoutSiblingThreadCaches(input)
 	tokens := switchPricingTokens(input)
 	output := switchDefaultOutputTokens
 	currentWarm, currentPriced := switchWarmTurnUSD(input.Current, tokens, output)
@@ -104,8 +108,10 @@ func DecideSwitch(input SwitchInput) SwitchVerdict {
 		Downgrade:    downgrade,
 	}
 	verdict := stay(SwitchReasonUpgradePending)
-	pays := economics.MoveValueUSD > eviction || input.CacheCold || input.PrefixBroken
+	pays := economics.MoveValueUSD > eviction || input.CacheCold || (input.PrefixBroken && trimLosesCache(input.Current))
 	switch {
+	case !downgrade && input.UpgradeConfidenceLow:
+		verdict = stay(SwitchReasonUpgradeConfidenceLow)
 	case downgrade && pays:
 		verdict = move(SwitchReasonDowngrade)
 	case downgrade:
@@ -115,6 +121,31 @@ func DecideSwitch(input SwitchInput) SwitchVerdict {
 	}
 	verdict.Economics = economics
 	return verdict
+}
+
+func withoutSiblingThreadCaches(input SwitchInput) SwitchInput {
+	if len(input.ModelCaches) == 0 {
+		return input
+	}
+	caches := make(sessionpin.ModelCaches, len(input.ModelCaches))
+	for model, state := range input.ModelCaches {
+		if siblingThreadCache(state, input) {
+			if model == input.Current {
+				input.PromptTokens = 0
+			}
+			continue
+		}
+		caches[model] = state
+	}
+	input.ModelCaches = caches
+	if len(caches) == 0 {
+		input.ModelCaches = nil
+	}
+	return input
+}
+
+func siblingThreadCache(state sessionpin.ModelCacheState, input SwitchInput) bool {
+	return !input.PrefixBroken && state.MessageCount > 0 && input.MessageCount > 0 && state.MessageCount > input.MessageCount
 }
 
 func switchPricingTokens(input SwitchInput) int {

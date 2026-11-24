@@ -6,23 +6,32 @@ import (
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
 )
 
 const switchDecideShadowDefault = true
 
-func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate continuity.CostGateInput, now time.Time, res TurnRoute) {
+type switchShadowTurn struct {
+	StayPin sessionpin.Pin
+	Gate    continuity.CostGateInput
+	Served  continuity.CostGateServe
+	Now     time.Time
+}
+
+func logSwitchShadow(ctx context.Context, shadow switchShadowTurn, res TurnRoute) {
 	if !flags.BoolOr(ctx, flags.KeySwitchDecideShadow, switchDecideShadowDefault) {
 		return
 	}
+	stayPin, gate, now := shadow.StayPin, shadow.Gate, shadow.Now
 	shape := res.CacheShape()
 	input := SwitchInput{
 		Current:              stayPin.Model,
 		Fresh:                gate.Fresh.Model,
 		EstimatedInputTokens: gate.EstimatedInputTokens,
 		PromptTokens:         PriorPromptTokens(stayPin),
-		CacheCold:            stayPin.Model != "" && PinCacheCold(stayPin, gate.PrefixBroken, now),
+		CacheCold:            stayPin.Model != "" && PinCacheCold(stayPin, gate.PrefixBroken && providers.UsesBreakpointCache(stayPin.Provider), now),
 		PrefixBroken:         gate.PrefixBroken,
 		SideRequest:          shape.SideRequest,
 		Now:                  now,
@@ -30,6 +39,8 @@ func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate continuit
 		UserPrompt:           shape.UserPrompt,
 		CacheWriteTTL:        shape.CacheWriteTTL,
 		ModelCaches:          gate.HMMHistory.ModelCaches,
+		UpgradeConfidence:    shadow.Served.UpgradeConfidence,
+		UpgradeConfidenceLow: shadow.Served.UpgradeConfidenceLow,
 	}
 	verdict := DecideSwitch(input)
 	fresh := FreshCacheView(input)
@@ -57,7 +68,10 @@ func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate continuit
 		"move_value_usd", verdict.Economics.MoveValueUSD,
 		"horizon_turns", verdict.Economics.HorizonTurns,
 		"downgrade", verdict.Economics.Downgrade,
+		"upgrade_confidence", input.UpgradeConfidence,
+		"upgrade_confidence_low", input.UpgradeConfidenceLow,
 		"fresh_cache_known", fresh.Known,
+		"fresh_cache_other_thread", fresh.OtherThread,
 		"fresh_messages_since_served", fresh.MessagesSinceServed,
 		"fresh_seconds_since_served", int(fresh.SinceServed/time.Second),
 		"fresh_cache_ttl_seconds", int(fresh.TTL/time.Second),

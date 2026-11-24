@@ -76,6 +76,7 @@ func (g CostGate) Decide(input CostGateInput) (sessionpin.Pin, planner.Decision,
 func (g CostGate) Serve(input CostGateInput, priorServedModel string) continuity.CostGateServe {
 	stayPin, plan, sticky := g.Decide(input)
 	served := continuity.CostGateServe{Decision: input.Fresh, Planner: plan, Sticky: sticky, StayModel: stayPin.Model, PinTier: costGatePinTier(plan, sticky)}
+	served.UpgradeConfidence, served.UpgradeConfidenceLow = g.upgradeConfidence(stayPin, input.Fresh)
 	if sticky {
 		served.Decision = stayPin.Decision()
 	}
@@ -85,6 +86,14 @@ func (g CostGate) Serve(input CostGateInput, priorServedModel string) continuity
 		served.Planner.Reason = AppendEffortHysteresisReason(served.Planner.Reason)
 	}
 	return served
+}
+
+func (g CostGate) upgradeConfidence(stayPin sessionpin.Pin, fresh router.Decision) (float64, bool) {
+	confidence, ok := DecisionConfidence(fresh)
+	if IsToolExecutionReason(stayPin.Reason) != IsToolExecutionReason(fresh.Reason) {
+		return confidence, false
+	}
+	return confidence, !ok || confidence < g.UpgradeConfidenceThreshold
 }
 
 func costGatePinTier(plan planner.Decision, sticky bool) string {

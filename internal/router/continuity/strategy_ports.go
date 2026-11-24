@@ -39,13 +39,15 @@ type CostGate interface {
 }
 
 type CostGateServe struct {
-	Decision         router.Decision
-	Planner          planner.Decision
-	Sticky           bool
-	StayModel        string
-	ChallengerEffort string
-	HeldEffort       string
-	PinTier          string
+	Decision             router.Decision
+	Planner              planner.Decision
+	Sticky               bool
+	StayModel            string
+	ChallengerEffort     string
+	HeldEffort           string
+	PinTier              string
+	UpgradeConfidence    float64
+	UpgradeConfidenceLow bool
 }
 
 type StrategyPorts struct {

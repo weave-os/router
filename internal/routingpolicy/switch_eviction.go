@@ -59,18 +59,24 @@ func predictCacheOutlook(model string, state sessionpin.ModelCacheState, known b
 }
 
 func rewriteProbability(model string, state sessionpin.ModelCacheState, known bool, turn evictionTurn) float64 {
-	if !known || turn.prefixBroken || state.ServedAt.IsZero() {
+	if !known || state.ServedAt.IsZero() {
 		return 1
 	}
 	m, ok := catalog.ByID(model)
 	if !ok {
 		return 1
 	}
+	if turn.prefixBroken && providers.UsesBreakpointCache(m.PrimaryProvider()) {
+		return 1
+	}
 	appended := 2*turn.turnsSince - 1
 	if state.MessageCount > 0 && turn.messageCount > 0 {
 		appended = turn.messageCount - state.MessageCount
 	}
-	if providers.FamilyFor(m.PrimaryProvider()) != providers.FamilyAnthropic {
+	if turn.prefixBroken {
+		appended = max(appended, 0)
+	}
+	if !providers.UsesBreakpointCache(m.PrimaryProvider()) {
 		return prefixCacheRewriteProbability(turn.now.Sub(state.ServedAt), appended)
 	}
 	if turn.now.Sub(state.ServedAt) >= recordedCacheTTL(m, state) {
@@ -113,6 +119,16 @@ func prefixCacheRewriteProbability(gap time.Duration, appended int) float64 {
 	}
 }
 
+func rewriteInputMultiplier(m catalog.Model, price catalog.Pricing, writeTTL time.Duration) float64 {
+	if !providers.UsesBreakpointCache(m.PrimaryProvider()) {
+		return 1
+	}
+	if writeTTL >= time.Hour {
+		return price.EffectiveCacheWrite1hMultiplier(m.PrimaryProvider())
+	}
+	return price.EffectiveCacheWriteMultiplier()
+}
+
 func expectedTurnUSD(model string, outlook CacheOutlook, tokens, outputTokens int, writeTTL time.Duration) (float64, bool) {
 	m, ok := catalog.ByID(model)
 	price, priced := catalog.PrimaryPriceFor(model)
@@ -124,11 +140,13 @@ func expectedTurnUSD(model string, outlook CacheOutlook, tokens, outputTokens in
 	if writeTTL <= 0 {
 		writeTTL = providers.CacheTTLFor(m.PrimaryProvider())
 	}
-	writeMultiplier := price.EffectiveCacheWriteMultiplier()
-	if writeTTL >= time.Hour {
-		writeMultiplier = price.EffectiveCacheWrite1hMultiplier(m.PrimaryProvider())
-	}
+	writeMultiplier := rewriteInputMultiplier(m, price, writeTTL)
 	return outlook.ReadTokens*in*price.EffectiveCacheReadMultiplier() +
 		outlook.WriteTokens*in*writeMultiplier +
 		float64(outputTokens)*price.OutputUSDPer1M/1e6, true
+}
+
+func trimLosesCache(model string) bool {
+	m, ok := catalog.ByID(model)
+	return !ok || providers.UsesBreakpointCache(m.PrimaryProvider())
 }
