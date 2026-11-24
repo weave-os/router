@@ -137,6 +137,7 @@ check "granted plugins installed" "$(cat "$home/record/plugin_installs")" "plugi
 plugin-cursor"
 check "a failed plugin fails the run" "$status" "1"
 check_contains "reports the failed plugin" "$output" "Failed: codex plugin"
+check_contains "points at the installer's own error for the fix" "$output" "Fix the errors shown above, then copy a new command"
 check_contains "reports the skipped plugin" "$output" "No one-command plugin install yet: copilot"
 check_lacks "never prints the router key" "$output" "rk_test_key"
 check_lacks "never prints the token" "$output" "wenroll_secret_token"

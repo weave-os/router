@@ -267,6 +267,6 @@ info ""
 [ -z "$skipped" ] || info "No one-command plugin install yet: $skipped"
 [ "${#missing_labels[@]}" -eq 0 ] || info "Not found: $(join_by ', ' "${missing_labels[@]}"). Re-run this command after installing one to add it."
 if [ "${#failed[@]}" -gt 0 ]; then
-  err "Failed: $(join_by ', ' "${failed[@]}"). Copy a new command from the Weave setup page and re-run."
+  err "Failed: $(join_by ', ' "${failed[@]}"). Fix the errors shown above, then copy a new command from the Weave setup page and re-run."
   exit 1
 fi
