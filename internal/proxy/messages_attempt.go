@@ -129,7 +129,6 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 				chatTranslator := translate.NewAnthropicSSETranslator(attemptSink, d.Model, usage).
 					WithLogger(deps.log).
 					WithEstimatedInputTokens(deps.feats.Tokens).
-					WithRequestHadTools(deps.feats.HasTools).
 					WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
 					WithSeedToolCallMarkup(deps.env.SeedToolCallNames(prep.ResponseToolNames)).
 					WithEscapeNormalize(flags.BoolOr(ctx, flags.KeyEscapeNormalize, deps.svc.ingress.EscapeNormalize)).
@@ -220,7 +219,6 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 			anthropicTr := translate.NewAnthropicSSETranslator(attemptSink, d.Model, nil).
 				WithLogger(deps.log).
 				WithEstimatedInputTokens(deps.feats.Tokens).
-				WithRequestHadTools(deps.feats.HasTools).
 				WithEscapeNormalize(flags.BoolOr(ctx, flags.KeyEscapeNormalize, deps.svc.ingress.EscapeNormalize)).
 				WithToolValidator(deps.toolValidator)
 			if err := anthropicTr.Prelude(deps.env.Stream()); err != nil {

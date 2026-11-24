@@ -40,30 +40,21 @@ the way they are.
 
 ## Stuck-session detectors
 
-Text repetition and spiral signals are pure functions of the
-request envelope, which carries the full history on every turn. The others need
-earlier turns: no-progress keeps a per-replica ring of recent fingerprints per
-session, compaction detection compares against the last counts it cached. Replay tests for those
-must drive a sequence of requests. A zero session key never gets a pin row
-written: such a row would be shared by every zero-keyed session.
+The router never stops or rewrites a turn because it looks stuck. Spiral
+signals are pure functions of the request envelope, which carries the full
+history on every turn. Compaction detection needs earlier turns: it compares
+against the last counts it cached per session, so replay tests for it must
+drive a sequence of requests.
 
 | Detector | Catches | Acts? |
 |---|---|---|
-| No-progress | The same `(model, provider, tool-progress marker, prompt prefix)` fingerprint repeating inside a short window | Breaks the turn and expires the pin |
-| Text repetition | The assistant narrating the same substantive line again while issuing fresh tool calls | Breaks the turn and expires the pin (`ROUTER_TEXT_REPETITION_BREAK_ENABLED`) |
 | Spiral signals | Error streaks, same-file edit thrash, fuzzy repetition, monologue, A/B ping-pong, steps since last good edit | Recorded on the telemetry row only (`ROUTER_TURN_SIGNAL_CAPTURE_ENABLED`) |
 
-- **No-progress fingerprint.** The tool-progress marker (assistant tool-call
-  count plus the last call's signature) is the primary stuck signal. Message
-  count is folded in only when there is no marker, because retries append
-  messages even while stuck and Claude Code sub-agents hold the top-level
-  count flat.
 - **Compaction detection** watches for the message count dropping (full
   compaction) or the tool-call count shrinking on a flat window (rolling
   trimming). Both are gated by `compactionMinHistoryMessages`: fresh
   sub-agents and the Explore sub-agent's flat window would otherwise look like
   drops, and a false fire hands an in-flight sub-agent a lossy summary.
-- No-progress recovery never clears an explicit `/force-model` pin.
 - The retired escalation tables (`loop_escalation_events`,
   `spiral_shadow_events`, `struggle_shadow_events`,
   `struggle_escalation_events`) are archived: kept for posterity, written by

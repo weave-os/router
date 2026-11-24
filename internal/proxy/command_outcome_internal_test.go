@@ -159,24 +159,6 @@ func TestCommandOutcomeRequiresPersistence(t *testing.T) {
 	}
 }
 
-func TestLoopStopsPreserveHistoricalForcePin(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, newForceModelMapStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
-	env := forceCommandEnv(t)
-	for _, repetition := range []bool{false, true} {
-		rec := httptest.NewRecorder()
-		var err error
-		if repetition {
-			err = loopBreakForTest(svc, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic).textRepetition(context.Background(), rec, env, 3, "synthetic", 1)
-		} else {
-			err = loopBreakForTest(svc, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic).noProgress(context.Background(), rec, env, 3, 1, translate.ReasonUserForceModel)
-		}
-		require.NoError(t, err)
-		outcome := readCommandOutcome(t, rec)
-		assert.Equal(t, translate.CommandLoopStop, outcome.Command)
-		assert.Equal(t, translate.PinUnchanged, outcome.Pin.Transition)
-	}
-}
-
 type commandWriteFailure struct{ *httptest.ResponseRecorder }
 
 func (*commandWriteFailure) Write([]byte) (int, error) { return 0, errors.New("synthetic disconnect") }

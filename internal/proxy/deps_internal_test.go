@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -39,15 +38,12 @@ func TestWithDepsKeepsIngressDefaultsWhenUnset(t *testing.T) {
 }
 
 func TestWithDepsAppliesConversationConfig(t *testing.T) {
-	textRepetitionBreak := false
 	links := feedback.NewLinks(nil, nil, "https://feedback.example", nil, nil)
 	secret := strings.Repeat("s", 32)
 	svc := WithDeps(NewService(nil, nil, nil, nil, false, "", "", nil), Deps{Conversation: conversation.Config{
-		FeedbackLinks:       links,
-		PiHandoffSecret:     secret,
-		TextRepetitionBreak: &textRepetitionBreak,
+		FeedbackLinks:   links,
+		PiHandoffSecret: secret,
 	}})
-	assert.False(t, svc.lifecycle.TextRepetitionBreakEnabled(context.Background()))
 	assert.Same(t, links, svc.lifecycle.FeedbackLinks())
 	assert.Equal(t, []byte(secret), svc.lifecycle.PiHandoff(time.Now).Secret)
 }

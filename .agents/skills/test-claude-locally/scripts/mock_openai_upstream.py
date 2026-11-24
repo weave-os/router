@@ -7,8 +7,8 @@ runs against a deterministic upstream shape — no real API key or credits neede
 
 Default stream reproduces the GLM-5.1 degenerate tool-call: a tool_calls delta
 with an empty function.name, closed with finish_reason="tool_calls". The router
-suppresses the nameless call (stream.go), which historically (mis)fired the
-text-only recovery nudge. Edit CHUNKS to reproduce a different shape.
+suppresses the nameless call (stream.go). Edit CHUNKS to reproduce a different
+shape.
 """
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

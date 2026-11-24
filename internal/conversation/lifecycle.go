@@ -1,24 +1,20 @@
 package conversation
 
 import (
-	"context"
 	"time"
 
 	"weave-os/router/internal/feedback"
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/sessionstrategy"
 )
 
 type Lifecycle struct {
-	noProgress          *NoProgressTracker
-	compaction          *CompactionTracker
-	textRepetitionBreak bool
-	summarizer          handover.Summarizer
-	routerFeedback      feedback.RouterFeedbackStore
-	sessionStrategies   sessionstrategy.Store
-	piHandoffSecret     []byte
-	feedbackLinks       *feedback.Links
+	compaction        *CompactionTracker
+	summarizer        handover.Summarizer
+	routerFeedback    feedback.RouterFeedbackStore
+	sessionStrategies sessionstrategy.Store
+	piHandoffSecret   []byte
+	feedbackLinks     *feedback.Links
 }
 
 type Config struct {
@@ -27,7 +23,6 @@ type Config struct {
 	SessionStrategies   sessionstrategy.Store
 	FeedbackLinks       *feedback.Links
 	PiHandoffSecret     string
-	TextRepetitionBreak *bool
 }
 
 func (l *Lifecycle) Configure(cfg Config) {
@@ -38,32 +33,10 @@ func (l *Lifecycle) Configure(cfg Config) {
 	if len(cfg.PiHandoffSecret) >= 32 {
 		l.piHandoffSecret = []byte(cfg.PiHandoffSecret)
 	}
-	if cfg.TextRepetitionBreak != nil {
-		l.textRepetitionBreak = *cfg.TextRepetitionBreak
-	}
 }
 
 func NewLifecycle() *Lifecycle {
-	return &Lifecycle{noProgress: NewNoProgressTracker(), compaction: NewCompactionTracker(), textRepetitionBreak: true}
-}
-
-func (l *Lifecycle) NoProgress() *NoProgressTracker {
-	if l == nil {
-		return nil
-	}
-	return l.noProgress
-}
-
-func (l *Lifecycle) TextRepetitionBreak() bool {
-	return l != nil && l.textRepetitionBreak
-}
-
-func (l *Lifecycle) TextRepetitionBreakEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyTextRepetitionBreak, l.TextRepetitionBreak())
-}
-
-func (l *Lifecycle) SetTextRepetitionBreak(enabled bool) {
-	l.textRepetitionBreak = enabled
+	return &Lifecycle{compaction: NewCompactionTracker()}
 }
 
 func (l *Lifecycle) Compaction() *CompactionTracker {

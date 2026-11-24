@@ -262,5 +262,3 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 		Reason:   blindExperimentPublicDecisionReason,
 	}, nil
 }
-
-const blindExperimentLoopStopMessage = "Stopped this turn: the last several responses made no progress. Send a follow-up message describing what's still needed.\n\n"

@@ -35,3 +35,25 @@ func EchoedInAssistantText(body []byte, needles []string) map[string]bool {
 	}
 	return echoed
 }
+
+func assistantMessageText(msg gjson.Result) string {
+	content := msg.Get("content")
+	if content.Type == gjson.String {
+		return content.String()
+	}
+	if !content.IsArray() {
+		return ""
+	}
+	var b strings.Builder
+	content.ForEach(func(_, block gjson.Result) bool {
+		if block.Get("type").String() != "text" {
+			return true
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(block.Get("text").String())
+		return true
+	})
+	return b.String()
+}

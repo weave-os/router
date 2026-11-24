@@ -21,7 +21,7 @@ How `internal/translate` reads an inbound request (`translate.RequestEnvelope`),
 | `SessionAffinity` | Per-conversation id sent as a prompt-cache stickiness hint so a session lands on the same warm replica; the knob differs per upstream. |
 | `StripPromptCacheKey` | Drops `prompt_cache_key` instead of injecting the affinity hint, after a gateway whose schema trails the spec rejected it as unknown. |
 | `ModelSwitched` | The serving model changed since the last turn. Thinking signatures are valid only for the model that produced them (Anthropic 400s "Invalid signature in thinking block"), so thinking blocks are stripped. |
-| `ForceReasoningEffort` | Escalate-on-failure effort for gpt-5.x (Responses) and gemini-3.x (`thinkingConfig`): gpt-5.x starts low and goes high after a failed or no-progress turn; gemini stays low. |
+| `ForceReasoningEffort` | Escalate-on-failure effort for gpt-5.x (Responses) and gemini-3.x (`thinkingConfig`): gpt-5.x starts low and goes high after a failed turn; gemini stays low. |
 | `ForceEffort` | User-requested effort (`x-weave-effort` header or `:level` suffix). Wins over `ForceReasoningEffort`; per-model caps come from `ResolveForceEffort`. |
 | `EnableExtendedContext` | Targets with the extended-context capability get the 1M window instead of 200K, avoiding 400 "prompt is too long". No-op below 200K input. |
 | `EnableServerSideFallback` | Lets first-party Anthropic re-serve a safety-refused turn on a fallback model, including classifier turns that are otherwise forwarded verbatim; ignored for other targets. |

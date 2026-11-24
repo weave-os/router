@@ -15,7 +15,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/telemetry/iolog"
@@ -204,13 +203,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	pinTier := routeRes.PinTier
 	pinAgeSec := routeRes.PinAgeSec
 	logPlannerOutcome(ctx, s.strategyPorts, routeRes)
-
-	if facts.Client.ClientApp == requestcontext.ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.lifecycle.TextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
-		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
-			role := roleForTier(catalog.TierFor(feats.Model))
-			return writeLoopStop(ctx, w, env, newLoopBreak(s, strategy, facts.InstallationID, sessionKey, role, decision).TextRepetition(ctx, env, count, sampleHash), feats.Tokens)
-		}
-	}
 
 	credentialCtx := credentials.ResolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
