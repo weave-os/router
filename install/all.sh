@@ -230,9 +230,9 @@ router_key="$(jq -r '.router_key // empty' <<<"$exchange_body")"
 # this shell points WEAVE_ROUTER_URL at another deployment.
 # The comparison ignores case, the default port and the root dot, so every
 # spelling of the hosted app counts; the URL that was called is left as given.
-app_spelling="$(printf '%s' "$app_url" | tr '[:upper:]' '[:lower:]')"
-app_spelling="${app_spelling%:443}"
-[ "${app_spelling%.}" != "$DEFAULT_APP_URL" ] || unset WEAVE_ROUTER_URL
+normalized_app_url="$(printf '%s' "$app_url" | tr '[:upper:]' '[:lower:]')"
+normalized_app_url="${normalized_app_url%:443}"
+[ "${normalized_app_url%.}" != "$DEFAULT_APP_URL" ] || unset WEAVE_ROUTER_URL
 if [ "${#router_targets[@]}" -gt 0 ]; then
   # A missing installer fails the router targets only; plugins still install.
   installer="$(resolve_installer)" || installer=""
