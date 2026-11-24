@@ -102,7 +102,8 @@ func (p *Pool) Upsert(account Account) error {
 		if existing.account.Provider != account.Provider || existing.account.OwnerID != account.OwnerID {
 			return ErrProviderMismatch
 		}
-		newerGeneration := account.TokenRefreshVersion > existing.account.TokenRefreshVersion
+		quotaReactivated := account.TokenRefreshVersion > existing.account.TokenRefreshVersion &&
+			existing.account.State == auth.SubscriptionAccountStateExhausted && account.State.Routable()
 		if account.TokenRefreshVersion < existing.account.TokenRefreshVersion ||
 			account.AccessToken == "" && account.TokenRefreshVersion == existing.account.TokenRefreshVersion {
 			account.TokenRefreshVersion = existing.account.TokenRefreshVersion
@@ -112,7 +113,7 @@ func (p *Pool) Upsert(account Account) error {
 		if existing.account.State == auth.SubscriptionAccountStateActive && account.State == auth.SubscriptionAccountStateUnknown {
 			account.State = existing.account.State
 		}
-		if !newerGeneration && (existing.account.CooldownTil.After(account.CooldownTil) ||
+		if !quotaReactivated && (existing.account.CooldownTil.After(account.CooldownTil) ||
 			existing.account.State == auth.SubscriptionAccountStateCooldown && account.State == auth.SubscriptionAccountStateExhausted && existing.account.CooldownTil.After(p.clock())) {
 			if existing.account.CooldownTil.After(account.CooldownTil) {
 				account.CooldownTil = existing.account.CooldownTil
