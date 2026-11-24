@@ -104,6 +104,7 @@ test-install: ## Run offline installer regression tests (after make setup-instal
 	@bash install/tests/context_window_test.sh
 	@bash install/tests/claude_weave_auto_test.sh
 	@bash install/tests/client_events_test.sh
+	@bash install/tests/all_install_test.sh
 
 embed-registry: ## Re-embed install/directives.tsv + registry.sh into install.sh
 	@bash install/scripts/embed-registry.sh
