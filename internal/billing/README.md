@@ -31,6 +31,10 @@ the test book in. `prepaid_test.go` and
   flight when a cap is nearly reached can together exceed it. A read failure fails closed
   with 503 (`ErrSpendLimitCheckUnavailable`); a key deleted mid-request has no cap
   to enforce.
+- `CheckUserMonthlySpendLimit` decides the engineer UTC-month cap: a reached cap
+  serves subscription-only when the caller's subscription covers the route and
+  refuses with 402 (`ErrUserMonthlySpendLimitReached`) otherwise. The caller
+  supplies the coverage check, so billing never reads credentials.
 
 ## Subscription-only reasons
 

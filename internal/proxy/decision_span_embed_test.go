@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 
@@ -96,7 +98,7 @@ func newEmbedTestService(t *testing.T, collector *bypassSpanCollector, rt router
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = emitter.Shutdown(context.Background()) })
-	return withHMMPorts(NewService(rt, map[string]providers.Client{providers.ProviderAnthropic: embedTestProvider{}, providers.ProviderGoogle: embedTestProvider{}}, emitter, pins, false,
+	return withHMMPorts(NewService(rt, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: embedTestProvider{}, providers.ProviderGoogle: embedTestProvider{}}), emitter, pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 }
@@ -109,7 +111,7 @@ func decisionSpanEmbed(t *testing.T, svc *Service, collector *bypassSpanCollecto
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(context.Background(), embedTurnBody(), rec, httpReq))
 
-	em := mustAs[*otel.Emitter](t, svc.emitter)
+	em := mustAs[*otel.Emitter](t, svc.turnTelemetry.emitter)
 	require.NoError(t, em.Shutdown(context.Background()))
 
 	collector.mu.Lock()
@@ -257,13 +259,13 @@ func TestDecisionSpan_RolloutIDFromClientIdentity(t *testing.T) {
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{
-		ClientApp: ClientAppCodex,
+		ClientApp: requestcontext.ClientAppCodex,
 		Eval:      true,
 		RolloutID: "rollout-example-001",
 	})
 	require.NoError(t, svc.ProxyMessages(ctx, embedTurnBody(), rec, httpReq))
 
-	em := mustAs[*otel.Emitter](t, svc.emitter)
+	em := mustAs[*otel.Emitter](t, svc.turnTelemetry.emitter)
 	require.NoError(t, em.Shutdown(context.Background()))
 
 	collector.mu.Lock()
@@ -271,7 +273,7 @@ func TestDecisionSpan_RolloutIDFromClientIdentity(t *testing.T) {
 	spans := collector.byName["router.decision"]
 	require.Len(t, spans, 1)
 	assert.Equal(t, "rollout-example-001", spanStr(t, spans[0], "rollout_id"))
-	assert.Equal(t, EvalClientAppPrefix+ClientAppCodex, spanStr(t, spans[0], "client.app"))
+	assert.Equal(t, requestcontext.EvalClientAppPrefix+requestcontext.ClientAppCodex, spanStr(t, spans[0], "client.app"))
 }
 
 func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
@@ -343,7 +345,7 @@ func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
 				rec := httptest.NewRecorder()
 				httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, ingress.path, strings.NewReader(""))
 				require.NoError(t, ingress.call(svc, tc.ctx, ingress.body, rec, httpReq))
-				require.NoError(t, mustAs[*otel.Emitter](t, svc.emitter).Shutdown(context.Background()))
+				require.NoError(t, mustAs[*otel.Emitter](t, svc.turnTelemetry.emitter).Shutdown(context.Background()))
 
 				collector.mu.Lock()
 				defer collector.mu.Unlock()

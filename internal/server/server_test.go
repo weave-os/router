@@ -97,7 +97,7 @@ func TestRegister_DeploymentMode(t *testing.T) {
 	t.Run("selfhosted mounts dashboard and product routes", func(t *testing.T) {
 		engine := gin.New()
 		// Nil services are fine: engine.Routes() inspection never invokes the closure-captured handlers.
-		server.Register(engine, nil, nil, fakeHMMRosterSource{}, server.DeploymentModeSelfHosted, nil, nil, nil, nil)
+		server.Register(engine, nil, server.Services{}, fakeHMMRosterSource{}, server.DeploymentModeSelfHosted, nil, nil, nil)
 		got := routeSet(engine)
 		for _, want := range productRoutes {
 			assert.Contains(t, got, want, "product route missing in selfhosted mode")
@@ -111,7 +111,7 @@ func TestRegister_DeploymentMode(t *testing.T) {
 		engine := gin.New()
 		// Managed workers always wire the admitted HMM roster, so the catalog
 		// endpoint must mount even though the dashboard does not.
-		server.Register(engine, nil, nil, fakeHMMRosterSource{}, server.DeploymentModeManaged, nil, nil, nil, nil)
+		server.Register(engine, nil, server.Services{}, fakeHMMRosterSource{}, server.DeploymentModeManaged, nil, nil, nil)
 		got := routeSet(engine)
 		for _, want := range productRoutes {
 			assert.Contains(t, got, want, "product route missing in managed mode")
@@ -123,7 +123,7 @@ func TestRegister_DeploymentMode(t *testing.T) {
 
 	t.Run("nil HMM roster source skips catalog endpoint", func(t *testing.T) {
 		engine := gin.New()
-		server.Register(engine, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil)
+		server.Register(engine, nil, server.Services{}, nil, server.DeploymentModeManaged, nil, nil, nil)
 		got := routeSet(engine)
 		assert.NotContains(t, got, "GET /v1/router/models", "catalog endpoint must not mount without an HMM roster source")
 	})
@@ -142,7 +142,7 @@ func TestRegisterMountsAnalyticsExportInBothModes(t *testing.T) {
 	for _, mode := range []server.DeploymentMode{server.DeploymentModeSelfHosted, server.DeploymentModeManaged} {
 		t.Run(string(mode), func(t *testing.T) {
 			engine := gin.New()
-			server.Register(engine, nil, nil, nil, mode, nil, nil, nil, analytics.NewService(nil, nil))
+			server.Register(engine, nil, server.Services{}, nil, mode, nil, nil, analytics.NewService(nil, nil))
 			got := routeSet(engine)
 			for _, want := range analyticsRoutes {
 				assert.Contains(t, got, want)
@@ -152,7 +152,7 @@ func TestRegisterMountsAnalyticsExportInBothModes(t *testing.T) {
 
 	t.Run("nil service leaves the surface unmounted", func(t *testing.T) {
 		engine := gin.New()
-		server.Register(engine, nil, nil, nil, server.DeploymentModeSelfHosted, nil, nil, nil, nil)
+		server.Register(engine, nil, server.Services{}, nil, server.DeploymentModeSelfHosted, nil, nil, nil)
 		got := routeSet(engine)
 		for _, unwanted := range analyticsRoutes {
 			assert.NotContains(t, got, unwanted)
@@ -166,7 +166,7 @@ func TestRegisterSeparatesResponsiveAndStartupChecksFromReadiness(t *testing.T) 
 	checker := healthCheckerFunc(func(context.Context) error {
 		return errors.New("dependency unavailable")
 	})
-	server.RegisterWithFeatures(engine, nil, nil, nil, server.DeploymentModeManaged, nil, checker, nil, nil, server.Features{
+	server.RegisterWithFeatures(engine, nil, server.Services{}, nil, server.DeploymentModeManaged, nil, checker, nil, nil, server.Features{
 		StartupDatabasePing: func(context.Context) error { return nil },
 	})
 
@@ -192,7 +192,7 @@ func TestStartupCheckRequiresDatabaseAndRecovers(t *testing.T) {
 		t.Run(string(mode), func(t *testing.T) {
 			engine := gin.New()
 			var databaseAvailable atomic.Bool
-			server.RegisterWithFeatures(engine, nil, nil, nil, mode, nil, nil, nil, nil, server.Features{
+			server.RegisterWithFeatures(engine, nil, server.Services{}, nil, mode, nil, nil, nil, nil, server.Features{
 				StartupDatabasePing: func(context.Context) error {
 					if !databaseAvailable.Load() {
 						return errors.New("postgres internal-host unavailable")
@@ -217,7 +217,7 @@ func TestStartupCheckRequiresDatabaseAndRecovers(t *testing.T) {
 
 func TestStartupCheckRequiresDatabaseWiring(t *testing.T) {
 	engine := gin.New()
-	server.Register(engine, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil)
+	server.Register(engine, nil, server.Services{}, nil, server.DeploymentModeManaged, nil, nil, nil)
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/startupz", nil))
 	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
@@ -226,7 +226,7 @@ func TestStartupCheckRequiresDatabaseWiring(t *testing.T) {
 func TestStartupDatabaseTimeoutDoesNotBlockResponsiveChecks(t *testing.T) {
 	engine := gin.New()
 	started := make(chan context.Context, 1)
-	server.RegisterWithFeatures(engine, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{
+	server.RegisterWithFeatures(engine, nil, server.Services{}, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{
 		StartupDatabasePing: func(ctx context.Context) error {
 			started <- ctx
 			<-ctx.Done()
@@ -262,7 +262,7 @@ func TestStartupDatabaseTimeoutDoesNotBlockResponsiveChecks(t *testing.T) {
 
 func TestStartupDatabaseCheckHonorsRequestCancellation(t *testing.T) {
 	engine := gin.New()
-	server.RegisterWithFeatures(engine, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{
+	server.RegisterWithFeatures(engine, nil, server.Services{}, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{
 		StartupDatabasePing: func(ctx context.Context) error {
 			return ctx.Err()
 		},
@@ -276,7 +276,7 @@ func TestStartupDatabaseCheckHonorsRequestCancellation(t *testing.T) {
 
 func TestManagedValidationRejectsPublicCredentials(t *testing.T) {
 	engine := gin.New()
-	server.RegisterWithFeatures(engine, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}, InternalServiceToken: "internal-fixture-token"})
+	server.RegisterWithFeatures(engine, nil, server.Services{}, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}, InternalServiceToken: "internal-fixture-token"})
 	for _, credential := range []string{"", "rk_public-key"} {
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, policyregistry.WorkerValidationPath, nil)
 		request.Header.Set("Authorization", "Bearer "+credential)
@@ -289,7 +289,7 @@ func TestManagedValidationRejectsPublicCredentials(t *testing.T) {
 func TestManagedCatalogMetadataRemainsPublic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	server.RegisterWithFeatures(engine, nil, nil, fakeHMMRosterSource{}, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
+	server.RegisterWithFeatures(engine, nil, server.Services{}, fakeHMMRosterSource{}, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
 	for _, path := range []string{"/v1/router/models?scope=catalog", "/v1/router/models", "/v1/router/models?strategy=hmm"} {
 		response := httptest.NewRecorder()
 		engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))

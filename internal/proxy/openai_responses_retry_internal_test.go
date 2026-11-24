@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -77,10 +79,10 @@ func TestProxyOpenAIChatCompletion_SameBindingRetryStaysOnResponses(t *testing.T
 	client := &responsesRetryClient{}
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
-		map[string]providers.Client{providers.ProviderOpenAI: client},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 
 	body := `{"model":"auto","stream":false,"max_tokens":256,"messages":[{"role":"user","content":"read main.go"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}],"reasoning_effort":"medium"}`
 	rec := httptest.NewRecorder()
@@ -121,16 +123,16 @@ func TestProxyMessages_SiblingFailoverOntoOpenAIUsesResponses(t *testing.T) {
 	}
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: decision},
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: failing,
 			providers.ProviderOpenAI:    rescue,
-		},
+		}),
 		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderAnthropic: {},
 			providers.ProviderOpenAI:    {},
 		})
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 
 	body := `{"model":"claude-opus-5","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"read main.go"}],"tools":[{"name":"read_file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}],"thinking":{"type":"adaptive"}}`
 	rec := httptest.NewRecorder()
@@ -188,10 +190,10 @@ func TestProxyOpenAIResponses_RetriesNativeEmptyCompletion(t *testing.T) {
 	client := &emptyThenOKResponsesClient{}
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
-		map[string]providers.Client{providers.ProviderOpenAI: client},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	body := "{\"model\":\"gpt-5.6-luna\",\"input\":\"hi\"}"
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIResponses(context.Background(), []byte(body), rec,
@@ -204,10 +206,10 @@ func TestProxyOpenAIResponses_RetriesNativeStreamingEmptyCompletion(t *testing.T
 	client := &emptyThenOKResponsesClient{streaming: true}
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
-		map[string]providers.Client{providers.ProviderOpenAI: client},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	body := "{\"model\":\"gpt-5.6-luna\",\"stream\":true,\"input\":\"hi\"}"
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIResponses(context.Background(), []byte(body), rec,
@@ -220,10 +222,10 @@ func TestProxyOpenAIChatCompletion_RetriesNonStreamingEmptyCompletion(t *testing
 	client := &emptyThenOKResponsesClient{streaming: true}
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
-		map[string]providers.Client{providers.ProviderOpenAI: client},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	body := "{\"model\":\"auto\",\"stream\":false,\"max_tokens\":256,\"messages\":[{\"role\":\"user\",\"content\":\"read main.go\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"parameters\":{\"type\":\"object\"}}}],\"reasoning_effort\":\"medium\"}"
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec,
@@ -264,11 +266,11 @@ func TestProxyOpenAIResponses_RetriesTranslatedStreamingEmptyCompletion(t *testi
 	}}
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderXAI, Model: servedModel, Reason: "test"}},
-		map[string]providers.Client{providers.ProviderXAI: client},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderXAI: client}),
 		nil, nil, false, providers.ProviderXAI, servedModel, nil))
 
-	svc.retrySleep = noopSleep
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	svc.engine.SetRetrySleep(noopSleep)
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	body := "{\"model\":\"gpt-6-astra\",\"stream\":true,\"input\":\"Continue the task.\"}"
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))
 	req.Header.Set("X-Weave-Routing-Marker", "off")

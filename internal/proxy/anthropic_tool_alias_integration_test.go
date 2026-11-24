@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -38,7 +39,7 @@ func TestProxyMessages_AnthropicToolAliasRoundTrip(t *testing.T) {
 				}
 			}}
 			decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-5-5"}
-			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: decision}, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-5-5", nil), hmm.ServingPorts())
+			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: decision}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-5-5", nil), hmm.ServingPorts())
 			body := []byte(fmt.Sprintf(`{"model":"claude-sonnet-5-5","stream":%t,"max_tokens":1024,"tools":[{"name":"ToolSearch","input_schema":{"type":"object"}},{"name":%q,"defer_loading":true,"input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"find a tool"},{"role":"assistant","content":[{"type":"tool_use","id":"search","name":"ToolSearch","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"search","content":[{"type":"tool_reference","name":%q}]}]}]}`, stream, name, name))
 			sink := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)

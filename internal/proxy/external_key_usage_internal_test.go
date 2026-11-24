@@ -8,7 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 )
 
 type recordedKeyUsage struct{ ids []string }
@@ -18,33 +21,33 @@ func (r *recordedKeyUsage) MarkExternalAPIKeyUsed(_ context.Context, id string) 
 }
 
 func TestMarkServedExternalKeyUsed(t *testing.T) {
-	storedKey := BuildCredentialsMap([]*auth.ExternalAPIKey{{
+	storedKey := credentials.BuildCredentialsMap([]*auth.ExternalAPIKey{{
 		ID: "key-1", Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-test"),
 	}})[providers.ProviderOpenAI]
 	cases := []struct {
 		name      string
-		creds     *Credentials
+		creds     *requestcontext.Credentials
 		servedErr error
-		managed   *ManagedSubscriptionUsage
+		managed   *credentials.ManagedSubscriptionUsage
 		want      []string
 	}{
 		{name: "served by stored key", creds: storedKey, want: []string{"key-1"}},
 		{name: "failed request", creds: storedKey, servedErr: errors.New("upstream 500")},
-		{name: "caller credential", creds: &Credentials{APIKey: []byte("sk-caller"), Source: credSourceClient}},
+		{name: "caller credential", creds: &requestcontext.Credentials{APIKey: []byte("sk-caller"), Source: requestcontext.SourceClient}},
 		{name: "deployment key"},
-		{name: "served on managed subscription", creds: storedKey, managed: &ManagedSubscriptionUsage{Served: true, CredentialSource: credSourceSubscription}},
+		{name: "served on managed subscription", creds: storedKey, managed: &credentials.ManagedSubscriptionUsage{Served: true, CredentialSource: requestcontext.SourceSubscription}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := &recordedKeyUsage{}
-			svc := withHMMPorts(NewService(nil, map[string]providers.Client{}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+			svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 				WithExternalKeyUsageRecorder(recorder)
 			ctx := context.Background()
 			if tc.creds != nil {
-				ctx = context.WithValue(ctx, CredentialsContextKey{}, tc.creds)
+				ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, tc.creds)
 			}
 			if tc.managed != nil {
-				ctx = context.WithValue(ctx, ManagedSubscriptionUsageContextKey{}, tc.managed)
+				ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, tc.managed)
 			}
 
 			svc.markServedExternalKeyUsed(ctx, tc.servedErr)

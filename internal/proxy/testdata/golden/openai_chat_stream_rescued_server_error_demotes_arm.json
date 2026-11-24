@@ -117,7 +117,7 @@
             "PolicyID": "main-openai-chat-completions",
             "PolicyRevision": "3",
             "Purpose": "openai_chat_completions",
-            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+            "RegistryRevision": "sha256:2199d449ea260bc0d55bb53f0ef7966576bbe75dfa1a5fcac2d9e333b35e0843"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -139,7 +139,7 @@
             "PolicyID": "main-openai-chat-completions",
             "PolicyRevision": "3",
             "Purpose": "openai_chat_completions",
-            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+            "RegistryRevision": "sha256:2199d449ea260bc0d55bb53f0ef7966576bbe75dfa1a5fcac2d9e333b35e0843"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -161,7 +161,7 @@
             "PolicyID": "main-openai-chat-completions",
             "PolicyRevision": "3",
             "Purpose": "openai_chat_completions",
-            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+            "RegistryRevision": "sha256:2199d449ea260bc0d55bb53f0ef7966576bbe75dfa1a5fcac2d9e333b35e0843"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -179,7 +179,7 @@
             "PolicyID": "main-openai-chat-completions",
             "PolicyRevision": "3",
             "Purpose": "openai_chat_completions",
-            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+            "RegistryRevision": "sha256:2199d449ea260bc0d55bb53f0ef7966576bbe75dfa1a5fcac2d9e333b35e0843"
           },
           "Target": {
             "CatalogID": "deepseek/deepseek-v4-pro",
@@ -338,7 +338,9 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "deepseek/deepseek-v4-pro",
             "ServedProvider": "fireworks",
             "Strategy": "hmm_embedding"
@@ -481,7 +483,7 @@
             "PolicyID": "main-openai-chat-completions",
             "PolicyRevision": "3",
             "Purpose": "openai_chat_completions",
-            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+            "RegistryRevision": "sha256:2199d449ea260bc0d55bb53f0ef7966576bbe75dfa1a5fcac2d9e333b35e0843"
           },
           "Target": {
             "CatalogID": "deepseek/deepseek-v4-pro",
@@ -607,6 +609,12 @@
             "LastOutputTokens": 7,
             "LastServedModel": "deepseek/deepseek-v4-pro",
             "Model": "deepseek/deepseek-v4-pro",
+            "ModelCaches": {
+              "deepseek/deepseek-v4-pro": {
+                "MessageCount": 1,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "fireworks",
             "Reason": "golden_route",
             "Role": "default_high",
@@ -619,8 +627,10 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "PriorServedModel": "deepseek/deepseek-v4-pro",
+            "PromptTokens": 12,
             "ServedModel": "deepseek/deepseek-v4-pro",
             "ServedProvider": "fireworks",
             "Strategy": "hmm_embedding"

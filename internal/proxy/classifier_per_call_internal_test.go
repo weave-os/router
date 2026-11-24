@@ -12,8 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/catalog"
@@ -21,6 +23,7 @@ import (
 	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rosterdata"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -37,7 +40,7 @@ func TestClassifierPerCallHistoryWithinSingleHumanTurn(t *testing.T) {
 	observation := classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "Synthetic task"))
 	failed := true
 	for call := range 14 {
-		input, err := classifierContextForCall(observation)
+		input, err := routingpolicy.ClassifierContextForCall(observation)
 		require.NoError(t, err)
 		prediction, err := svc.classifyThread(ctx, input)
 		require.NoError(t, err)
@@ -49,7 +52,7 @@ func TestClassifierPerCallHistoryWithinSingleHumanTurn(t *testing.T) {
 			require.Equal(t, router.ClassifierComplexity((response.ResponseIndex/2)%4), response.Complexity)
 		}
 		// A replacement replica must deduplicate this call, not the human turn.
-		replica := &Service{hmmServing: hmmPorts(), clock: svc.clock}
+		replica := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: svc.clock})
 		require.NoError(t, replica.WithClassifierSessions(svc.classifierSessions.config, store, svc.classifierSessions.classifier))
 		retried, err := replica.classifyThread(ctx, input)
 		require.NoError(t, err)
@@ -102,7 +105,7 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 	const largeModel catalog.ModelID = "gpt-5.6-sol"
 	upstream := &classifierResponseProvider{}
 	baseline := &betaTestRouter{}
-	svc := withHMMPorts(NewService(baseline, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderOpenAI, smallModel.String(), nil))
+	svc := withHMMPorts(NewService(baseline, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}), nil, nil, false, providers.ProviderOpenAI, smallModel.String(), nil))
 	require.NoError(t, svc.WithClassifierSessions(config, store, classifier))
 	roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: config.SelectionPolicySHA256,
 		ClassOrder: []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}, Clusters: map[string]rosterdata.Cluster{}}
@@ -123,7 +126,7 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 		policy.AtomicClassifierFacts{Release: config.Release, ReleaseSHA256: config.ReleaseSHA256}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
 	svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
 	ctx := classifierAdmit(t, svc, principal)
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	const first = `{"model":"auto","stream":true,"input":[{"role":"user","content":"Synthetic task"}]}`
 	const continuation = `{"model":"auto","stream":true,"input":[{"role":"user","content":"Synthetic task"},{"role":"assistant","content":[{"type":"output_text","text":"Checking"}]},{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"cmd\":\"exit 7\"}"},{"type":"function_call_output","call_id":"c1","output":"Chunk ID: abc123\nWall time: 0.0001 seconds\nProcess exited with code 7\nOriginal token count: 1\nOutput:\nSynthetic output\n"}]}`
 	for index, body := range []string{first, continuation, continuation} {
@@ -160,7 +163,7 @@ func TestClassifierCodexExitErrorsAdvanceWithoutChangingReplay(t *testing.T) {
 		original, err := json.Marshal(observation)
 		require.NoError(t, err)
 		observation.CodexToolResults = true
-		input, err := classifierContextForCall(observation)
+		input, err := routingpolicy.ClassifierContextForCall(observation)
 		require.NoError(t, err)
 		replayed, err := json.Marshal(observation)
 		require.NoError(t, err)
@@ -189,7 +192,7 @@ func TestClassifierCodexExitErrorsAdvanceWithoutChangingReplay(t *testing.T) {
 func TestClassifierLegacyPredictionsCannotBecomeCallHistory(t *testing.T) {
 	svc, principal, store := classifierSessionFixture(t, classifierMedium)
 	ctx := classifierAdmit(t, svc, principal)
-	input, err := classifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "Synthetic task")))
+	input, err := routingpolicy.ClassifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "Synthetic task")))
 	require.NoError(t, err)
 	prediction, err := svc.classifyThread(ctx, input)
 	require.NoError(t, err)
@@ -204,7 +207,7 @@ func TestClassifierMissingUserPredictionCannotInheritOlderCall(t *testing.T) {
 	svc, principal, _ := classifierSessionFixture(t, classifierMedium)
 	ctx := classifierAdmit(t, svc, principal)
 	observation := classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "Synthetic first task"))
-	input, err := classifierContextForCall(observation)
+	input, err := routingpolicy.ClassifierContextForCall(observation)
 	require.NoError(t, err)
 	_, err = svc.classifyThread(ctx, input)
 	require.NoError(t, err)
@@ -214,7 +217,7 @@ func TestClassifierMissingUserPredictionCannotInheritOlderCall(t *testing.T) {
 		classifierTestText(translate.EscalationRoleAssistant, "Unrouted second answer"),
 		classifierTestText(translate.EscalationRoleUser, "Third task"),
 	)
-	input, err = classifierContextForCall(observation)
+	input, err = routingpolicy.ClassifierContextForCall(observation)
 	require.NoError(t, err)
 	_, err = svc.classifyThread(ctx, input)
 	require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)

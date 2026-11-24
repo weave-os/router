@@ -11,10 +11,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -50,7 +52,7 @@ func TestIsCommittedStreamFailure_WatchdogCauseBeatsWrappedCancellation(t *testi
 	for _, sentinel := range []error{providers.ErrUpstreamIdleTimeout, providers.ErrUpstreamOutputStall, providers.ErrUpstreamSlowThroughput} {
 		stalled, cancel := context.WithCancelCause(context.Background())
 		cancel(sentinel)
-		assert.True(t, isCommittedStreamFailure(stalled, fmt.Errorf("stream: %w", context.Canceled)), sentinel.Error())
+		assert.True(t, dispatch.IsCommittedStreamFailure(stalled, fmt.Errorf("stream: %w", context.Canceled)), sentinel.Error())
 	}
 }
 
@@ -64,7 +66,7 @@ func TestCommittedStreamStrikeLandsAfterClientCancel(t *testing.T) {
 		false,
 		fmt.Errorf("stream: %w", providers.ErrUpstreamIdleTimeout),
 		demotedArm,
-		"hmm:authoritative model=claude-opus-4-7", sessionTarget{strategy: router.StrategyFromContext(canceledContext()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		"hmm:authoritative model=claude-opus-4-7", routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(canceledContext()), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
@@ -81,7 +83,7 @@ func TestPinEvictionSecondStrikeLandsAfterClientCancel(t *testing.T) {
 		canceledContext(),
 		true,
 		&providers.UpstreamStatusError{Status: http.StatusBadRequest},
-		"cluster:v0.57 model=gpt-5.5 provider=openai", sessionTarget{strategy: router.StrategyFromContext(canceledContext()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		"cluster:v0.57 model=gpt-5.5 provider=openai", routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(canceledContext()), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole)
 
@@ -176,14 +178,14 @@ func TestCyberRefusalRetryTarget_NeverLandsOnRefusingVendor(t *testing.T) {
 		},
 	}
 	svc := withHMMPorts(NewService(nil,
-		map[string]providers.Client{providers.ProviderOpenAI: openai.NewClient("test-openai-key", "http://127.0.0.1:1")},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: openai.NewClient("test-openai-key", "http://127.0.0.1:1")}),
 		nil, store, false, providers.ProviderOpenAI, "gpt-5.5", nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithCyberRefusalFallbackModel("gpt-5.5")
 
 	_, found := svc.cyberRefusalRetryTarget(ctx,
 		router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol"},
-		sessionTarget{strategy: router.StrategyFromContext(ctx), sessionKey: nonZeroSessionKey()}, sessionpin.DefaultRole, 1000, 0, 0)
+		routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(ctx), SessionKey: nonZeroSessionKey()}, sessionpin.DefaultRole, 1000, 0, 0)
 
 	assert.False(t, found, "with the off-vendor runner-up unreachable, the OpenAI fallback must not be used")
 }

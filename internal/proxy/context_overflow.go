@@ -10,8 +10,11 @@ import (
 	"strconv"
 	"strings"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/turntype"
@@ -19,10 +22,8 @@ import (
 
 const contextOverflowMessage = "prompt is too long: the conversation exceeds the model's context window. Compact the conversation or start a new session."
 
-const openAIContextOverflowCode = "context_length_exceeded"
-
 var upstreamContextOverflowMarkers = []string{
-	openAIContextOverflowCode,
+	ingress.OpenAIContextOverflowCode,
 	"model_context_window_exceeded",
 	"prompt is too long",
 	"maximum context length",
@@ -55,7 +56,7 @@ func pastRequestedWindow(requestedModel, servedModel string, estimate, outputRes
 	if _, known := catalog.ByID(requested); !known || requested == servedModel || estimate <= 0 {
 		return false
 	}
-	return estimate+outputReserve > contextWindowForRequest(requested)
+	return estimate+outputReserve > candidates.ContextWindow(requested)
 }
 
 func asRequestedWindowOverflow(err error, pastWindow, committed bool) error {
@@ -66,19 +67,12 @@ func asRequestedWindowOverflow(err error, pastWindow, committed bool) error {
 	return fmt.Errorf("%w: %w", policy.ErrContextWindowExceeded, err)
 }
 
-var contextWindowExceededClass = DispatchErrorClass{
-	Kind:       DispatchErrorContextWindowExceeded,
+var contextWindowExceededClass = ingress.DispatchErrorClass{
+	Kind:       ingress.DispatchErrorContextWindowExceeded,
 	Status:     http.StatusBadRequest,
 	Message:    contextOverflowMessage,
 	LogLevel:   "warn",
 	LogMessage: "Request exceeds the served model's context window; returned to the client to compact",
-}
-
-func OpenAIErrorCode(kind DispatchErrorKind) string {
-	if kind == DispatchErrorContextWindowExceeded {
-		return openAIContextOverflowCode
-	}
-	return ""
 }
 
 type CompactionUnservableError struct {
@@ -93,8 +87,8 @@ func (e *CompactionUnservableError) Error() string {
 	return fmt.Sprintf("compaction exceeded the context window of every reachable summarizer (last %s via %s): %v", e.Model, e.Provider, e.Cause)
 }
 
-var compactionUnservableClass = DispatchErrorClass{
-	Kind:          DispatchErrorCompactionUnservable,
+var compactionUnservableClass = ingress.DispatchErrorClass{
+	Kind:          ingress.DispatchErrorCompactionUnservable,
 	Status:        http.StatusBadGateway,
 	Message:       "The upstream provider rejected this compaction request as too long for every model available to it. Retrying will not help until a larger-window model is available; start a new session to continue.",
 	LogLevel:      "error",
@@ -129,7 +123,7 @@ func (s *Service) overflowRescueDecisions(ctx context.Context, failed router.Dec
 	})
 }
 
-func compactionUnservableClassFor(unservable *CompactionUnservableError) DispatchErrorClass {
+func compactionUnservableClassFor(unservable *CompactionUnservableError) ingress.DispatchErrorClass {
 	if unservable.Tokens == 0 {
 		return compactionUnservableClass
 	}
@@ -157,7 +151,7 @@ func promptTooLongCounts(err error) (tokens, limit int, ok bool) {
 
 func withClientTrimCounts(ctx context.Context, err, primaryErr error) error {
 	var unservable *CompactionUnservableError
-	if ClientIdentityFrom(ctx).ClientApp != ClientAppClaudeCode || !errors.As(err, &unservable) {
+	if requestcontext.ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppClaudeCode || !errors.As(err, &unservable) {
 		return err
 	}
 	for _, cause := range []error{primaryErr, unservable.Cause} {

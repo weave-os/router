@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 )
 
 func TestLinkedClaudeSeatConnectedIgnoresSeatsThatCannotLease(t *testing.T) {
@@ -29,8 +30,8 @@ func TestLinkedClaudeSeatConnectedIgnoresSeatsThatCannotLease(t *testing.T) {
 		}, want: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			ctx := WithManagedSubscriptionCandidates(context.Background(), scenario.seats)
-			assert.Equal(t, scenario.want, linkedClaudeSeatConnected(ctx))
+			ctx := credentials.WithManagedSubscriptionCandidates(context.Background(), scenario.seats)
+			assert.Equal(t, scenario.want, credentials.LinkedClaudeSeatConnected(ctx))
 		})
 	}
 }

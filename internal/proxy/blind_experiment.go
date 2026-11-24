@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -36,13 +38,13 @@ func blindExperimentPassthroughActive(ctx context.Context) bool {
 	return active && state.Arm == auth.BlindExperimentArmPassthrough
 }
 
-func blindExperimentModelSource(ctx context.Context, routed *turnLoopResult) auth.BlindExperimentModelSource {
+func blindExperimentModelSource(ctx context.Context, routed *routingpolicy.TurnRoute) auth.BlindExperimentModelSource {
 	switch {
 	case routed == nil || routed.Decision.Model == "":
 		return auth.BlindExperimentModelSourceNotDispatched
 	case routed.UsageBypass:
 		return auth.BlindExperimentModelSourceUsageBypass
-	case isUserForcedReason(routed.Decision.Reason):
+	case routingpolicy.IsUserForcedReason(routed.Decision.Reason):
 		return auth.BlindExperimentModelSourceForceModel
 	case routed.HardPinned:
 		return auth.BlindExperimentModelSourceHardPin
@@ -64,7 +66,7 @@ type blindExperimentOutcome struct {
 	modelChanged     *bool
 }
 
-func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentState, routed *turnLoopResult, requestedModel, servedModel string) blindExperimentOutcome {
+func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentState, routed *routingpolicy.TurnRoute, requestedModel, servedModel string) blindExperimentOutcome {
 	source := blindExperimentModelSource(ctx, routed)
 	outcome := blindExperimentOutcome{
 		source:           source,
@@ -94,7 +96,7 @@ func blindExperimentBaselineModel(ctx context.Context, requestedModel string) st
 	return baseline
 }
 
-func applyBlindExperimentOutcomeAttrs(ctx context.Context, b *telemetry.AttrBuilder, routed *turnLoopResult, requestedModel, servedModel string) {
+func applyBlindExperimentOutcomeAttrs(ctx context.Context, b *telemetry.AttrBuilder, routed *routingpolicy.TurnRoute, requestedModel, servedModel string) {
 	state, active := auth.BlindExperimentFrom(ctx)
 	if !active {
 		return
@@ -162,7 +164,7 @@ func applyCallerRoutingAttrs(ctx context.Context, b *telemetry.AttrBuilder) {
 }
 
 func policyTrainingAllowedForRequest(ctx context.Context) bool {
-	trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
+	trainingAllowed, _ := ctx.Value(requestcontext.PolicyTrainingAllowedContextKey{}).(bool)
 	return trainingAllowed && !callerModelPassthroughActive(ctx)
 }
 
@@ -215,7 +217,7 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 	if len(req.GatewayProviders) > 0 {
 		provider, found := gatewayProviderFor(req.RequestedModel, req.CustomBindings, req.GatewayProviders)
 		if !found {
-			provider, found = gatewayProviderFor(req.RequestedModel, credentials.AliasedBindings(externalKeysFromContext(ctx), true), req.GatewayProviders)
+			provider, found = gatewayProviderFor(req.RequestedModel, credentials.AliasedBindings(credentials.ExternalKeysFromContext(ctx), true), req.GatewayProviders)
 		}
 		if !found {
 			return router.Decision{}, fmt.Errorf("requested model %q has no available gateway alias: %w", req.RequestedModel, policy.ErrGatewayServesNoDeployedModel)

@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/telemetry"
@@ -28,16 +29,16 @@ const (
 )
 
 func fastModeCtx(models ...string) context.Context {
-	return context.WithValue(context.Background(), InstallationFastModeModelsContextKey{}, models)
+	return context.WithValue(context.Background(), requestcontext.InstallationFastModeModelsContextKey{}, models)
 }
 
 func newFastModeService(decision router.Decision, upstream providers.Client) *Service {
 	telemetry := newBypassCaptureTelemetry()
-	svc := withHMMPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
+	svc := withHMMPorts(NewService(staticRouter{decision: decision}, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderAnthropic:  upstream,
 		providers.ProviderOpenAI:     upstream,
 		providers.ProviderOpenRouter: upstream,
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry))
+	}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry))
 
 	return svc
 }
@@ -56,9 +57,9 @@ func TestFastModeForAttempt(t *testing.T) {
 		assert.False(t, fastModeForAttempt(fastModeCtx("claude-sonnet-4-6"), "claude-sonnet-4-6", providers.ProviderAnthropic))
 	})
 	t.Run("off when the turn is served on a subscription", func(t *testing.T) {
-		ctx := context.WithValue(fastModeCtx(fastOpusModel), CredentialsContextKey{}, &Credentials{
+		ctx := context.WithValue(fastModeCtx(fastOpusModel), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 			APIKey: []byte("sk-ant-oat-token"),
-			Source: credSourceSubscription,
+			Source: requestcontext.SourceSubscription,
 			OAuth:  true,
 		})
 		assert.False(t, fastModeForAttempt(ctx, fastOpusModel, providers.ProviderAnthropic))
@@ -113,7 +114,7 @@ func TestProxyMessages_FastModeAnthropicDispatchesFastAndBillsFastRate(t *testin
 	fast, ok := catalog.FastPriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
 	want := routerResponseCostFromPricing(fast, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
-	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
+	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(requestcontext.HeaderRouterCostUSD))
 }
 
 func TestProxyMessages_FastModeOffLeavesRequestAndListPrice(t *testing.T) {
@@ -135,7 +136,7 @@ func TestProxyMessages_FastModeOffLeavesRequestAndListPrice(t *testing.T) {
 	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
 	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
-	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
+	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(requestcontext.HeaderRouterCostUSD))
 }
 
 // A client that sends speed:"fast" itself is billed at the fast rate even when
@@ -151,7 +152,7 @@ func TestProxyMessages_ReportedFastSpeedBillsFastRateWithoutOptIn(t *testing.T) 
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
 	// $10/$50 fast: (1200 + 1000x1.25 + 4000x2) input + 340 output, x1.1 US.
-	assert.Equal(t, "0.13365", rec.Header().Get(HeaderRouterCostUSD))
+	assert.Equal(t, "0.13365", rec.Header().Get(requestcontext.HeaderRouterCostUSD))
 }
 
 // An upstream that omits usage.cache_creation is priced from the TTL the
@@ -166,7 +167,7 @@ func TestProxyMessages_UnreportedCacheSplitUsesRequestTTL(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
 	// $5/$25: (1200 + 5000x2) input + 340 output.
-	assert.Equal(t, "0.0645", rec.Header().Get(HeaderRouterCostUSD))
+	assert.Equal(t, "0.0645", rec.Header().Get(requestcontext.HeaderRouterCostUSD))
 }
 
 // A request that declares the 5-minute TTL keeps unsplit cache writes at the
@@ -181,7 +182,7 @@ func TestProxyMessages_UnreportedCacheSplitWithFiveMinuteRequestStaysFiveMinute(
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
 	// $5/$25: (1200 + 5000x1.25) input + 340 output.
-	assert.Equal(t, "0.04575", rec.Header().Get(HeaderRouterCostUSD))
+	assert.Equal(t, "0.04575", rec.Header().Get(requestcontext.HeaderRouterCostUSD))
 }
 
 // fastQuotaFakeProvider refuses every fast-tier body with Anthropic's
@@ -228,7 +229,7 @@ func TestProxyMessages_FastModeQuotaRejectionRetriesAtStandardSpeedAndBillsListP
 	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
 	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
-	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD), "a turn served at standard speed bills at list price")
+	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(requestcontext.HeaderRouterCostUSD), "a turn served at standard speed bills at list price")
 }
 
 func TestOpenAIFormats_FastModeQuotaRejectionRetriesAtStandardSpeed(t *testing.T) {
@@ -247,7 +248,7 @@ func TestOpenAIFormats_FastModeQuotaRejectionRetriesAtStandardSpeed(t *testing.T
 			var err error
 			if tc.format == translate.FormatOpenAIResponses {
 				body = []byte(`{"model":"auto","input":"hi"}`)
-				err = svc.ProxyOpenAIResponses(fastModeCtx(fastOpusModel), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader("")))
+				err = svc.ProxyOpenAIResponses(fastModeCtx(fastOpusModel), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, requestcontext.RoutePathResponses, strings.NewReader("")))
 			} else {
 				err = svc.ProxyOpenAIChatCompletion(fastModeCtx(fastOpusModel), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
 			}

@@ -8,9 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -29,11 +32,11 @@ func codexBypassFixture(t *testing.T, threshold float64, snapshot usage.Snapshot
 	}}
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(laneAdmissionCodexToken)), snapshot)
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-terra", nil), hmm.ServingPorts()).
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: p}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-terra", nil), hmm.ServingPorts()).
 		WithUsageObserver(obs)
-	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, laneAdmissionCodexToken)
-	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "account-1")
-	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, laneAdmissionCodexToken)
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "account-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	return svc, fr, ctx
 }
 
@@ -54,7 +57,7 @@ func TestUsageBypassSkipsACodexSubscriptionOnOverage(t *testing.T) {
 	rec := proxyCodexChat(t, svc, ctx, "gpt-5.6-sol")
 
 	assert.Equal(t, 1, fr.routeCalls, "a Codex plan drawing billable overage must not be bypassed onto")
-	assert.NotEqual(t, "usage_bypass", rec.Header().Get(proxy.HeaderRouterDecision))
+	assert.NotEqual(t, "usage_bypass", rec.Header().Get(requestcontext.HeaderRouterDecision))
 }
 
 func TestUsageBypassSkipsACodexSubscriptionThatIsSpent(t *testing.T) {
@@ -65,7 +68,7 @@ func TestUsageBypassSkipsACodexSubscriptionThatIsSpent(t *testing.T) {
 	rec := proxyCodexChat(t, svc, ctx, "gpt-5.6-sol")
 
 	assert.Equal(t, 1, fr.routeCalls, "a spent Codex plan rejects the token, so the bypass must not engage")
-	assert.NotEqual(t, "usage_bypass", rec.Header().Get(proxy.HeaderRouterDecision))
+	assert.NotEqual(t, "usage_bypass", rec.Header().Get(requestcontext.HeaderRouterDecision))
 }
 
 func TestUsageBypassRoutesAnOpenAIModelTheCodexPlanDoesNotCover(t *testing.T) {
@@ -76,5 +79,5 @@ func TestUsageBypassRoutesAnOpenAIModelTheCodexPlanDoesNotCover(t *testing.T) {
 	rec := proxyCodexChat(t, svc, ctx, "gpt-5.5")
 
 	assert.Equal(t, 1, fr.routeCalls, "a Codex subscription only covers its plan's models; others must route")
-	assert.NotEqual(t, "usage_bypass", rec.Header().Get(proxy.HeaderRouterDecision))
+	assert.NotEqual(t, "usage_bypass", rec.Header().Get(requestcontext.HeaderRouterDecision))
 }

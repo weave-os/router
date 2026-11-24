@@ -34,7 +34,18 @@ type UpgradeJudge interface {
 type CostGate interface {
 	Decide(gate CostGateConfig, input CostGateInput) (sessionpin.Pin, planner.Decision, bool)
 	StayPin(gate CostGateConfig, req router.Request, activePin, history sessionpin.Pin, now time.Time) (sessionpin.Pin, bool)
+	Serve(gate CostGateConfig, input CostGateInput, priorServedModel string) CostGateServe
 	HistoryReason() string
+}
+
+type CostGateServe struct {
+	Decision         router.Decision
+	Planner          planner.Decision
+	Sticky           bool
+	StayModel        string
+	ChallengerEffort string
+	HeldEffort       string
+	PinTier          string
 }
 
 type StrategyPorts struct {
@@ -42,6 +53,7 @@ type StrategyPorts struct {
 	Facts     DecisionFacts
 	Upgrade   UpgradeJudge
 	CostGate  CostGate
+	History   SwitchHistory
 }
 
 func (p StrategyPorts) Validate() error {
@@ -57,6 +69,9 @@ func (p StrategyPorts) Validate() error {
 	}
 	if p.CostGate == nil {
 		missing = append(missing, "CostGate")
+	}
+	if p.History == nil {
+		missing = append(missing, "History")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("strategy ports not wired: %s", strings.Join(missing, ", "))

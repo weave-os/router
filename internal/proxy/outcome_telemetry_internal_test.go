@@ -2,17 +2,19 @@ package proxy
 
 import (
 	"testing"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestServedGroupTelemetryKeepsFreshRecommendationSeparate(t *testing.T) {
-	params := InsertTelemetryParams{SelectionTrace: []byte(`{"selected_group":"maximum","selected_arm":"sol"}`)}
-	routed := turnLoopResult{Decision: router.Decision{Model: "luna"}, PinModel: "luna", PinPolicyGroup: "low", StickyHit: true}
+	params := turnrecord.InsertTelemetryParams{SelectionTrace: []byte(`{"selected_group":"maximum","selected_arm":"sol"}`)}
+	routed := routingpolicy.TurnRoute{Decision: router.Decision{Model: "luna"}, PinModel: "luna", PinPolicyGroup: "low", StickyHit: true}
 	applyServedGroupTelemetry(hmm.ServingPorts(), t.Context(), &params, routed, router.Decision{Model: "luna"})
 	require.JSONEq(t, `{"selected_group":"maximum","selected_arm":"sol","served_group":"low"}`, string(params.SelectionTrace))
 

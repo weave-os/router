@@ -14,12 +14,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
 
@@ -27,7 +29,7 @@ func attributionService(t *testing.T, sink *recordingAttemptSink, clients map[st
 	t.Helper()
 	executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 	require.NoError(t, err)
-	return (&Service{hmmServing: hmmPorts()}).WithInferenceExecutor(executor)
+	return (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithInferenceExecutor(executor)
 }
 
 func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
@@ -43,15 +45,15 @@ func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
 	in.DeferFlushOnExhaustion = true
-	_, err := s.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(s).Dispatch(ctx, in)
 	require.Error(t, err)
 
 	require.Len(t, sink.events, 1)
 	assert.Equal(t, providers.ProviderGoogle, sink.events[0].Target.Provider)
 	assert.Equal(t, plannedTestModel, sink.events[0].Target.CatalogID)
 	assert.Equal(t, inference.AttemptOutcomeFailed, sink.events[0].Outcome)
-	assert.Equal(t, string(FailureOwnerRouter), sink.events[0].Diagnosis.FailureOwner)
-	assert.Equal(t, string(TurnErrorInvalidRequest), sink.events[0].Diagnosis.ErrorClass)
+	assert.Equal(t, string(turnrecord.FailureOwnerRouter), sink.events[0].Diagnosis.FailureOwner)
+	assert.Equal(t, string(turnrecord.TurnErrorInvalidRequest), sink.events[0].Diagnosis.ErrorClass)
 	assert.True(t, sink.events[0].Diagnosis.BodyTranslated)
 	assert.Equal(t, "Router error: Gemini rejected our translated request (400).", TerminalErrorMessage(err))
 
@@ -72,12 +74,12 @@ func TestDispatchPlanned_TranslatedRejectionOfAnUnchangedClientFieldIsClientOwne
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
 	in.DeferFlushOnExhaustion = true
-	_, err := s.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(s).Dispatch(ctx, in)
 	require.Error(t, err)
 
 	require.Len(t, sink.events, 1)
 	assert.True(t, sink.events[0].Diagnosis.BodyTranslated)
-	assert.Equal(t, string(FailureOwnerClient), sink.events[0].Diagnosis.FailureOwner)
+	assert.Equal(t, string(turnrecord.FailureOwnerClient), sink.events[0].Diagnosis.FailureOwner)
 }
 
 func TestDispatchPlanned_UntranslatedRejectionIsProviderOwned(t *testing.T) {
@@ -92,11 +94,11 @@ func TestDispatchPlanned_UntranslatedRejectionIsProviderOwned(t *testing.T) {
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body)
 	in.DeferFlushOnExhaustion = true
-	_, err := s.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(s).Dispatch(ctx, in)
 	require.Error(t, err)
 
 	require.Len(t, sink.events, 1)
-	assert.Equal(t, string(FailureOwnerProvider), sink.events[0].Diagnosis.FailureOwner)
+	assert.Equal(t, string(turnrecord.FailureOwnerProvider), sink.events[0].Diagnosis.FailureOwner)
 	assert.False(t, sink.events[0].Diagnosis.BodyTranslated)
 	assert.Equal(t, "↳ switched: Fireworks rejected the request (provider issue)\n\n", lastFailureDetail(attemptTraceFromContext(ctx)))
 }
@@ -107,12 +109,12 @@ func TestDispatchPlanned_FailoverRecordsOwnerPerAttemptAndBadgeDetail(t *testing
 	fallback := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("ok")}}}
 	sink := &recordingAttemptSink{}
 	s := attributionService(t, sink, map[string]providers.Client{providers.ProviderFireworks: primary, providers.ProviderOpenRouter: fallback})
-	s.retrySleep = func(context.Context, time.Duration) error { return nil }
+	s.engine.SetRetrySleep(func(context.Context, time.Duration) error { return nil })
 
 	ctx := withAttemptTrace(context.Background(), []byte(`{"model":"claude","messages":[]}`), http.Header{})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	_, err := s.dispatchWithFallback(ctx, plannedInputs(t.Context(), rec, buf,
+	_, err := fallbackFor(s).Dispatch(ctx, plannedInputs(t.Context(), rec, buf,
 		[]catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body))
 	require.NoError(t, err)
 
@@ -120,8 +122,8 @@ func TestDispatchPlanned_FailoverRecordsOwnerPerAttemptAndBadgeDetail(t *testing
 	first, last := sink.events[0], sink.events[len(sink.events)-1]
 	assert.Equal(t, providers.ProviderFireworks, first.Target.Provider)
 	assert.Equal(t, inference.AttemptOutcomeFailed, first.Outcome)
-	assert.Equal(t, string(TurnErrorUpstream5xx), first.Diagnosis.ErrorClass)
-	assert.Equal(t, string(FailureOwnerProvider), first.Diagnosis.FailureOwner)
+	assert.Equal(t, string(turnrecord.TurnErrorUpstream5xx), first.Diagnosis.ErrorClass)
+	assert.Equal(t, string(turnrecord.FailureOwnerProvider), first.Diagnosis.FailureOwner)
 	assert.False(t, first.Diagnosis.BodyTranslated, "a model-only substitution is not a rewrite")
 	assert.Equal(t, providers.ProviderOpenRouter, last.Target.Provider)
 	assert.Equal(t, inference.AttemptOutcomeServed, last.Outcome)
@@ -150,19 +152,19 @@ func TestDispatchPlanned_ExhaustionNamesOwnerInTerminalMessage(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := attributionService(t, &recordingAttemptSink{}, map[string]providers.Client{providers.ProviderFireworks: newClient()})
-			s.retrySleep = func(context.Context, time.Duration) error { return nil }
+			s.engine.SetRetrySleep(func(context.Context, time.Duration) error { return nil })
 			ctx := withAttemptTrace(context.Background(), body, tc.header)
 			rec := httptest.NewRecorder()
 			buf := newPreludeBuffer(rec)
 			in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, body)
 			in.DeferFlushOnExhaustion = true
-			_, err := s.dispatchWithFallback(ctx, in)
+			_, err := fallbackFor(s).Dispatch(ctx, in)
 			require.Error(t, err)
 
 			assert.Equal(t, tc.message, TerminalErrorMessage(err))
 			cls, ok := ClassifyDispatchError(err)
 			require.True(t, ok)
-			assert.Equal(t, DispatchErrorUpstreamStatus, cls.Kind)
+			assert.Equal(t, ingress.DispatchErrorUpstreamStatus, cls.Kind)
 			assert.Equal(t, 503, cls.Status)
 			assert.Equal(t, tc.message, cls.Message)
 		})
@@ -172,28 +174,28 @@ func TestDispatchPlanned_ExhaustionNamesOwnerInTerminalMessage(t *testing.T) {
 func TestTerminalErrorMessage_RouterAndClientOwners(t *testing.T) {
 	err := &providers.UpstreamErrorResponse{Status: 422, Body: []byte(`bad`)}
 	router := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderGoogle}, Err: err,
-		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorInvalidRequest), FailureOwner: string(FailureOwnerRouter), BodyTranslated: true}}
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(turnrecord.TurnErrorInvalidRequest), FailureOwner: string(turnrecord.FailureOwnerRouter), BodyTranslated: true}}
 	assert.Equal(t, "Router error: Gemini rejected our translated request (422).", terminalMessageFor(router))
 
 	client := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: &providers.UpstreamErrorResponse{Status: 401},
-		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorAuthRejected), FailureOwner: string(FailureOwnerClient)}}
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(turnrecord.TurnErrorAuthRejected), FailureOwner: string(turnrecord.FailureOwnerClient)}}
 	assert.Equal(t, "Request rejected by Anthropic: rejected the request (401).", terminalMessageFor(client))
 
-	unknown := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Diagnosis: inference.AttemptDiagnosis{FailureOwner: string(FailureOwnerUnknown)}}
+	unknown := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Diagnosis: inference.AttemptDiagnosis{FailureOwner: string(turnrecord.FailureOwnerUnknown)}}
 	assert.Empty(t, terminalMessageFor(unknown))
 	assert.Empty(t, rescueDetailLine(unknown))
 	assert.Equal(t, upstreamCallFailedMessage, TerminalErrorMessage(err))
 }
 
 func TestRouterOwnedFailureWording(t *testing.T) {
-	pool := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: ErrSubscriptionPoolExhausted,
-		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), FailureOwner: string(FailureOwnerRouter)}}
+	pool := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: credentials.ErrSubscriptionPoolExhausted,
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(turnrecord.TurnErrorOther), FailureOwner: string(turnrecord.FailureOwnerRouter)}}
 	assert.Equal(t, "↳ switched: Anthropic had no subscription capacity (router issue)\n\n", rescueDetailLine(pool))
 	assert.Equal(t, "Router error: Anthropic subscription capacity exhausted.", terminalMessageFor(pool))
 
 	rejected := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderOpenAI},
-		Err:       errors.Join(ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}),
-		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), FailureOwner: string(FailureOwnerRouter)}}
+		Err:       errors.Join(credentials.ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}),
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(turnrecord.TurnErrorOther), FailureOwner: string(turnrecord.FailureOwnerRouter)}}
 	assert.Equal(t, "↳ switched: OpenAI rejected the subscription login (router issue)\n\n", rescueDetailLine(rejected))
 
 }
@@ -201,7 +203,7 @@ func TestRouterOwnedFailureWording(t *testing.T) {
 func TestMalformedCustomToolArgumentsAreProviderOwned(t *testing.T) {
 	err := fmt.Errorf("write: %w: expected exactly one input field", translate.ErrCustomToolArguments)
 	customTool := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderDeepInfra}, Err: err,
-		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), BodyTranslated: true}}
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(turnrecord.TurnErrorOther), BodyTranslated: true}}
 	customTool.Diagnosis.FailureOwner = string(classifyFailureOwner(failureOwnerInput{Err: err, BodyTranslated: true}))
 
 	assert.Equal(t, "↳ switched: DeepInfra sent malformed tool arguments (provider issue)\n\n", rescueDetailLine(customTool))
@@ -211,7 +213,7 @@ func TestMalformedCustomToolArgumentsAreProviderOwned(t *testing.T) {
 func TestTruncatedToolCallNamesTheOutputLimit(t *testing.T) {
 	err := fmt.Errorf("write: %w: %w: expected exactly one input field", translate.ErrToolCallTruncated, translate.ErrCustomToolArguments)
 	truncated := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: err,
-		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), BodyTranslated: true}}
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(turnrecord.TurnErrorOther), BodyTranslated: true}}
 	truncated.Diagnosis.FailureOwner = string(classifyFailureOwner(failureOwnerInput{Err: err, BodyTranslated: true}))
 
 	assert.Equal(t, "Provider Anthropic failed: tool call cut off by the output token limit.", terminalMessageFor(truncated))
@@ -273,7 +275,7 @@ func TestRescueDetailIsStrippedWithTheBadgeOnReplay(t *testing.T) {
 
 func TestCanceledCommittedStreamIsClientOwned(t *testing.T) {
 	err := &providers.UpstreamStatusError{Status: http.StatusBadGateway, Cause: context.Canceled}
-	if got := classifyFailureOwner(failureOwnerInput{Err: err}); got != FailureOwnerClient {
+	if got := classifyFailureOwner(failureOwnerInput{Err: err}); got != turnrecord.FailureOwnerClient {
 		t.Fatalf("owner = %q, want client", got)
 	}
 }
@@ -291,9 +293,9 @@ func TestDispatchPlanned_CredentialRefusalIsNotBlamedOnTranslation(t *testing.T)
 	rec := httptest.NewRecorder()
 	plannedIn := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
 	plannedIn.DeferFlushOnExhaustion = true
-	_, err := s.dispatchWithFallback(ctx, plannedIn)
+	_, err := fallbackFor(s).Dispatch(ctx, plannedIn)
 	require.Error(t, err)
 
-	assert.Equal(t, string(FailureOwnerRouter), sink.events[0].Diagnosis.FailureOwner)
+	assert.Equal(t, string(turnrecord.FailureOwnerRouter), sink.events[0].Diagnosis.FailureOwner)
 	assert.Equal(t, "Router error: Gemini refused our account credential (400).", TerminalErrorMessage(err))
 }

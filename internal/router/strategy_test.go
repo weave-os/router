@@ -15,6 +15,12 @@ func TestIsHMMStrategy(t *testing.T) {
 	assert.False(t, IsHMMStrategy(Strategy("rl")))
 }
 
+func TestClassifiesThreads(t *testing.T) {
+	assert.True(t, ClassifiesThreads(StrategyLLMClassifier))
+	assert.False(t, ClassifiesThreads(StrategyHMM))
+	assert.False(t, ClassifiesThreads(""))
+}
+
 func TestStrategySelectionCarriesStrategyAndRoutingModelInOneValue(t *testing.T) {
 	ctx := context.Background()
 	assert.Equal(t, StrategyHMMEmbedding, StrategyFromContext(ctx), "no selection keeps the default strategy")

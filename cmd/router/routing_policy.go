@@ -1,11 +1,22 @@
 package main
 
 import (
-	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/router/policy"
-	"weave-os/router/internal/routingpolicy"
+	"strings"
+
+	"weave-os/router/internal/config"
 )
 
-func withRoutingPolicy(svc *proxy.Service, plans *policy.PlanResolver) *proxy.Service {
-	return svc.WithRoutingPolicy(routingpolicy.New(plans))
+func excludedModelsFromEnv() []string {
+	excludedRaw := strings.TrimSpace(config.GetOr("ROUTER_EXCLUDED_MODELS", ""))
+	if excludedRaw == "" {
+		return nil
+	}
+	parts := strings.Split(excludedRaw, ",")
+	cleaned := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	return cleaned
 }

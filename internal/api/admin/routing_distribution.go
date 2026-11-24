@@ -36,16 +36,12 @@ func RoutingDistributionHandler(source DistributionRosterSource) gin.HandlerFunc
 		}
 		excludedModels := parseCSVSet(c.Query("excluded_models"))
 		excludedProviders := parseCSVSet(c.Query("excluded_providers"))
-		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(c.Query("strategy"))))
-		if strategy != "" && strategy != router.StrategyHMM && strategy != router.StrategyHMMEmbedding {
+		strategy := router.NormalizeStrategy(c.Query("strategy"))
+		if strategy != "" && !router.IsStableHMMStrategy(strategy) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "routing distribution requires an HMM strategy"})
 			return
 		}
-		ctx := c.Request.Context()
-		if strategy != "" {
-			ctx = router.WithStrategy(ctx, strategy)
-		}
-		roster, err := source.DistributionRoster(ctx, router.StrategyFromContext(ctx))
+		roster, err := source.DistributionRoster(c.Request.Context(), router.StrategySelection{Strategy: strategy}.Effective())
 		if err != nil {
 			observability.FromGin(c).Error("Routing distribution roster unavailable", "strategy", strategy, "grid", gridN, "err", err)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "routing distribution unavailable"})

@@ -12,12 +12,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -113,7 +115,7 @@ func buildPolicyDeadlineFallbackService(
 	t.Helper()
 	return withHMMPorts(NewService(
 		nil,
-		map[string]providers.Client{providers.ProviderAnthropic: nil},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}),
 		nil,
 		store,
 		false,
@@ -136,7 +138,7 @@ func runPolicyDeadlineFallbackTurnLoop(
 	svc *Service,
 	strategy router.Strategy,
 	excludedModels ...string,
-) (turnLoopResult, error) {
+) (routingpolicy.TurnRoute, error) {
 	t.Helper()
 	env, err := translate.ParseAnthropic(
 		[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
@@ -321,4 +323,29 @@ func TestTurnLoop_DeadlineFallbackContractViolationStillFailsClosed(t *testing.T
 
 	require.Error(t, err, "a contract violation must fail closed even with fallback enabled, a pin, and a tier-3 default")
 	assert.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+}
+
+func TestWithRoutingPolicyKeepsDeadlineSettingsInEitherOrder(t *testing.T) {
+	want := routingpolicy.PolicyDeadline{Fallback: true, DefaultModel: "model-a"}
+
+	before := (&Service{}).WithExcludedModelsOverride([]string{"model-x"}).
+		WithPolicyDeadlineFallback(true).WithPolicyDeadlineDefaultModel("model-a").
+		WithRoutingPolicy(routingpolicy.New(nil))
+	assert.Equal(t, want, before.routing.Deadline())
+	assert.Equal(t, []string{"model-x"}, NewRoutingCatalog(before).ExcludedModelsOverride())
+
+	after := (&Service{}).WithRoutingPolicy(routingpolicy.New(nil)).
+		WithPolicyDeadlineFallback(true).WithPolicyDeadlineDefaultModel("model-a")
+	assert.Equal(t, want, after.routing.Deadline())
+}
+
+func TestWithRoutingPolicyKeepsModelUniverseAndHardPins(t *testing.T) {
+	svc := (&Service{}).WithAvailableModels(map[string]struct{}{"model-a": {}}).
+		WithDefaultBaselineModel("model-b").WithSubAgentOverride("provider-c", "model-c").
+		WithRoutingPolicy(routingpolicy.New(nil))
+
+	assert.Equal(t, map[string]struct{}{"model-a": {}}, svc.routing.AvailableModels())
+	assert.Equal(t, "model-b", svc.routing.DefaultBaselineModel())
+	assert.Equal(t, "provider-c", svc.routing.HardPins().SubAgentProvider)
+	assert.Equal(t, "model-c", svc.routing.HardPins().SubAgentModel)
 }

@@ -15,7 +15,10 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
@@ -44,7 +47,7 @@ type scriptedFundingClient struct {
 func (*scriptedFundingClient) SupportsSubscriptions() bool { return true }
 
 func (c *scriptedFundingClient) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	oauth := creds != nil && creds.OAuth
 	model := gjson.GetBytes(prep.Body, "model").String()
 	if model == "" {
@@ -75,16 +78,16 @@ func (c *scriptedFundingClient) Passthrough(context.Context, providers.PreparedR
 func outOfRosterFundingService(client providers.Client, reason string, repo billing.Repo) *Service {
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: outOfRosterCodexModel, Reason: reason}},
-		map[string]providers.Client{providers.ProviderOpenAI: client},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}),
 		nil, nil, false, providers.ProviderOpenAI, outOfRosterCodexModel, nil)).
-		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
-		WithBillingService(billing.NewService(repo))
-	svc.retrySleep = noopSleep
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+	svc.billing = billing.NewService(repo)
+	svc.engine.SetRetrySleep(noopSleep)
 	return svc
 }
 
 func outOfRosterBillingCtx(ctx context.Context) context.Context {
-	return context.WithValue(ctx, ExternalIDContextKey{}, "org-synthetic")
+	return context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org-synthetic")
 }
 
 // TestCodexOutOfRosterModel_SubscriptionFirstFunding: a selected OpenAI model
@@ -137,12 +140,12 @@ func TestCodexOutOfRosterModel_SubscriptionFirstFunding(t *testing.T) {
 				client := &scriptedFundingClient{subscriptionErr: tc.subscriptionEr}
 				repo := &auxBillingRepo{}
 				svc := outOfRosterFundingService(client, selection.reason, repo)
-				ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+				ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 				ctx = outOfRosterBillingCtx(ctx)
 				ctx = withWeaveCreditsDeniedWhen(ctx, tc.creditsDenied)
 				if tc.enrollmentUnavailable {
 					svc = svc.WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
-					ctx = context.WithValue(ctx, ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+					ctx = context.WithValue(ctx, credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 				}
 				body := `{"model":"codex-auto-review","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic"}]}]}`
 				rec := httptest.NewRecorder()
@@ -162,8 +165,8 @@ func TestCodexOutOfRosterModel_SubscriptionFirstFunding(t *testing.T) {
 				if tc.wantErr {
 					return
 				}
-				assert.Equal(t, outOfRosterCodexModel, rec.Header().Get(HeaderRouterModel))
-				assert.Equal(t, providers.ProviderOpenAI, rec.Header().Get(HeaderRouterProvider))
+				assert.Equal(t, outOfRosterCodexModel, rec.Header().Get(requestcontext.HeaderRouterModel))
+				assert.Equal(t, providers.ProviderOpenAI, rec.Header().Get(requestcontext.HeaderRouterProvider))
 				require.Eventually(t, func() bool { return len(repo.snapshot()) == 1 }, 2*time.Second, 10*time.Millisecond)
 				debit := repo.snapshot()[0]
 				assert.Equal(t, outOfRosterCodexModel, debit.RouterModel)
@@ -209,10 +212,10 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 
 			body := `{"model":"codex-auto-review","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic"}]}]}`
 			ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
-			ctx = context.WithValue(ctx, InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
-			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
+			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 			if tc.poolUnavailable {
-				ctx = context.WithValue(ctx, ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+				ctx = context.WithValue(ctx, credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 			}
 			ctx = outOfRosterBillingCtx(ctx)
 			ctx = withWeaveCreditsDeniedWhen(ctx, tc.creditsDenied)
@@ -238,7 +241,7 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 				require.NotEmpty(t, leaser.providers)
 				assert.Equal(t, subscriptions.ProviderCodex, leaser.providers[0], "the out-of-roster model must lease from the Codex pool")
 			}
-			assert.Equal(t, tc.wantPoolServe, managedSubscriptionServed(ctx))
+			assert.Equal(t, tc.wantPoolServe, credentials.ManagedSubscriptionServed(ctx))
 		})
 	}
 }
@@ -265,7 +268,7 @@ func TestCodexOutOfRosterModel_ChatOnlyRequestWithoutAPICredentialRefusesBeforeD
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
-	require.ErrorIs(t, err, ErrSubscriptionUnavailableForTurn)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionUnavailableForTurn)
 	assert.Empty(t, client.attempts, "the Codex token must not be sent to Chat Completions without an API fallback")
 }
 

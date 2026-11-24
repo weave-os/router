@@ -4,10 +4,12 @@ import (
 	"context"
 	"time"
 
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -29,9 +31,9 @@ func usageBypassGoldenObserver(utilization float64) func(*proxy.Service, *golden
 
 func usageBypassGoldenCtx(threshold float64) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, usageBypassGoldenToken)
+		ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, usageBypassGoldenToken)
 		ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: false}})
-		return context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
+		return context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	}
 }
 

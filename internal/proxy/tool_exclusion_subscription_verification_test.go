@@ -12,8 +12,10 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -65,8 +67,8 @@ func TestVerificationRealResolverWeakToolExclusionPreventsHTTP(t *testing.T) {
 	client.SetCodexBaseURL(server.URL)
 	routed := &verificationToolResolverRouter{resolver: resolver}
 	// Both providers have a real HTTP transport available; rejected candidates must never reach either.
-	svc := withHMMPorts(NewService(routed, map[string]providers.Client{providers.ProviderOpenAI: client, providers.ProviderBedrock: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderBedrock: {}})
-	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	svc := withHMMPorts(NewService(routed, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client, providers.ProviderBedrock: client}), nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderBedrock: {}})
+	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic tools"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 	rec := httptest.NewRecorder()
 	dispatchErr := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body)))

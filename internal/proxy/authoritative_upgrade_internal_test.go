@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -24,6 +26,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 )
 
@@ -51,15 +54,15 @@ func upgradeTestFresh() router.Decision {
 
 func TestUpgradeShadowUsesCacheRulesAndExplicitIntent(t *testing.T) {
 	margin := 0.2
-	svc := (&Service{hmmServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) {
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) {
 		c.AuthorityCacheShadow = true
 		c.UpgradeGate = true
 		c.UpgradeShadow = hmm.UpgradeShadowConfig{MarginThreshold: &margin}
 	})
 	pin, fresh := upgradeTestPin(), upgradeTestFresh()
 	req := router.Request{RequestedModel: upgradeTestFreshModel, RoutingIntent: string(escalation.Maximum)}
-	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, RequestedTier: catalog.TierHigh}
-	shadow := svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
+	res := routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding, RequestedTier: catalog.TierHigh}
+	shadow := authoritativeUpgradeFor(svc, context.Background(), req, pin, fresh, res)
 	require.NotNil(t, shadow)
 	assert.Equal(t, hmm.UpgradeGroupEscalation, shadow.Verdict.Reason)
 	assert.Empty(t, shadow.Evidence.RequestedGroup, "neither a model name nor an installation preset proves explicit intent")
@@ -72,48 +75,48 @@ func TestUpgradeShadowUsesCacheRulesAndExplicitIntent(t *testing.T) {
 	assert.True(t, *shadow.Evidence.MarginQualified, "threshold comparison is inclusive")
 
 	req.ForceCluster = string(escalation.High)
-	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
+	shadow = authoritativeUpgradeFor(svc, context.Background(), req, pin, fresh, res)
 	assert.Equal(t, hmm.UpgradeExplicitQualityFloor, shadow.Verdict.Reason)
 
 	req.HistoryTruncated = true
-	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
+	shadow = authoritativeUpgradeFor(svc, context.Background(), req, pin, fresh, res)
 	assert.Equal(t, hmm.UpgradePrefixBroken, shadow.Verdict.Reason)
 	assert.True(t, shadow.Evidence.CacheCold)
 	req.HistoryTruncated = false
 	pin.LastTurnEndedAt = time.Now().Add(-providers.CacheTTLFor(pin.Provider) - time.Minute)
-	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
+	shadow = authoritativeUpgradeFor(svc, context.Background(), req, pin, fresh, res)
 	assert.Equal(t, hmm.UpgradeColdPin, shadow.Verdict.Reason)
 
 	res.SessionDemotedModels = []string{upgradeTestFreshModel}
-	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
+	shadow = authoritativeUpgradeFor(svc, context.Background(), req, pin, fresh, res)
 	assert.Equal(t, hmm.UpgradeDemotedModel, shadow.Verdict.Reason)
 	res.SessionDemotedModels = nil
 	req.Candidates.AutomaticExcludedModels = map[string]struct{}{upgradeTestFreshModel: {}}
-	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
+	shadow = authoritativeUpgradeFor(svc, context.Background(), req, pin, fresh, res)
 	assert.Equal(t, hmm.UpgradeIneligibleModel, shadow.Verdict.Reason)
 }
 
 func TestUpgradeShadowAgeAndAbsentPin(t *testing.T) {
-	svc := (&Service{hmmServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) {
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) {
 		c.AuthorityCacheShadow = true
 		c.UpgradeShadow = hmm.UpgradeShadowConfig{StalePinAfter: time.Hour}
 	})
 	pin, fresh := upgradeTestPin(), upgradeTestFresh()
-	shadow := svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{Strategy: router.StrategyHMMEmbedding}, 1000)
+	shadow := authoritativeUpgradeFor(svc, context.Background(), router.Request{}, pin, fresh, routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding})
 	assert.Equal(t, hmm.UpgradeStalePin, shadow.Verdict.Reason)
 	assert.Equal(t, flags.AuthoritativeUpgradePolicyOff, shadow.Mode)
 
 	pin.FirstPinnedAt = time.Now().Add(-30 * time.Minute)
-	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{Strategy: router.StrategyHMMEmbedding}, 1000)
+	shadow = authoritativeUpgradeFor(svc, context.Background(), router.Request{}, pin, fresh, routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding})
 	assert.False(t, shadow.Evidence.StalePin)
 	assert.Equal(t, hmm.UpgradeUncalibratedMargin, shadow.Verdict.Reason)
 
 	pin.FirstPinnedAt = time.Time{}
-	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{Strategy: router.StrategyHMMEmbedding}, 1000)
+	shadow = authoritativeUpgradeFor(svc, context.Background(), router.Request{}, pin, fresh, routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding})
 	assert.Nil(t, shadow.PinAgeSec)
 	assert.False(t, shadow.Evidence.StalePin)
 
-	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, sessionpin.Pin{}, fresh, turnLoopResult{Strategy: router.StrategyHMMEmbedding}, 1000)
+	shadow = authoritativeUpgradeFor(svc, context.Background(), router.Request{}, sessionpin.Pin{}, fresh, routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding})
 	assert.Equal(t, hmm.UpgradeNoPin, shadow.Verdict.Reason)
 	assert.Nil(t, shadow.PinAgeSec)
 }
@@ -133,7 +136,7 @@ func TestUpgradeShadowPreservesServingAndPinWrites(t *testing.T) {
 		{"gate off", 0.45, false, false, upgradeTestFreshModel},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var control turnLoopResult
+			var control routingpolicy.TurnRoute
 			var controlPin sessionpin.Pin
 			for _, enabled := range []bool{false, true} {
 				store := newStubPinStore()
@@ -146,7 +149,7 @@ func TestUpgradeShadowPreservesServingAndPinWrites(t *testing.T) {
 				fresh.Metadata.ChosenScore = tc.score
 				margin := 0.1
 				strategy := router.StrategyHMMEmbedding
-				svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil)).
+				svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil)).
 					EditHMMConfig(func(c *hmm.Config) {
 						c.AuthorityCacheShadow = enabled
 						c.UpgradeGate = tc.gate
@@ -187,12 +190,12 @@ func TestUpgradeShadowLogsNullableEvidence(t *testing.T) {
 	var output bytes.Buffer
 	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
 	fresh, pin := upgradeTestFresh(), upgradeTestPin()
-	svc := (&Service{hmmServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) {
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) {
 		c.AuthorityCacheShadow = true
 		c.UpgradeGate = true
 	})
-	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, Fresh: fresh, Decision: pin.Decision(), StickyHit: true}
-	res.UpgradeShadow = svc.authoritativeUpgradeFor(ctx, router.Request{}, pin, fresh, res, 1000)
+	res := routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding, Fresh: fresh, Decision: pin.Decision(), StickyHit: true}
+	res.UpgradeShadow = authoritativeUpgradeFor(svc, ctx, router.Request{}, pin, fresh, res)
 	logAuthoritativeUpgrade(ctx, res)
 	var record map[string]any
 	require.NoError(t, json.Unmarshal(output.Bytes(), &record))
@@ -211,7 +214,7 @@ func TestUpgradeShadowCapturesMarginOnStayButNotReplay(t *testing.T) {
 	zero := 0.0
 	fresh.Metadata.ClassifierMargin = &zero
 	served := upgradeTestPin().Decision()
-	obs := buildObservationContext(hmm.ServingPorts(), context.Background(), router.StrategyFromContext(context.Background()), served, fresh, CaptureOff)
+	obs := buildObservationContext(hmm.ServingPorts(), context.Background(), router.StrategyFromContext(context.Background()), served, fresh, capture.Off)
 	assert.Equal(t, &zero, obs.FreshClassifierMargin)
 	assert.Equal(t, string(escalation.High), obs.FreshPolicyGroup)
 	builder := telemetry.NewAttrBuilder(4)
@@ -224,7 +227,7 @@ func TestUpgradeShadowCapturesMarginOnStayButNotReplay(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
-	replay := buildObservationContext(hmm.ServingPorts(), context.Background(), router.StrategyFromContext(context.Background()), served, router.Decision{}, CaptureOff)
+	replay := buildObservationContext(hmm.ServingPorts(), context.Background(), router.StrategyFromContext(context.Background()), served, router.Decision{}, capture.Off)
 	assert.Nil(t, replay.FreshClassifierMargin)
 	assert.Empty(t, replay.FreshPolicyGroup)
 }
@@ -259,7 +262,7 @@ func TestUpgradeShadowPreservesHigherPrecedencePaths(t *testing.T) {
 				policyRouter = &erroringTestRouter{err: errPolicyDeadlineTest}
 			}
 			strategy := router.StrategyHMMEmbedding
-			svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil)).
+			svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}), nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil)).
 				EditHMMConfig(func(c *hmm.Config) { c.AuthorityCacheShadow = true }).WithPolicyDeadlineFallback(true).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: policyRouter, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())
@@ -282,13 +285,13 @@ func TestUpgradeShadowPreservesHigherPrecedencePaths(t *testing.T) {
 func TestEvidenceUpgradeVotesResetWhenProposalLeavesSameGroup(t *testing.T) {
 	margin := 0.05
 	threshold := 0.15
-	svc := (&Service{hmmServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) { c.UpgradeShadow = hmm.UpgradeShadowConfig{MarginThreshold: &threshold} })
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).EditHMMConfig(func(c *hmm.Config) { c.UpgradeShadow = hmm.UpgradeShadowConfig{MarginThreshold: &threshold} })
 	pin := upgradeTestPin()
 	pin.ConsecutiveUpgradeVotes = 2
 	fresh := upgradeTestFresh()
 	fresh.Metadata.ClassifierMargin = &margin
 
-	shadow := svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{Strategy: router.StrategyHMMEmbedding}, 1000)
+	shadow := authoritativeUpgradeFor(svc, context.Background(), router.Request{}, pin, fresh, routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding})
 	assert.Equal(t, hmm.UpgradeHold, shadow.Verdict.Outcome)
 	assert.Equal(t, escalation.High, shadow.Evidence.FreshGroup)
 	assert.Equal(t, escalation.Medium, shadow.Evidence.PinGroup)
@@ -297,7 +300,7 @@ func TestEvidenceUpgradeVotesResetWhenProposalLeavesSameGroup(t *testing.T) {
 
 	pin.ConsecutiveUpgradeVotes = *shadow.Evidence.VoteCount
 	fresh.Metadata.PolicyGroup = string(escalation.Medium)
-	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{Strategy: router.StrategyHMMEmbedding}, 1000)
+	shadow = authoritativeUpgradeFor(svc, context.Background(), router.Request{}, pin, fresh, routingpolicy.TurnRoute{Strategy: router.StrategyHMMEmbedding})
 	require.NotNil(t, shadow.Evidence.VoteCount)
 	assert.Equal(t, 1, *shadow.Evidence.VoteCount)
 }
@@ -309,7 +312,7 @@ func TestEvidenceUpgradeExclusionKeepsEligiblePin(t *testing.T) {
 	fresh := upgradeTestFresh()
 	store.getPin.DemotedModels = []string{fresh.Model}
 	strategy := router.StrategyHMMEmbedding
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil)).
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil)).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   &authorityShadowTestRouter{decision: fresh},
@@ -324,7 +327,7 @@ func TestEvidenceUpgradeExclusionKeepsEligiblePin(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, upgradeTestPinModel, res.Decision.Model)
 	assert.True(t, res.StickyHit)
-	assert.Equal(t, string(pinTierAuthoritativeExcludedPin), res.PinTier)
+	assert.Equal(t, string(routingpolicy.PinTierAuthoritativeExcludedPin), res.PinTier)
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, upgradeTestPinModel, store.upserts[0].Model)
 }
@@ -336,7 +339,7 @@ func TestEvidenceUpgradeExclusionFailsOpenWhenOnlyDemotedModelIsAvailable(t *tes
 	fresh := upgradeTestFresh()
 	store.getPin.DemotedModels = []string{store.getPin.Model, fresh.Model}
 	strategy := router.StrategyHMMEmbedding
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil)).
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil)).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   &authorityShadowTestRouter{decision: fresh},
@@ -351,7 +354,7 @@ func TestEvidenceUpgradeExclusionFailsOpenWhenOnlyDemotedModelIsAvailable(t *tes
 	require.NoError(t, err)
 	assert.Equal(t, fresh.Model, res.Decision.Model)
 	assert.False(t, res.StickyHit)
-	assert.Equal(t, string(pinTierAuthoritativeExcludedReroute), res.PinTier)
+	assert.Equal(t, string(routingpolicy.PinTierAuthoritativeExcludedReroute), res.PinTier)
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, fresh.Model, store.upserts[0].Model)
 }

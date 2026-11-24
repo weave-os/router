@@ -10,9 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -44,7 +46,7 @@ func TestDispatchPlanned_PrimarySucceeds(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), plannedInputs(t.Context(), rec, buf,
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), plannedInputs(t.Context(), rec, buf,
 		[]catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, nil))
 
 	require.NoError(t, err)
@@ -52,8 +54,8 @@ func TestDispatchPlanned_PrimarySucceeds(t *testing.T) {
 	assert.Equal(t, 1, primary.calls)
 	assert.Equal(t, 0, fallback.calls)
 	assert.Equal(t, "ok", rec.Body.String())
-	assert.Equal(t, providers.ProviderFireworks, rec.Header().Get(HeaderRouterProvider))
-	assert.Equal(t, plannedTestModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, providers.ProviderFireworks, rec.Header().Get(requestcontext.HeaderRouterProvider))
+	assert.Equal(t, plannedTestModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 func TestDispatchPlanned_FailsOverBeforeCommit(t *testing.T) {
@@ -63,7 +65,7 @@ func TestDispatchPlanned_FailsOverBeforeCommit(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), plannedInputs(t.Context(), rec, buf,
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), plannedInputs(t.Context(), rec, buf,
 		[]catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, nil))
 
 	require.NoError(t, err)
@@ -71,8 +73,8 @@ func TestDispatchPlanned_FailsOverBeforeCommit(t *testing.T) {
 	assert.Equal(t, 1, primary.calls)
 	assert.Equal(t, 1, fallback.calls)
 	assert.Equal(t, "rescued", rec.Body.String())
-	assert.Equal(t, providers.ProviderFireworks, rec.Header().Get(HeaderRouterFallbackFrom))
-	assert.Equal(t, providers.ProviderOpenRouter, rec.Header().Get(HeaderRouterProvider))
+	assert.Equal(t, providers.ProviderFireworks, rec.Header().Get(requestcontext.HeaderRouterFallbackFrom))
+	assert.Equal(t, providers.ProviderOpenRouter, rec.Header().Get(requestcontext.HeaderRouterProvider))
 }
 
 func TestDispatchPlanned_NoFailoverAfterCommit(t *testing.T) {
@@ -85,7 +87,7 @@ func TestDispatchPlanned_NoFailoverAfterCommit(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	_, err := s.dispatchWithFallback(context.Background(), plannedInputs(t.Context(), rec, buf,
+	_, err := fallbackFor(s).Dispatch(context.Background(), plannedInputs(t.Context(), rec, buf,
 		[]catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, nil))
 
 	require.Error(t, err)
@@ -100,7 +102,7 @@ func TestDispatchPlanned_WireModelMismatchNeverReachesProvider(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	_, err := s.dispatchWithFallback(context.Background(), plannedInputs(t.Context(), rec, buf,
+	_, err := fallbackFor(s).Dispatch(context.Background(), plannedInputs(t.Context(), rec, buf,
 		[]catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}},
 		[]byte(`{"model":"some-other-model"}`)))
 
@@ -120,7 +122,7 @@ func TestDispatchPlanned_WireModelMayNameUpstreamID(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	_, err := s.dispatchWithFallback(context.Background(), plannedInputs(t.Context(), rec, buf,
+	_, err := fallbackFor(s).Dispatch(context.Background(), plannedInputs(t.Context(), rec, buf,
 		[]catalog.ProviderBinding{{Provider: binding.Provider}}, []byte(`{"model":"`+binding.UpstreamID+`"}`)))
 
 	require.NoError(t, err, "a primary binding without an explicit upstream id inherits the catalog's")
@@ -134,11 +136,11 @@ func TestDispatchPlanned_SameBindingRetryUsesInjectedSleep(t *testing.T) {
 	}}
 	s := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderFireworks: only})
 	slept := 0
-	s.retrySleep = func(context.Context, time.Duration) error { slept++; return nil }
+	s.engine.SetRetrySleep(func(context.Context, time.Duration) error { slept++; return nil })
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), plannedInputs(t.Context(), rec, buf,
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), plannedInputs(t.Context(), rec, buf,
 		[]catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, nil))
 
 	require.NoError(t, err)
@@ -154,7 +156,7 @@ func TestDispatchPlanned_ExhaustionFlushesUpstreamEnvelope(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	_, err := s.dispatchWithFallback(context.Background(), plannedInputs(t.Context(), rec, buf,
+	_, err := fallbackFor(s).Dispatch(context.Background(), plannedInputs(t.Context(), rec, buf,
 		[]catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, nil))
 
 	require.Error(t, err)
@@ -165,13 +167,13 @@ func TestDispatchPlanned_ExhaustionFlushesUpstreamEnvelope(t *testing.T) {
 func TestDispatchPlanned_DeferredFlushLeavesWriterUntouched(t *testing.T) {
 	only := &fakeClient{name: providers.ProviderFireworks, outcomes: []fakeOutcome{{err: &providers.UpstreamErrorResponse{Status: 500, Body: []byte(`boom`)}}}}
 	s := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderFireworks: only})
-	s.retrySleep = noopSleep
+	s.engine.SetRetrySleep(noopSleep)
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, nil)
 	in.DeferFlushOnExhaustion = true
-	_, err := s.dispatchWithFallback(context.Background(), in)
+	_, err := fallbackFor(s).Dispatch(context.Background(), in)
 
 	require.Error(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -184,7 +186,7 @@ func TestDispatchPlanned_ProviderMissingAtRuntimeSkipsToNext(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	winnerIdx, err := s.dispatchWithFallback(context.Background(), plannedInputs(t.Context(), rec, buf,
+	winnerIdx, err := fallbackFor(s).Dispatch(context.Background(), plannedInputs(t.Context(), rec, buf,
 		[]catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, nil))
 
 	require.NoError(t, err)
@@ -200,14 +202,14 @@ func TestDispatchPlanned_RecordsAttemptProvenance(t *testing.T) {
 		providers.ProviderFireworks: primary, providers.ProviderOpenRouter: fallback,
 	}), dispatch.WithAttemptSink(sink))
 	require.NoError(t, err)
-	s := (&Service{hmmServing: hmmPorts()}).WithInferenceExecutor(executor)
+	s := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithInferenceExecutor(executor)
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, nil)
 	in.InitialDecision.Reason = translate.ReasonUserForceModel
 	in.Origin = policy.OverrideSourceRequest
-	_, err = s.dispatchWithFallback(context.Background(), in)
+	_, err = fallbackFor(s).Dispatch(context.Background(), in)
 
 	require.NoError(t, err)
 	require.Len(t, sink.events, 2)
@@ -230,7 +232,7 @@ func TestDispatchPlanned_UnregisteredPurposeFailsClosed(t *testing.T) {
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, nil)
 	in.Purpose = inference.Purpose("not_a_purpose")
-	_, err := s.dispatchWithFallback(context.Background(), in)
+	_, err := fallbackFor(s).Dispatch(context.Background(), in)
 
 	var resolution *policy.ResolutionError
 	require.ErrorAs(t, err, &resolution)
@@ -251,16 +253,16 @@ func TestDispatchPlanned_LeaseFailureIsTerminal(t *testing.T) {
 		providers.ProviderAnthropic: primary, providers.ProviderOpenRouter: fallback,
 	}).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
 	slept := 0
-	s.retrySleep = func(context.Context, time.Duration) error { slept++; return nil }
-	ctx := context.WithValue(context.Background(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+	s.engine.SetRetrySleep(func(context.Context, time.Duration) error { slept++; return nil })
+	ctx := context.WithValue(context.Background(), credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}, {Provider: providers.ProviderOpenRouter}}, nil)
 	in.InitialDecision.Model = "claude-opus-4-8"
-	_, err := s.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(s).Dispatch(ctx, in)
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
 	assert.Equal(t, 0, primary.calls, "no upstream call without a lease")
 	assert.Equal(t, 0, fallback.calls, "a pool failure must not fail over to a paid binding")
 	assert.Equal(t, 0, slept, "a pool failure must not same-binding retry")

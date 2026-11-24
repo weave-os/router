@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
@@ -29,7 +31,7 @@ var authoritativeDowngradeBody = []byte(
 func authoritativeDowngradeService(store *stubPinStore, fresh router.Decision) *Service {
 	return withHMMPorts(NewService(
 		nil,
-		nil,
+		dispatch.NewClients(nil),
 		nil,
 		store,
 		false,
@@ -46,7 +48,7 @@ func authoritativeDowngradeService(store *stubPinStore, fresh router.Decision) *
 		})
 }
 
-func runAuthoritativeDowngradeTurn(t *testing.T, svc *Service) turnLoopResult {
+func runAuthoritativeDowngradeTurn(t *testing.T, svc *Service) routingpolicy.TurnRoute {
 	t.Helper()
 	env, err := translate.ParseAnthropic(authoritativeDowngradeBody)
 	require.NoError(t, err)
@@ -111,7 +113,7 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 		wantSticky      bool
 		wantTier        string
 		wantVotes       int
-		wantShadow      downgradeGuardShadow
+		wantShadow      routingpolicy.DowngradeGuardShadow
 	}{
 		{
 			name:       "both levers off downgrades on the first vote",
@@ -120,7 +122,7 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 			wantModel:  "claude-haiku-4-5",
 			wantTier:   "authoritative_per_turn",
 			wantVotes:  0,
-			wantShadow: downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true, ConfidenceWouldHold: true},
+			wantShadow: routingpolicy.DowngradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true, ConfidenceWouldHold: true},
 		},
 		{
 			name:            "first vote under hysteresis keeps the pin",
@@ -141,7 +143,7 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 			wantModel:       "claude-haiku-4-5",
 			wantTier:        "authoritative_per_turn",
 			wantVotes:       0,
-			wantShadow:      downgradeGuardShadow{Served: true, Votes: 3, ConfidenceWouldHold: true},
+			wantShadow:      routingpolicy.DowngradeGuardShadow{Served: true, Votes: 3, ConfidenceWouldHold: true},
 		},
 		{
 			name:            "upgrade proposal ignores hysteresis and clears the run",
@@ -184,7 +186,7 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 			wantModel:     "claude-haiku-4-5",
 			wantTier:      "authoritative_per_turn",
 			wantVotes:     0,
-			wantShadow:    downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true},
+			wantShadow:    routingpolicy.DowngradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true},
 		},
 		{
 			name:            "confident downgrade still serves its hysteresis sentence",
@@ -255,41 +257,41 @@ func TestAuthoritativeDowngradeShadow(t *testing.T) {
 		pinModel    string
 		shadowTurns int
 		fresh       router.Decision
-		wantShadow  downgradeGuardShadow
+		wantShadow  routingpolicy.DowngradeGuardShadow
 	}{
 		{
 			name:        "unconfident first vote would be held by both guards",
 			pinModel:    "claude-opus-4-8",
 			shadowTurns: 2,
 			fresh:       cheapFresh,
-			wantShadow:  downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true, ConfidenceWouldHold: true},
+			wantShadow:  routingpolicy.DowngradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true, ConfidenceWouldHold: true},
 		},
 		{
 			name:        "confident first vote would be held by hysteresis only",
 			pinModel:    "claude-opus-4-8",
 			shadowTurns: 2,
 			fresh:       confidentCheapFresh,
-			wantShadow:  downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true},
+			wantShadow:  routingpolicy.DowngradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true},
 		},
 		{
 			name:        "unscored downgrade is not confidence-gated",
 			pinModel:    "claude-opus-4-8",
 			shadowTurns: 2,
 			fresh:       unscoredCheapFresh,
-			wantShadow:  downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true},
+			wantShadow:  routingpolicy.DowngradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true},
 		},
 		{
 			name:        "shadow threshold of one never holds",
 			pinModel:    "claude-opus-4-8",
 			shadowTurns: 1,
 			fresh:       confidentCheapFresh,
-			wantShadow:  downgradeGuardShadow{Served: true, Votes: 1},
+			wantShadow:  routingpolicy.DowngradeGuardShadow{Served: true, Votes: 1},
 		},
 		{
 			name:       "shadow disabled still marks the served downgrade",
 			pinModel:   "claude-opus-4-8",
 			fresh:      cheapFresh,
-			wantShadow: downgradeGuardShadow{Served: true, Votes: 1, ConfidenceWouldHold: true},
+			wantShadow: routingpolicy.DowngradeGuardShadow{Served: true, Votes: 1, ConfidenceWouldHold: true},
 		},
 		{
 			name:        "upgrade is not a downgrade",
@@ -336,7 +338,7 @@ func TestDowngradeShadowLogFields(t *testing.T) {
 			"downgrade_shadow_hysteresis_would_hold", false,
 			"downgrade_shadow_confidence_would_hold", false,
 		},
-		downgradeShadowLogFields(turnLoopResult{}))
+		downgradeShadowLogFields(routingpolicy.TurnRoute{}))
 	assert.Equal(t,
 		[]any{
 			"authoritative_downgrade_served", true,
@@ -344,7 +346,7 @@ func TestDowngradeShadowLogFields(t *testing.T) {
 			"downgrade_shadow_hysteresis_would_hold", true,
 			"downgrade_shadow_confidence_would_hold", false,
 		},
-		downgradeShadowLogFields(turnLoopResult{DowngradeShadow: downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true}}))
+		downgradeShadowLogFields(routingpolicy.TurnRoute{DowngradeShadow: routingpolicy.DowngradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true}}))
 }
 
 // TestAuthoritativeDowngradeHysteresisAcrossTurns walks the persisted counter

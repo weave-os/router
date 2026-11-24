@@ -7,19 +7,20 @@ import (
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 )
 
 func (s *Service) customBindingsForRequest(ctx context.Context) map[string][]string {
-	return credentials.CustomBindings(externalKeysFromContext(ctx))
+	return credentials.CustomBindings(credentials.ExternalKeysFromContext(ctx))
 }
 
 func (s *Service) gatewayProvidersForRequest(ctx context.Context) map[string]struct{} {
-	return credentials.GatewayProviders(externalKeysFromContext(ctx))
+	return credentials.GatewayProviders(credentials.ExternalKeysFromContext(ctx))
 }
 
 func (s *Service) gatewayUnservedModelsForRequest(ctx context.Context) map[string]struct{} {
-	keys := externalKeysFromContext(ctx)
+	keys := credentials.ExternalKeysFromContext(ctx)
 	if len(credentials.GatewayProviders(keys)) == 0 {
 		return nil
 	}
@@ -35,7 +36,7 @@ func (s *Service) gatewayUnservedModelsForRequest(ctx context.Context) map[strin
 				continue
 			}
 			declared[m.ID]++
-			if s.gatewayLacksModel(gatewayModelKey(key.BaseURL, key.Provider, m.ID)) {
+			if s.engine.GatewayLacksModel(gatewayModelKey(key.BaseURL, key.Provider, m.ID)) {
 				unserved[m.ID]++
 			}
 		}
@@ -55,7 +56,7 @@ func (s *Service) gatewayUnservedModelsForRequest(ctx context.Context) map[strin
 
 func cortexGatewayProvidersForRequest(ctx context.Context) map[string]struct{} {
 	var out map[string]struct{}
-	for _, key := range externalKeysFromContext(ctx) {
+	for _, key := range credentials.ExternalKeysFromContext(ctx) {
 		if len(key.Plaintext) == 0 || !providers.IsGateway(key.Provider) || !isCortexHost(key.BaseURL) {
 			continue
 		}
@@ -78,5 +79,5 @@ func gatewayContextWindow(cortexGateways map[string]struct{}, modelID, provider 
 			return w
 		}
 	}
-	return contextWindowForRequest(modelID, provider)
+	return candidates.ContextWindow(modelID, provider)
 }

@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 const individualTopModels = 3
@@ -46,7 +46,7 @@ type dashboardIndividualsResponse struct {
 	Individuals []dashboardIndividual `json:"individuals"`
 }
 
-func MetricsIndividualsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func MetricsIndividualsHandler(queries turnrecord.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		granularity := c.DefaultQuery("granularity", "day")
 		if granularity != "hour" && granularity != "day" && granularity != "week" {
@@ -58,12 +58,12 @@ func MetricsIndividualsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		ctx := c.Request.Context()
-		facts, err := proxySvc.MetricsIndividualFacts(ctx, installationID, from, to, granularity)
+		facts, err := queries.MetricsIndividualFacts(ctx, installationID, from, to, granularity)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch individuals."})
 			return
 		}
-		people, err := proxySvc.MetricsPeople(ctx, installationID)
+		people, err := queries.MetricsPeople(ctx, installationID)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch people."})
 			return
@@ -77,7 +77,7 @@ type individualActivity struct {
 	models                      map[string]int64
 }
 
-func dashboardIndividuals(facts []proxy.TelemetryIndividualFact, people []proxy.TelemetryPerson) []dashboardIndividual {
+func dashboardIndividuals(facts []turnrecord.TelemetryIndividualFact, people []turnrecord.TelemetryPerson) []dashboardIndividual {
 	byID := map[string]*dashboardIndividual{}
 	activity := map[string]*individualActivity{}
 	individualFor := func(id string, linked bool, displayName, email string) *dashboardIndividual {

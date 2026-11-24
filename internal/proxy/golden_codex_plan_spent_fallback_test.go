@@ -10,9 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
@@ -50,14 +51,14 @@ func withOnlyThrottledCodexSeats(svc *proxy.Service, h *goldenHarness) *proxy.Se
 func goldenSpentCodexLoginOnlyThrottledSeatsCtx(ctx context.Context) context.Context {
 	models := []string{goldenCodexModel}
 	ctx = goldenCodexCtx(ctx)
-	ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
+	ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 	ctx = proxy.WithSubscriptionStateModels(ctx, models, models)
 	cooldown := goldenCodexSeatCooldown
-	ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
+	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
 		{ID: "codex-seat-a", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooldown},
 		{ID: "codex-seat-b", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooldown},
 	})
-	return proxy.WithManagedSubscriptionUsage(ctx)
+	return credentials.WithManagedSubscriptionUsage(ctx)
 }
 
 // goldenShortSeatThrottleScenarios pin a Codex turn whose own plan is spent
@@ -98,26 +99,26 @@ func TestSpentCodexLoginWaitsOutShortSeatThrottle(t *testing.T) {
 func goldenSpentCodexLoginThrottledSeatsCtx(ctx context.Context) context.Context {
 	models := []string{goldenCodexModel, goldenCodexSiblingModel, goldenAnthropicModel}
 	ctx = goldenCodexCtx(ctx)
-	ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
+	ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 	ctx = proxy.WithSubscriptionStateModels(ctx, models, models)
 	cooldown := goldenCodexSeatCooldown
-	ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
+	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
 		{ID: "codex-seat-a", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooldown},
 		{ID: "codex-seat-b", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooldown},
 		{ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive},
 	})
-	return proxy.WithManagedSubscriptionUsage(ctx)
+	return credentials.WithManagedSubscriptionUsage(ctx)
 }
 
 func goldenCodexSiblingAndClaudeSeatsCtx(ctx context.Context) context.Context {
 	models := []string{goldenCodexModel, goldenCodexSiblingModel, goldenAnthropicModel}
-	ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
+	ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 	ctx = proxy.WithSubscriptionStateModels(ctx, models, models)
-	ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
+	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
 		{ID: "codex-seat", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive},
 		{ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive},
 	})
-	return proxy.WithManagedSubscriptionUsage(ctx)
+	return credentials.WithManagedSubscriptionUsage(ctx)
 }
 
 // goldenCodexPlanSpentFallbackScenarios pin a Codex turn whose plan hit its
@@ -193,14 +194,14 @@ func withLongThrottledCodexSeats(svc *proxy.Service, h *goldenHarness) *proxy.Se
 func goldenSpentCodexLoginLongThrottledSeatsCtx(ctx context.Context) context.Context {
 	models := []string{goldenCodexModel}
 	ctx = goldenCodexCtx(ctx)
-	ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
+	ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 	ctx = proxy.WithSubscriptionStateModels(ctx, models, models)
 	cooldown := goldenCodexSeatLongCooldown
-	ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
+	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
 		{ID: "codex-seat-a", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooldown},
 		{ID: "codex-seat-b", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooldown},
 	})
-	return proxy.WithManagedSubscriptionUsage(ctx)
+	return credentials.WithManagedSubscriptionUsage(ctx)
 }
 
 // TestSpentCodexLoginThrottledSeatsNoticeNamesSeats states the invariant: when
@@ -293,7 +294,7 @@ func TestForcedSpentCodexTurnWaitsOutShortSeatThrottle(t *testing.T) {
 		},
 	}
 	sc.requests[0].headers = goldenCodexSessionHeadersFor("c0d8")
-	sc.requests[0].headers[proxy.ForceModelHeader] = goldenCodexModel
+	sc.requests[0].headers[requestcontext.ForceModelHeader] = goldenCodexModel
 	h := newGoldenHarness(t, sc)
 	served := h.serve(t, sc.ingress, sc.requests[0])
 	require.Equal(t, http.StatusOK, served.Response.Status, "response: %+v", served.Response.Body)

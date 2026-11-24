@@ -10,6 +10,9 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/ingress"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -55,12 +58,12 @@ func TestSpendCapWarningDoesNotClaimDepletedCredits(t *testing.T) {
 
 func TestSubscriptionOnlyUnavailableNamesTheGate(t *testing.T) {
 	capCtx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlySpendCapReached)
-	assert.Equal(t, ErrSpendCapSubscriptionUnavailable, subscriptionOnlyUnavailable(capCtx))
-	require.ErrorIs(t, subscriptionOnlyUnavailable(capCtx), ErrCreditsExhaustedSubscriptionUnavailable,
+	assert.Equal(t, credentials.ErrSpendCapSubscriptionUnavailable, credentials.SubscriptionOnlyUnavailable(capCtx))
+	require.ErrorIs(t, credentials.SubscriptionOnlyUnavailable(capCtx), credentials.ErrCreditsExhaustedSubscriptionUnavailable,
 		"refusal checks match the credits sentinel, so the cap variant must wrap it")
 
 	depletedCtx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted)
-	assert.Equal(t, ErrCreditsExhaustedSubscriptionUnavailable, subscriptionOnlyUnavailable(depletedCtx))
+	assert.Equal(t, credentials.ErrCreditsExhaustedSubscriptionUnavailable, credentials.SubscriptionOnlyUnavailable(depletedCtx))
 }
 
 func TestSubscriptionOnlyWarningShowsOncePerConversation(t *testing.T) {
@@ -93,29 +96,29 @@ func TestSubscriptionOnlyUnavailableNamesTheSpentAllowanceWindow(t *testing.T) {
 		ResetsAt: time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC),
 	})
 
-	depleted := subscriptionOnlyUnavailable(billing.WithSubscriptionOnly(spent, billing.SubscriptionOnlyCreditsDepleted))
-	require.ErrorIs(t, depleted, ErrCreditsExhaustedSubscriptionUnavailable, "refusal checks match the credits sentinel")
-	cls, ok := ClassifyDispatchError(errors.Join(depleted, ErrSubscriptionPoolExhausted))
+	depleted := credentials.SubscriptionOnlyUnavailable(billing.WithSubscriptionOnly(spent, billing.SubscriptionOnlyCreditsDepleted))
+	require.ErrorIs(t, depleted, credentials.ErrCreditsExhaustedSubscriptionUnavailable, "refusal checks match the credits sentinel")
+	cls, ok := ClassifyDispatchError(errors.Join(depleted, credentials.ErrSubscriptionPoolExhausted))
 	require.True(t, ok)
-	assert.Equal(t, DispatchErrorCreditsExhausted, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorCreditsExhausted, cls.Kind)
 	assert.Equal(t, http.StatusPaymentRequired, cls.Status)
 	assert.Contains(t, cls.Message, "Boost plan's six-hour allowance is used up")
 	assert.Contains(t, cls.Message, "12:00 UTC on Mar 14")
 	assert.Contains(t, cls.Message, topUpURL)
 	assert.NotContains(t, cls.Message, "credits are exhausted")
 
-	capped := subscriptionOnlyUnavailable(billing.WithSubscriptionOnly(spent, billing.SubscriptionOnlySpendCapReached))
-	require.ErrorIs(t, capped, ErrSpendCapSubscriptionUnavailable)
+	capped := credentials.SubscriptionOnlyUnavailable(billing.WithSubscriptionOnly(spent, billing.SubscriptionOnlySpendCapReached))
+	require.ErrorIs(t, capped, credentials.ErrSpendCapSubscriptionUnavailable)
 	cls, ok = ClassifyDispatchError(capped)
 	require.True(t, ok)
-	assert.Equal(t, DispatchErrorSpendCapReached, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorSpendCapReached, cls.Kind)
 	assert.Contains(t, cls.Message, "spend cap")
 	assert.NotContains(t, cls.Message, topUpURL)
 }
 
 func spendCapOnCustomerKey() context.Context {
 	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlySpendCapReached)
-	return context.WithValue(ctx, CredentialsContextKey{}, &Credentials{APIKey: []byte("synthetic-key"), Source: credSourceBYOK})
+	return context.WithValue(ctx, requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{APIKey: []byte("synthetic-key"), Source: requestcontext.SourceBYOK})
 }
 
 func TestSpendCapKeyWarningShowsOncePerConversation(t *testing.T) {
@@ -131,7 +134,7 @@ func TestSpendCapKeyWarningShowsOncePerConversation(t *testing.T) {
 }
 
 func TestSpendCapWarningNamesTheLinkedPlanItWillLease(t *testing.T) {
-	ctx := context.WithValue(spendCapOnCustomerKey(), ManagedSubscriptionProvidersContextKey{},
+	ctx := context.WithValue(spendCapOnCustomerKey(), credentials.ManagedSubscriptionProvidersContextKey{},
 		map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProvider(subscriptions.ProviderClaude): {}})
 	assert.Equal(t, subscriptionSpendCapWarningMarker,
 		routerNoticeForRequest(ctx, http.Header{}, subscriptions.ProviderClaude, "claude-haiku-4-5", "").Text,

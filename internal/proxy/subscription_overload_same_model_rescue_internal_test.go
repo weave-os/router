@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -24,7 +26,7 @@ type planThenPaidClient struct {
 func (*planThenPaidClient) SupportsSubscriptions() bool { return true }
 
 func (c *planThenPaidClient) Proxy(ctx context.Context, decision router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	oauth := creds != nil && creds.OAuth
 	c.oauthPerCall = append(c.oauthPerCall, oauth)
 	c.models = append(c.models, decision.Model)
@@ -55,8 +57,8 @@ func TestCodexPlanOverload_RetriesSameModelOnWeaveKey(t *testing.T) {
 
 	body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 
 	require.NoError(t, err)
@@ -73,7 +75,7 @@ type planMetadataThenOverloadClient struct{ oauthPerCall []bool }
 func (*planMetadataThenOverloadClient) SupportsSubscriptions() bool { return true }
 
 func (c *planMetadataThenOverloadClient) Proxy(ctx context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	oauth := creds != nil && creds.OAuth
 	c.oauthPerCall = append(c.oauthPerCall, oauth)
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -100,8 +102,8 @@ func TestCodexPlanOverloadAfterMetadata_RetriesSameModelOnWeaveKey(t *testing.T)
 	svc := codexOverloadService(client, &anthropicServingClient{}, false)
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 
 	require.NoError(t, err)

@@ -8,10 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
@@ -59,10 +62,9 @@ func TestTelemetryPort_LinkFeedbackRecordsAndFlushes(t *testing.T) {
 	recorder := &capturingTelemetryRecorder{}
 	emitter := &capturingTelemetryEmitter{recorder: recorder}
 	comment := "The response was helpful."
-	service := proxy.WithStrategyPorts(proxy.NewService(nil, nil, emitter, nil, false, "", "", nil), hmm.ServingPorts()).
-		WithFeedback(&fakeFeedbackRepoForSpanTest{}, feedback.NewSigner("secret", time.Hour), "https://router.example.com")
+	links := feedback.NewLinks(&fakeFeedbackRepoForSpanTest{}, feedback.NewSigner("secret", time.Hour), "https://router.example.com", emitter, time.Now)
 
-	err := service.SubmitFeedback(context.Background(), feedback.SubmitFeedbackParams{
+	err := links.SubmitFeedback(context.Background(), feedback.SubmitFeedbackParams{
 		InstallationID: "inst-1",
 		ExternalID:     "org-1",
 		RequestID:      "req-1",
@@ -102,7 +104,7 @@ func TestTelemetryPort_CommandFeedbackRecordsAndFlushes(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
 	service := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		emitter,
 		store,
 		false,
@@ -115,8 +117,8 @@ func TestTelemetryPort_CommandFeedbackRecordsAndFlushes(t *testing.T) {
 		"max_tokens":1024,
 		"messages":[{"role":"user","content":"/router-feedback got stuck on Haiku for too long"}]
 	}`
-	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
-	ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, uuid.New().String())
+	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "key-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.New().String())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	err := service.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), req)
@@ -131,7 +133,7 @@ func TestTelemetryPort_CommandFeedbackRecordsAndFlushes(t *testing.T) {
 	assert.Equal(t, "claude-haiku-4-5", attrs["feedback.served_model"])
 	assert.Equal(t, "claude-sonnet-4-6", attrs["requested.model"])
 	assert.Equal(t, "got stuck on Haiku for too long", attrs["feedback.text"])
-	assert.Equal(t, proxy.RouterFeedbackSourceUser, attrs["feedback.source"])
+	assert.Equal(t, conversation.RouterFeedbackSourceUser, attrs["feedback.source"])
 	assert.Contains(t, attrs, "client.app")
 }
 

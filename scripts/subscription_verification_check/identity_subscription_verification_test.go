@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
@@ -88,7 +90,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 	defer providerServer.Close()
 	client := &verificationIncludedClient{openai.NewClient("synthetic-api-key", providerServer.URL)}
 	client.SetCodexBaseURL(providerServer.URL)
-	svc := proxy.WithStrategyPorts(proxy.NewService(verificationBillingRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts()).WithManagedSubscriptions(runtime).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+	svc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(verificationBillingRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts()), proxy.Deps{DeploymentKeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}, Credentials: &credentials.Brokerage{ManagedSubscriptions: runtime}})
 	var winners []any
 	var resolvedOwners []auth.SubscriptionOwner
 	var proxyErrors []error
@@ -97,7 +99,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 		body, _ := io.ReadAll(c.Request.Body)
 		resolvedOwners = append(resolvedOwners, middleware.SubscriptionOwnerFrom(c))
 		proxyErrors = append(proxyErrors, svc.ProxyOpenAIChatCompletion(c.Request.Context(), body, c.Writer, c.Request))
-		winners = append(winners, c.Request.Context().Value(proxy.ManagedSubscriptionUsageContextKey{}))
+		winners = append(winners, c.Request.Context().Value(credentials.ManagedSubscriptionUsageContextKey{}))
 	})
 	actualIngress := httptest.NewServer(engine)
 	defer actualIngress.Close()
@@ -127,7 +129,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 			require.Equal(t, 200, response.StatusCode, string(payload))
 			require.Contains(t, string(payload), "identity answer")
 			require.Len(t, bearers, before+1)
-			winner := mustAs[*proxy.ManagedSubscriptionUsage](t, winners[len(winners)-1])
+			winner := mustAs[*credentials.ManagedSubscriptionUsage](t, winners[len(winners)-1])
 			identity := resolvedOwners[len(resolvedOwners)-1]
 			if scenario.wantTier == auth.SubscriptionTierPersonal {
 				require.Equal(t, subject.String(), identity.SubscriberID)

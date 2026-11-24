@@ -13,8 +13,8 @@ import (
 )
 
 func TestResolveEffort_SourcesAndClamping(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).WithEffortEscalation(true)
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	svc.routing = svc.routing.WithEffortEscalation(true)
 
 	for _, tc := range []struct {
 		name         string

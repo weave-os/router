@@ -16,9 +16,6 @@ import (
 	"weave-os/router/internal/router"
 )
 
-const ClassifierThreadHeader = "X-Weave-Classifier-Thread"
-
-const ClassifierThreadUnavailableToken = "weave-classifier-unavailable"
 const classifierThreadIssuer = "weave-classifier-thread-v1"
 const classifierThreadLifetime = 30 * 24 * time.Hour
 
@@ -33,7 +30,7 @@ type ClassifierSessionConfig struct {
 	InstallationIDs       []uuid.UUID
 }
 
-type classifierSessions struct {
+type ClassifierSessions struct {
 	config               ClassifierSessionConfig
 	allowedInstallations map[uuid.UUID]struct{}
 	store                router.ClassifierSessionStore
@@ -46,20 +43,19 @@ type classifierThreadClaims struct {
 }
 type classifierThreadContextKey struct{}
 
-func (s *Service) WithClassifierSessions(config ClassifierSessionConfig, store router.ClassifierSessionStore, classifier router.AtomicClassifier) error {
+func NewClassifierSessions(config ClassifierSessionConfig, store router.ClassifierSessionStore, classifier router.AtomicClassifier) (*ClassifierSessions, error) {
 	if !classifierReleasePattern.MatchString(config.Release) || !classifierDigestPattern.MatchString(config.ReleaseSHA256) || !classifierDigestPattern.MatchString(config.SelectionPolicySHA256) || len(config.SigningKey) < 32 || len(config.InstallationIDs) == 0 || store == nil || classifier == nil {
-		return errors.New("classifier sessions require release pins, a signing key, an installation allowlist, persistence and inference")
+		return nil, errors.New("classifier sessions require release pins, a signing key, an installation allowlist, persistence and inference")
 	}
 	allowedInstallations := make(map[uuid.UUID]struct{}, len(config.InstallationIDs))
 	for _, id := range config.InstallationIDs {
 		if id == uuid.Nil {
-			return errors.New("classifier installation must be nonzero")
+			return nil, errors.New("classifier installation must be nonzero")
 		}
 		allowedInstallations[id] = struct{}{}
 	}
 	config.SigningKey = append([]byte(nil), config.SigningKey...)
-	s.classifierSessions = &classifierSessions{config: config, allowedInstallations: allowedInstallations, store: store, classifier: classifier}
-	return nil
+	return &ClassifierSessions{config: config, allowedInstallations: allowedInstallations, store: store, classifier: classifier}, nil
 }
 
 func (s *Service) classifierPrincipal(ctx context.Context) (router.ClassifierThread, error) {
@@ -69,8 +65,8 @@ func (s *Service) classifierPrincipal(ctx context.Context) (router.ClassifierThr
 	if _, managed := requestcontext.ServingIdentityFromContext(ctx); managed {
 		return router.ClassifierThread{}, router.ErrClassifierUnavailable
 	}
-	installation := installationIDFromContext(ctx)
-	credential, _ := ctx.Value(APIKeyIDContextKey{}).(string)
+	installation := requestcontext.InstallationIDFromContext(ctx)
+	credential, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	if _, allowed := s.classifierSessions.allowedInstallations[installation]; !allowed || credential == "" {
 		return router.ClassifierThread{}, router.ErrClassifierThreadInvalid
 	}

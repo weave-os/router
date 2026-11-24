@@ -2,8 +2,8 @@ package middleware
 
 import (
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -15,7 +15,7 @@ type SubscriptionErrorCode string
 
 const SubscriptionPlanConflict SubscriptionErrorCode = "subscription_plan_conflict"
 
-func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
+func WithSubscriberAllowance(svc *entitlement.Service, coverage credentials.SubscriptionCoverage) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		subscriberID := allowanceSubscriber(c)
@@ -46,7 +46,7 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			}))
 		}
 
-		if _, shadow := proxy.AgentShadowEvalFromContext(c.Request.Context()); shadow {
+		if _, shadow := requestcontext.AgentShadowEvalFromContext(c.Request.Context()); shadow {
 			c.Next()
 			return
 		}
@@ -55,7 +55,7 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			c.Request = c.Request.WithContext(entitlement.WithCoverage(c.Request.Context(), admission.Coverage))
 		}
 
-		if proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
+		if coverage(c.Request.Context(), c.Request.Header, c.FullPath()) {
 			log.Info("Subscriber request prefers linked subscription funding", "reason", billing.SubscriptionOnlyLinkedFirst, "subscriber_id", subscriberID, "admission_outcome", admission.Outcome)
 			ctx, _ := billing.StepSubscriptionLane(c.Request.Context(), subscriptionlane.LinkedPlanPreferred)
 			c.Request = c.Request.WithContext(ctx)

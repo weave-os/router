@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -31,10 +32,10 @@ const clientGitContextBody = `{
 }`
 
 func trialCtx(installationID string) context.Context {
-	return context.WithValue(authedCtx(installationID), proxy.InstallationTrialCaptureContextKey{}, true)
+	return context.WithValue(authedCtx(installationID), requestcontext.InstallationTrialCaptureContextKey{}, true)
 }
 
-func proxyClientGitContextTurn(t *testing.T, ctx context.Context, store *fakePinStore) proxy.InsertTelemetryParams {
+func proxyClientGitContextTurn(t *testing.T, ctx context.Context, store *fakePinStore) turnrecord.InsertTelemetryParams {
 	t.Helper()
 	telem := newCaptureTelemetry()
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
@@ -46,7 +47,7 @@ func proxyClientGitContextTurn(t *testing.T, ctx context.Context, store *fakePin
 	return telem.firstRow(t)
 }
 
-func assertClientGitContextNull(t *testing.T, row proxy.InsertTelemetryParams) {
+func assertClientGitContextNull(t *testing.T, row turnrecord.InsertTelemetryParams) {
 	t.Helper()
 	assert.Empty(t, row.ClientGitHeadSHA)
 	assert.Empty(t, row.ClientGitBranch)

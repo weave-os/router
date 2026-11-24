@@ -2,15 +2,17 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/websearch"
@@ -18,21 +20,21 @@ import (
 
 type classifierInputContextKey struct{}
 
-func (s *Service) withClassifierInput(ctx context.Context, body []byte, endpoint router.TranslationEndpoint) (context.Context, error) {
+func (s *Service) withClassifierInput(ctx context.Context, strategy router.Strategy, body []byte, endpoint router.TranslationEndpoint) (context.Context, error) {
 	if auth.RoutingPassthroughFrom(ctx) {
 		return ctx, nil
 	}
-	if router.StrategyFromContext(ctx) != router.StrategyLLMClassifier {
+	if !router.ClassifiesThreads(strategy) {
 		return ctx, nil
 	}
 	_, captured := ctx.Value(classifierInputContextKey{}).(router.ClassifierContext)
-	if _, shadow := AgentShadowEvalFromContext(ctx); shadow {
+	if _, shadow := requestcontext.AgentShadowEvalFromContext(ctx); shadow {
 		return ctx, router.ErrClassifierThreadInvalid
 	}
 	if _, pinned := router.HonouredPolicyPin(ctx); pinned {
 		return ctx, router.ErrClassifierThreadInvalid
 	}
-	if preparingHandoff(ctx) || gjson.GetBytes(body, piSessionField).Exists() || gjson.GetBytes(body, piHandoffField).Exists() {
+	if conversation.PreparingHandoff(ctx) || gjson.GetBytes(body, conversation.PiSessionField).Exists() || gjson.GetBytes(body, conversation.PiHandoffField).Exists() {
 		return ctx, router.ErrClassifierThreadInvalid
 	}
 	var observation translate.EscalationObservation
@@ -67,8 +69,8 @@ func (s *Service) withClassifierInput(ctx context.Context, body []byte, endpoint
 	if captured {
 		return ctx, nil
 	}
-	observation.CodexToolResults = endpoint == router.EndpointOpenAIResponses && ClientIdentityFrom(ctx).ClientApp == ClientAppCodex
-	input, err := classifierContextForCall(observation)
+	observation.CodexToolResults = endpoint == router.EndpointOpenAIResponses && requestcontext.ClientIdentityFrom(ctx).ClientApp == requestcontext.ClientAppCodex
+	input, err := routingpolicy.ClassifierContextForCall(observation)
 	if err != nil {
 		observability.FromContext(ctx).Warn("Classifier input rejected", "err", err, "endpoint", endpoint)
 		return ctx, err
@@ -82,16 +84,13 @@ func (s *Service) withClassifierInput(ctx context.Context, body []byte, endpoint
 	return context.WithValue(ctx, classifierInputContextKey{}, input), nil
 }
 
-func (s *Service) runClassifierTurn(ctx context.Context, strategy router.Strategy, request router.Request, turn turnLoopResult, sessionKey [sessionpin.SessionKeyLen]byte) (turnLoopResult, error) {
-	switch turn.TurnType {
-	case turntype.TitleGen, turntype.Probe, turntype.Compaction, turntype.Classifier:
-		observability.FromContext(ctx).Warn("Classifier thread rejects utility request", "turn_type", turn.TurnType)
-		return turn, router.ErrClassifierHistoryUnavailable
-	case turntype.MainLoop, turntype.ToolResult, turntype.SubAgentDispatch, turntype.Recap:
-	}
-	input, ok := ctx.Value(classifierInputContextKey{}).(router.ClassifierContext)
-	if !ok || request.ForceModel != "" || request.ForceCluster != "" {
-		return turn, router.ErrClassifierThreadInvalid
+func (s *Service) runClassifierTurn(ctx context.Context, strategy router.Strategy, request router.Request, turn routingpolicy.TurnRoute, sessionKey [sessionpin.SessionKeyLen]byte) (routingpolicy.TurnRoute, error) {
+	input, captured := ctx.Value(classifierInputContextKey{}).(router.ClassifierContext)
+	if err := routingpolicy.AdmitClassifierTurn(turn.TurnType, captured, request); err != nil {
+		if errors.Is(err, router.ErrClassifierHistoryUnavailable) {
+			observability.FromContext(ctx).Warn("Classifier thread rejects utility request", "turn_type", turn.TurnType)
+		}
+		return turn, err
 	}
 	prediction, err := s.classifyThread(ctx, input)
 	if err != nil {
@@ -108,7 +107,7 @@ func (s *Service) runClassifierTurn(ctx context.Context, strategy router.Strateg
 	if err != nil {
 		return turn, err
 	}
-	turn.Decision, turn.Fresh, turn.PinTier = decision, decision, string(router.StrategyLLMClassifier)
+	turn.Decision, turn.Fresh, turn.PinTier = decision, decision, string(strategy)
 	if s.pinStore != nil && !unpinned {
 		routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).WriteNew(ctx, turn.InstallationID, sessionKey, turn.PinRole, decision)
 	}

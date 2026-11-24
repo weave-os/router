@@ -8,8 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -23,10 +26,10 @@ const nativeResponsesInstallationID = "3f4c1c2e-2b4d-4c3a-9f6d-0d1a2b3c4d5e"
 // makes ProxyOpenAIResponses dispatch the caller's original bytes verbatim,
 // which is the path that runs no translator.
 func codexNativeResponsesCtx() context.Context {
-	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
-	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
-	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
-	return context.WithValue(ctx, proxy.InstallationIDContextKey{}, nativeResponsesInstallationID)
+	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-123")
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
+	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, nativeResponsesInstallationID)
 }
 
 // nativeResponsesStream frames a native Responses SSE turn ending in terminal.
@@ -85,7 +88,7 @@ func TestService_ProxyOpenAIResponses_NativeTurnRecordsTerminalFinishReason(t *t
 				&fakeRouter{decision: router.Decision{
 					Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test",
 				}},
-				map[string]providers.Client{providers.ProviderOpenAI: provider},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 				nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts())
 
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
@@ -116,7 +119,7 @@ func TestService_ProxyOpenAIResponses_NativeFailedTerminalRecordsNoFinishReason(
 		&fakeRouter{decision: router.Decision{
 			Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test",
 		}},
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts())
 
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
@@ -138,7 +141,7 @@ func TestService_ProxyOpenAIResponses_NativeClientCancelAfterCompletedIsSuccess(
 		&fakeRouter{decision: router.Decision{
 			Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test",
 		}},
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts())
 
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)

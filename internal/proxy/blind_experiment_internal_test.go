@@ -6,14 +6,19 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/capture"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -44,7 +49,7 @@ func (spy *blindExperimentRouterSpy) Route(context.Context, router.Request) (rou
 func TestCallerModelPassthroughSkipsAutomaticPinsAndScorer(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
 	pins := newStubPinStore()
-	service := withHMMPorts(NewService(routerSpy, nil, nil, pins, false,
+	service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
@@ -82,7 +87,7 @@ func TestCallerModelPassthroughSkipsAutomaticPinsAndScorer(t *testing.T) {
 
 func TestCallerModelPassthroughLeavesAutomaticSessionHistoryUntouched(t *testing.T) {
 	pins := newStubPinStore()
-	service := withHMMPorts(NewService(nil, nil, nil, pins, false,
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
@@ -112,7 +117,7 @@ func TestCallerModelPassthroughLeavesAutomaticSessionHistoryUntouched(t *testing
 }
 
 func TestCallerModelPassthroughUsesGatewayAlias(t *testing.T) {
-	service := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	decision, passthrough, err := service.blindExperimentPassthroughDecision(
@@ -141,7 +146,7 @@ func TestCallerModelPassthroughUsesGatewayAlias(t *testing.T) {
 }
 
 func TestCallerModelPassthroughRejectsUnknownModelWithoutBlamingProviderKeys(t *testing.T) {
-	service := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	_, _, err := service.blindExperimentPassthroughDecision(
@@ -161,7 +166,7 @@ func TestCallerModelPassthroughRejectsUnknownModelWithoutBlamingProviderKeys(t *
 }
 
 func TestCallerModelPassthroughResolvesDatedAlias(t *testing.T) {
-	service := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	decision, _, err := service.blindExperimentPassthroughDecision(
@@ -178,11 +183,11 @@ func TestCallerModelPassthroughResolvesDatedAlias(t *testing.T) {
 }
 
 func TestCallerModelPassthroughServesWeaveAutoOnTheClientDefault(t *testing.T) {
-	service := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}
-	for clientApp, want := range map[string]string{ClientAppClaudeCode: "claude-opus-5-5", ClientAppCodex: "gpt-6.1-sol"} {
+	for clientApp, want := range map[string]string{requestcontext.ClientAppClaudeCode: "claude-opus-5-5", requestcontext.ClientAppCodex: "gpt-6.1-sol"} {
 		ctx := context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough),
 			ClientIdentityContextKey{}, ClientIdentity{ClientApp: clientApp})
 
@@ -196,7 +201,7 @@ func TestCallerModelPassthroughServesWeaveAutoOnTheClientDefault(t *testing.T) {
 
 func TestCallerModelPassthroughHonorsExcludedModels(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-	service := withHMMPorts(NewService(routerSpy, nil, nil, nil, false,
+	service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
@@ -238,10 +243,10 @@ func blindExperimentUtilityTurnBodies() []struct {
 	}
 }
 
-func runBlindExperimentUtilityTurn(t *testing.T, ctx context.Context, body string) turnLoopResult {
+func runBlindExperimentUtilityTurn(t *testing.T, ctx context.Context, body string) routingpolicy.TurnRoute {
 	t.Helper()
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-	service := withHMMPorts(NewService(routerSpy, nil, nil, newStubPinStore(), false,
+	service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, newStubPinStore(), false,
 		providers.ProviderGoogle, experimentUtilityHardPinModel, nil)).
 		WithExplicitUtilityHardPin(true).
 		WithSubAgentOverride(providers.ProviderGoogle, experimentSubAgentOverrideModel)
@@ -339,7 +344,7 @@ const experimentSubAgentOverrideModel = "gemini-3-flash-preview"
 
 func TestBlindExperimentPassthroughYieldsUtilityTurnToForceModel(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-	service := withHMMPorts(NewService(routerSpy, nil, nil, newStubPinStore(), false,
+	service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, newStubPinStore(), false,
 		providers.ProviderGoogle, "gemini-3.1-flash-lite-preview", nil))
 
 	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`))
@@ -372,7 +377,7 @@ func TestBlindExperimentRouterOnUsesScorer(t *testing.T) {
 		Model:    "claude-haiku-4-5",
 		Reason:   "cluster:test",
 	}}
-	service := withHMMPorts(NewService(routerSpy, nil, nil, nil, false,
+	service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
@@ -395,7 +400,7 @@ func TestBlindExperimentRouterOnUsesScorer(t *testing.T) {
 }
 
 func TestApplyBlindExperimentTelemetry(t *testing.T) {
-	telemetry := InsertTelemetryParams{TrainingAllowed: true}
+	telemetry := turnrecord.InsertTelemetryParams{TrainingAllowed: true}
 	applyBlindExperimentTelemetry(blindExperimentContext(auth.BlindExperimentArmPassthrough), &telemetry, nil)
 
 	assert.Equal(t, auth.BlindExperimentArmPassthrough, telemetry.BlindExperimentArm)
@@ -405,10 +410,10 @@ func TestApplyBlindExperimentTelemetry(t *testing.T) {
 	assert.False(t, telemetry.TrainingAllowed)
 
 	observation := buildObservationContext(hmm.ServingPorts(),
-		context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), PolicyTrainingAllowedContextKey{}, true), router.StrategyFromContext(context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), PolicyTrainingAllowedContextKey{}, true)),
+		context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), requestcontext.PolicyTrainingAllowedContextKey{}, true), router.StrategyFromContext(context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), requestcontext.PolicyTrainingAllowedContextKey{}, true)),
 		router.Decision{},
 		router.Decision{},
-		CaptureOff)
+		capture.Off)
 
 	assert.False(t, observation.TrainingAllowed)
 }
@@ -419,8 +424,8 @@ func TestCohortTelemetrySeparatesScheduledIntendedAndApplied(t *testing.T) {
 		CohortGroupID: 3, CohortPhaseIndex: 2, CohortRevision: 4,
 		AssignmentSource: auth.BlindExperimentAssignmentManual, CanonicalSubjectKey: "account-1"}
 	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
-	params := InsertTelemetryParams{}
-	applyBlindExperimentTelemetry(ctx, &params, &turnLoopResult{
+	params := turnrecord.InsertTelemetryParams{}
+	applyBlindExperimentTelemetry(ctx, &params, &routingpolicy.TurnRoute{
 		Decision: router.Decision{Model: "claude-sonnet-4-6"}, CallerModelPassthrough: true})
 	assert.Equal(t, auth.BlindExperimentArmRouterOn, params.CohortScheduledArm)
 	assert.Equal(t, auth.BlindExperimentArmPassthrough, params.BlindExperimentArm)
@@ -429,8 +434,8 @@ func TestCohortTelemetrySeparatesScheduledIntendedAndApplied(t *testing.T) {
 
 	state.Arm = auth.BlindExperimentArmRouterOn
 	ctx = context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
-	params = InsertTelemetryParams{}
-	applyBlindExperimentTelemetry(ctx, &params, &turnLoopResult{Decision: router.Decision{Model: "claude-sonnet-4-6"}, HardPinned: true})
+	params = turnrecord.InsertTelemetryParams{}
+	applyBlindExperimentTelemetry(ctx, &params, &routingpolicy.TurnRoute{Decision: router.Decision{Model: "claude-sonnet-4-6"}, HardPinned: true})
 	require.NotNil(t, params.CohortTreatmentApplied)
 	assert.False(t, *params.CohortTreatmentApplied)
 	assert.Equal(t, auth.CohortBypassHardPin, params.CohortBypassReason)
@@ -439,7 +444,7 @@ func TestCohortTelemetrySeparatesScheduledIntendedAndApplied(t *testing.T) {
 func TestCohortTelemetryRecordsUnassignedIdentityWithoutRoutingTreatment(t *testing.T) {
 	state := auth.BlindExperimentState{Enabled: true, CohortExperimentID: uuid.NewString()}
 	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
-	params := InsertTelemetryParams{}
+	params := turnrecord.InsertTelemetryParams{}
 	applyBlindExperimentTelemetry(ctx, &params, nil)
 	assert.Equal(t, state.CohortExperimentID, params.CohortExperimentID)
 	assert.Nil(t, params.CohortTreatmentApplied)
@@ -453,16 +458,16 @@ func TestCohortTelemetryExplainsBypassedTreatment(t *testing.T) {
 	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
 	for _, testCase := range []struct {
 		name   string
-		routed *turnLoopResult
+		routed *routingpolicy.TurnRoute
 		reason auth.CohortBypassReason
 	}{
-		{name: "force model", routed: &turnLoopResult{Decision: router.Decision{Model: "model", Reason: translate.ReasonUserForceModel}}, reason: auth.CohortBypassForceModel},
-		{name: "hard pin", routed: &turnLoopResult{HardPinned: true, Decision: router.Decision{Model: "model"}}, reason: auth.CohortBypassHardPin},
-		{name: "usage bypass", routed: &turnLoopResult{UsageBypass: true, Decision: router.Decision{Model: "model"}}, reason: auth.CohortBypassUsageBypass},
+		{name: "force model", routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: "model", Reason: translate.ReasonUserForceModel}}, reason: auth.CohortBypassForceModel},
+		{name: "hard pin", routed: &routingpolicy.TurnRoute{HardPinned: true, Decision: router.Decision{Model: "model"}}, reason: auth.CohortBypassHardPin},
+		{name: "usage bypass", routed: &routingpolicy.TurnRoute{UsageBypass: true, Decision: router.Decision{Model: "model"}}, reason: auth.CohortBypassUsageBypass},
 		{name: "not dispatched", routed: nil, reason: auth.CohortBypassNotDispatched},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			params := InsertTelemetryParams{}
+			params := turnrecord.InsertTelemetryParams{}
 			applyBlindExperimentTelemetry(ctx, &params, testCase.routed)
 			require.NotNil(t, params.CohortTreatmentApplied)
 			assert.False(t, *params.CohortTreatmentApplied)
@@ -476,7 +481,7 @@ func TestApplyBlindExperimentTelemetryRecordsSessionDraw(t *testing.T) {
 		Active: true, Arm: auth.BlindExperimentArmRouterOn, AssignmentSource: auth.BlindExperimentAssignmentAutomatic,
 		CanonicalSubjectKey: "account-1", Mode: auth.BlindExperimentModeSession, SessionSubjectKey: "session:abc",
 	})
-	telemetry := InsertTelemetryParams{}
+	telemetry := turnrecord.InsertTelemetryParams{}
 	applyBlindExperimentTelemetry(ctx, &telemetry, nil)
 	assert.Equal(t, auth.BlindExperimentModeSession, telemetry.BlindExperimentMode)
 	assert.Equal(t, "session:abc", telemetry.BlindExperimentSessionKey)
@@ -487,7 +492,7 @@ func TestApplyBlindExperimentTelemetryLabelsSessionModeWithoutSessionAsUser(t *t
 		Active: true, Arm: auth.BlindExperimentArmRouterOn, AssignmentSource: auth.BlindExperimentAssignmentAutomatic,
 		CanonicalSubjectKey: "account-1", Mode: auth.BlindExperimentModeSession,
 	})
-	telemetry := InsertTelemetryParams{}
+	telemetry := turnrecord.InsertTelemetryParams{}
 	applyBlindExperimentTelemetry(ctx, &telemetry, nil)
 	assert.Equal(t, auth.BlindExperimentModeUser, telemetry.BlindExperimentMode)
 	assert.Empty(t, telemetry.BlindExperimentSessionKey)
@@ -501,11 +506,11 @@ func TestBlindPassthroughUnknownModelServesClientBaseline(t *testing.T) {
 		provider  string
 		want      string
 	}{
-		{name: "claude code retired id", client: ClientAppClaudeCode, requested: "claude-retired-9", provider: providers.ProviderAnthropic, want: "claude-opus-5-5"},
-		{name: "codex retired id", client: ClientAppCodex, requested: "gpt-retired-1", provider: providers.ProviderOpenAI, want: "gpt-6.1-sol"},
+		{name: "claude code retired id", client: requestcontext.ClientAppClaudeCode, requested: "claude-retired-9", provider: providers.ProviderAnthropic, want: "claude-opus-5-5"},
+		{name: "codex retired id", client: requestcontext.ClientAppCodex, requested: "gpt-retired-1", provider: providers.ProviderOpenAI, want: "gpt-6.1-sol"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			service := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+			service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 			ctx := context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), ClientIdentityContextKey{}, ClientIdentity{ClientApp: tc.client})
 
 			decision, handled, err := service.blindExperimentPassthroughDecision(ctx, router.Request{
@@ -530,8 +535,8 @@ func TestBlindPassthroughUnknownModelBaselineHonoursExclusions(t *testing.T) {
 		{name: "safety excluded", req: router.Request{Candidates: router.Candidates{SafetyExcludedModels: map[string]struct{}{"claude-opus-5-5": {}}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			service := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
-			ctx := context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode})
+			service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+			ctx := context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
 			req := tc.req
 			req.RequestedModel = "claude-retired-9"
 			req.EnabledProviders = map[string]struct{}{providers.ProviderAnthropic: {}}
@@ -558,25 +563,25 @@ func TestBlindExperimentTelemetryNamesWhatDecidedTheModel(t *testing.T) {
 		policy      bool
 		requested   string
 		served      string
-		routed      *turnLoopResult
+		routed      *routingpolicy.TurnRoute
 		source      auth.BlindExperimentModelSource
 		applied     bool
 		baseline    string
 		changed     bool
 	}{
-		{name: "router_on routed", arm: auth.BlindExperimentArmRouterOn, requested: "weave-auto", routed: &turnLoopResult{Decision: decision}, source: auth.BlindExperimentModelSourceRouter, applied: true, baseline: "claude-opus-5-5", changed: true},
-		{name: "router_on routed keeps requested", arm: auth.BlindExperimentArmRouterOn, requested: "claude-sonnet-4-6", routed: &turnLoopResult{Decision: decision}, source: auth.BlindExperimentModelSourceRouter, applied: true, baseline: "claude-sonnet-4-6"},
-		{name: "router_on retry served another model", arm: auth.BlindExperimentArmRouterOn, requested: "claude-sonnet-4-6", served: "claude-opus-5-5", routed: &turnLoopResult{Decision: decision}, source: auth.BlindExperimentModelSourceRouter, applied: true, baseline: "claude-sonnet-4-6", changed: true},
-		{name: "router_on routes a named client pick", arm: auth.BlindExperimentArmRouterOn, clientModel: true, requested: "claude-sonnet-4-6", routed: &turnLoopResult{Decision: decision}, source: auth.BlindExperimentModelSourceRouter, applied: true, baseline: "claude-sonnet-4-6"},
-		{name: "passthrough arm", arm: auth.BlindExperimentArmPassthrough, requested: "weave-auto", routed: &turnLoopResult{Decision: router.Decision{Model: "claude-opus-5-5"}, CallerModelPassthrough: true}, source: auth.BlindExperimentModelSourceExperimentPassthrough, applied: true, baseline: "claude-opus-5-5"},
-		{name: "passthrough arm retired id", arm: auth.BlindExperimentArmPassthrough, requested: "claude-retired-9", routed: &turnLoopResult{Decision: router.Decision{Model: "claude-opus-5-5"}, CallerModelPassthrough: true}, source: auth.BlindExperimentModelSourceExperimentPassthrough, applied: true, baseline: "claude-opus-5-5"},
-		{name: "passthrough arm named client pick", arm: auth.BlindExperimentArmPassthrough, clientModel: true, requested: "claude-sonnet-4-6", routed: &turnLoopResult{Decision: decision, CallerModelPassthrough: true}, source: auth.BlindExperimentModelSourceClientModelPassthrough, baseline: "claude-sonnet-4-6"},
-		{name: "routing policy passthrough", arm: auth.BlindExperimentArmRouterOn, policy: true, requested: "claude-sonnet-4-6", routed: &turnLoopResult{Decision: decision, CallerModelPassthrough: true}, source: auth.BlindExperimentModelSourceRoutingPolicyPassthrough, baseline: "claude-sonnet-4-6"},
-		{name: "hard pin", arm: auth.BlindExperimentArmPassthrough, cohort: true, requested: "claude-opus-5-5", routed: &turnLoopResult{Decision: decision, HardPinned: true}, source: auth.BlindExperimentModelSourceHardPin, baseline: "claude-opus-5-5", changed: true},
-		{name: "force model", arm: auth.BlindExperimentArmRouterOn, requested: "weave-auto", routed: &turnLoopResult{Decision: router.Decision{Model: "claude-sonnet-4-6", Reason: translate.ReasonUserForceModel}}, source: auth.BlindExperimentModelSourceForceModel, baseline: "claude-opus-5-5", changed: true},
-		{name: "usage bypass", arm: auth.BlindExperimentArmRouterOn, requested: "claude-sonnet-4-6", routed: &turnLoopResult{Decision: decision, UsageBypass: true}, source: auth.BlindExperimentModelSourceUsageBypass, baseline: "claude-sonnet-4-6"},
+		{name: "router_on routed", arm: auth.BlindExperimentArmRouterOn, requested: "weave-auto", routed: &routingpolicy.TurnRoute{Decision: decision}, source: auth.BlindExperimentModelSourceRouter, applied: true, baseline: "claude-opus-5-5", changed: true},
+		{name: "router_on routed keeps requested", arm: auth.BlindExperimentArmRouterOn, requested: "claude-sonnet-4-6", routed: &routingpolicy.TurnRoute{Decision: decision}, source: auth.BlindExperimentModelSourceRouter, applied: true, baseline: "claude-sonnet-4-6"},
+		{name: "router_on retry served another model", arm: auth.BlindExperimentArmRouterOn, requested: "claude-sonnet-4-6", served: "claude-opus-5-5", routed: &routingpolicy.TurnRoute{Decision: decision}, source: auth.BlindExperimentModelSourceRouter, applied: true, baseline: "claude-sonnet-4-6", changed: true},
+		{name: "router_on routes a named client pick", arm: auth.BlindExperimentArmRouterOn, clientModel: true, requested: "claude-sonnet-4-6", routed: &routingpolicy.TurnRoute{Decision: decision}, source: auth.BlindExperimentModelSourceRouter, applied: true, baseline: "claude-sonnet-4-6"},
+		{name: "passthrough arm", arm: auth.BlindExperimentArmPassthrough, requested: "weave-auto", routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: "claude-opus-5-5"}, CallerModelPassthrough: true}, source: auth.BlindExperimentModelSourceExperimentPassthrough, applied: true, baseline: "claude-opus-5-5"},
+		{name: "passthrough arm retired id", arm: auth.BlindExperimentArmPassthrough, requested: "claude-retired-9", routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: "claude-opus-5-5"}, CallerModelPassthrough: true}, source: auth.BlindExperimentModelSourceExperimentPassthrough, applied: true, baseline: "claude-opus-5-5"},
+		{name: "passthrough arm named client pick", arm: auth.BlindExperimentArmPassthrough, clientModel: true, requested: "claude-sonnet-4-6", routed: &routingpolicy.TurnRoute{Decision: decision, CallerModelPassthrough: true}, source: auth.BlindExperimentModelSourceClientModelPassthrough, baseline: "claude-sonnet-4-6"},
+		{name: "routing policy passthrough", arm: auth.BlindExperimentArmRouterOn, policy: true, requested: "claude-sonnet-4-6", routed: &routingpolicy.TurnRoute{Decision: decision, CallerModelPassthrough: true}, source: auth.BlindExperimentModelSourceRoutingPolicyPassthrough, baseline: "claude-sonnet-4-6"},
+		{name: "hard pin", arm: auth.BlindExperimentArmPassthrough, cohort: true, requested: "claude-opus-5-5", routed: &routingpolicy.TurnRoute{Decision: decision, HardPinned: true}, source: auth.BlindExperimentModelSourceHardPin, baseline: "claude-opus-5-5", changed: true},
+		{name: "force model", arm: auth.BlindExperimentArmRouterOn, requested: "weave-auto", routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: "claude-sonnet-4-6", Reason: translate.ReasonUserForceModel}}, source: auth.BlindExperimentModelSourceForceModel, baseline: "claude-opus-5-5", changed: true},
+		{name: "usage bypass", arm: auth.BlindExperimentArmRouterOn, requested: "claude-sonnet-4-6", routed: &routingpolicy.TurnRoute{Decision: decision, UsageBypass: true}, source: auth.BlindExperimentModelSourceUsageBypass, baseline: "claude-sonnet-4-6"},
 		{name: "not dispatched", arm: auth.BlindExperimentArmRouterOn, requested: "weave-auto", source: auth.BlindExperimentModelSourceNotDispatched, baseline: "claude-opus-5-5"},
-		{name: "alias from a client without a default", arm: auth.BlindExperimentArmRouterOn, client: "unknown-client", requested: "weave-auto", routed: &turnLoopResult{Decision: decision}, source: auth.BlindExperimentModelSourceRouter, applied: true},
+		{name: "alias from a client without a default", arm: auth.BlindExperimentArmRouterOn, client: "unknown-client", requested: "weave-auto", routed: &routingpolicy.TurnRoute{Decision: decision}, source: auth.BlindExperimentModelSourceRouter, applied: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := auth.BlindExperimentState{Active: true, Enabled: true, Arm: tc.arm,
@@ -584,7 +589,7 @@ func TestBlindExperimentTelemetryNamesWhatDecidedTheModel(t *testing.T) {
 			if tc.cohort {
 				state.CohortExperimentID, state.CohortGroupID, state.ScheduledArm = uuid.NewString(), 1, tc.arm
 			}
-			client := ClientAppClaudeCode
+			client := requestcontext.ClientAppClaudeCode
 			if tc.client != "" {
 				client = tc.client
 			}
@@ -596,7 +601,7 @@ func TestBlindExperimentTelemetryNamesWhatDecidedTheModel(t *testing.T) {
 			if tc.policy {
 				ctx = auth.WithRoutingPolicy(ctx, auth.RoutingPolicy{Mode: auth.RoutingPolicyPassthrough})
 			}
-			params := InsertTelemetryParams{RequestedModel: tc.requested, DecisionModel: tc.served}
+			params := turnrecord.InsertTelemetryParams{RequestedModel: tc.requested, DecisionModel: tc.served}
 			if tc.routed != nil && tc.served == "" {
 				params.DecisionModel = tc.routed.Decision.Model
 			}

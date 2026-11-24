@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/telemetry"
 
@@ -91,15 +93,15 @@ func parityAnthropicIngress() parityIngress {
 		token:          parityAnthropicToken,
 		byokKey:        parityAnthropicBYOK,
 		subCtx: func() context.Context {
-			ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+			ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 			// These parity cases exercise the explicitly enabled API fallback.
-			return withClaudeCreditFallback(context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID))
+			return withClaudeCreditFallback(context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, parityInstallationID))
 		},
-		servedOnSub:       servedOnSubscription,
-		fallbackAvailable: (*Service).anthropicFallbackKeyAvailable,
+		servedOnSub:       credentials.ServedOnSubscription,
+		fallbackAvailable: func(s *Service, ctx context.Context) bool { return s.credentials.AnthropicFallbackKeyAvailable(ctx) },
 		exhausted:         (*Service).claudeSubscriptionExhausted,
-		suppress:          withSuppressedClaudeSubscription,
-		tokenRejected:     anthropicOAuthCredentialRejected,
+		suppress:          credentials.WithSuppressedClaudeSubscription,
+		tokenRejected:     credentials.AnthropicOAuthCredentialRejected,
 		// A tool-bearing main-loop turn: a bare one-liner is hard-pinned as a
 		// classifier turn, which short-circuits the routing stages under test.
 		requestBody: func(stream bool) string {
@@ -133,15 +135,15 @@ func parityCodexIngress() parityIngress {
 		token:          parityCodexToken,
 		byokKey:        parityCodexBYOK,
 		subCtx: func() context.Context {
-			ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, parityCodexToken)
-			ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, parityCodexAccountID)
-			return context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID)
+			ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, parityCodexToken)
+			ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, parityCodexAccountID)
+			return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, parityInstallationID)
 		},
-		servedOnSub:       servedOnCodexSubscription,
+		servedOnSub:       credentials.ServedOnCodexSubscription,
 		fallbackAvailable: (*Service).openaiFallbackKeyAvailable,
 		exhausted:         (*Service).codexSubscriptionExhausted,
-		suppress:          withSuppressedCodexSubscription,
-		tokenRejected:     codexOAuthCredentialRejected,
+		suppress:          credentials.WithSuppressedCodexSubscription,
+		tokenRejected:     credentials.CodexOAuthCredentialRejected,
 		requestBody: func(stream bool) string {
 			return `{"model":"` + parityCodexModel + `","max_tokens":4096,"stream":` + boolLit(stream) +
 				`,"tools":[{"type":"function","function":{"name":"bash","description":"run a command","parameters":{"type":"object","properties":{}}}}]` +
@@ -174,7 +176,7 @@ func (in parityIngress) byokCtx(ctx context.Context) context.Context {
 	if in.provider == providers.ProviderAnthropic {
 		priority = auth.FundingPriorityKeyFirst
 	}
-	return context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	return context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: in.provider, Plaintext: []byte(in.byokKey), FundingPriority: priority},
 	})
 }
@@ -182,13 +184,13 @@ func (in parityIngress) byokCtx(ctx context.Context) context.Context {
 // resolved resolves credentials for the ingress' covered model, as the ingress
 // does before dispatching.
 func (in parityIngress) resolved(ctx context.Context) context.Context {
-	return resolveAndInjectCredentials(ctx, in.provider, in.model, http.Header{})
+	return credentials.ResolveAndInjectCredentials(ctx, in.provider, in.model, http.Header{})
 }
 
 // deploymentKeyedService builds a Service with the ingress' provider wired to a
 // deployment key — the paid fallback a rescue spends.
 func (in parityIngress) deploymentKeyedService() *Service {
-	return &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{in.provider: {}}}}
+	return &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{in.provider: {}}}}
 }
 
 // parityObserver seeds a usage observer that already read the token's plan spent.
@@ -213,18 +215,18 @@ func TestSubscriptionFailoverParity_Eligibility(t *testing.T) {
 
 			t.Run("a paid key alone is not subscription-served", func(t *testing.T) {
 				ctx := in.resolved(in.byokCtx(context.Background()))
-				require.NotNil(t, CredentialsFromContext(ctx), "the BYOK key must resolve")
+				require.NotNil(t, credentials.CredentialsFromContext(ctx), "the BYOK key must resolve")
 				assert.False(t, in.servedOnSub(ctx),
 					"a BYOK/paid key must never be mistaken for the caller's subscription")
 			})
 
 			t.Run("no fallback key: not eligible", func(t *testing.T) {
-				assert.False(t, in.fallbackAvailable(&Service{hmmServing: hmmPorts()}, in.subCtx()),
+				assert.False(t, in.fallbackAvailable(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}, in.subCtx()),
 					"with no BYOK and no deployment key there is nothing to fail over to")
 			})
 
 			t.Run("BYOK key is a fallback", func(t *testing.T) {
-				assert.True(t, in.fallbackAvailable(&Service{hmmServing: hmmPorts()}, in.byokCtx(in.subCtx())),
+				assert.True(t, in.fallbackAvailable(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}, in.byokCtx(in.subCtx())),
 					"a per-request BYOK key can serve the turn the subscription cannot")
 			})
 
@@ -235,7 +237,7 @@ func TestSubscriptionFailoverParity_Eligibility(t *testing.T) {
 
 			t.Run("another provider's key is not a fallback", func(t *testing.T) {
 				other := providers.ProviderOpenRouter
-				svc := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{other: {}}}}
+				svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{other: {}}}}
 				assert.False(t, in.fallbackAvailable(svc, in.subCtx()),
 					"the fallback probe is provider-scoped; a key for another provider cannot serve this turn")
 			})
@@ -250,30 +252,30 @@ func TestSubscriptionFailoverParity_SubscriptionShape(t *testing.T) {
 	t.Run("anthropic: OAuth alone is enough", func(t *testing.T) {
 		in := parityAnthropicIngress()
 		ctx := in.resolved(in.subCtx())
-		creds := CredentialsFromContext(ctx)
+		creds := credentials.CredentialsFromContext(ctx)
 		require.NotNil(t, creds)
 		assert.True(t, creds.OAuth)
 		assert.Empty(t, creds.AccountID, "the Claude subscription carries no account id")
-		assert.True(t, servedOnSubscription(ctx))
+		assert.True(t, credentials.ServedOnSubscription(ctx))
 	})
 
 	t.Run("codex: OAuth without an account id is not Codex-served", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, parityInstallationID)
-		ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, parityAnthropicToken)
-		ctx = resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
-		assert.True(t, servedOnSubscription(ctx))
-		assert.False(t, servedOnCodexSubscription(ctx),
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, parityInstallationID)
+		ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+		ctx = credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
+		assert.True(t, credentials.ServedOnSubscription(ctx))
+		assert.False(t, credentials.ServedOnCodexSubscription(ctx),
 			"an OAuth credential with no ChatGPT account id must not gate the Codex rescue (D1)")
 	})
 
 	t.Run("codex: OAuth plus account id is Codex-served", func(t *testing.T) {
 		in := parityCodexIngress()
 		ctx := in.resolved(in.subCtx())
-		creds := CredentialsFromContext(ctx)
+		creds := credentials.CredentialsFromContext(ctx)
 		require.NotNil(t, creds)
 		assert.True(t, creds.OAuth)
 		assert.Equal(t, []byte(parityCodexAccountID), creds.AccountID)
-		assert.True(t, servedOnCodexSubscription(ctx))
+		assert.True(t, credentials.ServedOnCodexSubscription(ctx))
 	})
 }
 
@@ -284,19 +286,19 @@ func TestSubscriptionFailoverParity_SubscriptionShape(t *testing.T) {
 func TestSubscriptionFailoverParity_ModelCoverage(t *testing.T) {
 	t.Run("codex uncovered model resolves to the paid key", func(t *testing.T) {
 		in := parityCodexIngress()
-		ctx := resolveAndInjectCredentials(in.byokCtx(in.subCtx()), in.provider, in.uncoveredModel, http.Header{})
-		creds := CredentialsFromContext(ctx)
+		ctx := credentials.ResolveAndInjectCredentials(in.byokCtx(in.subCtx()), in.provider, in.uncoveredModel, http.Header{})
+		creds := credentials.CredentialsFromContext(ctx)
 		require.NotNil(t, creds)
 		assert.Equal(t, []byte(parityCodexBYOK), creds.APIKey,
 			"a model outside the Codex family must serve on infrastructure credentials")
-		assert.False(t, servedOnCodexSubscription(ctx))
+		assert.False(t, credentials.ServedOnCodexSubscription(ctx))
 	})
 
 	t.Run("anthropic has no coverage gate", func(t *testing.T) {
 		in := parityAnthropicIngress()
-		ctx := resolveAndInjectCredentials(in.subCtx(), in.provider, in.uncoveredModel, http.Header{})
-		require.NotNil(t, CredentialsFromContext(ctx))
-		assert.True(t, servedOnSubscription(ctx),
+		ctx := credentials.ResolveAndInjectCredentials(in.subCtx(), in.provider, in.uncoveredModel, http.Header{})
+		require.NotNil(t, credentials.CredentialsFromContext(ctx))
+		assert.True(t, credentials.ServedOnSubscription(ctx),
 			"any Anthropic model the caller can reach serves on the Claude subscription (D2)")
 	})
 }
@@ -309,7 +311,7 @@ func TestSubscriptionFailoverParity_PreDispatchSuppression(t *testing.T) {
 	for _, in := range parityIngresses() {
 		t.Run(in.name, func(t *testing.T) {
 			withObserver := func(svc *Service) *Service {
-				svc.usageObserver = parityObserver(in.token)
+				svc.credentials.UsageObserver = parityObserver(in.token)
 				return svc
 			}
 
@@ -324,7 +326,7 @@ func TestSubscriptionFailoverParity_PreDispatchSuppression(t *testing.T) {
 			})
 
 			t.Run("no fallback key: still suppress", func(t *testing.T) {
-				assert.True(t, in.exhausted(withObserver(&Service{hmmServing: hmmPorts()}), in.subCtx(), http.Header{}),
+				assert.True(t, in.exhausted(withObserver(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}), in.subCtx(), http.Header{}),
 					"known spent capacity is unavailable even without API credentials")
 			})
 
@@ -338,23 +340,23 @@ func TestSubscriptionFailoverParity_PreDispatchSuppression(t *testing.T) {
 				now := time.Unix(1_700_000_000, 0)
 				o := usage.NewObserver([]byte("parity-salt"), time.Hour, func() time.Time { return now })
 				o.Record(o.Key([]byte(in.token)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.2, WindowMinutes: 300}})
-				svc.usageObserver = o
+				svc.credentials.UsageObserver = o
 				assert.False(t, in.exhausted(svc, in.subCtx(), http.Header{}),
 					"a plan with quota left must keep serving on the subscription")
 			})
 
 			t.Run("suppression still leaves the turn a credential", func(t *testing.T) {
 				// BYOK present: resolution must land on the paid key.
-				byok := resolveAndInjectCredentials(in.suppress(in.byokCtx(in.subCtx())), in.provider, in.model, http.Header{})
-				creds := CredentialsFromContext(byok)
+				byok := credentials.ResolveAndInjectCredentials(in.suppress(in.byokCtx(in.subCtx())), in.provider, in.model, http.Header{})
+				creds := credentials.CredentialsFromContext(byok)
 				require.NotNil(t, creds, "suppression must fall through to the BYOK key, not strand the turn")
 				assert.Equal(t, []byte(in.byokKey), creds.APIKey)
 				assert.False(t, in.servedOnSub(byok), "the rescued turn bills at full cost, not the subscription rate")
 
 				// Deployment key only: no credential is set, which is how the
 				// provider adapter is told to use the deployment key.
-				deployment := resolveAndInjectCredentials(in.suppress(in.subCtx()), in.provider, in.model, http.Header{})
-				assert.Nil(t, CredentialsFromContext(deployment),
+				deployment := credentials.ResolveAndInjectCredentials(in.suppress(in.subCtx()), in.provider, in.model, http.Header{})
+				assert.Nil(t, credentials.CredentialsFromContext(deployment),
 					"with no BYOK the suppressed turn resolves to no credential so the deployment key serves it")
 
 				svc := in.deploymentKeyedService()
@@ -371,38 +373,38 @@ func TestSubscriptionFailoverParity_PreDispatchSuppression(t *testing.T) {
 // and vice versa.
 func TestSubscriptionFailoverParity_SuppressionIsProviderScoped(t *testing.T) {
 	bothSubs := func() context.Context {
-		ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, parityInstallationID)
-		ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, parityAnthropicToken)
-		ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, parityCodexToken)
-		return context.WithValue(ctx, OpenAIAccountIDContextKey{}, parityCodexAccountID)
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, parityInstallationID)
+		ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+		ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, parityCodexToken)
+		return context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, parityCodexAccountID)
 	}
 
 	t.Run("suppressing Claude leaves Codex intact", func(t *testing.T) {
-		ctx := withSuppressedClaudeSubscription(bothSubs())
-		assert.True(t, claudeSubscriptionSuppressed(ctx))
-		assert.False(t, codexSubscriptionSuppressed(ctx))
+		ctx := credentials.WithSuppressedClaudeSubscription(bothSubs())
+		assert.True(t, credentials.ClaudeSubscriptionSuppressed(ctx))
+		assert.False(t, credentials.CodexSubscriptionSuppressed(ctx))
 
-		anthropic := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
-		assert.Nil(t, CredentialsFromContext(anthropic), "the suppressed Claude subscription must not resolve")
+		anthropic := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
+		assert.Nil(t, credentials.CredentialsFromContext(anthropic), "the suppressed Claude subscription must not resolve")
 
-		codex := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, parityCodexModel, http.Header{})
-		creds := CredentialsFromContext(codex)
+		codex := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, parityCodexModel, http.Header{})
+		creds := credentials.CredentialsFromContext(codex)
 		require.NotNil(t, creds, "the untouched Codex subscription must still resolve")
-		assert.True(t, servedOnCodexSubscription(codex))
+		assert.True(t, credentials.ServedOnCodexSubscription(codex))
 	})
 
 	t.Run("suppressing Codex leaves Claude intact", func(t *testing.T) {
-		ctx := withSuppressedCodexSubscription(bothSubs())
-		assert.True(t, codexSubscriptionSuppressed(ctx))
-		assert.False(t, claudeSubscriptionSuppressed(ctx))
+		ctx := credentials.WithSuppressedCodexSubscription(bothSubs())
+		assert.True(t, credentials.CodexSubscriptionSuppressed(ctx))
+		assert.False(t, credentials.ClaudeSubscriptionSuppressed(ctx))
 
-		codex := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, parityCodexModel, http.Header{})
-		assert.Nil(t, CredentialsFromContext(codex), "the suppressed Codex subscription must not resolve")
+		codex := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, parityCodexModel, http.Header{})
+		assert.Nil(t, credentials.CredentialsFromContext(codex), "the suppressed Codex subscription must not resolve")
 
-		anthropic := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
-		creds := CredentialsFromContext(anthropic)
+		anthropic := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
+		creds := credentials.CredentialsFromContext(anthropic)
 		require.NotNil(t, creds, "the untouched Claude subscription must still resolve")
-		assert.True(t, servedOnSubscription(anthropic))
+		assert.True(t, credentials.ServedOnSubscription(anthropic))
 	})
 }
 
@@ -445,7 +447,7 @@ func TestSubscriptionFailoverParity_ErrorClassification(t *testing.T) {
 			// strictly worse than surfacing the 403.
 			wantRejected:  map[string]bool{"anthropic": false, "codex": false},
 			wantRetryable: false,
-			bug:           map[string]string{"codex": "B5: codexOAuthCredentialRejected accepts any 401/403, so a policy/entitlement 403 spends the paid key"},
+			bug:           map[string]string{"codex": "B5: credentials.CodexOAuthCredentialRejected accepts any 401/403, so a policy/entitlement 403 spends the paid key"},
 		},
 		{
 			name:          "429 plan throttle is generic-retryable, not a rejected token",
@@ -495,20 +497,20 @@ func TestSubscriptionFailoverParity_PlanSpentSignal(t *testing.T) {
 	resetAt := time.Now().Add(6 * 24 * time.Hour).Truncate(time.Second)
 
 	t.Run("codex reads usage_limit_reached and its reset instant from the body", func(t *testing.T) {
-		got, spent := codexQuotaExhaustion(upstreamErr(http.StatusTooManyRequests,
+		got, spent := credentials.CodexQuotaExhaustion(upstreamErr(http.StatusTooManyRequests,
 			`{"error":{"type":"usage_limit_reached","resets_at":`+strconv.FormatInt(resetAt.Unix(), 10)+`}}`))
 		require.True(t, spent)
 		assert.Equal(t, resetAt.UTC(), got)
 	})
 
 	t.Run("codex reads insufficient_quota without a reset instant", func(t *testing.T) {
-		got, spent := codexQuotaExhaustion(upstreamErr(http.StatusTooManyRequests, `{"error":{"type":"insufficient_quota"}}`))
+		got, spent := credentials.CodexQuotaExhaustion(upstreamErr(http.StatusTooManyRequests, `{"error":{"type":"insufficient_quota"}}`))
 		require.True(t, spent)
 		assert.True(t, got.IsZero(), "no resets_at means the window length must fall back to the plan default")
 	})
 
 	t.Run("codex treats a plain throttle as not-spent", func(t *testing.T) {
-		_, spent := codexQuotaExhaustion(upstreamErr(http.StatusTooManyRequests, `{"error":{"type":"rate_limit_error"}}`))
+		_, spent := credentials.CodexQuotaExhaustion(upstreamErr(http.StatusTooManyRequests, `{"error":{"type":"rate_limit_error"}}`))
 		assert.False(t, spent, "a transient throttle must not mark the plan spent for the rest of its window")
 	})
 
@@ -524,7 +526,7 @@ func TestSubscriptionFailoverParity_ObserverWrites(t *testing.T) {
 	t.Run("codex records the rejection so later turns suppress pre-dispatch", func(t *testing.T) {
 		in := parityCodexIngress()
 		svc := in.deploymentKeyedService()
-		svc.usageObserver = usage.NewObserver([]byte("parity-salt"), time.Hour, time.Now)
+		svc.credentials.UsageObserver = usage.NewObserver([]byte("parity-salt"), time.Hour, time.Now)
 		ctx := in.subCtx()
 
 		require.False(t, in.exhausted(svc, ctx, http.Header{}), "nothing is known before the rejection")
@@ -537,7 +539,7 @@ func TestSubscriptionFailoverParity_ObserverWrites(t *testing.T) {
 	t.Run("codex records nothing for a non-quota failure", func(t *testing.T) {
 		in := parityCodexIngress()
 		svc := in.deploymentKeyedService()
-		svc.usageObserver = usage.NewObserver([]byte("parity-salt"), time.Hour, time.Now)
+		svc.credentials.UsageObserver = usage.NewObserver([]byte("parity-salt"), time.Hour, time.Now)
 		svc.recordCodexQuotaExhaustion(in.subCtx(), http.Header{}, upstreamErr(http.StatusServiceUnavailable, `{"error":{"type":"overloaded_error"}}`))
 		assert.False(t, in.exhausted(svc, in.subCtx(), http.Header{}),
 			"a transient overload must not suppress the subscription for the rest of the window")
@@ -545,13 +547,13 @@ func TestSubscriptionFailoverParity_ObserverWrites(t *testing.T) {
 
 	t.Run("codex window outlives a reset that is days away", func(t *testing.T) {
 		now := time.Unix(1_700_000_000, 0).UTC()
-		weekly := codexExhaustionWindow(now.Add(6*24*time.Hour), now)
-		assert.Greater(t, weekly.WindowMinutes, codexQuotaWindowMinutes,
+		weekly := credentials.CodexExhaustionWindow(now.Add(6*24*time.Hour), now)
+		assert.Greater(t, weekly.WindowMinutes, credentials.CodexQuotaWindowMinutes,
 			"a weekly reset recorded in a 5-hour window would expire early and re-buy the rejection (B2)")
 		assert.Equal(t, now.Add(6*24*time.Hour), weekly.ResetAt)
 
-		short := codexExhaustionWindow(time.Time{}, now)
-		assert.Equal(t, codexQuotaWindowMinutes, short.WindowMinutes,
+		short := credentials.CodexExhaustionWindow(time.Time{}, now)
+		assert.Equal(t, credentials.CodexQuotaWindowMinutes, short.WindowMinutes,
 			"with no upstream reset the plan default window applies")
 		assert.True(t, usage.Snapshot{Primary: short}.Exhausted())
 	})
@@ -590,7 +592,7 @@ func (p *parityUpstream) Proxy(ctx context.Context, decision router.Decision, _ 
 	p.servedModels = append(p.servedModels, decision.Model)
 	// No credential in context means the provider adapter falls back to the
 	// deployment key, which is a paid dispatch.
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	onSubscription := creds != nil && creds.OAuth
 	err := p.paidErr
 	if onSubscription {
@@ -624,10 +626,10 @@ func (p *parityUpstream) Passthrough(context.Context, providers.PreparedRequest,
 func (in parityIngress) parityService(upstream providers.Client) *Service {
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
-		map[string]providers.Client{in.provider: upstream},
+		dispatch.NewClients(map[string]providers.Client{in.provider: upstream}),
 		nil, nil, false, in.provider, in.model, nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{in.provider: {}})
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	return svc
 }
 
@@ -714,10 +716,10 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 			}
 			svc := withHMMPorts(NewService(
 				staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
-				map[string]providers.Client{in.provider: upstream},
+				dispatch.NewClients(map[string]providers.Client{in.provider: upstream}),
 				nil, nil, false, in.provider, in.model, nil))
 
-			svc.retrySleep = noopSleep
+			svc.engine.SetRetrySleep(noopSleep)
 			rec, req, body := in.request(t, false)
 
 			require.Error(t, in.call(svc, in.subCtx(), body, rec, req))
@@ -859,7 +861,7 @@ func TestSubscriptionFailoverParity_Telemetry(t *testing.T) {
 				})
 				require.NoError(t, err)
 				t.Cleanup(func() { _ = emitter.Shutdown(context.Background()) })
-				svc.emitter = emitter
+				svc.turnTelemetry.emitter = emitter
 
 				buf := otel.NewBuffer(emitter)
 				ctx := telemetry.WithRecorder(in.subCtx(), buf)

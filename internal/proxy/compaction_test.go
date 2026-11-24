@@ -5,9 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -56,12 +59,12 @@ func TestCompactionSessionDecision(t *testing.T) {
 	live := time.Now().Add(time.Hour)
 	openAIAndAnthropic := map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}}
 	history := func(pin sessionpin.Pin) *rolePinStore {
-		return &rolePinStore{byRole: map[string]sessionpin.Pin{hmmHistoryRole(sessionpin.DefaultRole): pin}}
+		return &rolePinStore{byRole: map[string]sessionpin.Pin{hmm.HistoryRole(sessionpin.DefaultRole): pin}}
 	}
 	solHistory := history(sessionpin.Pin{Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), PinnedUntil: live})
 	switched := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		sessionpin.DefaultRole:                 {Provider: providers.ProviderOpenAI, Model: "gpt-5.6-terra", LastServedModel: "gpt-5.6-terra", LastTurnEndedAt: time.Now().Add(-time.Minute), PinnedUntil: live},
-		hmmHistoryRole(sessionpin.DefaultRole): {Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), PinnedUntil: live},
+		sessionpin.DefaultRole:                  {Provider: providers.ProviderOpenAI, Model: "gpt-5.6-terra", LastServedModel: "gpt-5.6-terra", LastTurnEndedAt: time.Now().Add(-time.Minute), PinnedUntil: live},
+		hmm.HistoryRole(sessionpin.DefaultRole): {Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), PinnedUntil: live},
 	}}
 	expired := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		sessionpin.DefaultRole: {Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), PinnedUntil: time.Now().Add(-time.Hour)},
@@ -94,7 +97,7 @@ func TestCompactionSessionDecision(t *testing.T) {
 		{name: "transcript past the window", store: solHistory, req: router.Request{EstimatedInputTokens: catalog.ContextWindowForBinding("gpt-5.6-sol", providers.ProviderOpenAI)}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			session := compactionSession{pins: test.store, providers: openAIAndAnthropic, available: test.available, now: time.Now()}
+			session := compactionSession{pins: test.store, providers: openAIAndAnthropic, available: test.available, now: time.Now(), history: hmm.ServingPorts().History}
 			decision, _, ok := session.decision(ctx, key, sessionpin.DefaultRole, test.req)
 			assert.Equal(t, test.wantModel != "", ok)
 			assert.Equal(t, test.wantModel, decision.Model)
@@ -107,15 +110,15 @@ func TestCompactionSessionDecision(t *testing.T) {
 func TestTurnLoop_CompactionReadsClientIdentityBeforeSessionPin(t *testing.T) {
 	const sessionModel = "gpt-6-sol"
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(roleForTier(catalog.TierMid)): {
+		hmm.HistoryRole(roleForTier(catalog.TierMid)): {
 			Provider: providers.ProviderOpenAI, LastServedModel: sessionModel,
 			LastTurnEndedAt: time.Now(), PinnedUntil: time.Now().Add(time.Hour),
 		},
 	}}
-	s := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil))
+	s := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil}), nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil))
 	env, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"You are performing a CONTEXT CHECKPOINT COMPACTION. Create a summary."}],"max_tokens":4096}`))
 	require.NoError(t, err)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	features := env.RoutingFeatures()
 	turn, err := s.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "test-key", uuid.Nil), "", nil, router.Request{RequestedModel: features.Model})
 	require.NoError(t, err)

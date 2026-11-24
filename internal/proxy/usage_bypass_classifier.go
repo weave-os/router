@@ -18,13 +18,13 @@ func (s *Service) classifierPassthroughEngaged(ctx context.Context, headers http
 		return "", false
 	}
 	provider, token, covered := subscriptionCoveredTarget(ctx, headers, req)
-	if !covered || provider != providers.ProviderAnthropic || s.subscriptionModels.denied([]byte(token), req.RequestedModel, s.clock.Now()) {
+	if !covered || provider != providers.ProviderAnthropic || s.credentials.SubscriptionModels.Denied([]byte(token), req.RequestedModel, s.clock.Now()) {
 		return "", false
 	}
-	if s.usageObserver == nil {
+	if s.credentials.UsageObserver == nil {
 		return provider, true
 	}
-	snap, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
+	snap, observed := s.credentials.UsageObserver.Snapshot(s.credentials.UsageObserver.Key([]byte(token)))
 	if observed && claudeSnapshotUnservable(ctx, snap) {
 		return "", false
 	}

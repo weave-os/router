@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/router/catalog"
 )
 
@@ -22,7 +23,7 @@ func (e *ForcedModelExcludedError) Error() string { return e.Reason }
 
 func (e *ForcedModelExcludedError) Unwrap() []error {
 	if e.CreditsDisabled {
-		return []error{ErrForcedModelExcluded, ErrWeaveCreditsDisabled}
+		return []error{ErrForcedModelExcluded, credentials.ErrWeaveCreditsDisabled}
 	}
 	return []error{ErrForcedModelExcluded}
 }
@@ -44,13 +45,13 @@ func (s *Service) forcedModelBinding(ctx context.Context, model, provider string
 	}
 	excluded := s.credentials.PolicyExcludedProviders(installationExcludedProvidersFromContext(ctx))
 	bindings := s.servableBindings(model, provider)
-	if funded, denied := weaveCreditsFundedProviders(ctx); denied {
+	if funded, denied := credentials.WeaveCreditsFundedProviders(ctx); denied {
 		bindings = slices.DeleteFunc(slices.Clone(bindings), func(b string) bool {
 			_, ok := funded[b]
 			return !ok
 		})
 		if len(bindings) == 0 {
-			return "", &ForcedModelExcludedError{Model: model, Reason: forcedModelUnfundedReason, CreditsDisabled: true}
+			return "", &ForcedModelExcludedError{Model: model, Reason: credentials.ForcedModelUnfundedReason, CreditsDisabled: true}
 		}
 	}
 	if len(excluded) == 0 {

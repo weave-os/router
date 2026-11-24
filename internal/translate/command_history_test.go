@@ -277,3 +277,42 @@ func TestStripHistoricalCommandsFromResponsesInput_CodexAppWrappedDirective(t *t
 		})
 	}
 }
+
+// Mirrors the Responses ingress order: strip the native input, convert, strip
+// the chat history, then extract.
+func TestStripHistoricalCommands_HookContextKeepsTheCurrentDirective(t *testing.T) {
+	body := responsesBody(t,
+		codexDeveloperItem("<permissions instructions>x</permissions instructions>"),
+		codexUserItem("<environment_context><cwd>/x</cwd></environment_context>"),
+		codexUserItem("$fm astra"),
+		codexDeveloperItem(codexHookContext),
+		codexUserItem(codexSkillBlob),
+	)
+	out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Contains(t, inputTexts(t, out), "$fm astra", "the current turn's directive is not history")
+
+	conv, err := translate.ConvertResponsesToChatCompletionsWithOptions(out, translate.ResponsesConversionOptions{})
+	require.NoError(t, err)
+	env, err := translate.ParseOpenAI(conv.Body)
+	require.NoError(t, err)
+	_, err = env.StripHistoricalCommands()
+	require.NoError(t, err)
+	res, found := env.ExtractForceModelCommand()
+	require.True(t, found)
+	assert.Equal(t, "astra", res.Model)
+}
+
+func TestStripHistoricalCommandsFromResponsesInput_HookContextKeepsAttachmentWithDirective(t *testing.T) {
+	body := responsesBody(t,
+		codexUserItem("$fm astra"),
+		codexDeveloperItem(codexHookContext),
+		codexUserItem(codexSkillBlob),
+		codexAssistantItem(forceModelAck),
+		codexUserItem("now fix the bug"),
+	)
+	out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"now fix the bug"}, inputTexts(t, out), "the prior turn's skill block goes with its directive")
+	assert.Contains(t, string(out), codexHookContext, "hook context is not a directive and stays")
+}

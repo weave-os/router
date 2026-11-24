@@ -12,11 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 )
 
 const recoveryOpusModel = "claude-opus-5-5"
@@ -25,7 +29,7 @@ func TestTwoModelGatewayRecoveryReadmitsStruckSibling(t *testing.T) {
 	primary := &failingClient{err: &providers.UpstreamErrorResponse{Status: http.StatusBadGateway}}
 	sibling := &fakeClient{outcomes: []fakeOutcome{{writeBytes: []byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")}}}
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))): {
+		hmm.HistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))): {
 			Strategy: router.StrategyHMMEmbedding, DemotedModels: []string{catalog.ModelGPT6Luna, recoveryOpusModel},
 		},
 	}}
@@ -35,9 +39,9 @@ func TestTwoModelGatewayRecoveryReadmitsStruckSibling(t *testing.T) {
 		SidecarRescuePool: []string{recoveryOpusModel},
 		CandidateModels:   []string{catalog.ModelGPT6Luna},
 	}}
-	svc := withHMMPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
+	svc := withHMMPorts(NewService(staticRouter{decision: decision}, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderOpenAIGateway: primary, providers.ProviderAnthropicGateway: sibling,
-	}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil)).
+	}), nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil)).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	svc.clock = func() time.Time { return rateLimitTestNow }
 	body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic exhausted pool"}]}`)
@@ -46,7 +50,7 @@ func TestTwoModelGatewayRecoveryReadmitsStruckSibling(t *testing.T) {
 	assert.Equal(t, 3, primary.calls)
 	assert.Equal(t, 1, sibling.calls)
 	require.NoError(t, err, "after both strikes a precommit primary failure must still try the permitted sibling")
-	assert.Equal(t, recoveryOpusModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, recoveryOpusModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Contains(t, rec.Body.String(), "message_stop")
 }
 
@@ -56,11 +60,11 @@ func TestTwoModelRecoveryOnlyLeasesOneExpiredArmPerRequest(t *testing.T) {
 		recoveryOpusModel:     rateLimitTestNow,
 	}
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: cooldowns},
+		hmm.HistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: cooldowns},
 	}}
 	svc, _ := cooldownTurnLoopService(store, true)
 	result := runDemotionTurnLoop(t, svc, context.Background())
-	defer result.releaseCooldownProbes()
+	defer result.ReleaseCooldownProbes()
 
 	require.Len(t, result.CooldownProbeReleases, 1, "one request must not lock both allowed models while selecting its probe")
 	// Equal expiries tie-break by name, so the Opus arm is the probe.
@@ -76,31 +80,31 @@ func TestLocalRecoveryProbeLeaseExpires(t *testing.T) {
 	svc.clock = func() time.Time { return now }
 	key := nonZeroSessionKey()
 
-	_, acquired := svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	_, acquired := svc.recoveryProbes.Acquire(context.Background(), svc.pinStore, svc.clock.Now, key, recoveryOpusModel)
 	require.True(t, acquired)
-	_, acquired = svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	_, acquired = svc.recoveryProbes.Acquire(context.Background(), svc.pinStore, svc.clock.Now, key, recoveryOpusModel)
 	assert.False(t, acquired, "a live lease admits one probe")
 
-	now = now.Add(recoveryProbeLeaseDuration)
-	release, acquired := svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	now = now.Add(routingpolicy.RecoveryProbeLeaseDuration)
+	release, acquired := svc.recoveryProbes.Acquire(context.Background(), svc.pinStore, svc.clock.Now, key, recoveryOpusModel)
 	require.True(t, acquired, "an abandoned lease frees after its safety duration")
 	release()
-	_, acquired = svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	_, acquired = svc.recoveryProbes.Acquire(context.Background(), svc.pinStore, svc.clock.Now, key, recoveryOpusModel)
 	assert.True(t, acquired, "a released lease frees immediately")
 }
 
 func TestRecoveryProbeLeaseCoversRequestDeadline(t *testing.T) {
 	svc, _ := cooldownTurnLoopService(&rolePinStore{byRole: map[string]sessionpin.Pin{}}, true)
 
-	assert.Equal(t, recoveryProbeLeaseDuration, svc.recoveryProbeLeaseFor(context.Background()))
+	assert.Equal(t, routingpolicy.RecoveryProbeLeaseDuration, routingpolicy.RecoveryProbeLeaseFor(context.Background(), svc.clock.Now()))
 
 	ctx, cancel := context.WithDeadline(context.Background(), rateLimitTestNow.Add(30*time.Minute))
 	defer cancel()
-	assert.Equal(t, 31*time.Minute, svc.recoveryProbeLeaseFor(ctx), "a longer request keeps its lease one minute past the deadline")
+	assert.Equal(t, 31*time.Minute, routingpolicy.RecoveryProbeLeaseFor(ctx, svc.clock.Now()), "a longer request keeps its lease one minute past the deadline")
 
 	short, cancelShort := context.WithDeadline(context.Background(), rateLimitTestNow.Add(time.Minute))
 	defer cancelShort()
-	assert.Equal(t, recoveryProbeLeaseDuration, svc.recoveryProbeLeaseFor(short), "a short request keeps the safety duration")
+	assert.Equal(t, routingpolicy.RecoveryProbeLeaseDuration, routingpolicy.RecoveryProbeLeaseFor(short, svc.clock.Now()), "a short request keeps the safety duration")
 }
 
 type clearedCooldown struct {
@@ -141,24 +145,24 @@ var _ sessionpin.RecoveryProbeStore = (*recoveryLeaseStore)(nil)
 func TestRecoveredProbeClearsCooldownFromBothRows(t *testing.T) {
 	expired := rateLimitTestNow.Add(-time.Second)
 	store := &recoveryLeaseStore{rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{recoveryOpusModel: expired}},
+		hmm.HistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{recoveryOpusModel: expired}},
 	}}}
 	svc, _ := cooldownTurnLoopService(store, true)
 	result := runDemotionTurnLoop(t, svc, context.Background())
-	result.releaseCooldownProbes()
-	require.Equal(t, []time.Duration{recoveryProbeLeaseDuration}, store.leaseFor)
+	result.ReleaseCooldownProbes()
+	require.Equal(t, []time.Duration{routingpolicy.RecoveryProbeLeaseDuration}, store.leaseFor)
 	require.Equal(t, map[string]time.Time{recoveryOpusModel: expired}, result.CooldownProbes)
 
-	svc.clearRecoveredCooldown(context.Background(), result, freshTurnModel, nil)
+	clearRecoveredCooldown(context.Background(), svc, result, freshTurnModel, nil)
 	assert.Empty(t, store.cleared, "a turn served by another model recovers nothing")
 
-	svc.clearRecoveredCooldown(context.Background(), result, recoveryOpusModel, &providers.UpstreamErrorResponse{Status: http.StatusBadGateway})
+	clearRecoveredCooldown(context.Background(), svc, result, recoveryOpusModel, &providers.UpstreamErrorResponse{Status: http.StatusBadGateway})
 	assert.Empty(t, store.cleared, "a failed probe leaves the cooldown for the strike to rewrite")
 
-	svc.clearRecoveredCooldown(context.Background(), result, recoveryOpusModel, nil)
+	clearRecoveredCooldown(context.Background(), svc, result, recoveryOpusModel, nil)
 	assert.Equal(t, []clearedCooldown{
 		{role: sessionpin.DefaultRole, model: recoveryOpusModel, until: expired},
-		{role: hmmHistoryRole(sessionpin.DefaultRole), model: recoveryOpusModel, until: expired},
+		{role: hmm.HistoryRole(sessionpin.DefaultRole), model: recoveryOpusModel, until: expired},
 	}, store.cleared)
 }
 
@@ -169,7 +173,7 @@ func TestRecoveryProbeLeaseDeniedModelsAreHardExcluded(t *testing.T) {
 	}
 	store := &recoveryLeaseStore{
 		rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
-			hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: cooldowns},
+			hmm.HistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: cooldowns},
 		}},
 		denyAll: true,
 	}
@@ -191,15 +195,15 @@ func TestRecoveryProbeSkipsHardExcludedExpiredModel(t *testing.T) {
 	excludedModel := catalog.ModelGPT6Luna
 	eligibleModel := recoveryOpusModel
 	store := &recoveryLeaseStore{rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{
+		hmm.HistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{
 			excludedModel: rateLimitTestNow.Add(-time.Minute),
 			eligibleModel: rateLimitTestNow,
 		}},
 	}}}
 	svc, _ := cooldownTurnLoopService(store, true)
-	ctx := context.WithValue(context.Background(), InstallationExcludedModelsContextKey{}, []string{excludedModel})
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationExcludedModelsContextKey{}, []string{excludedModel})
 	result := runDemotionTurnLoop(t, svc, ctx)
-	defer result.releaseCooldownProbes()
+	defer result.ReleaseCooldownProbes()
 
 	assert.Equal(t, []string{eligibleModel}, store.attempted, "an ineligible old cooldown must not consume the only probe slot")
 	assert.Equal(t, map[string]time.Time{eligibleModel: rateLimitTestNow}, result.CooldownProbes)
@@ -208,7 +212,7 @@ func TestRecoveryProbeSkipsHardExcludedExpiredModel(t *testing.T) {
 
 func TestRecoveryProbeSkipsModelWithoutEligibleProviderBinding(t *testing.T) {
 	store := &recoveryLeaseStore{rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{
+		hmm.HistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{
 			recoveryOpusModel: rateLimitTestNow.Add(-time.Minute),
 		}},
 	}}}
@@ -223,7 +227,7 @@ func TestRecoveryProbeSkipsModelWithoutEligibleProviderBinding(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	defer result.releaseCooldownProbes()
+	defer result.ReleaseCooldownProbes()
 
 	assert.Empty(t, store.attempted, "a model with no binding for this request must not consume the recovery lease")
 	assert.Empty(t, result.CooldownProbes)
@@ -231,8 +235,8 @@ func TestRecoveryProbeSkipsModelWithoutEligibleProviderBinding(t *testing.T) {
 
 func twoModelGatewayContext() context.Context {
 	ctx := rescuedFailureCtx()
-	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, recoveryOpusModel})
-	return context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx = context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, recoveryOpusModel})
+	return context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("synthetic-key"), ModelAliases: map[string]string{catalog.ModelGPT6Luna: catalog.ModelGPT6Luna}},
 		{Provider: providers.ProviderAnthropicGateway, Plaintext: []byte("synthetic-key"), ModelAliases: map[string]string{recoveryOpusModel: recoveryOpusModel}},
 	})
@@ -259,10 +263,10 @@ func TestTwoModelGatewayRecoveryRetriesThenRecordsWithdrawal(t *testing.T) {
 				RescueModels:    []string{catalog.ModelGPT6Luna, recoveryOpusModel},
 				CandidateModels: []string{catalog.ModelGPT6Luna, recoveryOpusModel},
 			}}
-			svc := withHMMPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
+			svc := withHMMPorts(NewService(staticRouter{decision: decision}, dispatch.NewClients(map[string]providers.Client{
 				providers.ProviderOpenAIGateway:    primary,
 				providers.ProviderAnthropicGateway: sibling,
-			}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil)).
+			}), nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil)).
 				WithRescuedFailureArmDemotion(true).WithTransientRateLimit(scenario.transient, 45)
 			now := rateLimitTestNow
 			svc.clock = func() time.Time { return now }
@@ -279,7 +283,7 @@ func TestTwoModelGatewayRecoveryRetriesThenRecordsWithdrawal(t *testing.T) {
 			assert.Equal(t, 3, primary.calls)
 			assert.Equal(t, 1, sibling.calls)
 			assert.Len(t, retryWaits, 2)
-			assert.Equal(t, recoveryOpusModel, rec.Header().Get(HeaderRouterModel))
+			assert.Equal(t, recoveryOpusModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 			assert.Contains(t, rec.Body.String(), "message_stop")
 			if scenario.cooldown {
 				assert.Empty(t, store.demotions)
@@ -306,18 +310,18 @@ func TestTwoModelGatewayRecoveryRetriesThenRecordsWithdrawal(t *testing.T) {
 func TestTwoModelRecoveryHMMRefreshDoesNotRewriteCooldown(t *testing.T) {
 	until := rateLimitTestNow.Add(45 * time.Second)
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(sessionpin.DefaultRole): coolingPin(map[string]time.Time{demotedPinModel: until}),
+		hmm.HistoryRole(sessionpin.DefaultRole): coolingPin(map[string]time.Time{demotedPinModel: until}),
 	}}
 	svc, scorer := cooldownTurnLoopService(store, true)
 	now := rateLimitTestNow
 	svc.clock = func() time.Time { return now }
-	res := turnLoopResult{InstallationID: uuid.New(), SessionKey: nonZeroSessionKey(), PinRole: sessionpin.DefaultRole,
+	res := routingpolicy.TurnRoute{InstallationID: uuid.New(), SessionKey: nonZeroSessionKey(), PinRole: sessionpin.DefaultRole,
 		Decision: router.Decision{Provider: providers.ProviderAnthropic, Model: freshTurnModel, Reason: hmm.HistoryReason}}
 	for step := 0; step <= 96; step++ {
 		now = rateLimitTestNow.Add(time.Duration(step) * 30 * time.Minute)
-		svc.recordHMMTurnHistory(context.Background(), res, providers.ProviderAnthropic, freshTurnModel, 0, 0, 0, 0, false)
+		svc.recordSwitchHistory(context.Background(), res, providers.ProviderAnthropic, freshTurnModel, 0, 0, 0, 0, false)
 		turn := runDemotionTurnLoop(t, svc, context.Background())
-		turn.releaseCooldownProbes()
+		turn.ReleaseCooldownProbes()
 		if step == 0 {
 			assert.Contains(t, turn.SessionDemotedModels, demotedPinModel)
 		} else {

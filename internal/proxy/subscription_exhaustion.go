@@ -6,20 +6,20 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 )
 
 func (s *Service) claudeSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
-	return ownClaudeLoginRejected(ctx, headers, s.usageObserver) && !pickedModelOnOwnPlan(ctx) || s.anthropicSubscriptionObservedExhausted(ctx, headers)
+	return ownClaudeLoginRejected(ctx, headers, s.credentials.UsageObserver) && !credentials.PickedModelOnOwnPlan(ctx) || s.anthropicSubscriptionObservedExhausted(ctx, headers)
 }
 
 func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, headers http.Header) bool {
-	if s.usageObserver == nil {
+	if s.credentials.UsageObserver == nil {
 		return false
 	}
-	_, anthroTok := presentSubscriptionTokens(ctx, headers)
-	return credentials.ClaudeSubscriptionObservedExhausted(s.usageObserver, anthroTok, claudeSubscriptionFacts(ctx))
+	_, anthroTok := credentials.PresentSubscriptionTokens(ctx, headers)
+	return credentials.ClaudeSubscriptionObservedExhausted(s.credentials.UsageObserver, anthroTok, claudeSubscriptionFacts(ctx))
 }
 
 func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
@@ -29,12 +29,12 @@ func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
 func claudeSubscriptionFacts(ctx context.Context) credentials.ClaudeSubscriptionFacts {
 	reason, subscriptionOnly := billing.SubscriptionOnlyReasonFromContext(ctx)
 	return credentials.ClaudeSubscriptionFacts{
-		EnterpriseOnly:       claudeEnterpriseOnly(ctx),
-		PickedModelOnOwnPlan: pickedModelOnOwnPlan(ctx),
-		OwnOverageBeforePool: ownOverageBeforePool(ctx),
+		EnterpriseOnly:       credentials.ClaudeEnterpriseOnly(ctx),
+		PickedModelOnOwnPlan: credentials.PickedModelOnOwnPlan(ctx),
+		OwnOverageBeforePool: credentials.OwnOverageBeforePool(ctx),
 		EnterpriseSubscriptionOnly: subscriptionOnly && reason != billing.SubscriptionOnlyLinkedFirst &&
-			claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise,
-		NoPaidFallback: weaveCreditsDenied(ctx) && usableBYOK(ctx, providers.ProviderAnthropic) == nil &&
-			!linkedClaudeSeatConnected(ctx),
+			credentials.ClaudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise,
+		NoPaidFallback: billing.WeaveCreditsDeniedFromContext(ctx) && credentials.UsableBYOK(ctx, providers.ProviderAnthropic) == nil &&
+			!credentials.LinkedClaudeSeatConnected(ctx),
 	}
 }

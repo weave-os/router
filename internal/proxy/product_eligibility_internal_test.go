@@ -12,8 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/eligibility"
@@ -29,7 +33,7 @@ func maxScopedContext() context.Context {
 }
 
 func TestMaxRequestCarriesTheBoundaryAndHardExclusions(t *testing.T) {
-	svc := &Service{hmmServing: hmmPorts()}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 
 	req := svc.withPolicyRequestContext(maxScopedContext(), router.Request{})
 
@@ -44,7 +48,7 @@ func TestMaxRequestCarriesTheBoundaryAndHardExclusions(t *testing.T) {
 }
 
 func TestUnsubscribedRequestKeepsUnrestrictedRouting(t *testing.T) {
-	svc := &Service{hmmServing: hmmPorts()}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 
 	req := svc.withPolicyRequestContext(context.Background(), router.Request{})
 
@@ -122,7 +126,7 @@ func TestDispatchRefusesAnIneligibleDecisionTheTurnLoopMinted(t *testing.T) {
 	in := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic}
 
-	_, err := svc.dispatchWithFallback(maxScopedContext(), in)
+	_, err := fallbackFor(svc).Dispatch(maxScopedContext(), in)
 
 	require.ErrorIs(t, err, eligibility.ErrModelIneligible)
 	assert.Zero(t, anthropic.calls)
@@ -135,7 +139,7 @@ func TestDispatchServesAnEligibleDecision(t *testing.T) {
 	rec := httptest.NewRecorder()
 	in := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, nil)
 
-	_, err := svc.dispatchWithFallback(maxScopedContext(), in)
+	_, err := fallbackFor(svc).Dispatch(maxScopedContext(), in)
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, fireworks.calls)
@@ -149,9 +153,9 @@ func TestUsageBypassDisengagesForAnIneligibleModel(t *testing.T) {
 	threshold := 0.80
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
-	svc := &Service{hmmServing: hmmPorts(), usageObserver: obs}
-	ctx := context.WithValue(maxScopedContext(), AnthropicSubscriptionContextKey{}, token)
-	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{UsageObserver: obs}}
+	ctx := context.WithValue(maxScopedContext(), credentials.AnthropicSubscriptionContextKey{}, token)
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 
 	_, engaged := svc.usageBypassDecision(ctx, http.Header{}, router.Request{
 		RequestedModel:     "claude-sonnet-4-6",
@@ -164,13 +168,13 @@ func TestUsageBypassDisengagesForAnIneligibleModel(t *testing.T) {
 // Agent-shadow evaluation forces a preplanned canonical model and skips the
 // scorer entirely, so it is gated on the boundary directly.
 func TestAgentShadowEvaluationRefusesAnIneligibleModel(t *testing.T) {
-	svc := &Service{hmmServing: hmmPorts()}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 	env := bypassAnthropicEnvelope(t)
 
 	_, err := svc.runAgentShadowEvaluationRoute(
 		maxScopedContext(), env, translate.RoutingFeatures{Model: "claude-opus-4-8"}, uuid.Nil,
 		router.Request{ProductEligibility: eligibility.MaxOpenSourceOnly},
-		AgentShadowEvaluation{Model: "claude-opus-4-8", RolloutID: "rollout-1", StateID: "state-1"},
+		requestcontext.AgentShadowEvaluation{Model: "claude-opus-4-8", RolloutID: "rollout-1", StateID: "state-1"},
 	)
 
 	require.ErrorIs(t, err, eligibility.ErrModelIneligible)
@@ -182,7 +186,7 @@ func TestIneligibleModelIsAClassifiedClientError(t *testing.T) {
 	cls, matched := ClassifyDispatchError(fmt.Errorf("strategy %q: %w", "cluster", eligibility.ErrModelIneligible))
 
 	require.True(t, matched)
-	assert.Equal(t, DispatchErrorProductIneligible, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorProductIneligible, cls.Kind)
 	assert.Equal(t, http.StatusForbidden, cls.Status)
 	assert.True(t, cls.Kind.IsClientError())
 }
@@ -190,7 +194,7 @@ func TestIneligibleModelIsAClassifiedClientError(t *testing.T) {
 // The operator escape hatch replaces the exclusion set wholesale; the
 // product boundary still survives it.
 func TestExcludedModelsOverrideCannotWidenTheBoundary(t *testing.T) {
-	svc := (&Service{hmmServing: hmmPorts()}).WithExcludedModelsOverride([]string{"gpt-5.5"})
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithExcludedModelsOverride([]string{"gpt-5.5"})
 
 	excluded := svc.excludedModelsForRequest(maxScopedContext())
 
@@ -198,5 +202,5 @@ func TestExcludedModelsOverrideCannotWidenTheBoundary(t *testing.T) {
 	assert.Contains(t, excluded, "muse-spark-1.3")
 	assert.Contains(t, excluded, "gpt-5.5")
 	assert.NotContains(t, excluded, "deepseek/deepseek-v4-pro")
-	assert.NotContains(t, svc.ExcludedModelsOverride(), "claude-opus-4-8")
+	assert.NotContains(t, NewRoutingCatalog(svc).ExcludedModelsOverride(), "claude-opus-4-8")
 }

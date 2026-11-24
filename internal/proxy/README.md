@@ -26,9 +26,6 @@ variables are in [CONFIGURATION.md](../../docs/CONFIGURATION.md).
   the context-1m beta.
 - Snapshot inbound state (compaction tracker, spiral scan, tool-output
   telemetry) before any envelope rewrite such as the switch handover.
-- Skip the compaction-aware handover when a model-switch handover or the
-  proactive compaction cascade already rewrote the envelope this turn; a second
-  rewrite would double-trim it.
 - Every surface wraps the client sink in the prelude buffer, even for a single
   binding, so a pre-first-byte upstream failure can drop the routing marker and
   retry or render a clean error. Skipping it for single-binding requests once

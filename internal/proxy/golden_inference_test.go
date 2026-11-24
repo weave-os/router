@@ -11,10 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
@@ -207,7 +208,7 @@ func goldenStreamScenarios(ingress string) []goldenScenario {
 }
 
 func goldenSubscriptionCtx(ctx context.Context) context.Context {
-	return context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, goldenSubscription)
+	return context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, goldenSubscription)
 }
 
 // exhaustSubscription records a spent weekly window for the golden token.
@@ -227,7 +228,7 @@ const goldenToolResultBody = `{"model":"claude-opus-4-7","stream":true,"max_toke
 {"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"FAIL a\nFAIL b\nFAIL c"}]}]}`
 
 func goldenClaudeCodeCtx(ctx context.Context) context.Context {
-	return requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode})
+	return requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
 }
 
 // goldenAnthropicOnlyScenarios cover behavior that only the Messages ingress

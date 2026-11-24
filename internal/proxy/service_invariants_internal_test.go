@@ -3,47 +3,32 @@ package proxy
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/telemetry/respobserve"
 
 	"github.com/google/uuid"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 )
 
 func TestPinNeverExpires_OutlivesAnyIdleGapWithinPostgresRange(t *testing.T) {
-	if !pinNeverExpires.After(time.Now().AddDate(1000, 0, 0)) {
-		t.Fatalf("pinNeverExpires = %v, want at least 1000 years out", pinNeverExpires)
+	if !routingpolicy.PinNeverExpires.After(time.Now().AddDate(1000, 0, 0)) {
+		t.Fatalf("routingpolicy.PinNeverExpires = %v, want at least 1000 years out", routingpolicy.PinNeverExpires)
 	}
-	if pinNeverExpires.Year() > 9999 {
-		t.Fatalf("pinNeverExpires = %v, want a four-digit year inside the Postgres timestamp range", pinNeverExpires)
-	}
-}
-
-func TestRefusalObserver_CatchesSignalSplitDeepIntoPreviousChunk(t *testing.T) {
-	signal := `"stop_reason":"refusal"`
-	split := len(signal) - 3
-	rec := httptest.NewRecorder()
-	obs := newRefusalObserver(rec)
-	if _, err := obs.Write([]byte(`data: {"type":"message_delta","delta":{` + strings.Repeat(" ", 256) + signal[:split])); err != nil {
-		t.Fatalf("write 1: %v", err)
-	}
-	if obs.refused {
-		t.Fatal("refusal detected before the signal completed")
-	}
-	if _, err := obs.Write([]byte(signal[split:] + `}}`)); err != nil {
-		t.Fatalf("write 2: %v", err)
-	}
-	if !obs.refused {
-		t.Fatal("refusal split across writes was not detected")
+	if routingpolicy.PinNeverExpires.Year() > 9999 {
+		t.Fatalf("routingpolicy.PinNeverExpires = %v, want a four-digit year inside the Postgres timestamp range", routingpolicy.PinNeverExpires)
 	}
 }
 
@@ -59,7 +44,7 @@ func (r *cancellationCheckingBillingRepo) DebitInference(ctx context.Context, p 
 
 func TestFireBilling_DebitsAfterClientCancellation(t *testing.T) {
 	repo := &cancellationCheckingBillingRepo{auxBillingRepo: &auxBillingRepo{}}
-	s := &Service{hmmServing: hmmPorts(), billing: billing.NewService(repo)}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(repo)}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -92,11 +77,11 @@ func (f *cancellationCheckingPinStore) Upsert(ctx context.Context, p sessionpin.
 
 func TestMaybeRepinOnRefusal_WritesAfterRequestCancellation(t *testing.T) {
 	store := &cancellationCheckingPinStore{repinFakeStore: &repinFakeStore{}}
-	s := &Service{hmmServing: hmmPorts(), pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), pinStore: store, rescueConfig: dispatch.RescueConfig{CyberRefusalRepin: true, CyberRefusalFallbackModel: "claude-sonnet-5"}}
 	ctx, cancel := context.WithCancel(repinCtx())
 	cancel()
 
-	s.maybeRepinOnRefusal(ctx, router.StrategyFromContext(ctx), &refusalObserver{refused: true}, [sessionpin.SessionKeyLen]byte{7, 8, 9}, "main_loop",
+	s.maybeRepinOnRefusal(ctx, router.StrategyFromContext(ctx), &respobserve.RefusalObserver{Refused: true}, [sessionpin.SessionKeyLen]byte{7, 8, 9}, "main_loop",
 		router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"})
 
 	if len(store.ctxErrs) != 1 {
@@ -131,12 +116,12 @@ func (s *cancellationCheckingRecoveryStore) ClearDemotionCooldown(ctx context.Co
 
 func TestClearRecoveredCooldown_LandsAfterRequestCancellation(t *testing.T) {
 	store := &cancellationCheckingRecoveryStore{}
-	s := &Service{hmmServing: hmmPorts(), pinStore: store}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), pinStore: store}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	observedUntil := time.Now().Add(-time.Second)
 
-	s.clearRecoveredCooldown(ctx, turnLoopResult{
+	clearRecoveredCooldown(ctx, s, routingpolicy.TurnRoute{
 		SessionKey:     [sessionpin.SessionKeyLen]byte{1},
 		CooldownProbes: map[string]time.Time{"recovered-model": observedUntil},
 	}, "recovered-model", nil)
@@ -161,43 +146,21 @@ func TestCacheCreation1hPtr_NullWithoutCacheCreation(t *testing.T) {
 	}
 }
 
-func TestRefusalCategory_RejectsOverlongValue(t *testing.T) {
-	if got := refusalCategory([]byte(`"category":"` + strings.Repeat("a", 65) + `"`)); got != "" {
-		t.Fatalf("refusalCategory accepted a %d-byte value", len(got))
-	}
-}
-
-func TestRefusalObserver_CategoryBeforeOverlapWindowIsKept(t *testing.T) {
-	obs := newRefusalObserver(httptest.NewRecorder())
-	if _, err := obs.Write([]byte(`data: {"category":"cyber"` + strings.Repeat(" ", 4*refusalScanOverlap))); err != nil {
-		t.Fatalf("write 1: %v", err)
-	}
-	if _, err := obs.Write([]byte(`,"stop_reason":"refusal"}`)); err != nil {
-		t.Fatalf("write 2: %v", err)
-	}
-	if !obs.refused {
-		t.Fatal("refusal not detected")
-	}
-	if obs.category != "cyber" {
-		t.Fatalf("category = %q, want cyber from the earlier chunk", obs.category)
-	}
-}
-
 func TestEmitBilling_HandoverSummaryDebitedOnceAlongsideTurn(t *testing.T) {
 	cases := []struct {
 		name     string
-		handover dispatch.HandoverOutcome
+		handover handover.Outcome
 		want     []string
 	}{
-		{"no handover", dispatch.HandoverOutcome{}, []string{auxTestRequestID}},
-		{"summary served", dispatch.HandoverOutcome{Invoked: true, SummaryUsage: auxTestUsage()}, []string{auxTestRequestID, auxTestRequestID + auxSuffixHandoverSummary}},
-		{"fell back to full history", dispatch.HandoverOutcome{Invoked: true, FallbackToFullHistory: true, SummaryUsage: auxTestUsage()}, []string{auxTestRequestID}},
+		{"no handover", handover.Outcome{}, []string{auxTestRequestID}},
+		{"summary served", handover.Outcome{Invoked: true, SummaryUsage: auxTestUsage()}, []string{auxTestRequestID, auxTestRequestID + auxSuffixHandoverSummary}},
+		{"fell back to full history", handover.Outcome{Invoked: true, FallbackToFullHistory: true, SummaryUsage: auxTestUsage()}, []string{auxTestRequestID}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s, repo, _ := auxTestService(t)
 			s.emitBilling(auxTestContext(uuid.New()), auxTestRequestID, auxTestOrgID, auxTestModel,
-				router.Decision{Provider: "anthropic", Model: auxTestModel}, catalog.Pricing{}, turnLoopResult{Handover: c.handover},
+				router.Decision{Provider: "anthropic", Model: auxTestModel}, catalog.Pricing{}, routingpolicy.TurnRoute{Handover: c.handover},
 				4000, 700, 0, 0, catalog.UsageModifiers{})
 			var got []string
 			for _, d := range repo.snapshot() {
@@ -218,9 +181,9 @@ func TestUsageBypassEngaged_UnsetThresholdDefaultsToNinetyFivePercent(t *testing
 	}{{0.90, true}, {0.96, false}} {
 		obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 		obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: c.used, WindowMinutes: 300}})
-		svc := &Service{hmmServing: hmmPorts(), clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
-		ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
-		ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+		svc := &Service{strategyServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}})), credentials: credentials.Brokerage{UsageObserver: obs}}
+		ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, token)
+		ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
 		_, ok := svc.usageBypassEngaged(ctx, http.Header{}, router.Request{
 			RequestedModel:   "claude-sonnet-4-6",
 			EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},

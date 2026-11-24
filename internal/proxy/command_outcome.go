@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 )
 
@@ -41,7 +42,7 @@ type commandAcknowledgment struct {
 	sessionID                             string
 	clientApp                             string
 	routable, excluded, automaticExcluded map[string]struct{}
-	forceable                             []forceableModel
+	forceable                             []conversation.ForceableModel
 	feedback                              feedbackAcknowledgment
 	rating                                string
 }
@@ -58,13 +59,13 @@ func (ack commandAcknowledgment) render(format translate.Format) string {
 	case translate.CommandForceModel:
 		return ack.renderForce(format)
 	case translate.CommandRouterSession:
-		return conversation.RouterSessionMessage(ack.sessionID, directivePrefix(ack.clientApp), format)
+		return conversation.RouterSessionMessage(ack.sessionID, requestcontext.DirectivePrefix(ack.clientApp), format)
 	case translate.CommandRouterModels:
-		return conversation.RouterModelsMessage(ack.routable, ack.excluded, ack.automaticExcluded, directivePrefix(ack.clientApp), format)
+		return conversation.RouterModelsMessage(ack.routable, ack.excluded, ack.automaticExcluded, requestcontext.DirectivePrefix(ack.clientApp), format)
 	case translate.CommandListModels:
-		return listModelsMessage(ack.forceable, directivePrefix(ack.clientApp), format)
+		return conversation.ListModelsMessage(ack.forceable, requestcontext.DirectivePrefix(ack.clientApp), format)
 	case translate.CommandRouterFeedback:
-		rf := directivePrefix(ack.clientApp) + "rf"
+		rf := requestcontext.DirectivePrefix(ack.clientApp) + "rf"
 		switch ack.feedback {
 		case feedbackEmpty:
 			if format == translate.FormatOpenAI {
@@ -129,5 +130,5 @@ func writeCommandAcknowledgment(ctx context.Context, w http.ResponseWriter, env 
 }
 
 func writeCommandOutcome(ctx context.Context, w http.ResponseWriter, env *translate.RequestEnvelope, text string, outcome translate.CommandOutcome, inputTokens int) error {
-	return translate.WriteCommandResponse(w, env, text, inputTokens, outcome, ClientIdentityFrom(ctx).ClientApp == ClientAppCodex)
+	return translate.WriteCommandResponse(w, env, text, inputTokens, outcome, requestcontext.ClientIdentityFrom(ctx).ClientApp == requestcontext.ClientAppCodex)
 }

@@ -3,21 +3,20 @@ package proxy_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionstrategy"
-	"weave-os/router/internal/translate"
 )
 
 const goldenConversationPrefix = ingressAnthropic + "_conversation_"
@@ -74,7 +73,7 @@ func conversationOpenAIAssistant(text string) string {
 const goldenConversationOpening = "refactor the parser package"
 
 func goldenSessionCtx(ctx context.Context) context.Context {
-	return requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode, SessionID: "golden-session"})
+	return requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode, SessionID: "golden-session"})
 }
 
 func inSession(req goldenRequest) goldenRequest {
@@ -183,18 +182,13 @@ func goldenContinuationScenarios() []goldenScenario {
 	return []goldenScenario{grant, noPin, forced, expired}
 }
 
-func conversationLongHistory(turns int) []string {
-	msgs := []string{conversationUser(goldenConversationOpening)}
-	for i := range turns {
-		msgs = append(msgs, conversationAssistant(fmt.Sprintf("step %d done", i)), conversationUser(fmt.Sprintf("next step %d", i)))
+func clientTrimScenario(name string) goldenScenario {
+	long := []string{conversationUser(goldenConversationOpening)}
+	for i := range 6 {
+		long = append(long, conversationAssistant(fmt.Sprintf("step %d done", i)), conversationUser(fmt.Sprintf("next step %d", i)))
 	}
-	return msgs
-}
-
-func handoverScenario(name string, summarizer handover.Summarizer) goldenScenario {
-	long := conversationLongHistory(6)
 	short := []string{conversationUser(goldenConversationOpening), conversationAssistant("Summary: parser split into lexer and grammar."), conversationUser("keep going")}
-	sc := goldenScenario{
+	return goldenScenario{
 		name: goldenConversationPrefix + name, ingress: ingressAnthropic,
 		decisions: []router.Decision{decision(providers.ProviderFireworks, goldenCompatModel)},
 		upstreams: map[string][]goldenStep{
@@ -206,15 +200,6 @@ func handoverScenario(name string, summarizer handover.Summarizer) goldenScenari
 			{body: conversationBody(false, short...), decorateContext: goldenSessionCtx},
 		},
 	}
-	if summarizer != nil {
-		sc.configure = func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-			if s, ok := summarizer.(*goldenSummarizer); ok {
-				s.rec = h.rec
-			}
-			return svc.WithCompactionHandoverSummarizer(summarizer)
-		}
-	}
-	return sc
 }
 
 const goldenHandoffSecret = "golden-handoff-secret-0123456789abcdef"
@@ -235,7 +220,7 @@ func handoffCtx(prepare bool) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
 		ctx = router.WithStrategy(ctx, router.StrategyHMM)
 		if prepare {
-			ctx = proxy.WithHandoffPreparation(ctx)
+			ctx = conversation.WithHandoffPreparation(ctx)
 		}
 		return ctx
 	}
@@ -253,10 +238,7 @@ func goldenHandoverScenarios() []goldenScenario {
 	body := fmt.Sprintf(`{"model":%q,"max_tokens":1024,"stream":false,"metadata":{"user_id":"pi:golden"},"messages":[%s]}`,
 		goldenAnthropicModel, conversationUser(goldenConversationOpening))
 	return []goldenScenario{
-		handoverScenario("compaction_handover_summarizes_history", &goldenSummarizer{summary: "Earlier: parser split into lexer and grammar."}),
-		handoverScenario("compaction_handover_summarizer_error_keeps_history", &goldenSummarizer{err: errors.New("summarizer unavailable")}),
-		handoverScenario("compaction_handover_empty_summary_keeps_history", &goldenSummarizer{}),
-		handoverScenario("compaction_handover_without_summarizer", nil),
+		clientTrimScenario("client_trim_keeps_compacted_history"),
 		handoffScenario("handoff_prepare_then_resume_skips_reclassify",
 			goldenRequest{body: body, decorateContext: handoffCtx(true), noTelemetry: true},
 			goldenRequest{decorateContext: handoffCtx(false), bodyFrom: func(prev []byte) string { return withHandoffToken(body, prev) }}),
@@ -312,7 +294,7 @@ func goldenDetectionScenarios() []goldenScenario {
 		decisions: []router.Decision{decision(providers.ProviderAnthropic, goldenAnthropicModel)},
 		upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "never")}},
 		requests: []goldenRequest{{body: conversationOpenAIBody(openAIRep...), noTelemetry: true, decorateContext: func(ctx context.Context) context.Context {
-			return requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+			return requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppOpencode})
 		}}},
 	}
 
@@ -346,7 +328,7 @@ func (s *goldenConversationStore) record(op string, detail any) {
 	s.rec.storeEvents = append(s.rec.storeEvents, goldenPinEvent{Op: op, Detail: goldenValue(detail)})
 }
 
-func (s *goldenConversationStore) InsertRouterFeedback(_ context.Context, p proxy.RouterFeedbackEvent) error {
+func (s *goldenConversationStore) InsertRouterFeedback(_ context.Context, p feedback.RouterFeedbackEvent) error {
 	s.record("router_feedback.insert", p)
 	return nil
 }
@@ -369,23 +351,4 @@ func (s *goldenConversationStore) Disable(_ context.Context, _ uuid.UUID, _ [ses
 	was := s.enabled
 	s.enabled = false
 	return was, nil
-}
-
-// goldenSummarizer returns a fixed summary or error and records each call as a
-// handover.summarize store event.
-type goldenSummarizer struct {
-	rec     *goldenRecorder
-	summary string
-	err     error
-}
-
-func (g *goldenSummarizer) Provider() string { return providers.ProviderAnthropic }
-
-func (g *goldenSummarizer) Summarize(_ context.Context, env *translate.RequestEnvelope, scope router.Request) (string, handover.Usage, error) {
-	g.rec.mu.Lock()
-	g.rec.storeEvents = append(g.rec.storeEvents, goldenPinEvent{Op: "handover.summarize", Detail: map[string]any{
-		"requested_model": scope.RequestedModel, "estimated_tokens": env.FullTokenEstimate(),
-	}})
-	g.rec.mu.Unlock()
-	return g.summary, handover.Usage{}, g.err
 }

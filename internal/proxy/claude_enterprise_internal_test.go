@@ -8,19 +8,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 func enterpriseOnlyContext(ctx context.Context) context.Context {
-	ctx = context.WithValue(ctx, claudeSubscriptionPlanKey{}, providers.SubscriptionPlanEnterprise)
+	ctx = context.WithValue(ctx, credentials.ClaudeSubscriptionPlanKey{}, providers.SubscriptionPlanEnterprise)
 	return flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: true}})
 }
 
@@ -35,33 +38,33 @@ func withClaudeCreditFallback(ctx context.Context) context.Context {
 }
 
 func TestClaudeOAuthAndOrgFlagDoNotEstablishEnterpriseIdentity(t *testing.T) {
-	ctx := context.WithValue(routerKeyedCtx(), AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+	ctx := context.WithValue(routerKeyedCtx(), credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 	ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: true}})
-	require.False(t, claudeEnterpriseOnly(ctx), "OAuth and an org-wide billing flag do not identify a provider subscription as Enterprise")
+	require.False(t, credentials.ClaudeEnterpriseOnly(ctx), "OAuth and an org-wide billing flag do not identify a provider subscription as Enterprise")
 }
 
 func TestClaudeEnterpriseOnlyRequiresVerifiedEnterprisePlan(t *testing.T) {
-	ctx := context.WithValue(routerKeyedCtx(), AnthropicSubscriptionContextKey{}, parityAnthropicToken)
-	require.False(t, claudeEnterpriseOnly(ctx))
-	managed := context.WithValue(routerKeyedCtx(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
-	require.False(t, claudeEnterpriseOnly(managed))
-	require.True(t, claudeEnterpriseOnly(enterpriseOnlyContext(managed)))
-	require.False(t, claudeEnterpriseOnly(routerKeyedCtx()), "API-only accounts have no Claude subscription to fund requests")
+	ctx := context.WithValue(routerKeyedCtx(), credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+	require.False(t, credentials.ClaudeEnterpriseOnly(ctx))
+	managed := context.WithValue(routerKeyedCtx(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	require.False(t, credentials.ClaudeEnterpriseOnly(managed))
+	require.True(t, credentials.ClaudeEnterpriseOnly(enterpriseOnlyContext(managed)))
+	require.False(t, credentials.ClaudeEnterpriseOnly(routerKeyedCtx()), "API-only accounts have no Claude subscription to fund requests")
 	optedOut := flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: false}})
-	require.False(t, claudeEnterpriseOnly(optedOut))
+	require.False(t, credentials.ClaudeEnterpriseOnly(optedOut))
 	byok := parityAnthropicIngress().byokCtx(ctx)
-	require.False(t, claudeEnterpriseOnly(byok), "explicit native BYOK retains precedence over the inherited default")
-	require.False(t, claudeEnterpriseOnly(enterpriseOnlyContext(byok)), "explicit native BYOK retains precedence over a saved opt-in")
+	require.False(t, credentials.ClaudeEnterpriseOnly(byok), "explicit native BYOK retains precedence over the inherited default")
+	require.False(t, credentials.ClaudeEnterpriseOnly(enterpriseOnlyContext(byok)), "explicit native BYOK retains precedence over a saved opt-in")
 
 	service := newServiceWithProviders(t, nil)
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+parityAnthropicToken)
 	headerOnly := service.withSubscriptionFundingAuthorization(routerKeyedCtx(), headers)
-	require.False(t, claudeEnterpriseOnly(headerOnly), "native OAuth is not a subscription-type attestation")
+	require.False(t, credentials.ClaudeEnterpriseOnly(headerOnly), "native OAuth is not a subscription-type attestation")
 }
 
 func TestClaudeEnterpriseOnlyClassifiersKeepOverage(t *testing.T) {
-	ctx := enterpriseOnlyContext(context.WithValue(routerKeyedCtx(), AnthropicSubscriptionContextKey{}, classifierTestSubToken))
+	ctx := enterpriseOnlyContext(context.WithValue(routerKeyedCtx(), credentials.AnthropicSubscriptionContextKey{}, classifierTestSubToken))
 	service := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: &parityUpstream{}}).WithUsageObserver(observerWithSnapshot(classifierTestSubToken, usage.Snapshot{OverageInUse: true}))
 	_, engaged := service.classifierPassthroughEngaged(ctx, http.Header{}, router.Request{RequestedModel: catalog.ModelIDClaudeSonnet46.String()}, turntype.Classifier)
 	require.True(t, engaged)
@@ -127,14 +130,14 @@ func TestVerifiedClaudeEnterpriseMovesFromIncludedUsageToOverage(t *testing.T) {
 		"Anthropic-Ratelimit-Unified-Overage-In-Use":       []string{"true"},
 	}}
 	service := ingress.quotaService(upstream)
-	service.usageObserver.Record(service.usageObserver.Key([]byte(ingress.token)), usage.Snapshot{
+	service.credentials.UsageObserver.Record(service.credentials.UsageObserver.Key([]byte(ingress.token)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.5, WindowMinutes: 300},
 	})
-	ctx := enterpriseOnlyContext(context.WithValue(routerKeyedCtx(), AnthropicSubscriptionContextKey{}, ingress.token))
+	ctx := enterpriseOnlyContext(context.WithValue(routerKeyedCtx(), credentials.AnthropicSubscriptionContextKey{}, ingress.token))
 	for range 2 {
 		recorder, request, body := ingress.request(t, false)
 		require.NoError(t, ingress.call(service, ctx, body, recorder, request))
-		snapshot, observed := service.usageObserver.Snapshot(service.usageObserver.Key([]byte(ingress.token)))
+		snapshot, observed := service.credentials.UsageObserver.Snapshot(service.credentials.UsageObserver.Key([]byte(ingress.token)))
 		require.True(t, observed)
 		require.True(t, snapshot.OverageInUse)
 		require.InDelta(t, 0.5, snapshot.Primary.UsedPercent, 1e-9)
@@ -161,14 +164,14 @@ func TestClaudeEnterpriseOnlyManagedFailureCannotBuyPaidRescue(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "enterprise-seat", AccessToken: "enterprise-token"}}}
 	service := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: upstream}).
 		WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	ctx := WithManagedSubscriptionCandidates(enterpriseOnlyContext(context.Background()), []*auth.SubscriptionAccount{{
+	ctx := credentials.WithManagedSubscriptionCandidates(enterpriseOnlyContext(context.Background()), []*auth.SubscriptionAccount{{
 		ID: "enterprise-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive,
 	}})
 	recorder := httptest.NewRecorder()
 	buffer := newPreludeBuffer(recorder)
 	in := plannedInputs(t.Context(), recorder, buffer, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
-	_, err := service.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(service).Dispatch(ctx, in)
 	require.Error(t, err)
 	require.Equal(t, 1, upstream.calls)
 	require.NotContains(t, recorder.Body.String(), "paid rescue")
@@ -183,7 +186,7 @@ func TestClaudeEnterpriseOnlyNeverAuthorizesPaidClaude(t *testing.T) {
 	ctx := svc.withSubscriptionFundingAuthorization(enterpriseOnlyContext(ingress.subCtx()), http.Header{})
 	require.Error(t, svc.subscriptionAPIAuthorization(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String()))
 	require.NoError(t, svc.subscriptionAPIAuthorization(ctx, providers.ProviderOpenAI, parityUncoveredOpenAI))
-	enterpriseTurn := withClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()})
+	enterpriseTurn := credentials.WithClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()})
 	require.Error(t, svc.subscriptionAPIAuthorization(enterpriseTurn, providers.ProviderOpenAI, parityUncoveredOpenAI), "rescue must not switch a Claude turn to paid OpenAI")
 }
 
@@ -210,7 +213,7 @@ func TestClaudeEnterpriseOnlyRequiresClaudeCredential(t *testing.T) {
 	require.Error(t, err)
 	require.Zero(t, upstream.subDispatches)
 	require.Zero(t, upstream.paidDispatches)
-	require.ErrorIs(t, err, ErrClaudeEnterpriseSubscriptionUnavailable)
+	require.ErrorIs(t, err, credentials.ErrClaudeEnterpriseSubscriptionUnavailable)
 }
 
 func TestClaudeEnterpriseOnlyBypassRefusalDoesNotReroute(t *testing.T) {
@@ -221,7 +224,7 @@ func TestClaudeEnterpriseOnlyBypassRefusalDoesNotReroute(t *testing.T) {
 	}
 	service := ingress.quotaService(upstream)
 	threshold := 0.9
-	ctx := context.WithValue(enterpriseOnlyContext(ingress.subCtx()), InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx := context.WithValue(enterpriseOnlyContext(ingress.subCtx()), requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	recorder, request, body := ingress.request(t, false)
 	require.NoError(t, ingress.call(service, ctx, body, recorder, request))
 	require.Equal(t, http.StatusTooManyRequests, recorder.Code)
@@ -231,5 +234,5 @@ func TestClaudeEnterpriseOnlyBypassRefusalDoesNotReroute(t *testing.T) {
 
 func TestClaudeEnterpriseOnlyDisabledWithSubscriptionRouting(t *testing.T) {
 	ctx := enterpriseOnlyContext(subscriptionDisabledCtx())
-	require.False(t, claudeEnterpriseOnly(ctx))
+	require.False(t, credentials.ClaudeEnterpriseOnly(ctx))
 }

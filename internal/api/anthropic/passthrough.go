@@ -1,34 +1,40 @@
 package anthropic
 
 import (
+	"context"
 	"io"
 	"net/http"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/gin-gonic/gin"
 )
 
-func PassthroughHandler(svc *proxy.Service) gin.HandlerFunc {
+type Passthrough interface {
+	PassthroughToProvider(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error
+}
+
+func PassthroughHandler(svc Passthrough, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
-		body, err := io.ReadAll(io.LimitReader(c.Request.Body, proxy.MaxRequestBodyBytes+1))
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, requestcontext.MaxRequestBodyBytes+1))
 		if err != nil {
 			log.Debug("Failed to read passthrough request body", "err", err)
 			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body.")
 			return
 		}
-		if len(body) > proxy.MaxRequestBodyBytes {
+		if len(body) > requestcontext.MaxRequestBodyBytes {
 			logOversizeBody(log, c.Request)
 			writeAnthropicError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body too large.")
 			return
 		}
 
 		if err := svc.PassthroughToProvider(c.Request.Context(), body, c.Writer, c.Request); err != nil {
-			cls, ok := proxy.ClassifyDispatchError(err)
-			if ok && cls.Kind == proxy.DispatchErrorUpstreamStatus {
+			cls, ok := vocab.Classify(err)
+			if ok && cls.Kind == ingress.DispatchErrorUpstreamStatus {
 				if c.Writer.Written() {
 					return
 				}
@@ -39,7 +45,7 @@ func PassthroughHandler(svc *proxy.Service) gin.HandlerFunc {
 				log.Error("Passthrough failed mid-stream", "err", err)
 				return
 			}
-			if ok && cls.Kind == proxy.DispatchErrorNotImplemented {
+			if ok && cls.Kind == ingress.DispatchErrorNotImplemented {
 				writeAnthropicError(c, cls.Status, anthropicErrorType(cls), cls.Message)
 				return
 			}

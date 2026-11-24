@@ -9,8 +9,10 @@ import (
 	"regexp"
 	"strings"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
@@ -19,8 +21,6 @@ import (
 
 	"github.com/google/uuid"
 )
-
-const ForceModelHeader = "x-weave-force-model"
 
 var ErrForcedModelUnknown = errors.New("forced model is not a known model")
 
@@ -35,7 +35,7 @@ func (e *ForcedModelUnknownError) Error() string {
 func (e *ForcedModelUnknownError) Unwrap() error { return ErrForcedModelUnknown }
 
 var forceModelExamples = fmt.Sprintf("opus, %s, %s, or %s",
-	forceModelAliases["opus"], forceModelAliases["gpt"], forceModelAliases["gemini"])
+	routingpolicy.ForceModelAliases["opus"], routingpolicy.ForceModelAliases["gpt"], routingpolicy.ForceModelAliases["gemini"])
 
 func resolveForceModel(model string) (canonicalID, provider string, known bool) {
 	canon, prov, kn, _ := resolveForceModelWithEffort(model)
@@ -43,7 +43,7 @@ func resolveForceModel(model string) (canonicalID, provider string, known bool) 
 }
 
 func resolveForceModelWithEffort(model string) (canonicalID, provider string, known bool, effort string) {
-	effortLevel, stripped := stripEffortSuffix(model)
+	effortLevel, stripped := routingpolicy.StripEffortSuffix(model)
 	model = stripped
 	model = strings.ToLower(strings.TrimSpace(model))
 	effort = effortLevel
@@ -59,14 +59,14 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 		unknownID = variant
 	}
 	if id, ok := lookupForceModelName(model); ok {
-		if m, ok := servableForceModel(id, requiredProvider); ok {
+		if m, ok := routingpolicy.ServableForceModel(id, requiredProvider); ok {
 			return m.ID, m.Providers[0].Provider, true, effort
 		}
 	} else if effort == "" {
-		if head, level, ok := cutSpelledEffort(model); ok {
+		if head, level, ok := routingpolicy.CutSpelledEffort(model); ok {
 			head, _ = translate.CanonicalModel(head)
 			if id, ok := lookupForceModelName(head); ok {
-				if m, ok := servableForceModel(id, requiredProvider); ok {
+				if m, ok := routingpolicy.ServableForceModel(id, requiredProvider); ok {
 					return m.ID, m.Providers[0].Provider, true, router.CanonicalizeEffort(level)
 				}
 			}
@@ -91,16 +91,8 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 	}
 }
 
-func servableForceModel(id, requiredProvider string) (catalog.Model, bool) {
-	m, ok := catalog.ByID(id)
-	if !ok || len(m.Providers) == 0 || (requiredProvider != "" && m.Providers[0].Provider != requiredProvider) {
-		return catalog.Model{}, false
-	}
-	return m, true
-}
-
 func lookupForceModelName(name string) (string, bool) {
-	if alias, ok := forceModelAliases[name]; ok {
+	if alias, ok := routingpolicy.ForceModelAliases[name]; ok {
 		return alias, true
 	}
 	if canonical, ok := bareCatalogNames[name]; ok {
@@ -109,18 +101,12 @@ func lookupForceModelName(name string) (string, bool) {
 	if _, ok := catalog.ByID(name); ok {
 		return name, true
 	}
-	id, ok := foldedForceModelNames[foldModelSpelling(name)]
+	id, ok := foldedForceModelNames[routingpolicy.FoldModelSpelling(name)]
 	return id, ok
 }
 
-var modelSpellingSeparators = regexp.MustCompile(`[._ -]+`)
-
-func foldModelSpelling(name string) string {
-	return modelSpellingSeparators.ReplaceAllString(name, "-")
-}
-
 func forceModelNames() map[string]string {
-	names := make(map[string]string, len(catalog.Models)*2+len(forceModelAliases))
+	names := make(map[string]string, len(catalog.Models)*2+len(routingpolicy.ForceModelAliases))
 	for _, m := range catalog.Models {
 		if len(m.Providers) == 0 {
 			continue
@@ -136,7 +122,7 @@ func forceModelNames() map[string]string {
 	for bare, id := range bareCatalogNames {
 		names[bare] = id
 	}
-	for alias, id := range forceModelAliases {
+	for alias, id := range routingpolicy.ForceModelAliases {
 		names[alias] = id
 	}
 	return names
@@ -156,7 +142,7 @@ var foldedForceModelNames = func() map[string]string {
 	out := make(map[string]string)
 	ambiguous := make(map[string]bool)
 	for name, id := range forceModelNames() {
-		key := foldModelSpelling(name)
+		key := routingpolicy.FoldModelSpelling(name)
 		if prev, seen := out[key]; seen && prev != id {
 			ambiguous[key] = true
 		}
@@ -183,7 +169,7 @@ func (c forceModelSuggestion) preferredOver(o forceModelSuggestion) bool {
 var forceModelSuggestions = func() map[string]forceModelSuggestion {
 	out := make(map[string]forceModelSuggestion, len(foldedForceModelNames))
 	for name := range forceModelNames() {
-		key := foldModelSpelling(name)
+		key := routingpolicy.FoldModelSpelling(name)
 		id, ok := foldedForceModelNames[key]
 		if !ok {
 			continue
@@ -198,9 +184,9 @@ var forceModelSuggestions = func() map[string]forceModelSuggestion {
 }()
 
 func suggestForceModel(input string) string {
-	effort, model := stripEffortSuffix(input)
+	effort, model := routingpolicy.StripEffortSuffix(input)
 	model, _ = translate.CanonicalModel(strings.ToLower(strings.TrimSpace(model)))
-	key := foldModelSpelling(model)
+	key := routingpolicy.FoldModelSpelling(model)
 	if len(key) < 3 {
 		return ""
 	}
@@ -283,7 +269,7 @@ var bareCatalogNames = func() map[string]string {
 		if _, isFullID := catalog.ByID(tail); isFullID {
 			continue
 		}
-		if _, aliased := forceModelAliases[tail]; aliased {
+		if _, aliased := routingpolicy.ForceModelAliases[tail]; aliased {
 			continue
 		}
 		out[tail] = ids[0]
@@ -298,18 +284,7 @@ func (s *Service) loadForceModelHistory(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) sessionpin.Pin {
-	if s.pinStore == nil {
-		return sessionpin.Pin{}
-	}
-	pin, found, err := s.pinStore.Get(ctx, sessionKey, forceModelHistoryRole(role))
-	if err != nil {
-		observability.FromContext(ctx).Error("force-model history lookup failed", "err", err)
-		return sessionpin.Pin{}
-	}
-	if !found || !pin.PinnedUntil.After(s.clock.Now()) {
-		return sessionpin.Pin{}
-	}
-	return pin
+	return routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).LoadHistory(ctx, sessionKey, role)
 }
 
 func forceModelClearRoles() []string {
@@ -334,10 +309,10 @@ func (s *Service) clearLegacyForceModelPins(
 		if err != nil {
 			return fmt.Errorf("load legacy force-model pin for role %q: %w", role, err)
 		}
-		if !found || !isUserForcedReason(pin.Reason) {
+		if !found || !routingpolicy.IsUserForcedReason(pin.Reason) {
 			continue
 		}
-		if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, userUnforcedReason); err != nil {
+		if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, routingpolicy.ReasonUserUnforced); err != nil {
 			return err
 		}
 	}
@@ -350,7 +325,7 @@ func (s *Service) applyForceModelHeader(
 	installationID uuid.UUID,
 	forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 ) (context.Context, string, error) {
-	raw := strings.TrimSpace(r.Header.Get(ForceModelHeader))
+	raw := strings.TrimSpace(r.Header.Get(requestcontext.ForceModelHeader))
 	if raw == "" {
 		return ctx, "", nil
 	}
@@ -406,110 +381,88 @@ func (s *Service) applyForceModelHeader(
 	return ctx, forcedModel, nil
 }
 
-func (s *Service) handleForceModelCommand(
+type forceModelCommands struct {
+	s *Service
+}
+
+func (f forceModelCommands) handle(
 	ctx context.Context,
 	w http.ResponseWriter,
 	env *translate.RequestEnvelope,
 	cmd translate.ForceModelResult,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
-	_, ack, err := s.applyForceModelCommand(ctx, target.strategy, cmd, target.installationID, target.sessionKey, forceModelSessionKey)
+	_, ack, err := f.apply(ctx, target.Strategy, cmd, target.InstallationID, target.SessionKey, forceModelSessionKey)
 	if err != nil {
 		return err
 	}
 	return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 }
 
-func (s *Service) applyForceModelCommand(
+func (f forceModelCommands) apply(
 	ctx context.Context, strategy router.Strategy,
 	cmd translate.ForceModelResult,
 	installationID uuid.UUID,
 	threadSessionKey, forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 ) (string, commandAcknowledgment, error) {
-	log := observability.FromContext(ctx)
-
 	ack := newCommandAcknowledgment(translate.CommandForceModel)
-	if cmd.Clear {
-		if err := s.clearLegacyForceModelPins(ctx, strategy, installationID, threadSessionKey); err != nil {
-			log.Error("/unforce-model: legacy pin cleanup failed", "err", err)
-			return "", commandAcknowledgment{}, err
-		}
-		if err := routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).Clear(ctx, installationID, forceModelSessionKey); err != nil {
-			log.Error("/unforce-model: session pin clear failed", "err", err)
-			return "", commandAcknowledgment{}, err
-		}
-		ack.outcome.Pin.Transition = translate.PinCleared
-		s.recordAgreementShadowCommandBoundary(ctx, installationID, threadSessionKey, ack.outcome.ID)
-		log.Debug("/unforce-model: session pin cleared",
-			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
-			"role", forceModelSessionRole,
-		)
-		return "", ack, nil
+	applied, err := conversation.ForceModelCommand{
+		Resolver: forceModelResolver(f),
+		Pins:     routingpolicy.NewForceModelPins(f.s.pinStore, f.s.clock.Now),
+		Controls: forceModelControls{s: f.s, strategy: strategy},
+	}.Apply(ctx, conversation.ForceModelRequest{
+		Command:              cmd,
+		InstallationID:       installationID,
+		ThreadSessionKey:     threadSessionKey,
+		ForceModelSessionKey: forceModelSessionKey,
+		CommandID:            ack.outcome.ID,
+		UnforceCommand:       requestcontext.DirectivePrefix(requestcontext.ClientIdentityFrom(ctx).ClientApp) + "unforce-model",
+	})
+	if err != nil {
+		return "", commandAcknowledgment{}, err
 	}
-
-	canonicalModel, provider, known, effortLevel := resolveForceModelWithEffort(cmd.Model)
-	if !known {
-		suggestion := suggestForceModel(cmd.Model)
-		log.Info("/force-model: rejected unknown model",
-			"input_model", cmd.Model,
-			"suggested_model", suggestion,
-			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
-			"role", forceModelSessionRole,
-		)
+	if applied.Rejection != "" {
 		ack.outcome.Disposition = translate.CommandRejected
-		ack.force = forceAcknowledgment{rejection: forceUnknownModel, inputModel: cmd.Model, suggestion: suggestion}
+		ack.force = forceAcknowledgment{rejection: forceRejection(applied.Rejection), inputModel: applied.InputModel, suggestion: applied.Suggestion, reason: applied.Reason}
 		return "", ack, nil
 	}
+	ack.outcome.Pin = applied.Pin
+	ack.force.clearCommand = applied.ClearCommand
+	ack.force.parentOnly = applied.ParentOnly
+	return applied.ShownModel, ack, nil
+}
 
-	binding, refusal := s.forcedModelBinding(ctx, canonicalModel, provider)
+type forceModelResolver struct {
+	s *Service
+}
+
+func (forceModelResolver) Resolve(model string) (string, string, bool, string) {
+	return resolveForceModelWithEffort(model)
+}
+
+func (forceModelResolver) Suggest(input string) string { return suggestForceModel(input) }
+
+func (r forceModelResolver) Binding(ctx context.Context, model, provider string) (string, string, bool) {
+	binding, refusal := r.s.forcedModelBinding(ctx, model, provider)
 	if refusal != nil {
-		log.Warn("/force-model: rejected excluded model",
-			"input_model", cmd.Model,
-			"canonical_model", canonicalModel,
-			"provider", provider,
-			"reason", refusal.Reason,
-			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
-			"role", forceModelSessionRole,
-		)
-		ack.outcome.Disposition = translate.CommandRejected
-		ack.force = forceAcknowledgment{rejection: forceExcludedModel, reason: refusal.Reason}
-		return "", ack, nil
+		return "", refusal.Reason, true
 	}
+	return binding, "", false
+}
 
-	if err := s.clearLegacyForceModelPins(ctx, strategy, installationID, threadSessionKey); err != nil {
-		log.Error("/force-model: legacy pin cleanup failed", "err", err)
-		return "", commandAcknowledgment{}, err
-	}
-	forcedThreadKey := ""
-	command := "force-model"
-	if cmd.ParentOnly {
-		forcedThreadKey = sessionKeyHex(threadSessionKey)
-		command = "force-parent"
-	}
-	if err := routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).Set(ctx, forceModelSessionKey, installationID, canonicalModel, binding, effortLevel, forcedThreadKey); err != nil {
-		log.Error("/force-model: session pin upsert failed", "err", err)
-		return "", commandAcknowledgment{}, err
-	}
-	shownModel := canonicalModel
-	if effortLevel != "" {
-		shownModel = canonicalModel + ":" + effortLevel
-	}
-	ack.outcome.Pin = translate.CommandPin{Transition: translate.PinApplied, Model: canonicalModel, Provider: binding, Effort: effortLevel}
-	s.recordAgreementShadowCommandBoundary(ctx, installationID, threadSessionKey, ack.outcome.ID)
-	ack.force.clearCommand = directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "unforce-model"
-	ack.force.parentOnly = cmd.ParentOnly
-	log.Debug("/"+command+": session pin set",
-		"forced_thread_key", forcedThreadKey,
-		"input_model", cmd.Model,
-		"canonical_model", canonicalModel,
-		"provider", binding,
-		"effort", effortLevel,
-		"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
-		"role", forceModelSessionRole,
-	)
-	return shownModel, ack, nil
+type forceModelControls struct {
+	s        *Service
+	strategy router.Strategy
+}
+
+func (c forceModelControls) ClearLegacyPins(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte) error {
+	return c.s.clearLegacyForceModelPins(ctx, c.strategy, installationID, sessionKey)
+}
+
+func (c forceModelControls) RecordCommandBoundary(ctx context.Context, installationID uuid.UUID, threadKey [sessionpin.SessionKeyLen]byte, commandID string) {
+	c.s.recordAgreementShadowCommandBoundary(ctx, installationID, threadKey, commandID)
 }
 
 func writeSyntheticAnthropicResponse(w http.ResponseWriter, env *translate.RequestEnvelope, text string, inputTokens int) error {

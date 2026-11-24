@@ -85,7 +85,7 @@
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
             "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+            "RegistryRevision": "sha256:2199d449ea260bc0d55bb53f0ef7966576bbe75dfa1a5fcac2d9e333b35e0843"
           },
           "Target": {
             "CatalogID": "claude-haiku-4-5",
@@ -166,7 +166,9 @@
           "role": "default_low",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "anthropic",
             "Strategy": "hmm_embedding"
@@ -335,7 +337,7 @@
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
             "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+            "RegistryRevision": "sha256:2199d449ea260bc0d55bb53f0ef7966576bbe75dfa1a5fcac2d9e333b35e0843"
           },
           "Target": {
             "CatalogID": "claude-haiku-4-5",
@@ -407,6 +409,12 @@
             "LastOutputTokens": 7,
             "LastServedModel": "claude-haiku-4-5",
             "Model": "claude-haiku-4-5",
+            "ModelCaches": {
+              "claude-haiku-4-5": {
+                "MessageCount": 1,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "anthropic",
             "Reason": "golden_route",
             "Role": "default_low",
@@ -419,8 +427,10 @@
           "role": "default_low",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "PriorServedModel": "claude-haiku-4-5",
+            "PromptTokens": 12,
             "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "anthropic",
             "Strategy": "hmm_embedding"

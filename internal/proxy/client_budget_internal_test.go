@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
@@ -21,7 +22,7 @@ const (
 )
 
 func smallClientBudget() router.ClientBudget {
-	return resolveClientBudget(ClientIdentity{ClientApp: ClientAppClaudeCode, UserAgent: budgetTestUserAgent}, nil, budgetTestFable, false)
+	return resolveClientBudget(ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode, UserAgent: budgetTestUserAgent}, nil, budgetTestFable, false)
 }
 
 func TestResolveClientBudget(t *testing.T) {
@@ -35,20 +36,20 @@ func TestResolveClientBudget(t *testing.T) {
 		window    int
 		threshold int
 	}{
-		{"custom base URL default", ClientAppClaudeCode, budgetTestUserAgent, budgetTestFable, false, "", 200_000, 167_000},
-		{"original variant", ClientAppClaudeCode, budgetTestUserAgent, budgetTestFable, true, "", 1_000_000, 967_000},
-		{"normalized long context is ambiguous", ClientAppClaudeCode, budgetTestUserAgent, budgetTestFable, false, budgetTestBeta, 0, 0},
-		{"comma separated beta", ClientAppClaudeCode, budgetTestUserAgent, testOpus, false, "other, " + budgetTestBeta, 0, 0},
-		{"beta substring is not capability", ClientAppClaudeCode, budgetTestUserAgent, budgetTestFable, false, budgetTestBeta + "-other", 200_000, 167_000},
-		{"small model does not gain provider support", ClientAppClaudeCode, budgetTestUserAgent, budgetTestHaiku, false, budgetTestBeta, 200_000, 167_000},
-		{"dated model", ClientAppClaudeCode, budgetTestUserAgent, budgetTestHaiku + "-20251001", false, "", 200_000, 167_000},
-		{"provider qualified model", ClientAppClaudeCode, budgetTestUserAgent, "anthropic/" + budgetTestFable, false, "", 200_000, 167_000},
-		{"unverified version", ClientAppClaudeCode, "claude-cli/2.1.258 (external, sdk-ts)", budgetTestFable, true, budgetTestBeta, 0, 0},
-		{"missing version", ClientAppClaudeCode, "sdk-ts", budgetTestFable, false, "", 0, 0},
+		{"custom base URL default", requestcontext.ClientAppClaudeCode, budgetTestUserAgent, budgetTestFable, false, "", 200_000, 167_000},
+		{"original variant", requestcontext.ClientAppClaudeCode, budgetTestUserAgent, budgetTestFable, true, "", 1_000_000, 967_000},
+		{"normalized long context is ambiguous", requestcontext.ClientAppClaudeCode, budgetTestUserAgent, budgetTestFable, false, budgetTestBeta, 0, 0},
+		{"comma separated beta", requestcontext.ClientAppClaudeCode, budgetTestUserAgent, testOpus, false, "other, " + budgetTestBeta, 0, 0},
+		{"beta substring is not capability", requestcontext.ClientAppClaudeCode, budgetTestUserAgent, budgetTestFable, false, budgetTestBeta + "-other", 200_000, 167_000},
+		{"small model does not gain provider support", requestcontext.ClientAppClaudeCode, budgetTestUserAgent, budgetTestHaiku, false, budgetTestBeta, 200_000, 167_000},
+		{"dated model", requestcontext.ClientAppClaudeCode, budgetTestUserAgent, budgetTestHaiku + "-20251001", false, "", 200_000, 167_000},
+		{"provider qualified model", requestcontext.ClientAppClaudeCode, budgetTestUserAgent, "anthropic/" + budgetTestFable, false, "", 200_000, 167_000},
+		{"unverified version", requestcontext.ClientAppClaudeCode, "claude-cli/2.1.258 (external, sdk-ts)", budgetTestFable, true, budgetTestBeta, 0, 0},
+		{"missing version", requestcontext.ClientAppClaudeCode, "sdk-ts", budgetTestFable, false, "", 0, 0},
 		{"SDK entrypoint is not a harness", "", "sdk-ts", budgetTestFable, false, "", 0, 0},
-		{"other harness", ClientAppCodex, budgetTestUserAgent, budgetTestFable, false, "", 0, 0},
-		{"unknown model", ClientAppClaudeCode, budgetTestUserAgent, "claude-unknown", false, "", 0, 0},
-		{"non Claude model", ClientAppClaudeCode, budgetTestUserAgent, testSol, false, "", 0, 0},
+		{"other harness", requestcontext.ClientAppCodex, budgetTestUserAgent, budgetTestFable, false, "", 0, 0},
+		{"unknown model", requestcontext.ClientAppClaudeCode, budgetTestUserAgent, "claude-unknown", false, "", 0, 0},
+		{"non Claude model", requestcontext.ClientAppClaudeCode, budgetTestUserAgent, testSol, false, "", 0, 0},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			headers := make(http.Header)
@@ -70,7 +71,7 @@ func TestResolveClientBudget(t *testing.T) {
 }
 
 func TestClientBudgetDoesNotUseRouterAddedBeta(t *testing.T) {
-	clientIdentity := ClientIdentity{ClientApp: ClientAppClaudeCode, UserAgent: budgetTestUserAgent}
+	clientIdentity := ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode, UserAgent: budgetTestUserAgent}
 	headers := make(http.Header)
 	budget := resolveClientBudget(clientIdentity, headers, testOpus, false)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"` + testOpus + `","messages":[{"role":"user","content":"hello"}]}`))
@@ -84,7 +85,7 @@ func TestClientBudgetDoesNotUseRouterAddedBeta(t *testing.T) {
 }
 
 func TestClientBudgetRecomputedAcrossSameSessionAndAgents(t *testing.T) {
-	clientIdentity := ClientIdentity{SessionID: "shared-session", ClientApp: ClientAppClaudeCode, UserAgent: budgetTestUserAgent}
+	clientIdentity := ClientIdentity{SessionID: "shared-session", ClientApp: requestcontext.ClientAppClaudeCode, UserAgent: budgetTestUserAgent}
 	var parent = context.Background()
 	for _, tt := range []struct {
 		model   string
@@ -97,7 +98,7 @@ func TestClientBudgetRecomputedAcrossSameSessionAndAgents(t *testing.T) {
 	} {
 		budget := resolveClientBudget(clientIdentity, nil, tt.model, tt.variant)
 		parent = requestcontext.WithClientBudget(parent, budget)
-		svc := &Service{hmmServing: hmmPorts()}
+		svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 		req := svc.withPolicyRequestContext(parent, router.Request{})
 		assert.Equal(t, tt.window, req.ClientBudget.DefaultWindow)
 	}

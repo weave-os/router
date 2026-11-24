@@ -686,7 +686,6 @@ sweep backstops any lost signal.
 | `ROUTER_HANDOVER_PROVIDER`        | `anthropic`                  | Provider whose registered client runs handover and compaction summaries. Must have a catalog binding for `ROUTER_HANDOVER_MODEL` and `ROUTER_COMPACTION_MODEL`; otherwise boot fails. |
 | `ROUTER_HANDOVER_MODEL`           | `claude-haiku-4-5`           | Model for switch-turn handover summaries. Must be one of the `handover_summary` policy's fixed catalog models in [`POLICY_INFERENCE.md`](POLICY_INFERENCE.md); any other value fails boot rather than substituting a default. |
 | `ROUTER_COMPACTION_MODEL`         | `claude-sonnet-5`            | Fallback Anthropic family for compaction when no eligible session model is available. Selection upgrades to the newest eligible catalog version in that family, including session-derived choices. The configured model must bind on `ROUTER_HANDOVER_PROVIDER` and belong to the compaction policies' reviewed catalog set in [`POLICY_INFERENCE.md`](POLICY_INFERENCE.md); otherwise boot fails. Claude Code's client-side compaction still requires direct Anthropic; Codex checkpoint compaction can reuse other providers. Explicit `ROUTER_HARD_PIN_MODEL` overrides remain exact. |
-| `ROUTER_COMPACTION_TIMEOUT_MS`    | `90000`                      | Hard timeout for one compaction-handover summary call (separate from `ROUTER_HANDOVER_TIMEOUT_MS`; a Sonnet-class summary of a near-full window is slow). On timeout the full history is kept. |
 | `ROUTER_ESCALATION_JUDGE_ENABLED` | `false` | Enables the optional Weave-funded Switchyard LLM judge and requires `FIREWORKS_API_KEY`. The judge uses only the Fireworks binding for `z-ai/glm-5.3-flash`. |
 | `ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT` | `none` | Shadow classifier (`llm_escalation` or `switchyard_llm_v1`) for installations with no escalation selection and no active classifier. `switchyard_llm_v1` requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`; `llm_escalation` requires `ROUTER_LLM_ESCALATION_URL` and `ROUTER_LLM_ESCALATION_API_KEY`; startup fails otherwise. Shadow judging uses its own pool of 8 slots per instance. Each successful verdict is written to the judge's auxiliary telemetry row (`classifier_predicted_label`); failed judgments keep their cost row with no label. |
 | `ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED` | `false` | Allows `switchyard_llm_v1` to be selected as the active classifier. Keep false during shadow evaluation; requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`. |
@@ -762,7 +761,7 @@ without that floor.
 | `ROUTER_HMM_UPGRADE_VOTES` | `3` | Consecutive same-group expensive votes required before the shadow evidence policy would switch. `0` disables vote hysteresis. |
 | `ROUTER_HMM_UPGRADE_SHADOW_MARGIN` | unset | Top-1 minus top-2 classifier margin threshold in `[0,1]`. Unset falls back to the score gate for margin-needed cases. |
 | `ROUTER_HMM_UPGRADE_SHADOW_STALE_AFTER` | unset | Pin-age cutoff as a Go duration. Unset or `0s` disables the stale-pin rule. |
-| (no env var; installation override `switch_decide_shadow`) | `true` | Experiment, expires 2026-12-02. Logs `router.switch_shadow` with what the unified switch rule would serve on HMM cost-gate turns. Observation only. |
+| (no env var; installation override `switch_decide_shadow`) | `true` | Experiment, expires 2026-12-21. Logs `router.switch_shadow` with what the eviction-cost switch rule (downgrade horizon 10 turns, upgrade 25) would serve on HMM cost-gate turns, with its predicted rewrite cost and move value. Observation only. |
 | `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` | `0.50` | Minimum top-class classifier probability (four groups, floor 0.25) for an upgrade to a pricier model than the session pin. |
 | `ROUTER_HMM_UPGRADE_GATE` | `true` | Confidence-floor kill switch, used when policy is `score`. |
 | `ROUTER_HMM_UPGRADE_SLIDING_THRESHOLD` | `false` | Upgrade by the predicted class's probability, bypassing the confidence floor. From a low/medium pin, maximum at 0.3-0.5 serves high and at >=0.5 maximum; from low, high at 0.3-0.5 serves medium and at >=0.5 high, and medium at >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band, and for other transitions, the gates above decide. Installation override `authoritative_upgrade_sliding_threshold`. |
@@ -1200,7 +1199,7 @@ fully disabled at zero runtime cost. Everything the router records leaves the
 process over OTLP only — there is no hardcoded analytics endpoint.
 
 Router-originated provider calls that are not the client's turn (switch
-handover, pre-compaction and compaction-handover summaries) are billed to the
+handover and pre-compaction summaries) are billed to the
 customer and recorded with span type `router.auxiliary_inference`, never
 `router.upstream`, so request counts and policy training data exclude them.
 Weave-funded overhead uses `router.platform_auxiliary_inference` and stays out

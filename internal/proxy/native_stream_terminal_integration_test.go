@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -65,9 +66,9 @@ func scriptedStream(attempts ...[]string) *fakeProvider {
 func nativeSurfaceService(provider *fakeProvider, providerName, model string) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providerName, Model: model, Reason: "test"}},
-		map[string]providers.Client{providerName: provider},
+		dispatch.NewClients(map[string]providers.Client{providerName: provider}),
 		nil, nil, false, providerName, model, nil), hmm.ServingPorts()).
-		WithOpenAIResponsesBroad(providerName == providers.ProviderOpenAI).
+		WithIngress(responsesBroadFormats(providerName == providers.ProviderOpenAI)).
 		WithRetrySleep(noRetrySleep)
 }
 
@@ -171,7 +172,7 @@ func TestProxyMessages_NativeCutAfterMessageDeltaIsProviderOwned(t *testing.T) {
 	svc := makeProxyService(
 		router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"},
 		map[string]providers.Client{providers.ProviderAnthropic: provider},
-	).WithNativeAnthropicResponseSignals(true)
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))

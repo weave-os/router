@@ -11,9 +11,12 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -79,16 +82,15 @@ func TestProxyMessages_OverEngineerCap_CoveringSubscription_ServesFreeNo402(t *t
 	obs.Record(obs.Key([]byte(subToken)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
-		WithUsageObserver(obs).
-		WithBillingService(billing.NewService(repo))
+	svc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()), proxy.Deps{Telemetry: proxy.TelemetryDeps{Billing: billing.NewService(repo)}}).
+		WithUsageObserver(obs)
 
 	// The auth middleware resolves these onto ctx: org id, user id, the
 	// usage-bypass config, and the Claude subscription token.
-	ctx := context.WithValue(context.Background(), proxy.ExternalIDContextKey{}, "org-capped")
+	ctx := context.WithValue(context.Background(), requestcontext.ExternalIDContextKey{}, "org-capped")
 	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "engineer-1")
-	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true})
-	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, subToken)
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
+	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, subToken)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -123,16 +125,15 @@ func TestProxyMessages_OverEngineerCap_WarningAlreadyShown_NotRepeated(t *testin
 	obs.Record(obs.Key([]byte(subToken)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
-		WithUsageObserver(obs).
-		WithBillingService(billing.NewService(repo))
+	svc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()), proxy.Deps{Telemetry: proxy.TelemetryDeps{Billing: billing.NewService(repo)}}).
+		WithUsageObserver(obs)
 
 	// The auth middleware resolves these onto ctx: org id, user id, the
 	// usage-bypass config, and the Claude subscription token.
-	ctx := context.WithValue(context.Background(), proxy.ExternalIDContextKey{}, "org-capped")
+	ctx := context.WithValue(context.Background(), requestcontext.ExternalIDContextKey{}, "org-capped")
 	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "engineer-1")
-	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true})
-	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, subToken)
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
+	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, subToken)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -165,13 +166,12 @@ func TestProxyMessages_OverEngineerCap_NoSubscription_402s(t *testing.T) {
 
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6"}}
 	p := &fakeProvider{proxyResponse: bypassStreamResponse}
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
-		WithBillingService(billing.NewService(repo))
+	svc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()), proxy.Deps{Telemetry: proxy.TelemetryDeps{Billing: billing.NewService(repo)}})
 
 	// Usage-bypass enabled but no subscription credential on the request.
-	ctx := context.WithValue(context.Background(), proxy.ExternalIDContextKey{}, "org-capped")
+	ctx := context.WithValue(context.Background(), requestcontext.ExternalIDContextKey{}, "org-capped")
 	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "engineer-1")
-	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -207,14 +207,13 @@ func TestProxyMessages_OverEngineerCap_ExhaustedSubscription_Refuses402(t *testi
 	obs.Record(obs.Key([]byte(subToken)), usage.Snapshot{
 		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
 	})
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
-		WithUsageObserver(obs).
-		WithBillingService(billing.NewService(repo))
+	svc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()), proxy.Deps{Telemetry: proxy.TelemetryDeps{Billing: billing.NewService(repo)}}).
+		WithUsageObserver(obs)
 
-	ctx := context.WithValue(context.Background(), proxy.ExternalIDContextKey{}, "org-capped")
+	ctx := context.WithValue(context.Background(), requestcontext.ExternalIDContextKey{}, "org-capped")
 	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "engineer-1")
-	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true})
-	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, subToken)
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, requestcontext.UsageBypassConfig{Enabled: true})
+	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, subToken)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -223,7 +222,7 @@ func TestProxyMessages_OverEngineerCap_ExhaustedSubscription_Refuses402(t *testi
 
 	err := svc.ProxyMessages(claudeCreditFallbackContext(ctx), body, rec, req)
 	require.Error(t, err, "over-cap engineer with an exhausted subscription must be refused")
-	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
+	require.ErrorIs(t, err, credentials.ErrCreditsExhaustedSubscriptionUnavailable,
 		"the refusal must be the credits-exhausted sentinel so the API mapper emits HTTP 402 with the top-up CTA")
 	assert.Empty(t, p.proxyBodies, "no dispatch may occur when both the cap and the subscription are spent")
 	assert.Empty(t, repo.recordedDebits(),

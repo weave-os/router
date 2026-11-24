@@ -39,7 +39,7 @@ func TestSubscriptionFailover_RecordsAttemptSeparatelyFromUse(t *testing.T) {
 				}
 				svc := in.quotaService(upstream)
 				telemetry := &auxTelemetryRepo{}
-				svc.telemetry = telemetry
+				svc.turnTelemetry.repo = telemetry
 				rec, req, body := in.request(t, false)
 
 				err := in.call(svc, in.subCtx(), body, rec, req)
@@ -90,7 +90,7 @@ func TestSiblingRescue_RecordsAttemptSeparatelyFromUse(t *testing.T) {
 					rescuableDecision("hmm:authoritative model="+rescuedPrimaryModel, true),
 					&failingClient{err: upstream502}, &servingClient{err: tc.siblingErr}, true)
 				telemetry := &auxTelemetryRepo{}
-				svc.telemetry = telemetry
+				svc.turnTelemetry.repo = telemetry
 
 				err := ingress.call(svc, rescuedFailureCtx(), ingress.body, httptest.NewRecorder(),
 					httptest.NewRequestWithContext(t.Context(), http.MethodPost, ingress.path, strings.NewReader(string(ingress.body))))

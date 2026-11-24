@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -32,22 +33,22 @@ func withLongThrottledClaudeSeats(svc *proxy.Service, h *goldenHarness) *proxy.S
 // Claude seats are all rate-limited past the short wait.
 func goldenNoLoginLongThrottledClaudeSeatsCtx(ctx context.Context) context.Context {
 	models := []string{goldenAnthropicModel}
-	ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
+	ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 	ctx = proxy.WithSubscriptionStateModels(ctx, models, models)
 	cooldown := goldenClaudeSeatLongCooldown
-	ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
+	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
 		{ID: "claude-seat-a", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooldown},
 		{ID: "claude-seat-b", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooldown},
 		{ID: "claude-own-seat", Provider: auth.SubscriptionProviderClaude, Enabled: false, State: auth.SubscriptionAccountStateDisabled},
 	})
-	return proxy.WithManagedSubscriptionUsage(ctx)
+	return credentials.WithManagedSubscriptionUsage(ctx)
 }
 
 func goldenNoLoginLongThrottledClaudeSeatsScenario(suffix string, forced bool) goldenScenario {
 	headers := goldenCodexSessionHeadersFor(suffix)
 	name := ingressResponses + "_stream_no_login_long_claude_seat_throttle_funds_credits"
 	if forced {
-		headers[proxy.ForceModelHeader] = goldenAnthropicModel
+		headers[requestcontext.ForceModelHeader] = goldenAnthropicModel
 		name = ingressResponses + "_stream_forced_no_login_long_claude_seat_throttle_funds_credits"
 	}
 	return goldenScenario{

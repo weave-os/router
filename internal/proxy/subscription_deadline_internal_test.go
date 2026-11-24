@@ -9,10 +9,13 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
 
@@ -23,9 +26,9 @@ const slowFirstOutput = 12 * time.Second
 
 // slowAttempt writes output after delay unless its context ends first, so a
 // pre-fix rotation timer that cancels in-flight inference makes it fail.
-func slowAttempt(buf *preludeBuffer, delay time.Duration, output string, seen *[]*Credentials) func(context.Context, router.Decision, dispatch.Upstream) error {
+func slowAttempt(buf *preludeBuffer, delay time.Duration, output string, seen *[]*requestcontext.Credentials) func(context.Context, router.Decision, dispatch.Upstream) error {
 	return func(ctx context.Context, _ router.Decision, _ dispatch.Upstream) error {
-		*seen = append(*seen, CredentialsFromContext(ctx))
+		*seen = append(*seen, credentials.CredentialsFromContext(ctx))
 		buf.Seal()
 		select {
 		case <-ctx.Done():
@@ -41,16 +44,16 @@ func TestLinkedClaudeSubscriptionSurvivesSlowFirstOutput(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic}}).
 			WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-		linked := &Credentials{APIKey: []byte("sk-ant-oat01-synthetic"), OAuth: true, Source: credSourceSubscription}
-		ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), CredentialsContextKey{}, linked)
+		linked := &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-synthetic"), OAuth: true, Source: requestcontext.SourceSubscription}
+		ctx := context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), requestcontext.CredentialsContextKey{}, linked)
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 		in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
-		var seen []*Credentials
+		var seen []*requestcontext.Credentials
 		in.Attempt = slowAttempt(buf, slowFirstOutput, "slow answer", &seen)
 
-		_, err := svc.dispatchWithFallback(ctx, in)
+		_, err := fallbackFor(svc).Dispatch(ctx, in)
 
 		require.NoError(t, err)
 		require.Equal(t, "slow answer", rec.Body.String())
@@ -80,17 +83,17 @@ func TestManagedSubscriptionSurvivesSlowFirstOutput(t *testing.T) {
 				buf := newPreludeBuffer(rec)
 				in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: tc.upstream}}, nil)
 				in.InitialDecision = router.Decision{Provider: tc.upstream, Model: tc.model}
-				var seen []*Credentials
+				var seen []*requestcontext.Credentials
 				in.Attempt = slowAttempt(buf, slowFirstOutput, "slow seat answer", &seen)
 
-				_, err := svc.dispatchWithFallback(ctx, in)
+				_, err := fallbackFor(svc).Dispatch(ctx, in)
 
 				require.NoError(t, err)
 				require.Equal(t, "slow seat answer", rec.Body.String())
 				require.Len(t, seen, 1)
 				require.Equal(t, "seat-a", seen[0].SubscriptionAccountID)
 				require.Empty(t, leaser.cooldownIDs, "a slow success must not cool down the account")
-				require.True(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{})).Served)
+				require.True(t, mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served)
 			})
 		})
 	}
@@ -107,7 +110,7 @@ func TestSecondAccountAdmittedBeforeBudgetMayFinishAfterIt(t *testing.T) {
 		in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
 		var seen []string
 		in.Attempt = func(ctx context.Context, _ router.Decision, _ dispatch.Upstream) error {
-			seen = append(seen, CredentialsFromContext(ctx).SubscriptionAccountID)
+			seen = append(seen, credentials.CredentialsFromContext(ctx).SubscriptionAccountID)
 			buf.Seal()
 			if len(seen) == 1 {
 				time.Sleep(9 * time.Second)
@@ -122,7 +125,7 @@ func TestSecondAccountAdmittedBeforeBudgetMayFinishAfterIt(t *testing.T) {
 			return err
 		}
 
-		_, err := svc.dispatchWithFallback(ctx, in)
+		_, err := fallbackFor(svc).Dispatch(ctx, in)
 
 		require.NoError(t, err)
 		require.Equal(t, []string{"seat-a", "seat-b"}, seen)
@@ -148,9 +151,9 @@ func TestSlowFailedAttemptsRemainBoundedByDistinctSeats(t *testing.T) {
 			return &providers.UpstreamErrorResponse{Status: 529}
 		}
 
-		_, err := svc.dispatchWithFallback(ctx, in)
+		_, err := fallbackFor(svc).Dispatch(ctx, in)
 
-		require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+		require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 		require.Equal(t, 2, calls)
 		require.Equal(t, 2, leaser.next, "each account is admitted once despite slow inference")
 	})
@@ -160,9 +163,9 @@ func TestCallerCancellationDuringSubscriptionAttemptIsTerminal(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic}}).
 			WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-		linked := &Credentials{APIKey: []byte("sk-ant-oat01-synthetic"), OAuth: true, Source: credSourceSubscription}
-		parent, cancel := context.WithCancel(WithManagedSubscriptionUsage(context.Background()))
-		ctx := context.WithValue(parent, CredentialsContextKey{}, linked)
+		linked := &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-synthetic"), OAuth: true, Source: requestcontext.SourceSubscription}
+		parent, cancel := context.WithCancel(credentials.WithManagedSubscriptionUsage(context.Background()))
+		ctx := context.WithValue(parent, requestcontext.CredentialsContextKey{}, linked)
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
@@ -176,7 +179,7 @@ func TestCallerCancellationDuringSubscriptionAttemptIsTerminal(t *testing.T) {
 			return ctx.Err()
 		}
 
-		_, err := svc.dispatchWithFallback(ctx, in)
+		_, err := fallbackFor(svc).Dispatch(ctx, in)
 
 		require.ErrorIs(t, err, context.Canceled)
 		require.Equal(t, 1, calls, "caller cancellation never triggers another attempt")
@@ -188,17 +191,17 @@ func TestStateModelsTerminalRejectionAfterBudgetIsNotRescued(t *testing.T) {
 	codex := &fakeClient{name: providers.ProviderOpenAI}
 	paid := &fakeClient{name: providers.ProviderOpenRouter}
 	// NewService owns background cache timers outside the synthetic-time bubble.
-	svc := withHMMPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, nil, false, "", "", nil)).
+	svc := withHMMPorts(NewService(stateModelRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}), nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true, subscriptions.ProviderCodex: true}})
 	synctest.Test(t, func(t *testing.T) {
-		ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
-		ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
-		ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
-		req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})}
+		ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+		req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: candidates.ModelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})}
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		var served []string
-		_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+		_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 			Writer: rec, Prelude: buf, SubscriptionStateRequest: &req,
 			SubscriptionStateWinnerProvider: new(string),
 			InitialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},

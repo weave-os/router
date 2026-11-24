@@ -9,8 +9,11 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -66,7 +69,7 @@ func ctxWithGatewayAliases(installationID string, models ...string) context.Cont
 		BaseURL:        "https://cortex.example.com/api/v2/cortex",
 		ModelAliases:   aliases,
 	}
-	return context.WithValue(authedCtx(installationID), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
+	return context.WithValue(authedCtx(installationID), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
 }
 
 // Prod 2026-08-28: a gateway key aliased a model the endpoint does not serve;
@@ -95,7 +98,7 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_ExcludedOnLaterTurns(t *t
 
 	gateway := &aliasGateway{unserved: unservedAlias}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
-		fr, map[string]providers.Client{providers.ProviderOpenAIGateway: gateway},
+		fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAIGateway: gateway}),
 		nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
 		nil), hmm.ServingPorts()).
@@ -119,7 +122,7 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_ExcludedOnLaterTurns(t *t
 	assert.NotContains(t, seen[1].ExcludedModels, servedAlias,
 		"only the model the endpoint refused is excluded")
 	assert.Equal(t, []string{servedAlias}, gateway.servedWith)
-	assert.Equal(t, servedAlias, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, servedAlias, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // The memo is per (endpoint, model): an alias the gateway does serve must stay
@@ -139,7 +142,7 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_KeepsServedAliasesRoutabl
 
 	gateway := &aliasGateway{unserved: unservedAlias}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
-		fr, map[string]providers.Client{providers.ProviderOpenAIGateway: gateway},
+		fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAIGateway: gateway}),
 		nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
 		nil), hmm.ServingPorts()).
@@ -150,7 +153,7 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_KeepsServedAliasesRoutabl
 		rec := httptest.NewRecorder()
 		require.NoError(t, svc.ProxyMessages(ctx, []byte(titleGenBody), rec,
 			httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
-		assert.Equal(t, servedAlias, rec.Header().Get(proxy.HeaderRouterModel))
+		assert.Equal(t, servedAlias, rec.Header().Get(requestcontext.HeaderRouterModel))
 	}
 	require.Len(t, seen, 2)
 	assert.NotContains(t, seen[1].ExcludedModels, servedAlias,
@@ -171,7 +174,7 @@ func TestService_HardPin_TitleGen_VendorModelNotFound_DoesNotExcludeModel(t *tes
 
 	vendor := &aliasGateway{unserved: servedAlias}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
-		fr, map[string]providers.Client{providers.ProviderAnthropic: vendor},
+		fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: vendor}),
 		nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
 		nil), hmm.ServingPorts()).

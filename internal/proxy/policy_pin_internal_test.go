@@ -7,17 +7,22 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
 
@@ -48,7 +53,7 @@ func TestApplyPolicyPinTelemetry(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			params := InsertTelemetryParams{}
+			params := turnrecord.InsertTelemetryParams{}
 			applyPolicyPinTelemetry(tc.ctx, &params, tc.metadata)
 			assert.Equal(t, tc.wantRequested, params.PolicyPinRequested)
 			assert.Equal(t, tc.wantHonoured, params.PolicyPinHonoured)
@@ -82,16 +87,16 @@ func TestClassifyDispatchError_PolicyPinUnavailableIs503WithTypedReason(t *testi
 	cls, ok := ClassifyDispatchError(errors.Join(errors.New("hmm: arm selection"), router.ErrPolicyPinUnavailable))
 
 	require.True(t, ok)
-	assert.Equal(t, DispatchErrorPolicyPinUnavailable, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorPolicyPinUnavailable, cls.Kind)
 	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 	assert.Contains(t, cls.Message, router.PolicyPinUnavailableReason)
 }
 
 func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{hmmServing: hmmPorts(), telemetry: sink}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: sink}}
 	installationID := uuid.New()
-	ctx := context.WithValue(pinnedContext(true), InstallationIDContextKey{}, installationID.String())
+	ctx := context.WithValue(pinnedContext(true), requestcontext.InstallationIDContextKey{}, installationID.String())
 
 	svc.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: "req-pin", RequestStart: time.Now(), RequestedModel: "claude-sonnet-5", Strategy: router.StrategyFromContext(ctx)}, turntype.TurnType("interactive"), true, router.ErrPolicyPinUnavailable)
 
@@ -113,8 +118,8 @@ func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 
 func TestRecordPolicyPinRouteFailureIsSilentWithoutAPin(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{hmmServing: hmmPorts(), telemetry: sink}
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: sink}}
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, uuid.New().String())
 
 	svc.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: "req-plain", RequestStart: time.Now(), RequestedModel: "claude-sonnet-5", Strategy: router.StrategyFromContext(ctx)}, turntype.TurnType("interactive"), false, errors.New("routing failed"))
 
@@ -138,7 +143,7 @@ func (r *countingPinnedRouter) Route(context.Context, router.Request) (router.De
 func pinnedTurnLoopService(t *testing.T, rt router.Router, store sessionpin.Store) *Service {
 	t.Helper()
 	clients := map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderOpenAI: nil}
-	return withHMMPorts(NewService(rt, clients, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	return withHMMPorts(NewService(rt, dispatch.NewClients(clients), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 }
 
 func pinnedTurnLoopEnvelope(t *testing.T) (*translate.RequestEnvelope, translate.RoutingFeatures) {
@@ -299,10 +304,10 @@ func TestRunTurnLoop_HonouredPinNeverServes200WithHonouredFalse(t *testing.T) {
 }
 
 func TestPolicyPinServedGuard(t *testing.T) {
-	served := turnLoopResult{Decision: router.Decision{Model: "m", Metadata: &router.RoutingMetadata{PolicyPinHonoured: true}}}
-	sticky := turnLoopResult{Decision: router.Decision{Model: "m"}, StickyHit: true, PinTier: "sticky"}
-	bypass := turnLoopResult{Decision: router.Decision{Model: "m"}, UsageBypass: true}
-	utility := turnLoopResult{Decision: router.Decision{Model: "m"}, HardPinned: true, Purpose: inference.Purpose("title_generation")}
+	served := routingpolicy.TurnRoute{Decision: router.Decision{Model: "m", Metadata: &router.RoutingMetadata{PolicyPinHonoured: true}}}
+	sticky := routingpolicy.TurnRoute{Decision: router.Decision{Model: "m"}, StickyHit: true, PinTier: "sticky"}
+	bypass := routingpolicy.TurnRoute{Decision: router.Decision{Model: "m"}, UsageBypass: true}
+	utility := routingpolicy.TurnRoute{Decision: router.Decision{Model: "m"}, HardPinned: true, Purpose: inference.Purpose("title_generation")}
 
 	require.NoError(t, policyPinServed(pinnedContext(true), served))
 	require.ErrorIs(t, policyPinServed(pinnedContext(true), sticky), router.ErrPolicyPinUnavailable)

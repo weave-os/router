@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -13,12 +14,12 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-type TranslationCompatibilityMode string
+type TranslationCompatibilityMode = dispatch.TranslationCompatibilityMode
 
 const (
-	TranslationCompatibilityOff     TranslationCompatibilityMode = "off"
-	TranslationCompatibilityShadow  TranslationCompatibilityMode = "shadow"
-	TranslationCompatibilityEnforce TranslationCompatibilityMode = "enforce"
+	TranslationCompatibilityOff     = dispatch.TranslationCompatibilityOff
+	TranslationCompatibilityShadow  = dispatch.TranslationCompatibilityShadow
+	TranslationCompatibilityEnforce = dispatch.TranslationCompatibilityEnforce
 )
 
 var ErrTranslationIntrinsicallyIncompatible = errors.New("translation requirements are intrinsically incompatible")
@@ -118,13 +119,13 @@ func (s *Service) planTranslation(req router.Request) TranslationPlan {
 	}
 	if len(constraints) > 0 {
 		plan.TargetFamily = constraints[0].TargetFamily
-		candidates := candidateProviders(req.EnabledProviders, s.clients.NameSet())
+		candidates := candidateProviders(req.EnabledProviders, s.engine.Clients().NameSet())
 		for _, constraint := range constraints {
 			plan.Exclusions = append(plan.Exclusions, constraintExclusions(candidates, constraint, plan.Enforced)...)
 		}
 		if plan.Enforced {
 			plan.EnabledProviders = filterProvidersByConstraints(candidates, constraints)
-			plan.Unavailable = len(configuredProviders(plan.EnabledProviders, s.clients.NameSet())) == 0
+			plan.Unavailable = len(configuredProviders(plan.EnabledProviders, s.engine.Clients().NameSet())) == 0
 		}
 	}
 

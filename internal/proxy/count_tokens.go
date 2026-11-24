@@ -23,7 +23,7 @@ func (s *Service) countTokens(ctx context.Context, body []byte, w http.ResponseW
 	if router.IsRoutingModel(gjson.GetBytes(body, "model").String()) {
 		return writeLocalCountTokens(w, body)
 	}
-	if !s.anthropicCredentialReachable(ctx, r.Header) {
+	if !s.credentials.AnthropicCredentialReachable(ctx, r.Header, s.engine.Clients().Has) {
 		if err := writeLocalCountTokens(w, body); err == nil {
 			return nil
 		}

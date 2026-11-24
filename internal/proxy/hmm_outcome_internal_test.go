@@ -4,12 +4,14 @@ import (
 	"context"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -34,9 +36,9 @@ func (r *captureHMMOutcomeReporter) Route(context.Context, router.Request) (rout
 
 func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing.T) {
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
+	s := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
 
-	routeRes := turnLoopResult{
+	routeRes := routingpolicy.TurnRoute{
 		StickyHit: true,
 		Fresh: router.Decision{
 			Model:    "moonshotai/kimi-k2.7",
@@ -54,10 +56,10 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 		Provider: providers.ProviderAnthropic,
 	}
 
-	ctx := context.WithValue(context.Background(), PolicyTrainingAllowedContextKey{}, true)
-	ctx = context.WithValue(ctx, ExternalIDContextKey{}, "org-1")
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "installation-1")
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, RolloutID: "rollout-1"})
+	ctx := context.WithValue(context.Background(), requestcontext.PolicyTrainingAllowedContextKey{}, true)
+	ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "installation-1")
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex, RolloutID: "rollout-1"})
 	const (
 		inputTokens  = 90
 		outputTokens = 10
@@ -86,7 +88,7 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 		assert.Equal(t, "hmm-prod", payload["policy_artifact_id"])
 		assert.Equal(t, "org-1", payload["organization_id"])
 		assert.Equal(t, "installation-1", payload["installation_id"])
-		assert.Equal(t, ClientAppCodex, payload["client_app"])
+		assert.Equal(t, requestcontext.ClientAppCodex, payload["client_app"])
 		assert.Equal(t, "rollout-1", payload["rollout_id"])
 		assert.Equal(t, true, payload["training_allowed"])
 		assert.Equal(t, true, payload["sticky_hit"])
@@ -102,8 +104,8 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 
 func TestReportPolicyOutcome_OmitsResponseBodyWhenTrainingIsNotAllowed(t *testing.T) {
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
-	routeRes := turnLoopResult{Fresh: router.Decision{
+	s := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
+	routeRes := routingpolicy.TurnRoute{Fresh: router.Decision{
 		Model:    "moonshotai/kimi-k2.7",
 		Metadata: &router.RoutingMetadata{RouteID: "route-1", Strategy: string(router.StrategyHMM)},
 	}}
@@ -123,7 +125,7 @@ func TestReportPolicyOutcome_OmitsResponseBodyWhenTrainingIsNotAllowed(t *testin
 func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *testing.T) {
 	strategy := router.Strategy("authoritative-outcome-test")
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
+	s := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   reporter,
 	})
@@ -140,11 +142,11 @@ func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *test
 		Model:    "claude-haiku-4-5",
 		Provider: providers.ProviderAnthropic,
 	}
-	ctx := context.WithValue(context.Background(), PolicyTrainingAllowedContextKey{}, true)
+	ctx := context.WithValue(context.Background(), requestcontext.PolicyTrainingAllowedContextKey{}, true)
 
 	s.reportPolicyOutcome(
 		ctx,
-		turnLoopResult{Fresh: selected, AuthoritativePerTurn: true},
+		routingpolicy.TurnRoute{Fresh: selected, AuthoritativePerTurn: true},
 		served,
 		dispatch.EffortResolution{},
 		providers.ProviderAnthropic,
@@ -179,7 +181,7 @@ func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *test
 func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 	strategy := router.Strategy("effort-outcome-test")
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
+	s := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   reporter,
 	})
@@ -192,12 +194,12 @@ func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 			Strategy: string(strategy),
 		},
 	}
-	ctx := context.WithValue(context.Background(), PolicyTrainingAllowedContextKey{}, true)
+	ctx := context.WithValue(context.Background(), requestcontext.PolicyTrainingAllowedContextKey{}, true)
 	effort := effortResolutionFor(router.Lookup(decision.Model), decision.Effort, decision.Effort, dispatch.EffortSourceArm)
 
 	s.reportPolicyOutcome(
 		ctx,
-		turnLoopResult{Fresh: decision},
+		routingpolicy.TurnRoute{Fresh: decision},
 		decision,
 		effort,
 		providers.ProviderOpenAI,

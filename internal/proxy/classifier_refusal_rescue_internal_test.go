@@ -11,8 +11,10 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -83,12 +85,12 @@ func runRescueBypassOn(t *testing.T, p *modelScriptedProvider, retry bool, strea
 }
 
 func rescueService(p *modelScriptedProvider, retry bool, fallbackModel string) (*Service, *bypassCaptureTelemetry) {
-	svc := &Service{hmmServing: hmmPorts(), clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p})}
-	svc.anthropicServerSideFallback = true
-	svc.cyberRefusalRetry = retry
-	svc.cyberRefusalFallbackModel = fallbackModel
+	svc := &Service{strategyServing: hmmPorts(), engine: dispatch.NewEngine(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}))}
+	svc.rescueConfig.AnthropicServerSideFallback = true
+	svc.rescueConfig.CyberRefusalRetry = retry
+	svc.rescueConfig.CyberRefusalFallbackModel = fallbackModel
 	sink := newBypassCaptureTelemetry()
-	svc.telemetry = sink
+	svc.turnTelemetry.repo = sink
 	return svc, sink
 }
 
@@ -101,7 +103,7 @@ func runRescueWith(t *testing.T, svc *Service, body string) *httptest.ResponseRe
 	req.Header.Set("Authorization", "Bearer "+classifierTestSubToken)
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("anthropic-beta", classifierClientBeta)
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, uuid.New().String())
 
 	require.NoError(t, svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "req-rescue", "ext-rescue", turntype.Classifier, reasonClassifierPassthrough, req, rec))
 	return rec
@@ -124,7 +126,7 @@ func TestBypass_ClassifierRefusal_TriesNextModelWhenSubscriptionLacksReviewer(t 
 
 	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel, nextModel}, p.models)
 	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
-	assert.Equal(t, nextModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, nextModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Equal(t, nextModel, rescueTelemetryRow(t, sink).DecisionModel)
 }
 
@@ -181,7 +183,7 @@ func TestBypass_ClassifierRefusal_RescuesOnStrongestModelSubscriptionServed(t *t
 
 	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel, servedModel}, p.models)
 	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
-	assert.Equal(t, servedModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, servedModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // An Enterprise admin can restrict which models a seat may use, so a model
@@ -199,7 +201,7 @@ func TestBypass_ClassifierRefusal_DoesNotTryModelsSubscriptionNeverServed(t *tes
 	assert.JSONEq(t, rescueRefusal(rescueRefusingModel), rec.Body.String())
 }
 
-func rescueTelemetryRow(t *testing.T, sink *bypassCaptureTelemetry) InsertTelemetryParams {
+func rescueTelemetryRow(t *testing.T, sink *bypassCaptureTelemetry) turnrecord.InsertTelemetryParams {
 	t.Helper()
 	select {
 	case <-sink.notify:
@@ -227,7 +229,7 @@ func TestBypass_ClassifierRefusal_ReservedOnReviewerModel(t *testing.T) {
 
 	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel}, p.models)
 	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
-	assert.Equal(t, rescueReviewerModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, rescueReviewerModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 
 	require.Len(t, p.bodies, 2)
 	assert.False(t, gjson.GetBytes(p.bodies[1], "fallbacks").Exists())

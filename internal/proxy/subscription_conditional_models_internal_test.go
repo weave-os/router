@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -13,9 +15,9 @@ import (
 const conditionalModelsSubscriptionToken = "sk-ant-oat01-conditional-models"
 
 func conditionalModelsContext(active, inactive []string) context.Context {
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, conditionalModelsSubscriptionToken)
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, active)
-	return context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, inactive)
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, conditionalModelsSubscriptionToken)
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, active)
+	return context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, inactive)
 }
 
 func conditionalModelsObserverFor(token string, snapshot usage.Snapshot) *usage.Observer {
@@ -30,7 +32,7 @@ func conditionalModelsObserver(snapshot usage.Snapshot) *usage.Observer {
 }
 
 func TestPreferredModelsForRequest_SeparatesInstallationAndSubscriptionPreferences(t *testing.T) {
-	ctx := context.WithValue(context.Background(), InstallationPreferredModelsContextKey{}, []string{"grok-4.1-fast", "gpt-5.6-sol"})
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationPreferredModelsContextKey{}, []string{"grok-4.1-fast", "gpt-5.6-sol"})
 
-	assert.Equal(t, []string{"grok-4.1-fast", "gpt-5.6-sol"}, (&Service{hmmServing: hmmPorts()}).preferredModelsForRequest(ctx))
+	assert.Equal(t, []string{"grok-4.1-fast", "gpt-5.6-sol"}, preferredModelsForRequest(ctx))
 }

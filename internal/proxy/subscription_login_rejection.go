@@ -6,9 +6,11 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 )
 
 const codexLoginRejectedMessage = "Your ChatGPT (Codex) login was rejected. Sign in to Codex again or reconnect your Codex seat: " +
@@ -17,7 +19,7 @@ const codexLoginRejectedMessage = "Your ChatGPT (Codex) login was rejected. Sign
 var codexLoginRejectedBody = []byte(`{"error":{"type":"authentication_error","code":"token_revoked","message":"` + codexLoginRejectedMessage + `"}}`)
 
 func attributeCodexLoginRejection(err error) error {
-	if !codexOAuthCredentialRejected(err) {
+	if !credentials.CodexOAuthCredentialRejected(err) {
 		return err
 	}
 	rejection := &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized, Body: codexLoginRejectedBody}
@@ -35,32 +37,32 @@ func isOwnLoginRejection(err error) bool {
 }
 
 func ownCodexLoginRejected(ctx context.Context, headers http.Header, observer *usage.Observer) bool {
-	if ClientIdentityFrom(ctx).ClientApp != ClientAppCodex {
+	if requestcontext.ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppCodex {
 		return false
 	}
-	token, _ := presentSubscriptionTokens(ctx, headers)
+	token, _ := credentials.PresentSubscriptionTokens(ctx, headers)
 	return token != "" && observer != nil && observer.Rejected(observer.Key([]byte(token)))
 }
 
 func includedFailureAfter(prev, err error, ownLoginRejected bool) error {
 	switch {
-	case codexOAuthCredentialRejected(prev):
+	case credentials.CodexOAuthCredentialRejected(prev):
 		return prev
-	case ownLoginRejected && codexOAuthCredentialRejected(err), providers.IsUpstreamRateLimited(err):
+	case ownLoginRejected && credentials.CodexOAuthCredentialRejected(err), providers.IsUpstreamRateLimited(err):
 		return err
 	}
 	return prev
 }
 
 func includedLaneVerdict(ctx context.Context) error {
-	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
-		return subscriptionPoolExhausted(ctx)
+	if billing.SubscriptionOnlyFromContext(ctx) && !credentials.LinkedFirst(ctx) {
+		return credentials.SubscriptionPoolExhausted(ctx)
 	}
 	return nil
 }
 
 func flushIncludedLaneVerdict(in dispatch.FailoverInputs, err error) error {
-	if !isSubscriptionPoolError(err) && in.FlushErr != nil && !in.DeferFlushOnExhaustion {
+	if !credentials.IsSubscriptionPoolError(err) && in.FlushErr != nil && !in.DeferFlushOnExhaustion {
 		in.FlushErr(in.Writer, err)
 	}
 	return err

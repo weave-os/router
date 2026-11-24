@@ -2,13 +2,15 @@ package proxy
 
 import (
 	"context"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
-func applyServedTurnTelemetry(ctx context.Context, ports continuity.StrategyPorts, tel *InsertTelemetryParams, routeRes turnLoopResult, decision router.Decision, effortServed dispatch.EffortResolution) {
+func applyServedTurnTelemetry(ctx context.Context, ports continuity.StrategyPorts, tel *turnrecord.InsertTelemetryParams, routeRes routingpolicy.TurnRoute, decision router.Decision, effortServed dispatch.EffortResolution) {
 	applyServedGroupTelemetry(ports, ctx, tel, routeRes, decision)
 	applyPlannerTelemetry(tel, routeRes)
 	applyEffortTelemetry(tel, effortServed)
@@ -19,7 +21,7 @@ func applyServedTurnTelemetry(ctx context.Context, ports continuity.StrategyPort
 	applyAgreementShadowTelemetry(ports, ctx, tel, routeRes)
 }
 
-func applyTelemetrySettlement(tel *InsertTelemetryParams, billable bool, settlement subscriberSettlementState) {
+func applyTelemetrySettlement(tel *turnrecord.InsertTelemetryParams, billable bool, settlement subscriberSettlementState) {
 	if billable {
 		applySubscriberSettlementTelemetry(settlement, tel)
 	} else {

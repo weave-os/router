@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
@@ -29,32 +30,33 @@ type compactionSummarizer struct {
 func (s *Service) routeCompaction(
 	ctx context.Context,
 	req router.Request,
-	res turnLoopResult,
+	res routingpolicy.TurnRoute,
 	reqHeaders http.Header,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	forceModelFound bool,
 	forceModelPin sessionpin.Pin,
-) (turnLoopResult, error) {
+) (routingpolicy.TurnRoute, error) {
 	if s.pinStore == nil {
-		return s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
+		return s.routeWithoutPin(ctx, target.Strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
-	res.SessionKey = target.sessionKey
+	res.SessionKey = target.SessionKey
 	if forceModelFound && candidates.ForcedPinEligible(forceModelPin, req) {
-		return s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
+		return s.routeWithoutPin(ctx, target.Strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 	session := compactionSession{
 		pins:           s.pinStore,
-		providers:      s.clients.NameSet(),
-		available:      s.availableModels,
+		providers:      s.engine.Clients().NameSet(),
+		available:      s.routing.AvailableModels(),
 		cortexGateways: cortexGatewayProvidersForRequest(ctx),
 		now:            s.clock.Now(),
+		history:        s.strategyPorts.History,
 	}
-	decision, strikes, ok := session.decision(ctx, target.sessionKey, res.PinRole, req)
+	decision, strikes, ok := session.decision(ctx, target.SessionKey, res.PinRole, req)
 	req = strikes.apply(req)
 	if ok {
 		scoreReq := req
 		scoreReq.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
-		if fresh, err := s.routeFor(ctx, target.strategy, scoreReq); err == nil {
+		if fresh, err := s.routeFor(ctx, target.Strategy, scoreReq); err == nil {
 			res.Fresh = fresh
 		}
 		res.Decision = decision
@@ -64,11 +66,11 @@ func (s *Service) routeCompaction(
 		res.Origin = policy.OverrideSourceSession
 		return res, nil
 	}
-	res, err := s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, false, sessionpin.Pin{})
+	res, err := s.routeWithoutPin(ctx, target.Strategy, req, res, reqHeaders, false, sessionpin.Pin{})
 	if err != nil || res.UsageBypass || res.CallerModelPassthrough {
 		return res, err
 	}
-	routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, target.strategy).WriteNew(ctx, target.installationID, target.sessionKey, res.PinRole, res.Decision)
+	routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, target.Strategy).WriteNew(ctx, target.InstallationID, target.SessionKey, res.PinRole, res.Decision)
 	return res, nil
 }
 
@@ -78,6 +80,7 @@ type compactionSession struct {
 	available      map[string]struct{}
 	cortexGateways map[string]struct{}
 	now            time.Time
+	history        continuity.SwitchHistory
 }
 
 type sessionStrikes struct {
@@ -106,7 +109,7 @@ func (st sessionStrikes) apply(req router.Request) router.Request {
 func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (router.Decision, sessionStrikes, bool) {
 	var served sessionpin.Pin
 	var strikes sessionStrikes
-	for _, pinRole := range []string{role, hmmHistoryRole(role)} {
+	for _, pinRole := range []string{role, c.history.HistoryRole(role)} {
 		pin, found, err := c.pins.Get(ctx, sessionKey, pinRole)
 		if err != nil {
 			observability.FromContext(ctx).Error("Compaction session history unavailable", "role", pinRole, "err", err)
@@ -164,11 +167,11 @@ func (s *Service) crossGatewayRescuers(ctx context.Context, primary compactionSu
 		if !held || provider == primary.provider || catalog.TierFor(model) < catalog.TierMid {
 			continue
 		}
-		if _, excluded := req.Candidates.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
+		if _, excluded := req.Candidates.ExcludedModels[model]; excluded || candidates.AutomaticallyDisabled(req, model) {
 			continue
 		}
-		if s.availableModels != nil {
-			if _, available := s.availableModels[model]; !available {
+		if s.routing.AvailableModels() != nil {
+			if _, available := s.routing.AvailableModels()[model]; !available {
 				continue
 			}
 		}

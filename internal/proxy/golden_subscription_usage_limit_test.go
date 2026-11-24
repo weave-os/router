@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -32,13 +33,13 @@ func withCodexAndClaudeSeats(svc *proxy.Service, h *goldenHarness) *proxy.Servic
 
 func goldenCodexAndClaudeSeatsCtx(ctx context.Context) context.Context {
 	models := []string{goldenCodexModel, goldenAnthropicModel}
-	ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
+	ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 	ctx = proxy.WithSubscriptionStateModels(ctx, models, models)
-	ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
+	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
 		{ID: "codex-seat", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive},
 		{ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive},
 	})
-	return proxy.WithManagedSubscriptionUsage(ctx)
+	return credentials.WithManagedSubscriptionUsage(ctx)
 }
 
 // goldenSubscriptionUsageLimitScenarios pin a Codex tool turn whose picked

@@ -1,0 +1,54 @@
+package proxy
+
+import (
+	"context"
+	"log/slog"
+	"time"
+	"weave-os/router/internal/routingpolicy"
+
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry/spans"
+)
+
+type routeTurnRequest struct {
+	Request        router.Request
+	Started        time.Time
+	Failure        routeFailureRequest
+	FailureMessage string
+	IsUserPrompt   bool
+}
+
+func routeTurn(ctx context.Context, s *Service, clock auth.Clock, log *slog.Logger, turn routeTurnRequest, route func(routeCtx context.Context) (routingpolicy.TurnRoute, error)) (routingpolicy.TurnRoute, int64, error) {
+	routeCtx, routeSpan := spans.StartRoutingSpan(ctx, turn.Failure.Strategy, turn.Request)
+	routeRes, err := route(routeCtx)
+	spans.FinishRoutingSpan(routeSpan, routeRes.Decision, err)
+	routeMs := clock.Now().Sub(turn.Started).Milliseconds()
+	if err != nil {
+		log.Error(turn.FailureMessage, "err", err, "route_ms", routeMs, "requested_model", turn.Request.RequestedModel, "total_input_tokens", turn.Request.EstimatedInputTokens)
+		s.recordPolicyPinRouteFailure(ctx, turn.Failure, routeRes.TurnType, turn.IsUserPrompt, err)
+	}
+	return routeRes, routeMs, err
+}
+
+func withRouteSessionState(ctx context.Context, routeRes routingpolicy.TurnRoute) context.Context {
+	if len(routeRes.SessionDisabledProviders) > 0 {
+		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
+	}
+	if len(routeRes.ObservedOverflowModels) > 0 {
+		ctx = context.WithValue(ctx, ObservedOverflowModelsContextKey{}, routeRes.ObservedOverflowModels)
+	}
+	if len(routeRes.SessionDemotedModels) > 0 {
+		ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, routeRes.SessionDemotedModels)
+		if len(routeRes.SessionCooldownModels) > 0 {
+			ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, routeRes.SessionCooldownModels)
+		}
+		if len(routeRes.SessionStrikeReadmitModels) > 0 {
+			ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, routeRes.SessionStrikeReadmitModels)
+		}
+	}
+	if len(routeRes.CooldownProbeDeniedModels) > 0 {
+		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, routeRes.CooldownProbeDeniedModels)
+	}
+	return ctx
+}

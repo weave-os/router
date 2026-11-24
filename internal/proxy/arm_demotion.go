@@ -3,20 +3,39 @@ package proxy
 import (
 	"context"
 	"errors"
-	"net/http"
 	"slices"
-	"strings"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/translate"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 )
+
+type sessionArmDemoter struct {
+	s       *Service
+	target  routingpolicy.SessionTarget
+	role    string
+	pinRole string
+}
+
+func (d sessionArmDemoter) DemoteArm(ctx context.Context, model string, reason sessionpin.DemotionReason, cooldownUntil time.Time, upstreamStatus int) bool {
+	return d.s.demoteArmForSession(ctx, model, reason, cooldownUntil, upstreamStatus, d.target, d.role, d.pinRole)
+}
+
+func sessionArmDemoterFor(s *Service, target routingpolicy.SessionTarget, role, pinRole string) dispatch.SessionArmDemoter {
+	if s.pinStore == nil || target.InstallationID == uuid.Nil || target.SessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return nil
+	}
+	return sessionArmDemoter{s: s, target: target, role: role, pinRole: pinRole}
+}
 
 func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 	ctx context.Context,
@@ -25,38 +44,13 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 	proxyErr error,
 	model string,
 	decisionReason string,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role string,
 	pinRole string,
 ) string {
-	if !s.ResolveCommittedStreamArmDemotion(ctx) || s.pinStore == nil || target.installationID == uuid.Nil {
-		return ""
-	}
-	if target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) || model == "" || hardPinned {
-		return ""
-	}
-	if strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
-		return ""
-	}
-	if !committedStream || !isCommittedStreamFailure(ctx, proxyErr) {
-		return ""
-	}
-	if !s.demoteArmForSession(ctx, model, sessionpin.DemotionReasonCommittedStreamFailure, time.Time{}, upstreamStatus(proxyErr), target, role, pinRole) {
-		return ""
-	}
-	return model
-}
-
-func (s *Service) maybeDemoteArmAfterRescuedFailure(
-	ctx context.Context,
-	rescueRan bool,
-	hardPinned bool,
-	primaryErr error,
-	primary router.Decision,
-	target sessionTarget,
-) string {
-	model, _ := s.maybeStrikeArmAfterRescuedFailure(ctx, rescueRan, hardPinned, primaryErr, primary, target, sessionpin.DefaultRole, sessionpin.DefaultRole)
-	return model
+	return s.armDemotion.AfterCommittedStreamFailure(ctx, committedStream, dispatch.ArmFailure{
+		Session: sessionArmDemoterFor(s, target, role, pinRole), HardPinned: hardPinned, Err: proxyErr, Model: model, Reason: decisionReason,
+	})
 }
 
 func (s *Service) maybeStrikeArmAfterRescuedFailure(
@@ -65,54 +59,20 @@ func (s *Service) maybeStrikeArmAfterRescuedFailure(
 	hardPinned bool,
 	primaryErr error,
 	primary router.Decision,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role string,
 	pinRole string,
 ) (string, sessionpin.DemotionReason) {
-	if s.pinStore == nil || target.installationID == uuid.Nil {
-		return "", ""
-	}
-	if target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) || primary.Model == "" || hardPinned {
-		return "", ""
-	}
-	if strings.HasPrefix(primary.Reason, translate.ReasonUserForceModel) {
-		return "", ""
-	}
-	headerTimeout := providers.IsResponseHeaderTimeout(primaryErr)
-	if (!rescueRan && !headerTimeout) || (rescueRan && !isRescuedPrimaryFailure(primaryErr)) {
-		return "", ""
-	}
-	if !s.ResolveRescuedFailureArmDemotion(ctx) {
-		if rescueRan {
-			recordTurnFailure(ctx, primary.Model)
-		}
-		return "", ""
-	}
-	reason, cooldownUntil := sessionpin.DemotionReasonRescuedFailure, time.Time{}
-	if headerTimeout {
-		reason = sessionpin.DemotionReasonResponseHeaderTimeout
-	} else if s.ResolveTransientRateLimit(ctx) && isTransientGatewayFailure(primaryErr) {
-		cooldown := s.ResolveRateLimitCooldown(ctx)
-		reason, cooldownUntil = sessionpin.DemotionReasonTransientFailure, s.clock.Now().Add(cooldown)
-		dispatch.ThrottleLedgerFromContext(ctx).RecordCooldown(cooldownUntil, cooldown)
-	} else if s.ResolveTransientRateLimit(ctx) && isRateLimitedPrimaryFailure(primaryErr) {
-		cooldown := s.ResolveRateLimitCooldown(ctx)
-		reason, cooldownUntil = sessionpin.DemotionReasonRateLimited, s.clock.Now().Add(cooldown)
-		dispatch.ThrottleLedgerFromContext(ctx).RecordCooldown(cooldownUntil, cooldown)
-	}
-	if !s.demoteArmForSession(ctx, primary.Model, reason, cooldownUntil, upstreamStatus(primaryErr), target, role, pinRole) {
-		return "", ""
-	}
-	return primary.Model, reason
-}
-
-func isTransientGatewayFailure(err error) bool {
-	switch upstreamStatus(err) {
-	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		return true
-	default:
-		return false
-	}
+	return s.armDemotion.StrikeAfterRescuedFailure(ctx, dispatch.RescuedFailureStrike{
+		ArmFailure: dispatch.ArmFailure{
+			Session: sessionArmDemoterFor(s, target, role, pinRole), HardPinned: hardPinned, Err: primaryErr, Model: primary.Model, Reason: primary.Reason,
+		},
+		RescueRan:             rescueRan,
+		RescuedPrimaryFailure: isRescuedPrimaryFailure(primaryErr),
+		RateLimit:             s.throttling.RateLimit,
+		Now:                   s.clock.Now,
+		RecordTurnFailure:     requestcontext.RecordTurnFailure,
+	})
 }
 
 func (s *Service) maybeDemoteArmAfterUnrescuedStall(
@@ -120,18 +80,26 @@ func (s *Service) maybeDemoteArmAfterUnrescuedStall(
 	rescueRan, committed, hardPinned bool,
 	stallErr error,
 	failed router.Decision,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role, pinRole string,
 ) string {
-	if !s.ResolveRescuedFailureArmDemotion(ctx) || s.pinStore == nil || target.installationID == uuid.Nil ||
-		target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) || failed.Model == "" || hardPinned || rescueRan || committed || ctx.Err() != nil ||
-		strings.HasPrefix(failed.Reason, translate.ReasonUserForceModel) || !isUpstreamWatchdogError(stallErr) {
-		return ""
-	}
-	if !s.demoteArmForSession(ctx, failed.Model, sessionpin.DemotionReasonUnrescuedStall, time.Time{}, upstreamStatus(stallErr), target, role, pinRole) {
-		return ""
-	}
-	return failed.Model
+	return s.armDemotion.AfterUnrescuedStall(ctx, rescueRan, committed, dispatch.ArmFailure{
+		Session: sessionArmDemoterFor(s, target, role, pinRole), HardPinned: hardPinned, Err: stallErr, Model: failed.Model, Reason: failed.Reason,
+	})
+}
+
+func isUpstreamWatchdogError(err error) bool { return providers.IsUpstreamWatchdogError(err) }
+
+func (s *Service) maybeDemoteArmAfterRescuedFailure(
+	ctx context.Context,
+	rescueRan bool,
+	hardPinned bool,
+	primaryErr error,
+	primary router.Decision,
+	target routingpolicy.SessionTarget,
+) string {
+	model, _ := s.maybeStrikeArmAfterRescuedFailure(ctx, rescueRan, hardPinned, primaryErr, primary, target, sessionpin.DefaultRole, sessionpin.DefaultRole)
+	return model
 }
 
 func (s *Service) demoteArmForSession(
@@ -140,7 +108,7 @@ func (s *Service) demoteArmForSession(
 	reason sessionpin.DemotionReason,
 	cooldownUntil time.Time,
 	primaryStatus int,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role string,
 	pinRole string,
 ) bool {
@@ -166,8 +134,8 @@ func (s *Service) demoteArmForSession(
 		log.Warn("session pin store cannot persist a cooldown, demoting for the session", "model", model, "reason", string(reason))
 		cooldownUntil = time.Time{}
 	}
-	for _, strikeRole := range demotionRoles(role, pinRole) {
-		expired := expiredSessionPin(target.installationID, target.sessionKey, strikeRole, string(reason), target.strategy, s.clock.Now())
+	for _, strikeRole := range demotionRoles(s.strategyPorts.History, role, pinRole) {
+		expired := expiredSessionPin(target.InstallationID, target.SessionKey, strikeRole, string(reason), target.Strategy, s.clock.Now())
 		var err error
 		if cooldownUntil.IsZero() {
 			err = s.pinStore.ExpireAndDemoteModel(context.WithoutCancel(ctx), expired, model, reason)
@@ -179,7 +147,7 @@ func (s *Service) demoteArmForSession(
 			return false
 		}
 	}
-	if err := s.invalidatePostCommandContinuation(ctx, target.strategy, target.sessionKey, pinRole); err != nil {
+	if err := postCommandContinuation(s, target.Strategy).Invalidate(ctx, target.SessionKey, pinRole); err != nil {
 		log.Error("continuation invalidation after session model demotion failed", "err", err, "role", role, "pin_role", pinRole, "model", model, "reason", string(reason))
 		return false
 	}
@@ -202,9 +170,9 @@ func (s *Service) demoteArmForSession(
 	return true
 }
 
-func demotionRoles(role, pinRole string) []string {
+func demotionRoles(history continuity.SwitchHistory, role, pinRole string) []string {
 	roles := make([]string, 0, 3)
-	for _, candidate := range []string{role, pinRole, hmmHistoryRole(pinRole)} {
+	for _, candidate := range []string{role, pinRole, history.HistoryRole(pinRole)} {
 		if !slices.Contains(roles, candidate) {
 			roles = append(roles, candidate)
 		}
@@ -263,46 +231,8 @@ func isRescuedPrimaryFailure(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
-	if providers.IsUpstreamModelNotFound(err) || isSubscriptionPoolError(err) {
+	if providers.IsUpstreamModelNotFound(err) || credentials.IsSubscriptionPoolError(err) {
 		return false
 	}
 	return upstreamStatus(err) != providerOverloadedStatus
-}
-
-func isCommittedStreamFailure(ctx context.Context, err error) bool {
-	if err == nil {
-		return false
-	}
-	err = dispatchErrorBehindFrames(err)
-	if isUpstreamWatchdogError(err) || isUpstreamWatchdogError(context.Cause(ctx)) {
-		return true
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return false
-	}
-	switch status := upstreamStatus(err); {
-	case status == providerOverloadedStatus:
-		return false
-	case status >= http.StatusInternalServerError:
-		return true
-	case status != 0:
-		return false
-	}
-	return ctx.Err() == nil
-}
-
-func dispatchErrorBehindFrames(err error) error {
-	for {
-		var synthetic *providers.UpstreamStatusError
-		if !errors.As(err, &synthetic) || synthetic.Cause == nil {
-			return err
-		}
-		err = synthetic.Cause
-	}
-}
-
-func isUpstreamWatchdogError(err error) bool {
-	return errors.Is(err, providers.ErrUpstreamIdleTimeout) ||
-		errors.Is(err, providers.ErrUpstreamOutputStall) ||
-		errors.Is(err, providers.ErrUpstreamSlowThroughput)
 }

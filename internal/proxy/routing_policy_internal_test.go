@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -48,7 +50,7 @@ func TestExplicitRoutingPolicyPrecedesClassifierAndPins(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
 			pins := newStubPinStore()
-			service := withHMMPorts(NewService(routerSpy, nil, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
+			service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 			authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: tc.mode, assigned: tc.assigned}, nil)
 			ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 			require.NoError(t, err)
@@ -93,21 +95,21 @@ func TestRoutingPolicyPreservesExplicitForcedModel(t *testing.T) {
 					pins.getFound = true
 					pins.getPin = sessionpin.Pin{
 						Model: catalog.ModelIDClaudeHaiku45.String(), Provider: providers.ProviderAnthropic,
-						Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires,
+						Reason: translate.ReasonUserForceModel, PinnedUntil: routingpolicy.PinNeverExpires,
 					}
 					if tc.cleared {
-						pins.getPin.Reason = userUnforcedReason
+						pins.getPin.Reason = routingpolicy.ReasonUserUnforced
 					}
 				}
 				routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-				service := withHMMPorts(NewService(routerSpy, nil, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
+				service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 				authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: mode}, nil)
 				ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 				require.NoError(t, err)
 				ctx, err = authService.WithRoutingAssignment(ctx, "installation", "user")
 				require.NoError(t, err)
 				if tc.excluded {
-					ctx = context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{catalog.ModelIDClaudeHaiku45.String()})
+					ctx = context.WithValue(ctx, requestcontext.InstallationExcludedModelsContextKey{}, []string{catalog.ModelIDClaudeHaiku45.String()})
 				}
 				envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
 				require.NoError(t, err)
@@ -135,7 +137,7 @@ func TestRoutingPolicyPreservesExplicitForcedModel(t *testing.T) {
 }
 
 func TestRoutingPolicyPassthroughUnknownModelIsAttributedToPolicy(t *testing.T) {
-	service := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)
 	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 	require.NoError(t, err)
@@ -231,7 +233,7 @@ func TestCallerRoutingStateFollowsRoutingPrecedence(t *testing.T) {
 
 func TestClientSelectedModelBypassesRoutingAndPins(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-	service := withHMMPorts(NewService(routerSpy, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
+	service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyAssigned, assigned: true}, nil)
 	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 	require.NoError(t, err)
@@ -254,7 +256,7 @@ func TestClientSelectedModelBypassesRoutingAndPins(t *testing.T) {
 func TestRouterOnExperimentArmRoutesClientSelectedModel(t *testing.T) {
 	routed := router.Decision{Model: catalog.ModelIDClaudeHaiku45.String(), Provider: providers.ProviderAnthropic}
 	routerSpy := &blindExperimentRouterSpy{decision: routed}
-	service := withHMMPorts(NewService(routerSpy, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
+	service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
 	ctx = auth.WithClientModelPassthrough(ctx)
 	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
@@ -270,7 +272,7 @@ func TestRouterOnExperimentArmRoutesClientSelectedModel(t *testing.T) {
 }
 
 func TestClientSelectedUnknownModelIsNotAttributedToPolicy(t *testing.T) {
-	service := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 
 	_, err := service.callerModelPassthroughDecision(auth.WithClientModelPassthrough(context.Background()), router.Request{
 		RequestedModel:   "auto",
@@ -284,10 +286,10 @@ func TestClientSelectedUnknownModelIsNotAttributedToPolicy(t *testing.T) {
 
 func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 	picked := func() context.Context {
-		return auth.WithClientModelPassthrough(context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken))
+		return auth.WithClientModelPassthrough(context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken))
 	}
 	creditFallback := func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, InstallationPickedModelCreditFallbackContextKey{}, true)
+		return context.WithValue(ctx, requestcontext.InstallationPickedModelCreditFallbackContextKey{}, true)
 	}
 	for _, tc := range []struct {
 		name       string
@@ -303,12 +305,12 @@ func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 		{name: "a pick the org routed instead is routed traffic", ctx: picked(), provider: providers.ProviderAnthropic},
 		{name: "a passthrough policy keeps own-plan funding under a router_on arm", ctx: auth.WithRoutingPolicy(context.WithValue(picked(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}), auth.RoutingPolicy{Mode: auth.RoutingPolicyPassthrough}), servedAsIs: true, provider: providers.ProviderAnthropic, wantOwn: true, wantPicked: true},
 		{name: "a router_on experiment arm funds the pick like routed traffic", ctx: context.WithValue(picked(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}), servedAsIs: true, provider: providers.ProviderAnthropic},
-		{name: "routed request is untouched", ctx: context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken), servedAsIs: true, provider: providers.ProviderAnthropic},
+		{name: "routed request is untouched", ctx: context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken), servedAsIs: true, provider: providers.ProviderAnthropic},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := withPickedModelFunding(tc.ctx, tc.servedAsIs, tc.provider)
 
-			assert.Equal(t, tc.wantOwn, pickedModelOnOwnPlan(ctx))
+			assert.Equal(t, tc.wantOwn, credentials.PickedModelOnOwnPlan(ctx))
 			assert.Equal(t, tc.wantOwn, paidFallbackForbidden(ctx))
 			assert.Equal(t, tc.wantPicked, auth.ClientModelPassthroughFrom(ctx))
 		})
@@ -316,38 +318,37 @@ func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 }
 
 func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
-	svc := &Service{hmmServing: hmmPorts(),
-		usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
-		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
-		clock:         func() time.Time { return time.Unix(1_000_000, 0) },
-	}
-	routed := withClaudeCreditFallback(context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken))
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(),
+		credentials: credentials.Brokerage{UsageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()), KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
+		clock:       func() time.Time { return time.Unix(1_000_000, 0) },
+	})
+	routed := withClaudeCreditFallback(context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken))
 	picked := withPickedModelFunding(auth.WithClientModelPassthrough(routed), true, providers.ProviderAnthropic)
 	model := catalog.ModelIDClaudeSonnet46.String()
 
 	assert.True(t, svc.claudeSubscriptionExhausted(routed, http.Header{}), "routed traffic leaves a spent plan")
 	assert.False(t, svc.claudeSubscriptionExhausted(picked, http.Header{}), "a pick stays on its own plan and lets the provider decide")
 	require.NoError(t, svc.subscriptionAPIAuthorization(routed, providers.ProviderAnthropic, model))
-	assert.ErrorIs(t, svc.subscriptionAPIAuthorization(picked, providers.ProviderAnthropic, model), ErrSubscriptionPoolUnavailable)
+	assert.ErrorIs(t, svc.subscriptionAPIAuthorization(picked, providers.ProviderAnthropic, model), credentials.ErrSubscriptionPoolUnavailable)
 }
 
 func TestPickedCodexModelMaySpendOwnCredits(t *testing.T) {
-	ctx := auth.WithClientModelPassthrough(context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, "codex-jwt"))
+	ctx := auth.WithClientModelPassthrough(context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "codex-jwt"))
 
 	assert.True(t, requestcontext.SubscriptionExtraUsageFrom(withPickedModelFunding(ctx, true, providers.ProviderOpenAI)))
 	assert.False(t, requestcontext.SubscriptionExtraUsageFrom(withPickedModelFunding(ctx, false, providers.ProviderOpenAI)))
 }
 
 func TestCodexPickFundsOnOwnPlan(t *testing.T) {
-	selected := withCodexSelectedModel(context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, "codex-jwt"), "gpt-6-astra", []byte(`{"reasoning":{"effort":"high"}}`))
-	creditFallback := context.WithValue(selected, InstallationPickedModelCreditFallbackContextKey{}, true)
+	selected := requestcontext.WithCodexSelectedModel(context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "codex-jwt"), "gpt-6-astra", []byte(`{"reasoning":{"effort":"high"}}`))
+	creditFallback := context.WithValue(selected, requestcontext.InstallationPickedModelCreditFallbackContextKey{}, true)
 
 	served := withCodexPickFunding(selected, "gpt-6-astra", providers.ProviderOpenAI)
-	assert.True(t, pickedModelOnOwnPlan(served))
+	assert.True(t, credentials.PickedModelOnOwnPlan(served))
 	assert.True(t, requestcontext.SubscriptionExtraUsageFrom(served))
-	assert.False(t, pickedModelOnOwnPlan(withCodexPickFunding(selected, "gpt-6.1-sol", providers.ProviderOpenAI)), "a pick the router did not serve funds like routed traffic")
-	assert.False(t, pickedModelOnOwnPlan(withCodexPickFunding(creditFallback, "gpt-6-astra", providers.ProviderOpenAI)))
-	assert.False(t, pickedModelOnOwnPlan(withCodexPickFunding(context.Background(), "gpt-6-astra", providers.ProviderOpenAI)), "launch models are not picks")
+	assert.False(t, credentials.PickedModelOnOwnPlan(withCodexPickFunding(selected, "gpt-6.1-sol", providers.ProviderOpenAI)), "a pick the router did not serve funds like routed traffic")
+	assert.False(t, credentials.PickedModelOnOwnPlan(withCodexPickFunding(creditFallback, "gpt-6-astra", providers.ProviderOpenAI)))
+	assert.False(t, credentials.PickedModelOnOwnPlan(withCodexPickFunding(context.Background(), "gpt-6-astra", providers.ProviderOpenAI)), "launch models are not picks")
 }
 
 func TestPickedModelWithoutOwnLoginUsesManagedPool(t *testing.T) {
@@ -386,7 +387,7 @@ func TestClientSelectedModelRoutesWhenNotServableAsIs(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			routerSpy := &blindExperimentRouterSpy{decision: routed}
-			service := withHMMPorts(NewService(routerSpy, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
+			service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 
 			turn, err := service.runTurnLoop(auth.WithClientModelPassthrough(context.Background()), envelope, envelope.RoutingFeatures(), testTurnRequest(auth.WithClientModelPassthrough(context.Background()), "api-key", uuid.New()), "", http.Header{}, tc.request)
 
@@ -400,7 +401,7 @@ func TestClientSelectedModelRoutesWhenNotServableAsIs(t *testing.T) {
 
 func TestClientSelectedModelKeepsPolicyPassthroughStrict(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-	service := withHMMPorts(NewService(routerSpy, nil, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
+	service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)
 	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 	require.NoError(t, err)

@@ -7,8 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -84,11 +86,11 @@ func TestProxyMessages_NativeToolUseStopPersistsLastToolDetail(t *testing.T) {
 			telem := newCaptureTelemetry()
 			svc := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: decision},
-				map[string]providers.Client{providers.ProviderAnthropic: provider},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: provider}),
 				nil, nil, false,
 				providers.ProviderAnthropic, "claude-opus-4-7", telem), hmm.ServingPorts())
 
-			ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
+			ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installID)
 			rec := httptest.NewRecorder()
 			httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 			err := svc.ProxyMessages(ctx, []byte(toolUseHistoryBody), rec, httpReq)
@@ -131,11 +133,11 @@ func TestProxyMessages_TranslatedToolUseStopPersistsLastToolDetail(t *testing.T)
 	telem := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna"}},
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false,
 		providers.ProviderAnthropic, "claude-opus-4-7", telem), hmm.ServingPorts())
 
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installID)
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(toolUseHistoryBody), rec, httpReq))

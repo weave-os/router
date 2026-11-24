@@ -9,11 +9,16 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +37,7 @@ func newCodexImagesUpstream(t *testing.T, quota string, images http.HandlerFunc)
 }
 
 func TestCodexImageRequest_ForwardsWithCallerOAuth(t *testing.T) {
-	for _, operation := range []string{proxy.CodexImageGenerations, proxy.CodexImageEdits} {
+	for _, operation := range []string{ingress.CodexImageGenerations, ingress.CodexImageEdits} {
 		t.Run(operation, func(t *testing.T) {
 			upstream := newCodexImagesUpstream(t, allowedCodexQuota, func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodPost, r.Method)
@@ -49,7 +54,7 @@ func TestCodexImageRequest_ForwardsWithCallerOAuth(t *testing.T) {
 			})
 			client := openai.NewClient("deployment-key", "https://api.openai.com")
 			client.SetCodexBaseURL(upstream.URL + "/codex")
-			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 			headers := make(http.Header)
 			headers.Set("Authorization", "Bearer subscription-token")
 			headers.Set("ChatGPT-Account-ID", "account-123")
@@ -74,13 +79,13 @@ func TestCodexImageRequest_RelaysUpstreamError(t *testing.T) {
 	})
 	client := openai.NewClient("deployment-key", "https://api.openai.com")
 	client.SetCodexBaseURL(upstream.URL + "/codex")
-	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 	headers := make(http.Header)
 	headers.Set("Authorization", "Bearer subscription-token")
 	headers.Set("ChatGPT-Account-ID", "account-123")
 	rec := httptest.NewRecorder()
 
-	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(context.Background(), headers, proxy.CodexImageGenerations, []byte(`{}`), rec)
+	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(context.Background(), headers, ingress.CodexImageGenerations, []byte(`{}`), rec)
 
 	var statusErr *providers.UpstreamStatusError
 	require.ErrorAs(t, err, &statusErr)
@@ -95,12 +100,12 @@ func TestCodexImageRequest_EnforcesIncludedQuotaGate(t *testing.T) {
 	})
 	client := openai.NewClient("deployment-key", "https://api.openai.com")
 	client.SetCodexBaseURL(upstream.URL + "/codex")
-	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 	headers := make(http.Header)
 	headers.Set("Authorization", "Bearer subscription-token")
 	headers.Set("ChatGPT-Account-ID", "account-123")
 
-	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(context.Background(), headers, proxy.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
+	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(context.Background(), headers, ingress.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
 
 	var quotaErr *providers.UpstreamErrorResponse
 	require.ErrorAs(t, err, &quotaErr)
@@ -114,7 +119,7 @@ func TestCodexImageRequest_ForwardsCallerAPIKeyToOpenAI(t *testing.T) {
 		wantKey string
 	}{
 		"client API key": {headers: http.Header{"Authorization": {"Bearer sk-synthetic-client"}}, ctx: context.Background(), wantKey: "sk-synthetic-client"},
-		"saved BYOK key": {headers: http.Header{}, ctx: context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-synthetic-byok")}}), wantKey: "sk-synthetic-byok"},
+		"saved BYOK key": {headers: http.Header{}, ctx: context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-synthetic-byok")}}), wantKey: "sk-synthetic-byok"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -131,10 +136,10 @@ func TestCodexImageRequest_ForwardsCallerAPIKeyToOpenAI(t *testing.T) {
 			defer upstream.Close()
 			client := openai.NewClient("deployment-key", upstream.URL)
 			client.SetCodexBaseURL(upstream.URL + "/codex")
-			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 			rec := httptest.NewRecorder()
 
-			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(tc.ctx, tc.headers, proxy.CodexImageEdits, []byte(`{"model":"gpt-image-2"}`), rec)
+			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(tc.ctx, tc.headers, ingress.CodexImageEdits, []byte(`{"model":"gpt-image-2"}`), rec)
 
 			require.NoError(t, err)
 			assert.Equal(t, http.StatusOK, rec.Code)
@@ -149,20 +154,20 @@ func TestCodexImageRequest_RequiresCallerOwnCredential(t *testing.T) {
 	defer upstream.Close()
 	client := openai.NewClient("deployment-key", upstream.URL)
 	client.SetCodexBaseURL(upstream.URL)
-	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
-	gatewayCtx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("synthetic-gateway"), BaseURL: "https://gateway.example"}})
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+	gatewayCtx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("synthetic-gateway"), BaseURL: "https://gateway.example"}})
 	cases := map[string]struct {
 		ctx     context.Context
 		headers http.Header
 		want    error
 	}{
-		"no credentials":  {context.Background(), http.Header{}, proxy.ErrCodexImagesRequireOwnCredential},
-		"router key only": {context.Background(), http.Header{"X-Weave-Router-Key": {"rk-synthetic"}}, proxy.ErrCodexImagesRequireOwnCredential},
-		"gateway tenancy": {gatewayCtx, http.Header{"Authorization": {"Bearer subscription-token"}, "Chatgpt-Account-Id": {"account-123"}}, proxy.ErrCodexImagesUnavailableWithGateway},
+		"no credentials":  {context.Background(), http.Header{}, ingress.ErrCodexImagesRequireOwnCredential},
+		"router key only": {context.Background(), http.Header{"X-Weave-Router-Key": {"rk-synthetic"}}, ingress.ErrCodexImagesRequireOwnCredential},
+		"gateway tenancy": {gatewayCtx, http.Header{"Authorization": {"Bearer subscription-token"}, "Chatgpt-Account-Id": {"account-123"}}, ingress.ErrCodexImagesUnavailableWithGateway},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(tc.ctx, tc.headers, proxy.CodexImageGenerations, []byte(`{}`), httptest.NewRecorder())
+			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(tc.ctx, tc.headers, ingress.CodexImageGenerations, []byte(`{}`), httptest.NewRecorder())
 			require.ErrorIs(t, err, tc.want)
 		})
 	}
@@ -170,7 +175,7 @@ func TestCodexImageRequest_RequiresCallerOwnCredential(t *testing.T) {
 
 func TestCodexImageRequest_RejectsUnknownOperation(t *testing.T) {
 	client := openai.NewClient("deployment-key", "https://api.openai.com")
-	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 	headers := make(http.Header)
 	headers.Set("Authorization", "Bearer subscription-token")
 	headers.Set("ChatGPT-Account-ID", "account-123")
@@ -198,11 +203,11 @@ func (l *linkedCodexSeat) Disable(context.Context, auth.SubscriptionOwner, subsc
 }
 
 type codexImageTelemetry struct {
-	proxy.TelemetryRepository
-	rows chan proxy.InsertTelemetryParams
+	turnrecord.TelemetryRepository
+	rows chan turnrecord.InsertTelemetryParams
 }
 
-func (t *codexImageTelemetry) InsertRequestTelemetry(_ context.Context, p proxy.InsertTelemetryParams) error {
+func (t *codexImageTelemetry) InsertRequestTelemetry(_ context.Context, p turnrecord.InsertTelemetryParams) error {
 	t.rows <- p
 	return nil
 }
@@ -226,12 +231,12 @@ func TestCodexImageRequest_ServesOnLinkedCodexSubscription(t *testing.T) {
 			client := openai.NewClient("deployment-key", upstream.URL)
 			client.SetCodexBaseURL(upstream.URL + "/codex")
 			seat := &linkedCodexSeat{}
-			telemetry := &codexImageTelemetry{rows: make(chan proxy.InsertTelemetryParams, 1)}
-			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts()).WithManagedSubscriptions(seat)
-			ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "00000000-0000-0000-0000-000000000001")
-			ctx = proxy.WithManagedSubscriptionCandidates(proxy.WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{{ID: "seat-1", Provider: auth.SubscriptionProvider(subscriptions.ProviderCodex), Enabled: true}})
+			telemetry := &codexImageTelemetry{rows: make(chan turnrecord.InsertTelemetryParams, 1)}
+			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts()).WithManagedSubscriptions(seat)
+			ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "00000000-0000-0000-0000-000000000001")
+			ctx = credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{{ID: "seat-1", Provider: auth.SubscriptionProvider(subscriptions.ProviderCodex), Enabled: true}})
 
-			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(ctx, http.Header{"X-Weave-Router-Key": {"rk-synthetic"}}, proxy.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
+			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(ctx, http.Header{"X-Weave-Router-Key": {"rk-synthetic"}}, ingress.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
 
 			if tc.status == http.StatusOK {
 				require.NoError(t, err)
@@ -271,13 +276,13 @@ func TestCodexImageRequest_FallsBackToSavedKeyWhenLinkedCodexQuotaIsSpent(t *tes
 	})
 	client := openai.NewClient("deployment-key", upstream.URL)
 	client.SetCodexBaseURL(upstream.URL + "/codex")
-	telemetry := &codexImageTelemetry{rows: make(chan proxy.InsertTelemetryParams, 1)}
-	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts()).WithManagedSubscriptions(&linkedCodexSeat{})
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "00000000-0000-0000-0000-000000000001")
-	ctx = context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-synthetic-byok")}})
-	ctx = proxy.WithManagedSubscriptionCandidates(proxy.WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{{ID: "seat-1", Provider: auth.SubscriptionProvider(subscriptions.ProviderCodex), Enabled: true}})
+	telemetry := &codexImageTelemetry{rows: make(chan turnrecord.InsertTelemetryParams, 1)}
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts()).WithManagedSubscriptions(&linkedCodexSeat{})
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "00000000-0000-0000-0000-000000000001")
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-synthetic-byok")}})
+	ctx = credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{{ID: "seat-1", Provider: auth.SubscriptionProvider(subscriptions.ProviderCodex), Enabled: true}})
 
-	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(ctx, http.Header{}, proxy.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
+	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(ctx, http.Header{}, ingress.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
 
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer sk-synthetic-byok", gotKey)

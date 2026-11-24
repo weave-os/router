@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -71,7 +73,7 @@ func codexOverloadService(primary, sibling providers.Client, withSibling bool) *
 	}
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: decision},
-		map[string]providers.Client{providers.ProviderOpenAI: planClient{primary}, providers.ProviderAnthropic: planClient{sibling}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: planClient{primary}, providers.ProviderAnthropic: planClient{sibling}}),
 		nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}}).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
@@ -88,8 +90,8 @@ func TestCodexPlanOverload_RescuedBySiblingCandidate(t *testing.T) {
 
 	body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 	require.NoError(t, err, "the sibling must serve the turn the overloaded plan model could not")
 	assert.GreaterOrEqual(t, primary.calls, 1)
@@ -106,8 +108,8 @@ func TestCodexPlanOverload_NoSiblingSurfacesUpstreamError(t *testing.T) {
 
 	body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 	require.Error(t, err)
 	assert.Equal(t, 0, sibling.calls)
@@ -142,8 +144,8 @@ func proxyCodexResponsesOverload(t *testing.T, withSibling bool) (*codexInStream
 	svc := codexOverloadService(primary, sibling, withSibling)
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 	return primary, sibling, rec, err
 }
@@ -201,18 +203,19 @@ func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
 			primary := &failingClient{err: tc.err}
 			sibling := &anthropicServingClient{}
 			repo := &auxBillingRepo{}
-			svc := codexOverloadService(primary, sibling, true).WithBillingService(billing.NewService(repo))
+			svc := codexOverloadService(primary, sibling, true)
+			svc.billing = billing.NewService(repo)
 
 			body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 			rec := httptest.NewRecorder()
-			ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
-			ctx = WithManagedSubscriptionUsage(ctx)
+			ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
+			ctx = credentials.WithManagedSubscriptionUsage(ctx)
 			ctx = outOfRosterBillingCtx(ctx)
 			err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 			require.Error(t, err)
 			assert.Equal(t, 0, sibling.calls, "no paid sibling without a plan 5xx")
 			assert.Empty(t, repo.snapshot())
-			state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+			state := mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 			assert.Empty(t, state.UnavailableProviders)
 		})
 	}
@@ -222,20 +225,20 @@ func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
 // sibling the walk's decision is already Anthropic, and the next Anthropic
 // candidate must still not inherit the Codex token.
 func TestRescueCredentialContext_ClearsForeignOAuthBearer(t *testing.T) {
-	codex := &Credentials{APIKey: []byte("tok"), AccountID: []byte("acct"), Source: credSourceCodexSubscription, OAuth: true}
-	ctx := context.WithValue(context.Background(), CredentialsContextKey{}, codex)
-	assert.Nil(t, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)))
-	assert.Nil(t, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderFireworks)))
-	assert.Equal(t, codex, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderOpenAI)))
+	codex := &requestcontext.Credentials{APIKey: []byte("tok"), AccountID: []byte("acct"), Source: requestcontext.SourceCodexSubscription, OAuth: true}
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, codex)
+	assert.Nil(t, credentials.CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)))
+	assert.Nil(t, credentials.CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderFireworks)))
+	assert.Equal(t, codex, credentials.CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderOpenAI)))
 
-	claude := &Credentials{APIKey: []byte("sk-ant-oat01-tok"), Source: credSourceSubscription, OAuth: true}
-	ctx = context.WithValue(context.Background(), CredentialsContextKey{}, claude)
-	assert.Nil(t, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderOpenAI)))
-	assert.Equal(t, claude, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)))
+	claude := &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-tok"), Source: requestcontext.SourceSubscription, OAuth: true}
+	ctx = context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, claude)
+	assert.Nil(t, credentials.CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderOpenAI)))
+	assert.Equal(t, claude, credentials.CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)))
 
-	byok := &Credentials{APIKey: []byte("sk-byok"), Source: credSourceBYOK}
-	ctx = context.WithValue(context.Background(), CredentialsContextKey{}, byok)
-	assert.Equal(t, byok, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)), "only OAuth bearers are cleared")
+	byok := &requestcontext.Credentials{APIKey: []byte("sk-byok"), Source: requestcontext.SourceBYOK}
+	ctx = context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, byok)
+	assert.Equal(t, byok, credentials.CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)), "only OAuth bearers are cleared")
 }
 
 // A Responses response.failed is surfaced as a buffered 502 whatever it says;
@@ -266,27 +269,27 @@ func emptyCompletion502() error {
 }
 
 func TestSubscriptionSiblingAllowed(t *testing.T) {
-	oauth := &Credentials{APIKey: []byte("tok"), AccountID: []byte("acct"), Source: credSourceCodexSubscription, OAuth: true}
+	oauth := &requestcontext.Credentials{APIKey: []byte("tok"), AccountID: []byte("acct"), Source: requestcontext.SourceCodexSubscription, OAuth: true}
 	t.Run("subscription OAuth permits sibling rescue", func(t *testing.T) {
-		s := &Service{hmmServing: hmmPorts()}
-		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
+		ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, oauth)
 		assert.False(t, s.shouldFailover(ctx), "generic binding failover stays off for an OAuth credential")
 		assert.True(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK credential does not", func(t *testing.T) {
-		s := &Service{hmmServing: hmmPorts()}
-		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, &Credentials{APIKey: []byte("sk-byok"), Source: credSourceBYOK})
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
+		ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{APIKey: []byte("sk-byok"), Source: requestcontext.SourceBYOK})
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK keys on the request keep the generic rule", func(t *testing.T) {
-		s := &Service{hmmServing: hmmPorts()}
-		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
-		ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderMakora, Plaintext: []byte("mk")}})
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
+		ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, oauth)
+		ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderMakora, Plaintext: []byte("mk")}})
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK-only deployment never rescues", func(t *testing.T) {
-		s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{BYOKOnly: true}}
-		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{BYOKOnly: true}}
+		ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, oauth)
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
 }
@@ -296,25 +299,25 @@ func TestSubscriptionSiblingAllowed(t *testing.T) {
 // never qualifies and the mark expires with its cooldown.
 func TestAuthorizeSubscriptionAPI_ProviderOverloadAuthorizesPaidRescue(t *testing.T) {
 	now := time.Now()
-	svc := &Service{hmmServing: hmmPorts(), clock: func() time.Time { return now }}
-	ctx := WithManagedSubscriptionUsage(context.Background())
-	ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "acct-1", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
+	svc := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: func() time.Time { return now }})
+	ctx := credentials.WithManagedSubscriptionUsage(context.Background())
+	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "acct-1", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 
-	denied := svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{})
-	require.ErrorIs(t, denied, ErrSubscriptionPoolUnavailable, "healthy included quota must still block paid inference")
+	denied := svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", credentials.ClientAppRefusalFunding{})
+	require.ErrorIs(t, denied, credentials.ErrSubscriptionPoolUnavailable, "healthy included quota must still block paid inference")
 
-	svc.recordSubscriptionUnavailable(ctx, providers.ProviderOpenAI, codexCoveredModel, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"rate_limit_exceeded"}}`)})
-	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
+	recordSubscriptionUnavailable(ctx, providers.ProviderOpenAI, codexCoveredModel, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"rate_limit_exceeded"}}`)}, svc.clock.Now())
+	require.ErrorIs(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", credentials.ClientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
 		"a 429 is the quota path's evidence, never capacity evidence")
 
-	svc.recordSubscriptionUnavailable(ctx, providers.ProviderOpenAI, codexCoveredModel, codexOverloadedErr())
-	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{}),
+	recordSubscriptionUnavailable(ctx, providers.ProviderOpenAI, codexCoveredModel, codexOverloadedErr(), svc.clock.Now())
+	require.NoError(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", credentials.ClientAppRefusalFunding{}),
 		"a 5xx on the plan authorizes paid rescue for this turn")
-	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "claude-token", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
+	require.ErrorIs(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "claude-token", credentials.ClientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
 		"the mark is scoped to the pool that failed")
 
-	now = now.Add(subscriptionUnavailableCooldown + time.Second)
-	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
+	now = now.Add(credentials.SubscriptionUnavailableCooldown + time.Second)
+	require.ErrorIs(t, svc.credentials.AuthorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "codex-token", "", credentials.ClientAppRefusalFunding{}), credentials.ErrSubscriptionPoolUnavailable,
 		"the capacity mark is bounded by its cooldown")
 }
 
@@ -346,8 +349,8 @@ func TestCodexPlanOverloadAfterReasoning_RescuedBySiblingCandidate(t *testing.T)
 	svc := codexOverloadService(primary, sibling, true)
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 
 	require.NoError(t, err, "the sibling must serve the turn the plan model failed before output")

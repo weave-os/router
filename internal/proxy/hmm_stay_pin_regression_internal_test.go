@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
@@ -16,7 +17,7 @@ import (
 func newHMMStayPinRegressionService() *Service {
 	return withHMMPorts(NewService(
 		nil,
-		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil}),
 		nil,
 		nil,
 		false,

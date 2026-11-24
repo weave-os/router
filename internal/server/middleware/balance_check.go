@@ -6,9 +6,10 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/refusal"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
 
 	"github.com/gin-gonic/gin"
@@ -16,7 +17,8 @@ import (
 
 const TopUpURL = "https://app.weaveos.com/organization/settings/weave-router/credits"
 
-func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerFunc {
+func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64, funding credentials.CustomerFunding) gin.HandlerFunc {
+	requireCustomerFunding(funding)
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		if owner, ok := billing.InternalTestOwnerFrom(c.Request.Context()); ok {
@@ -33,7 +35,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 			c.Next()
 			return
 		}
-		if _, ok := proxy.AgentShadowEvalFromContext(c.Request.Context()); ok {
+		if _, ok := requestcontext.AgentShadowEvalFromContext(c.Request.Context()); ok {
 			c.Next()
 			return
 		}
@@ -55,7 +57,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 			return
 		}
 
-		subscriptionExempt := proxy.RequestHasCustomerFunding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ByokFeeOwed(c.Request.Context()))
+		subscriptionExempt := funding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ByokFeeOwed(c.Request.Context()))
 
 		result, err := svc.CheckBalance(c.Request.Context(), orgID)
 		if err != nil {

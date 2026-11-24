@@ -20,7 +20,7 @@ func applyEffortAttrs(b *telemetry.AttrBuilder, e dispatch.EffortResolution) {
 
 func (s *Service) resolveEffort(ctx context.Context, decision router.Decision, caps router.ModelSpec, escalate bool) dispatch.EffortResolution {
 	arm := router.CanonicalizeEffort(decision.Effort)
-	escalationAllowed := s.ResolveEffortEscalation(ctx) || strings.HasPrefix(decision.Model, "grok-")
+	escalationAllowed := s.routing.ResolveEffortEscalation(ctx) || strings.HasPrefix(decision.Model, "grok-")
 	if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
 		return effortResolutionFor(caps, arm, knobs.ForceEffort, dispatch.EffortSourceUser)
 	}

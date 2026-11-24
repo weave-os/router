@@ -2,13 +2,14 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -32,52 +33,11 @@ func (s *stubGlobalExclusionStore) ListGlobalAutomaticRoutingExclusions(context.
 	return s.byModel, nil
 }
 
-func TestGlobalAutomaticExclusions_ServesCachedSnapshotWithinTTL(t *testing.T) {
-	store := &stubGlobalExclusionStore{byModel: map[string]string{"claude-opus-5": "too expensive"}}
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
-		WithGlobalAutomaticExclusions(store)
-
-	first := svc.globalAutomaticExcludedModels(context.Background())
-	second := svc.globalAutomaticExcludedModels(context.Background())
-
-	assert.Equal(t, map[string]struct{}{"claude-opus-5": {}}, first)
-	assert.Equal(t, first, second)
-	assert.Equal(t, 1, store.calls, "a second read inside the TTL must not re-query")
-}
-
-// A control-plane outage must not disable routing, so a cold cache that cannot
-// be loaded reports nothing disabled and retries on the next turn.
-func TestGlobalAutomaticExclusions_ColdReadFailureFailsOpen(t *testing.T) {
-	store := &stubGlobalExclusionStore{err: errors.New("router database unreachable")}
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
-		WithGlobalAutomaticExclusions(store)
-
-	assert.Empty(t, svc.globalAutomaticExcludedModels(context.Background()))
-	assert.Empty(t, svc.globalAutomaticExcludedModels(context.Background()))
-	assert.Equal(t, 2, store.calls, "a failed cold read must retry rather than cache emptiness for a full TTL")
-}
-
-func TestGlobalAutomaticExclusions_RefreshFailureKeepsLastSnapshot(t *testing.T) {
-	store := &stubGlobalExclusionStore{byModel: map[string]string{"claude-opus-5": ""}}
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
-		WithGlobalAutomaticExclusions(store)
-
-	require.NotEmpty(t, svc.globalAutomaticExcludedModels(context.Background()))
-	store.err = errors.New("router database unreachable")
-	svc.globalAutomaticExclusions.refreshedAt = time.Now().Add(-2 * globalAutomaticExclusionTTL)
-
-	assert.Equal(t, map[string]struct{}{"claude-opus-5": {}},
-		svc.globalAutomaticExcludedModels(context.Background()))
-}
-
 // The soft set must reach the router as its own field: folding it into
 // ExcludedModels would also reject explicit force-model pins.
 func TestWithPolicyRequestContext_CarriesAutomaticExclusionsSeparately(t *testing.T) {
 	store := &stubGlobalExclusionStore{byModel: map[string]string{"claude-opus-5": ""}}
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithGlobalAutomaticExclusions(store)
 
@@ -97,7 +57,7 @@ func TestTurnLoop_DropsAutomaticPinOnDisabledModel(t *testing.T) {
 		Reason:      "postgres",
 		PinnedUntil: time.Now().Add(time.Hour),
 	}, found: true}
-	svc := withHMMPorts(NewService(fakeRouter, nil, nil, store, false,
+	svc := withHMMPorts(NewService(fakeRouter, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic)).
 		WithGlobalAutomaticExclusions(&stubGlobalExclusionStore{
@@ -127,9 +87,9 @@ func TestTurnLoop_KeepsForcedPinOnDisabledModel(t *testing.T) {
 		Provider:    providers.ProviderAnthropic,
 		Model:       "claude-opus-5",
 		Reason:      translate.ReasonUserForceModel,
-		PinnedUntil: pinNeverExpires,
+		PinnedUntil: routingpolicy.PinNeverExpires,
 	}, found: true}
-	svc := withHMMPorts(NewService(fakeRouter, nil, nil, store, false,
+	svc := withHMMPorts(NewService(fakeRouter, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic)).
 		WithGlobalAutomaticExclusions(&stubGlobalExclusionStore{

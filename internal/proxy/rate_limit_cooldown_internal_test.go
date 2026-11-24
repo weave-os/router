@@ -8,11 +8,14 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -65,7 +68,7 @@ func strikeRescuedPrimary(svc *Service, ctx context.Context, err error) (string,
 		true,
 		false,
 		err,
-		rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"), sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"), routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
@@ -87,7 +90,7 @@ func TestRescued429_CoolsDownInsteadOfDemoting(t *testing.T) {
 	until := rateLimitTestNow.Add(45 * time.Second)
 	assert.Equal(t, []cooldownCall{
 		{role: sessionpin.DefaultRole, model: demotedArm, until: until, reason: sessionpin.DemotionReasonRateLimited},
-		{role: hmmHistoryRole(sessionpin.DefaultRole), model: demotedArm, until: until, reason: sessionpin.DemotionReasonRateLimited},
+		{role: hmm.HistoryRole(sessionpin.DefaultRole), model: demotedArm, until: until, reason: sessionpin.DemotionReasonRateLimited},
 	}, store.cooldowns)
 
 	fields := turn.CompletionLogFields()
@@ -167,7 +170,7 @@ func TestRescued429_FlagOffKeepsPermanentDemotion(t *testing.T) {
 	assert.Empty(t, store.cooldowns)
 	assert.Equal(t, []demotionCall{
 		{role: sessionpin.DefaultRole, model: demotedArm, reason: sessionpin.DemotionReasonRescuedFailure},
-		{role: hmmHistoryRole(sessionpin.DefaultRole), model: demotedArm, reason: sessionpin.DemotionReasonRescuedFailure},
+		{role: hmm.HistoryRole(sessionpin.DefaultRole), model: demotedArm, reason: sessionpin.DemotionReasonRescuedFailure},
 	}, store.demotions)
 	assert.Equal(t, armDemotionLogFields("", model), armStrikeLogFields("", model, reason))
 }
@@ -388,8 +391,8 @@ func TestRescueDecisions_ReadmissionKeepsGlobalExclusionOnCoolingArm(t *testing.
 
 // The gateway BYOK walk readmits cooling arms the same way.
 func TestGatewayRescueDecisions_ExhaustedPoolReadmitsCoolingArms(t *testing.T) {
-	s := &Service{hmmServing: hmmPorts()}
-	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
+	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("pat"), ModelAliases: map[string]string{"grok-4.6": "grok-4.6"}},
 		{Provider: providers.ProviderAnthropicGateway, Plaintext: []byte("pat"), ModelAliases: map[string]string{"claude-opus-5": "claude-opus-5"}},
 	})
@@ -441,7 +444,7 @@ func cooldownTurnLoopService(store sessionpin.Store, transient bool) (*Service, 
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithTransientRateLimit(transient, 45)
 	svc.clock = func() time.Time { return rateLimitTestNow }
@@ -490,8 +493,8 @@ func TestTurnLoopReadmitsArmAfterCooldownExpiry(t *testing.T) {
 func TestTurnLoopHonoursCooldownRecordedOnHMMHistory(t *testing.T) {
 	until := rateLimitTestNow.Add(30 * time.Second)
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		sessionpin.DefaultRole:                 demotedPin(demotedPinModel),
-		hmmHistoryRole(sessionpin.DefaultRole): coolingPin(map[string]time.Time{demotedPinModel: until}),
+		sessionpin.DefaultRole:                  demotedPin(demotedPinModel),
+		hmm.HistoryRole(sessionpin.DefaultRole): coolingPin(map[string]time.Time{demotedPinModel: until}),
 	}}
 	svc, scorer := cooldownTurnLoopService(store, true)
 

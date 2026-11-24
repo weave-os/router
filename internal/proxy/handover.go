@@ -10,13 +10,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"time"
-	"weave-os/router/internal/billing"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/policy"
@@ -37,17 +37,13 @@ const handoverInstruction = "Summarize the conversation so far in <= 800 tokens.
 
 const DefaultCompactionMaxTokens = 4000
 
-const DefaultCompactionTimeout = 90 * time.Second
-
 type ProviderSummarizer struct {
-	plans             *policy.PlanResolver
-	executor          *dispatch.Executor
-	provider          string
-	model             string
-	timeout           time.Duration
-	maxTokens         int
-	compactionTimeout time.Duration
-	compactionModel   string
+	plans     *policy.PlanResolver
+	executor  *dispatch.Executor
+	provider  string
+	model     string
+	timeout   time.Duration
+	maxTokens int
 }
 
 func NewProviderSummarizer(plans *policy.PlanResolver, executor *dispatch.Executor, provider, model string, timeout time.Duration) *ProviderSummarizer {
@@ -61,26 +57,13 @@ func NewProviderSummarizer(plans *policy.PlanResolver, executor *dispatch.Execut
 		timeout = DefaultHandoverTimeout
 	}
 	return &ProviderSummarizer{
-		plans:             plans,
-		executor:          executor,
-		provider:          provider,
-		model:             model,
-		timeout:           timeout,
-		maxTokens:         DefaultHandoverMaxTokens,
-		compactionTimeout: DefaultCompactionTimeout,
+		plans:     plans,
+		executor:  executor,
+		provider:  provider,
+		model:     model,
+		timeout:   timeout,
+		maxTokens: DefaultHandoverMaxTokens,
 	}
-}
-
-func (s *ProviderSummarizer) WithCompactionTimeout(d time.Duration) *ProviderSummarizer {
-	if d > 0 {
-		s.compactionTimeout = d
-	}
-	return s
-}
-
-func (s *ProviderSummarizer) WithCompactionModel(model string) *ProviderSummarizer {
-	s.compactionModel = model
-	return s
 }
 
 func (s *ProviderSummarizer) WithMaxTokens(n int) *ProviderSummarizer {
@@ -108,27 +91,6 @@ func (s *ProviderSummarizer) Summarize(ctx context.Context, env *translate.Reque
 	return s.run(ctx, env, plan, handoverInstruction, s.maxTokens, s.timeout)
 }
 
-func (s *ProviderSummarizer) CompactionHandover() handover.Summarizer {
-	return compactionHandoverSummarizer{s}
-}
-
-type compactionHandoverSummarizer struct{ *ProviderSummarizer }
-
-func (c compactionHandoverSummarizer) Summarize(ctx context.Context, env *translate.RequestEnvelope, scope router.Request) (string, handover.Usage, error) {
-	request := policy.ResolutionRequest{
-		Purpose:       policy.PurposeCompactionHandoverSummary,
-		RouterRequest: summarizerRequest(scope, env),
-	}
-	if c.compactionModel != "" {
-		request.Overrides = []policy.TargetOverride{{Source: policy.OverrideSourceDeployment, CatalogID: c.compactionModel, Provider: c.provider}}
-	}
-	plan, err := c.resolve(ctx, request)
-	if err != nil {
-		return "", handover.Usage{}, err
-	}
-	return c.run(ctx, env, plan, handoverInstruction, c.maxTokens, c.compactionTimeout)
-}
-
 func summarizerRequest(scope router.Request, env *translate.RequestEnvelope) router.Request {
 	request := router.Request{
 		EnabledProviders: scope.EnabledProviders,
@@ -149,7 +111,7 @@ func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.Resolut
 		return policy.ResolvedPlan{}, errors.New("handover: summarizer has no plan resolver or executor")
 	}
 	if subscriptionStateModelsEnabled(ctx) {
-		paidCtx := context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
+		paidCtx := context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, candidates.ModelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
 		allowed := allowedModelsForRequest(paidCtx)
 		request.RouterRequest.Candidates.ExcludedModels = cloneStringSet(request.RouterRequest.Candidates.ExcludedModels)
 		if request.RouterRequest.Candidates.ExcludedModels == nil {
@@ -324,65 +286,3 @@ func extractAnthropicAssistantText(body []byte) string {
 }
 
 var _ handover.Summarizer = (*ProviderSummarizer)(nil)
-
-func (s *Service) runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) dispatch.HandoverOutcome {
-	log := observability.FromContext(ctx)
-	var out dispatch.HandoverOutcome
-	out.Invoked = true
-
-	summarizer := s.summarizer
-	if s.compactionHandoverSummarizer != nil {
-		summarizer = s.compactionHandoverSummarizer
-	}
-	var (
-		sumProvider       string
-		sumCreds          *Credentials
-		canCallSummarizer bool
-	)
-	if summarizer != nil {
-		sumProvider = summarizer.Provider()
-		sumCreds = summarizerCredsFor(ctx, sumProvider, reqHeaders)
-		nonDepCreds := s.requestUsesNonDeploymentCreds(ctx, reqHeaders)
-		canCallSummarizer = sumCreds != nil || !nonDepCreds
-	}
-
-	switch {
-	case summarizer == nil:
-		out.FallbackToFullHistory = true
-		log.Info("Compaction handover: summarizer not wired; preserved compacted body instead", "decision_model", decisionModel)
-	case !canCallSummarizer:
-		out.FallbackToFullHistory = true
-		log.Info("Compaction handover: summarizer skipped (tenant boundary); preserved compacted body instead", "decision_model", decisionModel)
-	default:
-		var summCtx context.Context
-		if sumCreds != nil {
-			summCtx = context.WithValue(ctx, CredentialsContextKey{}, sumCreds)
-		} else {
-			summCtx = clearCredentials(ctx)
-		}
-		start := s.clock.Now()
-		summary, summaryUsage, sumErr := summarizer.Summarize(summCtx, env, scope)
-		out.LatencyMS = s.clock.Now().Sub(start).Milliseconds()
-		switch {
-		case sumErr != nil:
-			out.FallbackToFullHistory = true
-			log.Warn("Compaction handover: summarizer failed; preserved compacted body instead", "err", sumErr, "decision_model", decisionModel)
-		case summary == "":
-			out.FallbackToFullHistory = true
-			log.Warn("Compaction handover: summarizer returned empty; preserved compacted body instead", "decision_model", decisionModel)
-		default:
-			handover.RewriteEnvelope(env, summary)
-			out.SummaryTokens = estimateSummaryTokens(summary)
-			out.SummaryUsage = summaryUsage
-			log.Info("Compaction handover: context rewritten with summary", "summary_len", len(summary), "decision_model", decisionModel)
-		}
-	}
-	return out
-}
-
-func summarizerCredsFor(ctx context.Context, provider string, headers http.Header) *Credentials {
-	if billing.ByokFeeUnpayable(ctx) && BuildCredentialsMap(externalKeysFromContext(ctx))[provider] != nil {
-		return nil
-	}
-	return resolveSummarizerCreds(ctx, provider, headers)
-}

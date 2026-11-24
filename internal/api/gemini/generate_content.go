@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -8,8 +9,8 @@ import (
 	"strings"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 
@@ -23,7 +24,11 @@ const (
 	streamGenerateContentSuffix = ":streamGenerateContent"
 )
 
-func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
+type GenerateContent interface {
+	ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error
+}
+
+func GenerateContentHandler(svc GenerateContent, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
@@ -35,13 +40,13 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 			return
 		}
 
-		body, err := io.ReadAll(io.LimitReader(c.Request.Body, proxy.MaxRequestBodyBytes+1))
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, requestcontext.MaxRequestBodyBytes+1))
 		if err != nil {
 			log.Debug("Failed to read request body", "err", err)
 			writeGeminiError(c, http.StatusBadRequest, "INVALID_ARGUMENT", "Failed to read request body.")
 			return
 		}
-		if len(body) > proxy.MaxRequestBodyBytes {
+		if len(body) > requestcontext.MaxRequestBodyBytes {
 			writeGeminiError(c, http.StatusRequestEntityTooLarge, "INVALID_ARGUMENT", "Request body too large.")
 			return
 		}
@@ -53,7 +58,7 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 			return
 		}
 
-		ctx := requestcontext.WithClientIdentity(c.Request.Context(), proxy.ClientIdentityFromHeaders(c.Request.Header))
+		ctx := requestcontext.WithClientIdentity(c.Request.Context(), requestcontext.ClientIdentityFromHeaders(c.Request.Header))
 		ctx = auth.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c), requestcontext.CallerFrom(ctx))
 		ctx, err = auth.ResolveRoutingAssignment(ctx, authSvc, middleware.InstallationFrom(c), requestcontext.CallerFrom(ctx))
 		if err != nil {
@@ -65,8 +70,8 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 		c.Request = c.Request.WithContext(ctx)
 
 		if err := svc.ProxyGeminiGenerateContent(c.Request.Context(), body, c.Writer, c.Request); err != nil {
-			cls, ok := proxy.ClassifyDispatchError(err)
-			if ok && cls.Kind == proxy.DispatchErrorUpstreamStatus {
+			cls, ok := vocab.Classify(err)
+			if ok && cls.Kind == ingress.DispatchErrorUpstreamStatus {
 				if c.Writer.Written() {
 					return
 				}
@@ -77,12 +82,12 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 				log.Error("Proxy failed mid-stream", "err", err)
 				return
 			}
-			if errors.Is(err, proxy.ErrGeminiCrossFormatUnsupported) {
+			if errors.Is(err, ingress.ErrGeminiCrossFormatUnsupported) {
 				writeGeminiError(c, http.StatusNotImplemented, "UNIMPLEMENTED", "Cross-format request not supported by the upstream Gemini provider.")
 				return
 			}
 			if ok {
-				proxy.LogDispatchErrorClass(log, cls, err)
+				ingress.LogDispatchErrorClass(log, cls, err)
 				if cls.RetryAfter {
 					c.Header("Retry-After", "1")
 				}
@@ -93,7 +98,7 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 				return
 			}
 			log.Error("Gemini proxy failed", "err", err)
-			writeGeminiError(c, http.StatusBadGateway, "UPSTREAM_ERROR", proxy.TerminalErrorMessage(err))
+			writeGeminiError(c, http.StatusBadGateway, "UPSTREAM_ERROR", vocab.TerminalMessage(err))
 		}
 	}
 }
@@ -131,22 +136,22 @@ func injectModelAndStream(body []byte, model string, stream bool) ([]byte, error
 	return out, nil
 }
 
-func geminiErrorStatus(cls proxy.DispatchErrorClass) string {
+func geminiErrorStatus(cls ingress.DispatchErrorClass) string {
 	if cls.Refusal != nil {
 		return cls.Refusal.GeminiStatus()
 	}
 	switch cls.Kind {
-	case proxy.DispatchErrorNotImplemented:
+	case ingress.DispatchErrorNotImplemented:
 		return "UNIMPLEMENTED"
-	case proxy.DispatchErrorProviderNotConfigured:
+	case ingress.DispatchErrorProviderNotConfigured:
 		return "FAILED_PRECONDITION"
-	case proxy.DispatchErrorRequestNotJSONObject, proxy.DispatchErrorContextWindowExceeded:
+	case ingress.DispatchErrorRequestNotJSONObject, ingress.DispatchErrorContextWindowExceeded:
 		return "INVALID_ARGUMENT"
-	case proxy.DispatchErrorNoEligibleProvider:
+	case ingress.DispatchErrorNoEligibleProvider:
 		return "FAILED_PRECONDITION"
-	case proxy.DispatchErrorInvalidRoutingKnobs, proxy.DispatchErrorPlanOverrideRejected:
+	case ingress.DispatchErrorInvalidRoutingKnobs, ingress.DispatchErrorPlanOverrideRejected:
 		return "INVALID_ARGUMENT"
-	case proxy.DispatchErrorHMMUnavailable, proxy.DispatchErrorDecisionModelUnavailable, proxy.DispatchErrorPolicyUnavailable, proxy.DispatchErrorClusterUnavailable, proxy.DispatchErrorPlanUnresolvable:
+	case ingress.DispatchErrorHMMUnavailable, ingress.DispatchErrorDecisionModelUnavailable, ingress.DispatchErrorPolicyUnavailable, ingress.DispatchErrorClusterUnavailable, ingress.DispatchErrorPlanUnresolvable:
 		return "UNAVAILABLE"
 	default:
 		return "UPSTREAM_ERROR"

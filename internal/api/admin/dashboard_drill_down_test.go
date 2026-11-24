@@ -4,12 +4,12 @@ import (
 	"testing"
 	"time"
 
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
-func drillDownRow(person, session, model string, at time.Time, cost float64, subscription bool) proxy.TelemetryDrillDownRow {
-	return proxy.TelemetryDrillDownRow{
-		TelemetryDashboardFact: proxy.TelemetryDashboardFact{
+func drillDownRow(person, session, model string, at time.Time, cost float64, subscription bool) turnrecord.TelemetryDrillDownRow {
+	return turnrecord.TelemetryDrillDownRow{
+		TelemetryDashboardFact: turnrecord.TelemetryDashboardFact{
 			DecisionModel:      model,
 			DecisionType:       string(dashboardDecisionRouterPick),
 			SubscriptionServed: subscription,
@@ -57,7 +57,7 @@ func TestDrillDownMatchesClickedSeries(t *testing.T) {
 
 func TestDrillDownPeopleGroupsSessionsAndSortsByCost(t *testing.T) {
 	at := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
-	people := drillDownPeople([]proxy.TelemetryDrillDownRow{
+	people := drillDownPeople([]turnrecord.TelemetryDrillDownRow{
 		drillDownRow("cheap", "s1", "claude-haiku-4-5", at, 1, false),
 		drillDownRow("pricey", "s2", "claude-haiku-4-5", at, 3, false),
 		drillDownRow("pricey", "s2", "gpt-5", at.Add(time.Hour), 4, false),

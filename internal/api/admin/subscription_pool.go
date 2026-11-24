@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/credentials/usage"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/gin-gonic/gin"
 )
@@ -63,7 +63,7 @@ type subscriptionPoolResponse struct {
 	Seats   []subscriptionPoolSeat `json:"seats"`
 }
 
-func SubscriptionPoolHandler(proxySvc *proxy.Service, poolsEnabled bool, now func() time.Time) gin.HandlerFunc {
+func SubscriptionPoolHandler(queries turnrecord.Queries, poolsEnabled bool, now func() time.Time) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installationID, ok := dashboardScope(c)
 		if !ok {
@@ -74,7 +74,7 @@ func SubscriptionPoolHandler(proxySvc *proxy.Service, poolsEnabled bool, now fun
 			return
 		}
 		at := now()
-		seats, err := proxySvc.MetricsSubscriptionPool(c.Request.Context(), installationID,
+		seats, err := queries.MetricsSubscriptionPool(c.Request.Context(), installationID,
 			at.Add(-subscriptionPoolServedWindow), at.Add(-subscriptionPoolReadingLookback))
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch subscription pool."})

@@ -15,6 +15,7 @@ import (
 
 	"weave-os/router/internal/api/classifier"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/server/middleware"
 )
@@ -45,18 +46,19 @@ func TestClassifierThreadHTTPContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	installation := uuid.New()
 	store := &threadEndpointStore{}
-	svc := &proxy.Service{}
-	require.NoError(t, svc.WithClassifierSessions(proxy.ClassifierSessionConfig{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64), SelectionPolicySHA256: strings.Repeat("b", 64), SigningKey: []byte(strings.Repeat("k", 32)), InstallationIDs: []uuid.UUID{installation}}, store, unusedThreadClassifier{}))
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installation.String())
-	ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, "test-credential")
+	sessions, err := proxy.NewClassifierSessions(proxy.ClassifierSessionConfig{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64), SelectionPolicySHA256: strings.Repeat("b", 64), SigningKey: []byte(strings.Repeat("k", 32)), InstallationIDs: []uuid.UUID{installation}}, store, unusedThreadClassifier{})
+	require.NoError(t, err)
+	svc := proxy.WithDeps(&proxy.Service{}, proxy.Deps{Routing: &proxy.RoutingDeps{ClassifierSessions: sessions}})
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installation.String())
+	ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "test-credential")
 	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
 	engine := gin.New()
 	engine.POST("/v1/router/threads", classifier.StartThreadHandler(svc))
 	for _, path := range []string{"/v1/messages", "/v1/chat/completions", "/v1/responses", "/v1beta/models/:modelAction", "/v1/route/handoff", "/v1/route", "/v1/route/preview"} {
-		engine.POST(path, middleware.WithClassifierThread(svc, svc.PolicyStrategyAvailable), func(c *gin.Context) {
+		engine.POST(path, middleware.WithClassifierThread(svc, proxy.NewRoutingCatalog(svc).PolicyStrategyAvailable), func(c *gin.Context) {
 			body, err := io.ReadAll(c.Request.Body)
 			require.NoError(t, err)
-			require.Empty(t, c.GetHeader(proxy.ClassifierThreadHeader))
+			require.Empty(t, c.GetHeader(requestcontext.ClassifierThreadHeader))
 			require.NotContains(t, string(body), "weave_classifier_thread")
 			c.JSON(http.StatusOK, gin.H{"strategy": router.StrategyFromContext(c.Request.Context()), "body": json.RawMessage(body)})
 		})
@@ -64,7 +66,7 @@ func TestClassifierThreadHTTPContract(t *testing.T) {
 	request := func(principal context.Context, path, body, header string) *httptest.ResponseRecorder {
 		req := httptest.NewRequestWithContext(principal, http.MethodPost, path, strings.NewReader(body))
 		if header != "" {
-			req.Header.Set(proxy.ClassifierThreadHeader, header)
+			req.Header.Set(requestcontext.ClassifierThreadHeader, header)
 		}
 		rec := httptest.NewRecorder()
 		engine.ServeHTTP(rec, req)
@@ -84,12 +86,12 @@ func TestClassifierThreadHTTPContract(t *testing.T) {
 	for _, body := range []string{`{}`, `{"new_chat_id":"bad"}`, start + ` {}`, strings.TrimSuffix(start, "}") + `,"extra":true}`, strings.Repeat(" ", 1025) + start} {
 		require.Equal(t, http.StatusBadRequest, request(ctx, "/v1/router/threads", body, "").Code)
 	}
-	foreign := context.WithValue(ctx, proxy.InstallationIDContextKey{}, uuid.NewString())
+	foreign := context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())
 	require.Equal(t, http.StatusForbidden, request(foreign, "/v1/router/threads", start, "").Code)
 	require.Equal(t, http.StatusForbidden, request(context.Background(), "/v1/router/threads", start, "").Code)
 	for _, path := range []string{"/v1/messages", "/v1/chat/completions", "/v1/responses", "/v1beta/models/test:generateContent"} {
 		t.Run(path, func(t *testing.T) {
-			denied := request(ctx, path, `{}`, proxy.ClassifierThreadUnavailableToken)
+			denied := request(ctx, path, `{}`, requestcontext.ClassifierThreadUnavailableToken)
 			require.Equal(t, http.StatusBadRequest, denied.Code)
 			require.Contains(t, denied.Body.String(), "classifier_client_unavailable")
 			baseline := request(ctx, path, `{"model":"test","messages":[]}`, "")
@@ -108,7 +110,7 @@ func TestClassifierThreadHTTPContract(t *testing.T) {
 			}
 			require.Equal(t, http.StatusConflict, request(ctx, path, `{"weave_classifier_thread":"forged"}`, ticket.Token).Code)
 			require.Equal(t, http.StatusConflict, request(foreign, path, `{}`, ticket.Token).Code)
-			otherKey := context.WithValue(ctx, proxy.APIKeyIDContextKey{}, "other-credential")
+			otherKey := context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "other-credential")
 			require.Equal(t, http.StatusConflict, request(otherKey, path, `{}`, ticket.Token).Code)
 		})
 	}

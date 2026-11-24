@@ -12,9 +12,10 @@ import (
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 )
 
-const DefaultRateLimitCooldownSeconds = 45
+const DefaultRateLimitCooldownSeconds = dispatch.DefaultRateLimitCooldownSeconds
 
 func mergeDemotionCooldowns(a, b map[string]time.Time) map[string]time.Time {
 	if len(a) == 0 {
@@ -125,13 +126,13 @@ func isRateLimitedPrimaryFailure(err error) bool {
 }
 
 func (s *Service) withRateLimitTurn(ctx context.Context) (context.Context, *dispatch.ThrottleLedger) {
-	if !s.ResolveTransientRateLimit(ctx) {
+	if !s.throttling.RateLimit.Transient(ctx) {
 		return ctx, nil
 	}
 	return dispatch.WithThrottleLedger(ctx)
 }
 
-func applyDemotionCooldowns(ctx context.Context, s *Service, req *router.Request, res *turnLoopResult, demoted []string, cooldowns map[string]time.Time) (context.Context, []string) {
+func applyDemotionCooldowns(ctx context.Context, s *Service, req *router.Request, res *routingpolicy.TurnRoute, demoted []string, cooldowns map[string]time.Time) (context.Context, []string) {
 	now := s.clock.Now()
 	cooling := activeDemotionCooldowns(cooldowns, now)
 	if len(cooling) > 0 {
@@ -145,7 +146,7 @@ func applyDemotionCooldowns(ctx context.Context, s *Service, req *router.Request
 			continue
 		}
 		if !probed {
-			if release, acquired := s.acquireRecoveryProbe(ctx, res.SessionKey, model); acquired {
+			if release, acquired := s.recoveryProbes.Acquire(ctx, s.pinStore, s.clock.Now, res.SessionKey, model); acquired {
 				res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
 				res.CooldownProbes = map[string]time.Time{model: expired[model]}
 				probed = true
@@ -158,4 +159,16 @@ func applyDemotionCooldowns(ctx context.Context, s *Service, req *router.Request
 		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, res.CooldownProbeDeniedModels)
 	}
 	return ctx, demoted
+}
+
+func clearRecoveredCooldown(ctx context.Context, s *Service, res routingpolicy.TurnRoute, servedModel string, proxyErr error) {
+	observedUntil, probed := res.CooldownProbes[servedModel]
+	if !probed || proxyErr != nil {
+		return
+	}
+	pinRole := res.PinRole
+	if pinRole == "" {
+		pinRole = sessionpin.DefaultRole
+	}
+	routingpolicy.ClearRecoveredCooldown(ctx, s.pinStore, res.SessionKey, demotionRoles(s.strategyPorts.History, pinRole, pinRole), servedModel, observedUntil)
 }

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,12 +19,15 @@ import (
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	"google.golang.org/protobuf/proto"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 )
 
 func attrsByTelemetryKey(attrs []telemetry.Attr) map[string]telemetry.AttrValue {
@@ -43,34 +47,34 @@ func attrsByKey(attrs []*commonv1.KeyValue) map[string]*commonv1.AnyValue {
 }
 
 func TestParseCaptureMode(t *testing.T) {
-	assert.Equal(t, CaptureOff, ParseCaptureMode(""))
-	assert.Equal(t, CaptureOff, ParseCaptureMode("nonsense"))
-	assert.Equal(t, CaptureHashed, ParseCaptureMode("hashed"))
-	assert.Equal(t, CaptureFull, ParseCaptureMode("FULL"))
-	assert.Equal(t, CaptureFull, ParseCaptureMode(" full "))
-	assert.Equal(t, "off", CaptureOff.String())
-	assert.Equal(t, "hashed", CaptureHashed.String())
-	assert.Equal(t, "full", CaptureFull.String())
+	assert.Equal(t, capture.Off, capture.ParseMode(""))
+	assert.Equal(t, capture.Off, capture.ParseMode("nonsense"))
+	assert.Equal(t, capture.Hashed, capture.ParseMode("hashed"))
+	assert.Equal(t, capture.Full, capture.ParseMode("FULL"))
+	assert.Equal(t, capture.Full, capture.ParseMode(" full "))
+	assert.Equal(t, "off", capture.Off.String())
+	assert.Equal(t, "hashed", capture.Hashed.String())
+	assert.Equal(t, "full", capture.Full.String())
 }
 
 func TestZdrLogField_BlanksOnlyWhenEffectiveOff(t *testing.T) {
-	deploymentModes := []ContentCaptureMode{CaptureOff, CaptureHashed, CaptureFull}
+	deploymentModes := []capture.Mode{capture.Off, capture.Hashed, capture.Full}
 	for _, deployment := range deploymentModes {
-		s := &Service{hmmServing: hmmPorts(), captureMode: deployment}
-		if deployment == CaptureOff {
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), captureMode: deployment}
+		if deployment == capture.Off {
 			assert.Empty(t, s.zdrLogField(context.Background(), "secret"))
 		} else {
 			assert.Equal(t, "secret", s.zdrLogField(context.Background(), "secret"))
 		}
 		// Installation off must blank the field even under a Full deployment.
-		ctx := context.WithValue(context.Background(), InstallationCaptureModeContextKey{}, CaptureOff)
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationCaptureModeContextKey{}, capture.Off)
 		assert.Empty(t, s.zdrLogField(ctx, "secret"),
 			"deployment %v with installation off must blank content-bearing log fields", deployment)
 	}
 }
 
 func TestMaybeCaptureResponse_OffReturnsNil(t *testing.T) {
-	s := &Service{hmmServing: hmmPorts(), captureMode: CaptureOff}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), captureMode: capture.Off}
 	rec := httptest.NewRecorder()
 	sink, cw := s.maybeCaptureResponse(context.Background(), rec)
 	assert.Nil(t, cw)
@@ -82,13 +86,13 @@ func TestMaybeCaptureResponse_OffReturnsNil(t *testing.T) {
 }
 
 func TestEffectiveCaptureMode_OverrideOnlyTightens(t *testing.T) {
-	modes := []ContentCaptureMode{CaptureOff, CaptureHashed, CaptureFull}
+	modes := []capture.Mode{capture.Off, capture.Hashed, capture.Full}
 	for _, deployment := range modes {
-		s := &Service{hmmServing: hmmPorts(), captureMode: deployment}
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), captureMode: deployment}
 		assert.Equal(t, deployment, s.effectiveCaptureMode(context.Background()),
 			"no installation override must leave the deployment mode untouched")
 		for _, override := range modes {
-			ctx := context.WithValue(context.Background(), InstallationCaptureModeContextKey{}, override)
+			ctx := context.WithValue(context.Background(), requestcontext.InstallationCaptureModeContextKey{}, override)
 			got := s.effectiveCaptureMode(ctx)
 			assert.LessOrEqual(t, int(got), int(deployment),
 				"override %v must never widen deployment %v", override, deployment)
@@ -98,9 +102,9 @@ func TestEffectiveCaptureMode_OverrideOnlyTightens(t *testing.T) {
 }
 
 func TestMaybeCaptureResponse_InstallationOffSkipsCaptureUnderFullDeployment(t *testing.T) {
-	s := &Service{hmmServing: hmmPorts(), captureMode: CaptureFull, captureMaxBytes: 1024}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), captureMode: capture.Full, captureMaxBytes: 1024}
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(context.Background(), InstallationCaptureModeContextKey{}, CaptureOff)
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationCaptureModeContextKey{}, capture.Off)
 
 	sink, cw := s.maybeCaptureResponse(ctx, rec)
 
@@ -109,7 +113,7 @@ func TestMaybeCaptureResponse_InstallationOffSkipsCaptureUnderFullDeployment(t *
 }
 
 func TestMaybeCaptureResponse_CapturesAndTruncates(t *testing.T) {
-	s := &Service{hmmServing: hmmPorts(), captureMode: CaptureFull, captureMaxBytes: 1024}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), captureMode: capture.Full, captureMaxBytes: 1024}
 	rec := httptest.NewRecorder()
 	sink, cw := s.maybeCaptureResponse(context.Background(), rec)
 	require.NotNil(t, cw)
@@ -120,7 +124,7 @@ func TestMaybeCaptureResponse_CapturesAndTruncates(t *testing.T) {
 	assert.Equal(t, "hello world", rec.Body.String())
 
 	// Over-cap response is dropped and flagged truncated.
-	small := &Service{hmmServing: hmmPorts(), captureMode: CaptureFull, captureMaxBytes: 4}
+	small := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), captureMode: capture.Full, captureMaxBytes: 4}
 	rec2 := httptest.NewRecorder()
 	sink2, cap2 := small.maybeCaptureResponse(context.Background(), rec2)
 	_, _ = sink2.Write([]byte("way too long"))
@@ -214,7 +218,7 @@ func (c *logCollector) count(t *testing.T) int {
 	return n
 }
 
-func newServiceWithEmitter(t *testing.T, mode ContentCaptureMode, redactor Redactor, endpoint string) (*Service, *otel.Emitter) {
+func newServiceWithEmitter(t *testing.T, mode capture.Mode, redactor capture.Redactor, endpoint string) (*Service, *otel.Emitter) {
 	t.Helper()
 	em, err := otel.NewEmitter(otel.EmitterConfig{
 		Endpoint:      endpoint,
@@ -225,12 +229,12 @@ func newServiceWithEmitter(t *testing.T, mode ContentCaptureMode, redactor Redac
 		FlushInterval: time.Second,
 	})
 	require.NoError(t, err)
-	return &Service{hmmServing: hmmPorts(), emitter: em, captureMode: mode, captureMaxBytes: 1 << 20, redactor: redactor}, em
+	return &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), turnTelemetry: turnTelemetry{emitter: em}, captureMode: mode, captureMaxBytes: 1 << 20, redactor: redactor}, em
 }
 
 func TestRecordCallLog_OffEmitsNothing(t *testing.T) {
 	coll := newLogCollector(t)
-	s, em := newServiceWithEmitter(t, CaptureOff, nil, coll.server.URL)
+	s, em := newServiceWithEmitter(t, capture.Off, nil, coll.server.URL)
 
 	buf := otel.NewBuffer(em)
 	ctx := telemetry.WithRecorder(context.Background(), buf)
@@ -244,9 +248,9 @@ func TestRecordCallLog_OffEmitsNothing(t *testing.T) {
 
 func TestRecordCallLog_InstallationOffEmitsPermanentErrorResponse(t *testing.T) {
 	coll := newLogCollector(t)
-	s, em := newServiceWithEmitter(t, CaptureFull, nil, coll.server.URL)
+	s, em := newServiceWithEmitter(t, capture.Full, nil, coll.server.URL)
 	buf := otel.NewBuffer(em)
-	ctx := context.WithValue(telemetry.WithRecorder(context.Background(), buf), InstallationCaptureModeContextKey{}, CaptureOff)
+	ctx := context.WithValue(telemetry.WithRecorder(context.Background(), buf), requestcontext.InstallationCaptureModeContextKey{}, capture.Off)
 	base := telemetry.NewAttrBuilder(15).
 		String("request_id", "req-1").
 		String("external_id", "org-1").
@@ -319,7 +323,7 @@ func TestRecordCallLog_InstallationOffEmitsPermanentErrorResponse(t *testing.T) 
 
 func TestRecordCallLog_OffDoesNotAlertRetryableFailures(t *testing.T) {
 	coll := newLogCollector(t)
-	s, em := newServiceWithEmitter(t, CaptureOff, nil, coll.server.URL)
+	s, em := newServiceWithEmitter(t, capture.Off, nil, coll.server.URL)
 	buf := otel.NewBuffer(em)
 	ctx := telemetry.WithRecorder(context.Background(), buf)
 	for _, status := range []int64{408, 429, 503} {
@@ -353,9 +357,9 @@ func TestPermanentErrorDiagnostics_LogsResponseWithoutTrustingUnknownProviderTyp
 func TestPermanentErrorDiagnostics_BoundsAndRedactsErrorResponse(t *testing.T) {
 	responseBody := []byte(strings.Repeat("x", maxLoggedErrorResponseBytes+10))
 	proxyErr := &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: responseBody}
-	redact := func(content string, kind ContentKind) string {
+	redact := func(content string, kind capture.ContentKind) string {
 		assert.Equal(t, string(responseBody), content)
-		assert.Equal(t, ContentKindResponse, kind)
+		assert.Equal(t, capture.ContentKindResponse, kind)
 		return strings.Repeat("r", maxLoggedErrorResponseBytes+10)
 	}
 
@@ -420,7 +424,7 @@ func TestRequestSizeBucketFor(t *testing.T) {
 
 func TestRecordCallLog_FullCapturesBodies(t *testing.T) {
 	coll := newLogCollector(t)
-	s, em := newServiceWithEmitter(t, CaptureFull, nil, coll.server.URL)
+	s, em := newServiceWithEmitter(t, capture.Full, nil, coll.server.URL)
 
 	buf := otel.NewBuffer(em)
 	ctx := telemetry.WithRecorder(context.Background(), buf)
@@ -440,7 +444,7 @@ func TestRecordCallLog_FullCapturesBodies(t *testing.T) {
 
 func TestRecordCallLog_HashedOmitsRawText(t *testing.T) {
 	coll := newLogCollector(t)
-	s, em := newServiceWithEmitter(t, CaptureHashed, nil, coll.server.URL)
+	s, em := newServiceWithEmitter(t, capture.Hashed, nil, coll.server.URL)
 
 	buf := otel.NewBuffer(em)
 	ctx := telemetry.WithRecorder(context.Background(), buf)
@@ -457,7 +461,7 @@ func TestRecordCallLog_HashedOmitsRawText(t *testing.T) {
 
 func TestDeferredCallLog_ReadsBodyAtRunTime(t *testing.T) {
 	coll := newLogCollector(t)
-	s, em := newServiceWithEmitter(t, CaptureFull, nil, coll.server.URL)
+	s, em := newServiceWithEmitter(t, capture.Full, nil, coll.server.URL)
 
 	ctx, h := withDeferredCallLog(context.Background())
 	require.NotNil(t, deferredCallLogFrom(ctx), "holder must be retrievable from ctx")
@@ -495,13 +499,13 @@ func TestDeferredCallLog_SafeWhenAbsent(t *testing.T) {
 
 func TestRecordCallLog_RedactorApplied(t *testing.T) {
 	coll := newLogCollector(t)
-	redactor := func(content string, kind ContentKind) string {
-		if kind == ContentKindRequest {
+	redactor := func(content string, kind capture.ContentKind) string {
+		if kind == capture.ContentKindRequest {
 			return "REDACTED-REQ"
 		}
 		return "REDACTED-RESP"
 	}
-	s, em := newServiceWithEmitter(t, CaptureFull, redactor, coll.server.URL)
+	s, em := newServiceWithEmitter(t, capture.Full, redactor, coll.server.URL)
 
 	buf := otel.NewBuffer(em)
 	ctx := telemetry.WithRecorder(context.Background(), buf)
@@ -519,7 +523,7 @@ func TestApplyRoutingStateAttrs_EmitsExactThreadAndTransition(t *testing.T) {
 	for i := range key {
 		key[i] = byte(i + 1)
 	}
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		SessionKey:       key,
 		PinRole:          "default_high",
 		PriorServedModel: "claude-haiku-4-5",
@@ -536,7 +540,7 @@ func TestApplyRoutingStateAttrs_EmitsExactThreadAndTransition(t *testing.T) {
 
 func TestApplyRoutingStateAttrs_FirstSelectionIsNotAChange(t *testing.T) {
 	b := telemetry.NewAttrBuilder(4)
-	applyRoutingStateAttrs(b, turnLoopResult{PinRole: sessionpin.DefaultRole}, "claude-haiku-4-5", [sessionpin.SessionKeyLen]byte{})
+	applyRoutingStateAttrs(b, routingpolicy.TurnRoute{PinRole: sessionpin.DefaultRole}, "claude-haiku-4-5", [sessionpin.SessionKeyLen]byte{})
 	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Empty(t, attrs["routing.session_key"].GetStringValue())
@@ -546,7 +550,7 @@ func TestApplyRoutingStateAttrs_FirstSelectionIsNotAChange(t *testing.T) {
 
 func TestApplyRoutingStateAttrs_OmitsLLMEscalationWithoutClassifier(t *testing.T) {
 	b := telemetry.NewAttrBuilder(5)
-	applyRoutingStateAttrs(b, turnLoopResult{}, "gpt-5.5", [sessionpin.SessionKeyLen]byte{})
+	applyRoutingStateAttrs(b, routingpolicy.TurnRoute{}, "gpt-5.5", [sessionpin.SessionKeyLen]byte{})
 	attrs := attrsByTelemetryKey(b.Build())
 	assert.False(t, attrs["routing.llm_escalation_applied"].GetBoolValue())
 }
@@ -554,7 +558,7 @@ func TestApplyRoutingStateAttrs_OmitsLLMEscalationWithoutClassifier(t *testing.T
 func TestApplyRoutingStateAttrs_UsesRequestKeyWhenRoutingKeyIsEmpty(t *testing.T) {
 	key := [sessionpin.SessionKeyLen]byte{1, 2, 3}
 	b := telemetry.NewAttrBuilder(4)
-	applyRoutingStateAttrs(b, turnLoopResult{}, "claude-haiku-4-5", key)
+	applyRoutingStateAttrs(b, routingpolicy.TurnRoute{}, "claude-haiku-4-5", key)
 	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Equal(t, "01020300000000000000000000000000", attrs["routing.session_key"].GetStringValue())
@@ -562,7 +566,7 @@ func TestApplyRoutingStateAttrs_UsesRequestKeyWhenRoutingKeyIsEmpty(t *testing.T
 
 func TestApplyPlannerAttrs_OmitsDetailsWhenSkipped(t *testing.T) {
 	b := telemetry.NewAttrBuilder(8)
-	applyPlannerAttrs(b, turnLoopResult{PlannerDecision: planner.Decision{Reason: planner.ReasonNoPin}})
+	applyPlannerAttrs(b, routingpolicy.TurnRoute{PlannerDecision: planner.Decision{Reason: planner.ReasonNoPin}})
 	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Contains(t, attrs, "planner.outcome")
@@ -574,7 +578,7 @@ func TestApplyPlannerAttrs_OmitsDetailsWhenSkipped(t *testing.T) {
 }
 
 func TestApplyPlannerAttrs_EmitsDetailsWhenEvaluated(t *testing.T) {
-	res := turnLoopResult{
+	res := routingpolicy.TurnRoute{
 		Decision:     router.Decision{Model: "claude-haiku-4-5"},
 		Fresh:        router.Decision{Model: "claude-opus-4-7"},
 		PinModel:     "claude-haiku-4-5",

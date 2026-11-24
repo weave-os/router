@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -18,7 +19,7 @@ import (
 func newCommandOrderingService(fp *fakeProvider) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "test"}},
-		map[string]providers.Client{providers.ProviderAnthropic: fp},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: fp}),
 		nil,
 		newFakePinStore(),
 		false,

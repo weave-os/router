@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/translate"
 )
 
@@ -22,12 +23,12 @@ func (s *Service) anthropicRoutingRequest(
 	body []byte,
 	headers http.Header,
 	ingress string,
-) (context.Context, router.Request, error) {
+) (context.Context, router.Strategy, router.Request, error) {
 	ctx = s.withUsageObserver(ctx, headers)
 	log := observability.FromContext(ctx)
 	cleanBody, err := stripRoutingMarkerFromMessages(body)
 	if err != nil {
-		return ctx, router.Request{}, fmt.Errorf("strip routing marker: %w", err)
+		return ctx, "", router.Request{}, fmt.Errorf("strip routing marker: %w", err)
 	}
 	if withoutFooter, footerErr := translate.StripFeedbackFooterFromMessages(cleanBody); footerErr != nil {
 		log.Error("Failed to strip feedback footer from route preview", "err", footerErr)
@@ -44,11 +45,11 @@ func (s *Service) anthropicRoutingRequest(
 
 	env, err := translate.ParseAnthropic(cleanBody)
 	if err != nil {
-		return ctx, router.Request{}, fmt.Errorf("parse request: %w", err)
+		return ctx, "", router.Request{}, fmt.Errorf("parse request: %w", err)
 	}
 
-	clientIdentity := ClientIdentityFrom(ctx)
-	headerIdentity := ClientIdentityFromHeaders(headers)
+	clientIdentity := requestcontext.ClientIdentityFrom(ctx)
+	headerIdentity := requestcontext.ClientIdentityFromHeaders(headers)
 	if clientIdentity.ClientApp == "" {
 		clientIdentity.ClientApp = headerIdentity.ClientApp
 	}
@@ -58,7 +59,7 @@ func (s *Service) anthropicRoutingRequest(
 	ctx = requestcontext.WithClientIdentity(ctx, clientIdentity)
 	ctx = requestcontext.WithClientBudget(ctx, resolveClientBudget(clientIdentity, headers, env.Model(), modelVariant1M))
 
-	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
+	apiKeyID, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	ctx, log, sessionKey = bindRequestLogger(ctx, env, apiKeyID, "", ingress)
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
@@ -67,12 +68,12 @@ func (s *Service) anthropicRoutingRequest(
 	if removed := env.StripBetaArtifacts(); removed > 0 {
 		log.Info("Stripped beta artifacts from route preview", "removed_messages", removed)
 	}
-	ctx, err = s.applySessionStrategy(ctx, installationIDFromContext(ctx), deriveBetaSessionKeyForRequest(ctx, env, apiKeyID, sessionKey))
+	ctx, strategy, err := s.applySessionStrategy(ctx, router.StrategyFromContext(ctx), requestcontext.InstallationIDFromContext(ctx), deriveBetaSessionKeyForRequest(ctx, env, apiKeyID, sessionKey))
 	if err != nil {
-		return ctx, router.Request{}, err
+		return ctx, "", router.Request{}, err
 	}
 	features := env.RoutingFeatures()
-	ctx = withRequestImageCount(ctx, features.ImageCount)
+	ctx = requestcontext.WithRequestImageCount(ctx, features.ImageCount)
 	promptText := features.PromptText
 	if features.OnlyUserMessageText != "" {
 		promptText = features.OnlyUserMessageText
@@ -93,18 +94,18 @@ func (s *Service) anthropicRoutingRequest(
 		outputReserve,
 		enabledProviders,
 		excluded,
-		s.availableModels,
+		s.routing.AvailableModels(),
 	)
-	excluded, _ = candidates.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
-	excluded, _ = excludeAdvisorOutrankingModels(env, excluded, s.routableUniverse())
+	excluded, _ = candidates.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.routing.AvailableModels())
+	excluded, _ = candidates.ExcludeAdvisorOutrankingModels(env, excluded, s.routableUniverse())
 
-	organizationID, _ := ctx.Value(ExternalIDContextKey{}).(string)
+	organizationID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 	installationID := ""
-	if id := installationIDFromContext(ctx); id != uuid.Nil {
+	if id := requestcontext.InstallationIDFromContext(ctx); id != uuid.Nil {
 		installationID = id.String()
 	}
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
-	return ctx, router.Request{
+	return ctx, strategy, router.Request{
 		RequestedModel:               features.Model,
 		ClientBudget:                 requestcontext.ClientBudgetFrom(ctx),
 		EstimatedInputTokens:         features.Tokens,
@@ -125,13 +126,13 @@ func (s *Service) anthropicRoutingRequest(
 		CustomBindings:               s.customBindingsForRequest(ctx),
 		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
 		Candidates:                   router.Candidates{ExcludedModels: excluded, AllowedModels: allowedModelsForRequest(ctx)},
-		PreferredModels:              s.preferredModelsForRequest(ctx),
+		PreferredModels:              preferredModelsForRequest(ctx),
 		RoutingKnobs:                 routingKnobsForRequest(ctx),
 	}, nil
 }
 
 func (s *Service) PreviewAnthropicRoute(ctx context.Context, body []byte, headers http.Header) (policy.PreviewResult, error) {
-	ctx, req, err := s.anthropicRoutingRequest(ctx, body, headers, "anthropic_route_preview")
+	ctx, strategy, req, err := s.anthropicRoutingRequest(ctx, body, headers, "anthropic_route_preview")
 	if err != nil {
 		return policy.PreviewResult{}, err
 	}
@@ -140,7 +141,6 @@ func (s *Service) PreviewAnthropicRoute(ctx context.Context, body []byte, header
 		return policy.PreviewResult{}, err
 	}
 	req = s.withPolicyRequestContext(ctx, req)
-	strategy := router.StrategyFromContext(ctx)
 	registered, ok := s.strategies[strategy]
 	if !ok || registered.router == nil {
 		return policy.PreviewResult{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, router.StrategyUnavailableError(strategy))
@@ -150,4 +150,23 @@ func (s *Service) PreviewAnthropicRoute(ctx context.Context, body []byte, header
 		return policy.PreviewResult{}, fmt.Errorf("strategy %q has no route preview contract: %w", strategy, registered.unavailable)
 	}
 	return previewer.PreviewRoute(ctx, req)
+}
+
+func (s *Service) Route(ctx context.Context, req router.Request) (router.Decision, error) {
+	return routeWithSpan(ctx, s, router.StrategyFromContext(ctx), req)
+}
+
+func routeWithSpan(ctx context.Context, s *Service, strategy router.Strategy, req router.Request) (router.Decision, error) {
+	routeCtx, span := spans.StartRoutingSpan(ctx, strategy, req)
+	decision, err := s.routeFor(routeCtx, strategy, req)
+	spans.FinishRoutingSpan(span, decision, err)
+	return decision, err
+}
+
+func (s *Service) RouteAnthropicRequest(ctx context.Context, body []byte, headers http.Header) (decision router.Decision, err error) {
+	ctx, strategy, req, err := s.anthropicRoutingRequest(ctx, body, headers, "anthropic_route")
+	if err != nil {
+		return decision, err
+	}
+	return routeWithSpan(ctx, s, strategy, req)
 }

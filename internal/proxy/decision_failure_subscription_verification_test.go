@@ -12,9 +12,12 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -55,14 +58,14 @@ func TestVerificationAdmissionFailureExportsDecisionWithoutUpstream(t *testing.T
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests++; w.WriteHeader(500) }))
 	defer upstream.Close()
 	client := openai.NewClient("synthetic-api-key", upstream.URL)
-	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, emitter, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), emitter, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted)
-	ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "10000000-0000-4000-8000-000000000003")
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
-	ctx = context.WithValue(ctx, ExternalIDContextKey{}, "org_subscription_verification")
+	ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "10000000-0000-4000-8000-000000000003")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org_subscription_verification")
 	body := `{"model":"gpt-5.6-sol","stream":true,"messages":[{"role":"user","content":"synthetic unavailable capacity"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 	rec := httptest.NewRecorder()
-	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body))), ErrCreditsExhaustedSubscriptionUnavailable)
+	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body))), credentials.ErrCreditsExhaustedSubscriptionUnavailable)
 	require.Zero(t, requests, "admission rejection cannot dispatch authorized API when credits are depleted")
 	require.NoError(t, emitter.Shutdown(context.Background()))
 	mu.Lock()

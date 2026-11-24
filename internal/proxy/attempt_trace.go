@@ -9,15 +9,20 @@ import (
 
 	"github.com/tidwall/sjson"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router/candidates"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 type attemptTraceContextKey struct{}
 
-func attemptOwner(a dispatch.TracedAttempt) FailureOwner {
-	return FailureOwner(a.Diagnosis.FailureOwner)
+func attemptOwner(a dispatch.TracedAttempt) turnrecord.FailureOwner {
+	return turnrecord.FailureOwner(a.Diagnosis.FailureOwner)
 }
 
 func withAttemptTrace(ctx context.Context, inbound []byte, h http.Header) context.Context {
@@ -36,12 +41,12 @@ func customerOwnedCredential(ctx context.Context) bool {
 	if managedSubscriptionCredentialSource(ctx) != "" {
 		return false
 	}
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	if creds == nil || len(creds.APIKey) == 0 || creds.SubscriptionAccountID != "" {
 		return false
 	}
 	switch creds.Source {
-	case credSourceBYOK, credSourceClient, credSourceSubscription, credSourceCodexSubscription:
+	case requestcontext.SourceBYOK, requestcontext.SourceClient, requestcontext.SourceSubscription, requestcontext.SourceCodexSubscription:
 		return true
 	}
 	return false
@@ -62,7 +67,7 @@ func describeAttempt(ctx context.Context, trace *dispatch.AttemptTrace, attempt 
 				Err:                    err,
 				BodyTranslated:         diagnosis.BodyTranslated,
 				CustomerCredential:     customerCredential,
-				RejectedFieldUnchanged: rejectedFieldUnchanged(err, inbound, sent),
+				RejectedFieldUnchanged: ingress.RejectedFieldUnchanged(err, inbound, sent),
 			}))
 			logAttemptFailure(ctx, attempt, err, diagnosis)
 		}
@@ -72,7 +77,7 @@ func describeAttempt(ctx context.Context, trace *dispatch.AttemptTrace, attempt 
 
 func lastFailureOn(trace *dispatch.AttemptTrace, model string) (dispatch.TracedAttempt, bool) {
 	return trace.LastFailureWhere(func(target inference.Target) bool {
-		return baseModelOf(target.CatalogID) == baseModelOf(model)
+		return candidates.BaseModelOf(target.CatalogID) == candidates.BaseModelOf(model)
 	})
 }
 
@@ -89,13 +94,13 @@ func logAttemptFailure(ctx context.Context, attempt dispatch.Attempt, err error,
 		"err", err,
 	}
 	level, msg := slog.LevelInfo, "Upstream attempt failed"
-	if FailureOwner(diagnosis.FailureOwner) == FailureOwnerUnknown {
+	if turnrecord.FailureOwner(diagnosis.FailureOwner) == turnrecord.FailureOwnerUnknown {
 		level, msg = slog.LevelWarn, "Upstream attempt failed with unknown failure owner"
 	}
 	observability.FromContext(ctx).Log(ctx, level, msg, fields...)
 }
 
-func turnFailureOwnerFor(ctx context.Context, err error, class TurnErrorClass) FailureOwner {
+func turnFailureOwnerFor(ctx context.Context, err error, class turnrecord.TurnErrorClass) turnrecord.FailureOwner {
 	if err == nil {
 		return turnFailureOwner(class)
 	}

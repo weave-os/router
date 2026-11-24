@@ -8,12 +8,16 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -24,20 +28,20 @@ import (
 // fireTelemetry is async, so writes are mutex-guarded and read via waitForRows.
 type auxTelemetryRepo struct {
 	mu   sync.Mutex
-	rows []InsertTelemetryParams
+	rows []turnrecord.InsertTelemetryParams
 }
 
-func (r *auxTelemetryRepo) InsertRequestTelemetry(_ context.Context, p InsertTelemetryParams) error {
+func (r *auxTelemetryRepo) InsertRequestTelemetry(_ context.Context, p turnrecord.InsertTelemetryParams) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.rows = append(r.rows, p)
 	return nil
 }
 
-func (r *auxTelemetryRepo) snapshot() []InsertTelemetryParams {
+func (r *auxTelemetryRepo) snapshot() []turnrecord.InsertTelemetryParams {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]InsertTelemetryParams, len(r.rows))
+	out := make([]turnrecord.InsertTelemetryParams, len(r.rows))
 	copy(out, r.rows)
 	return out
 }
@@ -45,7 +49,7 @@ func (r *auxTelemetryRepo) snapshot() []InsertTelemetryParams {
 // waitForRows polls until n rows have landed or the deadline passes, returning
 // whatever arrived. Callers assert on the result so a missing row fails with a
 // content diff rather than a timeout.
-func (r *auxTelemetryRepo) waitForRows(n int) []InsertTelemetryParams {
+func (r *auxTelemetryRepo) waitForRows(n int) []turnrecord.InsertTelemetryParams {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if rows := r.snapshot(); len(rows) >= n {
@@ -56,44 +60,44 @@ func (r *auxTelemetryRepo) waitForRows(n int) []InsertTelemetryParams {
 	return r.snapshot()
 }
 
-func (r *auxTelemetryRepo) GetTelemetrySummary(context.Context, string, time.Time, time.Time) (TelemetrySummary, error) {
-	return TelemetrySummary{}, nil
+func (r *auxTelemetryRepo) GetTelemetrySummary(context.Context, string, time.Time, time.Time) (turnrecord.TelemetrySummary, error) {
+	return turnrecord.TelemetrySummary{}, nil
 }
 
-func (r *auxTelemetryRepo) GetTelemetryTimeseries(context.Context, string, time.Time, time.Time, string) ([]TelemetryBucket, error) {
+func (r *auxTelemetryRepo) GetTelemetryTimeseries(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryBucket, error) {
 	return nil, nil
 }
 
-func (r *auxTelemetryRepo) GetTelemetrySummaryAll(context.Context, time.Time, time.Time) (TelemetrySummary, error) {
-	return TelemetrySummary{}, nil
+func (r *auxTelemetryRepo) GetTelemetrySummaryAll(context.Context, time.Time, time.Time) (turnrecord.TelemetrySummary, error) {
+	return turnrecord.TelemetrySummary{}, nil
 }
 
-func (r *auxTelemetryRepo) GetTelemetryTimeseriesAll(context.Context, time.Time, time.Time, string) ([]TelemetryBucket, error) {
+func (r *auxTelemetryRepo) GetTelemetryTimeseriesAll(context.Context, time.Time, time.Time, string) ([]turnrecord.TelemetryBucket, error) {
 	return nil, nil
 }
 
-func (r *auxTelemetryRepo) GetTelemetryRows(context.Context, string, time.Time, time.Time, int32) ([]TelemetryRow, error) {
+func (r *auxTelemetryRepo) GetTelemetryRows(context.Context, string, time.Time, time.Time, int32) ([]turnrecord.TelemetryRow, error) {
 	return nil, nil
 }
 
-func (r *auxTelemetryRepo) GetTelemetryRowsAll(context.Context, time.Time, time.Time, int32) ([]TelemetryRow, error) {
+func (r *auxTelemetryRepo) GetTelemetryRowsAll(context.Context, time.Time, time.Time, int32) ([]turnrecord.TelemetryRow, error) {
 	return nil, nil
 }
 
-func (r *auxTelemetryRepo) GetTelemetryModelBreakdown(context.Context, string, time.Time, time.Time, string) ([]TelemetryModelBucket, error) {
+func (r *auxTelemetryRepo) GetTelemetryModelBreakdown(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryModelBucket, error) {
 	return nil, nil
 }
 
-func (r *auxTelemetryRepo) GetTelemetryModelBreakdownAll(context.Context, time.Time, time.Time, string) ([]TelemetryModelBucket, error) {
+func (r *auxTelemetryRepo) GetTelemetryModelBreakdownAll(context.Context, time.Time, time.Time, string) ([]turnrecord.TelemetryModelBucket, error) {
 	return nil, nil
 }
 
-func (r *auxTelemetryRepo) GetSessionCost(context.Context, string, string) (SessionCost, error) {
-	return SessionCost{}, ErrSessionCostNotFound
+func (r *auxTelemetryRepo) GetSessionCost(context.Context, string, string) (turnrecord.SessionCost, error) {
+	return turnrecord.SessionCost{}, turnrecord.ErrSessionCostNotFound
 }
 
-func (r *auxTelemetryRepo) GetTelemetryBySessionSequence(context.Context, uuid.UUID, []byte, string, int) (TelemetryTurnResult, error) {
-	return TelemetryTurnResult{}, nil
+func (r *auxTelemetryRepo) GetTelemetryBySessionSequence(context.Context, uuid.UUID, []byte, string, int) (turnrecord.TelemetryTurnResult, error) {
+	return turnrecord.TelemetryTurnResult{}, nil
 }
 
 // auxBillingRepo captures debit params so a test can assert the ledger row and
@@ -169,17 +173,17 @@ func auxTestService(t *testing.T) (*Service, *auxBillingRepo, *auxTelemetryRepo)
 	t.Helper()
 	billingRepo := &auxBillingRepo{}
 	telemetryRepo := &auxTelemetryRepo{}
-	return &Service{hmmServing: hmmPorts(),
-		billing:   billing.NewService(billingRepo).WithByokFeeRate(0.05),
-		telemetry: telemetryRepo,
+	return &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(),
+		billing:       billing.NewService(billingRepo).WithByokFeeRate(0.05),
+		turnTelemetry: turnTelemetry{repo: telemetryRepo},
 	}, billingRepo, telemetryRepo
 }
 
 // auxTestContext carries the installation + client identity the router's auth
 // middleware would have stashed on a real request.
 func auxTestContext(installationID uuid.UUID) context.Context {
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, installationID.String())
-	ctx = context.WithValue(ctx, ExternalIDContextKey{}, auxTestOrgID)
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installationID.String())
+	ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, auxTestOrgID)
 	return context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{
 		SessionID: auxTestSessionID,
 		DeviceID:  "device-aux-1",
@@ -336,7 +340,7 @@ func TestBillAuxiliaryInferenceUsesSummarizerProviderForBYOK(t *testing.T) {
 	s, billingRepo, _ := auxTestService(t)
 
 	ctx := auxTestContext(uuid.New())
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: "anthropic", Plaintext: []byte("sk-ant-byok")},
 	})
 	s.billAuxiliaryInference(ctx, auxTestRequestID, auxSuffixHandoverSummary, auxTestOrgID, auxTestUsage())
@@ -348,27 +352,27 @@ func TestBillAuxiliaryInferenceUsesSummarizerProviderForBYOK(t *testing.T) {
 	assert.NotZero(t, debits[0].FeeUsdMicros, "Weave still charges its platform fee")
 }
 
-func (*auxTelemetryRepo) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryDashboardFact, error) {
+func (*auxTelemetryRepo) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryDashboardFact, error) {
 	return nil, nil
 }
 
-func (*auxTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]TelemetryActiveUsers, error) {
+func (*auxTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryActiveUsers, error) {
 	return nil, nil
 }
 
-func (*auxTelemetryRepo) GetTelemetryDashboardPeople(context.Context, string) ([]TelemetryPerson, error) {
+func (*auxTelemetryRepo) GetTelemetryDashboardPeople(context.Context, string) ([]turnrecord.TelemetryPerson, error) {
 	return nil, nil
 }
 
-func (*auxTelemetryRepo) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]TelemetrySubscriptionSeat, error) {
+func (*auxTelemetryRepo) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]turnrecord.TelemetrySubscriptionSeat, error) {
 	return nil, nil
 }
 
-func (*auxTelemetryRepo) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]TelemetryDrillDownRow, error) {
+func (*auxTelemetryRepo) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]turnrecord.TelemetryDrillDownRow, error) {
 	return nil, nil
 }
 
-func (*auxTelemetryRepo) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryIndividualFact, error) {
+func (*auxTelemetryRepo) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryIndividualFact, error) {
 	return nil, nil
 }
 

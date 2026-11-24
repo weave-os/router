@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 )
 
@@ -114,10 +115,10 @@ func slowStartNotice(ctx context.Context, trace *dispatch.AttemptTrace, tracker 
 		p50 = 0
 	}
 	wait := now.Sub(snap.FirstAttemptAt)
-	if wait <= threshold || trace.HideDetails() || isHeadlessClientUserAgent(ClientIdentityFrom(ctx).UserAgent) {
+	if wait <= threshold || trace.HideDetails() || isHeadlessClientUserAgent(requestcontext.ClientIdentityFrom(ctx).UserAgent) {
 		return translate.RouterNotice{}, false
 	}
-	if ClientIdentityFrom(ctx).ClientApp == ClientAppCodex && translate.SlowStartInResponsesTurn(trace.Inbound()) {
+	if requestcontext.ClientIdentityFrom(ctx).ClientApp == requestcontext.ClientAppCodex && translate.SlowStartInResponsesTurn(trace.Inbound()) {
 		return translate.RouterNotice{}, false
 	}
 	if cooldownKey, ok := slowStartCooldownKey(ctx); !ok || !tracker.claim(cooldownKey, now) {
@@ -130,7 +131,7 @@ func slowStartNotice(ctx context.Context, trace *dispatch.AttemptTrace, tracker 
 		"usual_p50_ms", p50.Milliseconds(),
 		"threshold_ms", threshold.Milliseconds(),
 	)
-	if ClientIdentityFrom(ctx).ClientApp == ClientAppCodex {
+	if requestcontext.ClientIdentityFrom(ctx).ClientApp == requestcontext.ClientAppCodex {
 		if timing, reported := translate.CodexReportedToolTiming(trace.Inbound()); reported {
 			snap.clientToolTiming = &timing
 		}
@@ -143,7 +144,7 @@ func slowStartCooldownKey(ctx context.Context) (string, bool) {
 	if session := observability.ClientSessionIDFromContext(ctx); session != "" {
 		return "session:" + session, true
 	}
-	if key := apiKeyIDFromContext(ctx); key != "" {
+	if key := requestcontext.APIKeyIDFromContext(ctx); key != "" {
 		return "key:" + key, true
 	}
 	return "", false

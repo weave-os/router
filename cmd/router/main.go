@@ -24,11 +24,14 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/config"
+	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/entra"
 	"weave-os/router/internal/escalationmodal"
-	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/gcsregistry"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/apm"
@@ -47,19 +50,20 @@ import (
 	openaiProvider "weave-os/router/internal/providers/openai"
 	openaiCompatProvider "weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/proxy/usage"
 	routerpubsub "weave-os/router/internal/pubsub"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
@@ -604,13 +608,7 @@ func main() {
 	}
 	logger.Info("Hard-pin model resolved", "provider", hardPinProvider, "model", hardPinModel, "byok_only", byokOnly)
 
-	var hardPinResolver proxy.HardPinResolver
-	if !hardPinOverrideConfigured {
-		hardPinResolver = proxy.CatalogUtilityHardPin
-		logger.Info("Hard-pin resolver wired (per-request catalog utility target, applies excluded_models)", "default_model", policy.UtilityHardPinDefaultModel, "byok_only", byokOnly)
-	} else {
-		logger.Info("Hard-pin resolver not wired: ROUTER_HARD_PIN_MODEL operator override is set and absolute by design", "model", hardPinModel)
-	}
+	hardPinResolver := selectHardPinResolver(logger, hardPinOverrideConfigured, byokOnly, hardPinModel)
 
 	subAgentProvider := config.GetOr("ROUTER_SUBAGENT_PROVIDER", "")
 	subAgentModel := config.GetOr("ROUTER_SUBAGENT_MODEL", "")
@@ -646,7 +644,7 @@ func main() {
 	cyberRefusalFallbackModel := config.GetOr("ROUTER_CYBER_REFUSAL_FALLBACK_MODEL", "claude-sonnet-5")
 	anthropicServerSideFallback := config.GetOr("ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK", "true") == "true"
 	scopedSearchRequirement := config.GetOr("ROUTER_SCOPED_SEARCH_REQUIREMENT", "true") == "true"
-	searchRequirementDecayTurns := parseEnvInt("ROUTER_SEARCH_REQUIREMENT_DECAY_TURNS", proxy.DefaultSearchRequirementDecayTurns)
+	searchRequirementDecayTurns := parseEnvInt("ROUTER_SEARCH_REQUIREMENT_DECAY_TURNS", ingress.DefaultSearchRequirementDecayTurns)
 	effortEscalation := config.GetOr("ROUTER_EFFORT_ESCALATION", "false") == "true"
 	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
 	openAIResponsesBroad := config.GetOr("ROUTER_OPENAI_RESPONSES_BROAD", "true") == "true"
@@ -682,7 +680,6 @@ func main() {
 	handoverProviderName := config.GetOr("ROUTER_HANDOVER_PROVIDER", providers.ProviderAnthropic)
 	handoverModel := config.GetOr("ROUTER_HANDOVER_MODEL", policy.HandoverSummaryDefaultModel)
 	handoverTimeout := parseEnvDurationMs("ROUTER_HANDOVER_TIMEOUT_MS", proxy.DefaultHandoverTimeout)
-	compactionTimeout := parseEnvDurationMs("ROUTER_COMPACTION_TIMEOUT_MS", proxy.DefaultCompactionTimeout)
 	compactionModel, err := resolveCompactionModel(handoverProviderName)
 	if err != nil {
 		logger.Error("Invalid compaction model configuration; refusing to boot", "err", err)
@@ -702,7 +699,6 @@ func main() {
 	deploymentTargets := []policy.PurposeTargetOverride{
 		{Purpose: policy.PurposeHandoverSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: handoverModel, Provider: handoverProviderName}},
 		{Purpose: policy.PurposePrecompactionSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: compactionModel, Provider: handoverProviderName}},
-		{Purpose: policy.PurposeCompactionHandoverSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: compactionModel, Provider: handoverProviderName}},
 		{Purpose: policy.PurposeTitleGeneration, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
 		{Purpose: policy.PurposeClassifier, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
 		{Purpose: policy.PurposeProbe, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
@@ -755,32 +751,18 @@ func main() {
 		panic(fmt.Sprintf("inference plan resolver: %v", err))
 	}
 	var summarizer handover.Summarizer
-	var compactionHandoverSz handover.Summarizer
 	if _, ok := providerMap[handoverProviderName]; ok {
-		ps := proxy.NewProviderSummarizer(inferencePlans, inferenceExecutor, handoverProviderName, handoverModel, handoverTimeout).
-			WithCompactionModel(compactionModel).
-			WithCompactionTimeout(compactionTimeout)
-		summarizer = ps
-		compactionHandoverSz = ps.CompactionHandover()
-		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds(), "compaction_timeout_ms", compactionTimeout.Milliseconds())
+		summarizer = proxy.NewProviderSummarizer(inferencePlans, inferenceExecutor, handoverProviderName, handoverModel, handoverTimeout)
+		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds())
 	} else {
 		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
 	}
 
-	captureMode := proxy.ParseCaptureMode(config.GetOr("WV_CAPTURE_CONTENT", ""))
+	captureMode := contentCaptureModeFromEnv()
 	captureMaxBytes := parseEnvInt("WV_CAPTURE_MAX_BYTES", 1<<20)
 	logger.Info("Router content capture configured", "mode", captureMode.String(), "max_bytes", captureMaxBytes)
 
-	feedbackSigner := feedback.NewSigner(config.GetOr("ROUTER_FEEDBACK_LINK_SECRET", ""), feedbackLinkTTL())
-	feedbackBaseURL := config.GetOr("ROUTER_FEEDBACK_BASE_URL", "")
-	switch {
-	case feedbackSigner != nil && feedbackBaseURL != "":
-		logger.Info("Feedback link enabled", "base_url", feedbackBaseURL)
-	case feedbackSigner != nil:
-		logger.Warn("Feedback link endpoints mounted but ROUTER_FEEDBACK_BASE_URL is unset; responses will not carry a feedback link header")
-	default:
-		logger.Info("Feedback link disabled (set ROUTER_FEEDBACK_LINK_SECRET and ROUTER_FEEDBACK_BASE_URL to enable)")
-	}
+	feedbackLinks := feedbackLinksFromEnv(repo.Feedback, telemetryEmitter, logger)
 
 	var escalationObserver escalation.Observer
 	var hmmRouter router.Router
@@ -872,7 +854,7 @@ func main() {
 			policyLane = directoryRegistry.Lane()
 			defaultSidecarAuth = policySidecarAuthNone
 		} else {
-			gcsRegistry, registryErr := policyregistry.NewGCSRegistry(context.Background(), strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry")))
+			gcsRegistry, registryErr := gcsregistry.NewGCSRegistry(context.Background(), strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry")))
 			if registryErr != nil {
 				logger.Error("Router policy registry failed to initialize; refusing to boot", "err", registryErr)
 				panic(registryErr)
@@ -1004,99 +986,59 @@ func main() {
 		panic("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT names a classifier whose judge is not configured")
 	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
-
-	proxySvc := proxy.WithStrategyPorts(proxy.NewService(nil, providerMap, telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry), hmm.ServingPorts()).
-		WithClock(time.Now).WithTranslationMetrics(otel.NewTranslationMetrics()).
-		WithClaudeSubscriptionPlanReader(anthropicClient).
-		WithExternalKeyUsageRecorder(authSvc).
-		WithCodexExtraCredits(allowCodexCredits).
-		WithSessionStrategyStore(sessionStrategyStore).
-		WithSessionTurnClock(sessionTurnClock).
-		WithEscalation(escalationStore, escalationObserver).
-		WithEscalationDashboard(escalationDashboardStore).
-		WithLLMEscalation(llmEscalationStore, escalationJudge).
-		WithQwenEscalation(qwenEscalationJudge).
-		WithEscalationConfiguration(llmEscalationStore, authSvc.InvalidateInstallation, escalationJudgeActiveEnabled).
-		WithEscalationShadowDefault(escalationShadowDefault).
-		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
-		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
-		WithPolicyStrategy(policy.StrategySpec{
-			Strategy: router.StrategyHMM, Router: hmmRouter, Unavailable: hmm.ErrHMMUnavailable,
-			Capabilities: hmmCapabilities,
-		}).
-		WithPolicyStrategy(policy.StrategySpec{
-			Strategy: router.StrategyHMMEmbedding, Router: hmmEmbeddingRouter, Unavailable: hmm.ErrHMMUnavailable,
-			Capabilities: hmmCapabilities,
-		}).
-		WithPolicyStrategy(policy.StrategySpec{
-			Strategy: router.StrategyHMMBeta, Router: hmmBetaRouter, Unavailable: hmm.ErrHMMUnavailable,
-			Capabilities: hmmBetaCapabilities,
-		}).
-		WithPolicyStrategy(policy.StrategySpec{
-			Strategy: router.StrategyHMMQwen, Router: hmmQwenRouter, Unavailable: hmm.ErrHMMUnavailable,
-			Capabilities: hmmCapabilities,
-		}).
-		WithPolicyStrategy(policy.StrategySpec{
-			Strategy: router.StrategyDecisionModel, Router: buildDecisionModelRouter(logger), Unavailable: decisionmodel.ErrUnavailable,
-			Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true},
-		}).
-		WithContentCapture(captureMode, captureMaxBytes, nil).
-		WithFeedback(repo.Feedback, feedbackSigner, feedbackBaseURL).
-		WithPiHandoffSecret(config.GetOr("ROUTER_PI_HANDOFF_SECRET", "")).
-		WithByokOnly(byokOnly).
-		WithDeploymentKeyedProviders(deploymentEligible).
-		WithPassthroughEligibleProviders(passthroughEligible).
-		WithHardPinResolver(hardPinResolver).
-		WithExplicitUtilityHardPin(hardPinOverrideConfigured).
-		WithSubAgentOverride(subAgentProvider, subAgentModel).
-		WithContinuityConfig(continuityConfig).
-		WithCyberRefusalRepin(cyberRefusalRepin).
-		WithCyberRefusalRetry(cyberRefusalRetry).
-		WithCyberRefusalFallbackModel(cyberRefusalFallbackModel).
-		WithAnthropicServerSideFallback(anthropicServerSideFallback).
-		WithSiblingFailover(siblingFailover).
-		WithOpenAIResponsesBroad(openAIResponsesBroad).
-		WithAllowedModelsHeader(allowedModelsHeader).
-		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
-		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
-		WithTransientRateLimit(transientRateLimit, rateLimitCooldownSeconds).
-		WithProviderOverloaded(providerOverloaded, breaker.New(breaker.Defaults(), nil)).
-		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
-		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
-		WithIngress(ingress.New(sseKeepaliveInterval())).
-		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
-		WithHMMConfig(hmmConfig).
-		WithPolicyDeadlineFallback(policyDeadlineFallback).
-		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
-		WithEscapeNormalize(escapeNormalize).
-		WithEffortEscalation(effortEscalation).
-		WithCCOrchestrationToolsCrossVendor(ccOrchToolsCrossVendor).
-		WithCCTaskToolsCrossVendor(ccTaskToolsCrossVendor).
-		WithCCAutonomySystemAppend(ccAutonomySystemAppend).
-		WithEarlyStopRedo(earlyStopRedo).
-		WithCCWorkspaceSystemAppend(ccWorkspaceSystemAppend).
-		WithBandSwap(bandSwapEnabled).
-		WithGlobalAutomaticExclusions(repo.GlobalAutomaticExclusions).
-		WithTurnSignalCapture(turnSignalCaptureEnabled).
-		WithTextRepetitionBreak(textRepetitionBreakEnabled).
-		WithRouterFeedbackStore(repo.Telemetry).
-		WithSummarizer(summarizer).
-		WithCompactionHandoverSummarizer(compactionHandoverSz).
-		WithWebSearchExecutor(cortexWebSearch(logger)).
-		WithAvailableModels(servedModels).
-		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
-		WithBillingService(billingSvc)
-	inferenceDeployment.RoutableModels = servedModels
-	if err := configureAtomicClassifier(proxySvc, pool, availableProviders); err != nil {
+	classifierSessions, classifierSpecs, err := configureAtomicClassifier(pool, availableProviders)
+	if err != nil {
 		logger.Error("Failed to configure atomic classifier", "err", err)
 		panic(err)
 	}
-	proxySvc = withRoutingPolicy(proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment), inferencePlans)
+	excludedModels := excludedModelsFromEnv()
+	inferenceDeployment.RoutableModels = servedModels
+
+	ingressFormats := ingressFormatsFor(allowedModelsHeader, scopedSearchRequirement, searchRequirementDecayTurns, cortexWebSearch(logger))
+	ingressFormats.OpenAIResponsesBroad, ingressFormats.EscapeNormalize = openAIResponsesBroad, escapeNormalize
+	ingressFormats.CCOrchToolsCrossVendor, ingressFormats.CCTaskToolsCrossVendor = ccOrchToolsCrossVendor, ccTaskToolsCrossVendor
+	ingressFormats.CCAutonomySystemAppend, ingressFormats.CCWorkspaceSystemAppend = ccAutonomySystemAppend, ccWorkspaceSystemAppend
+	seatUsage := postgres.NewSeatUsageRepo(pool)
+	usageObserver := newUsageObserver(logger, seatUsage)
 	if subscriptionRuntime != nil {
-		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
+		subscriptionRuntime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, now time.Time) subscriptions.CandidateSignal {
+			snapshot, observed := usageObserver.Snapshot(usageObserver.Key([]byte("subscription-account:" + accountID)))
+			if !observed {
+				return subscriptions.CandidateSignal{}
+			}
+			return subscriptionCandidateSignal(snapshot, now)
+		})
 	}
+	proxySvc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(providerMap), telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry), hmm.ServingPorts()), proxy.Deps{
+		Telemetry: proxy.TelemetryDeps{Clock: time.Now, SessionTurnClock: sessionTurnClock, ContentCapture: captureMode, ContentCaptureMaxBytes: captureMaxBytes, Billing: billingSvc, Flags: &proxy.TelemetryFlags{
+			TurnSignalCapture: turnSignalCaptureEnabled, NativeAnthropicResponseSignals: nativeAnthropicResponseSignals, NativeOpenAIResponseSignals: nativeOpenAIResponseSignals}},
+		Conversation: conversation.Config{Summarizer: summarizer, RouterFeedbackStore: repo.Telemetry, SessionStrategies: sessionStrategyStore,
+			FeedbackLinks: feedbackLinks, PiHandoffSecret: config.GetOr("ROUTER_PI_HANDOFF_SECRET", ""), TextRepetitionBreak: &textRepetitionBreakEnabled},
+		Routing: &proxy.RoutingDeps{PrefixTrimFreeSwitch: &prefixTrimFreeSwitch, EffortEscalation: effortEscalation, AvailableModels: servedModels, DefaultBaselineModel: resolveDefaultBaselineModel(), ExcludedModels: excludedModels,
+			HardPinResolver: hardPinResolver, ExplicitUtilityHardPin: hardPinOverrideConfigured, SubAgentProvider: subAgentProvider, SubAgentModel: subAgentModel,
+			Deadline: routingpolicy.PolicyDeadline{Fallback: policyDeadlineFallback, DefaultModel: policyDeadlineDefaultModel}, GlobalAutomaticExclusions: repo.GlobalAutomaticExclusions,
+			Plans: inferencePlans, Continuity: &continuityConfig, HMM: &hmmConfig, BandSwap: bandSwapEnabled, ClassifierSessions: classifierSessions,
+			Strategies: append(append([]policy.StrategySpec{
+				{Strategy: router.StrategyHMM, Router: hmmRouter, Unavailable: hmm.ErrHMMUnavailable, Capabilities: hmmCapabilities},
+				{Strategy: router.StrategyHMMEmbedding, Router: hmmEmbeddingRouter, Unavailable: hmm.ErrHMMUnavailable, Capabilities: hmmCapabilities},
+				{Strategy: router.StrategyHMMBeta, Router: hmmBetaRouter, Unavailable: hmm.ErrHMMUnavailable, Capabilities: hmmBetaCapabilities},
+				{Strategy: router.StrategyHMMQwen, Router: hmmQwenRouter, Unavailable: hmm.ErrHMMUnavailable, Capabilities: hmmCapabilities},
+				{Strategy: router.StrategyDecisionModel, Router: buildDecisionModelRouter(logger), Unavailable: decisionmodel.ErrUnavailable, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}},
+			}, classifierSpecs...), configuredPolicySpecs...),
+			Escalation: &proxy.RoutingEscalation{Store: escalationStore, Observer: escalationObserver, LLMStore: llmEscalationStore, LLMJudge: escalationJudge, QwenJudge: qwenEscalationJudge, ShadowDefault: escalationShadowDefault}},
+		Ingress: &ingressFormats, Escalation: proxy.EscalationDeps{SwitchyardActive: escalationJudgeActiveEnabled}, BYOKOnly: byokOnly, DeploymentKeyedProviders: deploymentEligible,
+		Credentials: &credentials.Brokerage{ExternalKeyUsage: authSvc, UsageObserver: usageObserver, ClaudePlans: subscriptions.NewPlanResolver(anthropicClient, time.Now), CodexExtraCredits: allowCodexCredits,
+			ManagedSubscriptions: managedSubscriptionLeaser(subscriptionRuntime), PassthroughEligible: passthroughEligible, ExcludedProvidersOverride: excludedProvidersFromEnv(logger)},
+		Dispatch: &dispatch.Config{
+			Rescue: dispatch.RescueConfig{SiblingFailover: siblingFailover, EarlyStopRedo: earlyStopRedo, CyberRefusalRepin: cyberRefusalRepin, CyberRefusalRetry: cyberRefusalRetry,
+				CyberRefusalFallbackModel: cyberRefusalFallbackModel, AnthropicServerSideFallback: anthropicServerSideFallback},
+			ArmDemotion: dispatch.ArmDemotionPolicy{CommittedStream: committedStreamArmDemotion, RescuedFailure: rescuedFailureArmDemotion},
+			Throttling: dispatch.Throttling{Overload: dispatch.NewOverloadBreaker(providerOverloaded, breaker.New(breaker.Defaults(), nil)),
+				RateLimit: dispatch.NewRateLimitPolicy(transientRateLimit, rateLimitCooldownSeconds)},
+			Executor: inferenceExecutor, Plans: inferencePlans, Deployment: inferenceDeployment,
+			TranslationCompatibilityMode: dispatch.TranslationCompatibilityMode(translationCompatibilityMode), TranslationMetrics: otel.NewTranslationMetrics()},
+	})
 	for _, spec := range configuredPolicySpecs {
-		proxySvc = proxySvc.WithPolicyStrategy(spec)
 		logger.Info("Generic policy sidecar wired", "strategy", spec.Strategy, "candidate_models", len(routingTargets))
 	}
 	logger.Info("Effort escalation configured", "enabled", effortEscalation)
@@ -1117,42 +1059,9 @@ func main() {
 		}
 	}
 
-	if excludedRaw := strings.TrimSpace(config.GetOr("ROUTER_EXCLUDED_MODELS", "")); excludedRaw != "" {
-		parts := strings.Split(excludedRaw, ",")
-		cleaned := make([]string, 0, len(parts))
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				cleaned = append(cleaned, trimmed)
-			}
-		}
-		proxySvc = proxySvc.WithExcludedModelsOverride(cleaned)
-		logger.Info("Model exclusion override active", "excluded_models", cleaned)
+	if excludedModels != nil {
+		logger.Info("Model exclusion override active", "excluded_models", excludedModels)
 	}
-
-	if excludedRaw := strings.TrimSpace(config.GetOr("ROUTER_EXCLUDED_PROVIDERS", "")); excludedRaw != "" {
-		parts := strings.Split(excludedRaw, ",")
-		cleaned := make([]string, 0, len(parts))
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				cleaned = append(cleaned, trimmed)
-			}
-		}
-		proxySvc = proxySvc.WithExcludedProvidersOverride(cleaned)
-		logger.Info("Provider exclusion override active", "excluded_providers", cleaned)
-	}
-
-	seatUsage := postgres.NewSeatUsageRepo(pool)
-	usageObserver := newUsageObserver(logger, seatUsage)
-	if subscriptionRuntime != nil {
-		subscriptionRuntime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, now time.Time) subscriptions.CandidateSignal {
-			snapshot, observed := usageObserver.Snapshot(usageObserver.Key([]byte("subscription-account:" + accountID)))
-			if !observed {
-				return subscriptions.CandidateSignal{}
-			}
-			return subscriptionCandidateSignal(snapshot, now)
-		})
-	}
-	proxySvc = proxySvc.WithUsageObserver(usageObserver)
 
 	trafficCapture, err := newTrafficCaptureFromEnvironment()
 	if err != nil {
@@ -1183,7 +1092,7 @@ func main() {
 		logger.Error("ROUTER_DEFAULT_STRATEGY is invalid; refusing to boot", "err", defaultStrategyErr)
 		panic(defaultStrategyErr)
 	}
-	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxySvc, defaultStrategy)
+	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxy.NewRoutingCatalog(proxySvc), defaultStrategy)
 	if defaultStrategyErr := readinessChecker.checkDefaultStrategy(); defaultStrategyErr != nil {
 		logger.Error("ROUTER_DEFAULT_STRATEGY has no router configured; refusing to boot", "err", defaultStrategyErr)
 		panic(defaultStrategyErr)
@@ -1212,7 +1121,7 @@ func main() {
 	waitForKeepWarm := startSubscriptionKeepWarm(processCtx, subscriptionRuntime, logger)
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
-	serverFeatures := withEnvServerConfig(withHMMAdminPorts(server.Features{
+	serverFeatures := withContentCaptureMode(withTelemetryQueries(withCredentialPorts(withEnvServerConfig(withHMMAdminPorts(server.Features{
 		SeatUsage:                seatUsage,
 		SubscriptionLogins:       subscriptionLogins,
 		SubscriptionRefresh:      subscriptionRuntime,
@@ -1223,11 +1132,13 @@ func main() {
 		SubscriberAllowance:      subscriberAllowanceSvc,
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 		PolicyStatus:             policyStatus,
-	}, servingAdmission, routingDistribution), defaultStrategy)
+		FeedbackLinks:            feedbackLinks,
+	}, servingAdmission, routingDistribution), defaultStrategy)), repo.Telemetry), captureMode)
+	serverFeatures.EscalationAdmin = &floor.Admin{Dashboard: escalationDashboardStore, Sessions: llmEscalationStore, Configuration: llmEscalationStore, InvalidateSelection: authSvc.InvalidateInstallation, SwitchyardJudge: escalationJudge, QwenJudge: qwenEscalationJudge, SwitchyardActive: escalationJudgeActiveEnabled, Clock: time.Now}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
-	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModelsSource(hmmRosterModels), deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
+	server.RegisterWithFeatures(engine, authSvc, serverServices(proxySvc, ingressFormats), deployedModelsSource(hmmRosterModels), deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
 
 	port := config.GetOr("PORT", "8080")
 	address := ":" + port
@@ -1404,20 +1315,6 @@ func parseEnvFloat(key string, fallback float64) float64 {
 	return v
 }
 
-func feedbackLinkTTL() time.Duration {
-	const defaultSec = 30 * 24 * 60 * 60
-	raw := config.GetOr("ROUTER_FEEDBACK_LINK_TTL_SEC", "")
-	if raw == "" {
-		return defaultSec * time.Second
-	}
-	sec, err := strconv.Atoi(raw)
-	if err != nil || sec < 0 {
-		observability.Get().Warn("Invalid env var; using default", "key", "ROUTER_FEEDBACK_LINK_TTL_SEC", "value", raw, "default", defaultSec)
-		return defaultSec * time.Second
-	}
-	return time.Duration(sec) * time.Second
-}
-
 func sseKeepaliveInterval() time.Duration {
 	const defaultSec = 15
 	raw := config.GetOr("ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS", "")
@@ -1430,13 +1327,6 @@ func sseKeepaliveInterval() time.Duration {
 		return defaultSec * time.Second
 	}
 	return time.Duration(sec) * time.Second
-}
-
-func boolDefault(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
 }
 
 func parseEnvDurationMs(key string, fallback time.Duration) time.Duration {

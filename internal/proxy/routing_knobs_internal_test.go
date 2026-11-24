@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -18,7 +19,7 @@ func TestRoutingKnobsForRequest(t *testing.T) {
 	})
 
 	t.Run("installation knobs apply when no header override", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), InstallationRoutingKnobsContextKey{}, &router.Overrides{
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationRoutingKnobsContextKey{}, &router.Overrides{
 			Alpha: ptr(0.6),
 		})
 		got := routingKnobsForRequest(ctx)
@@ -28,7 +29,7 @@ func TestRoutingKnobsForRequest(t *testing.T) {
 	})
 
 	t.Run("header override wins over installation knobs", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), InstallationRoutingKnobsContextKey{}, &router.Overrides{
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationRoutingKnobsContextKey{}, &router.Overrides{
 			Alpha: ptr(0.6),
 		})
 		ctx = router.WithRoutingKnobs(ctx, &router.Overrides{Alpha: ptr(0.95)})

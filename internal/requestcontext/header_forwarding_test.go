@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
@@ -178,7 +177,7 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 }
 
 func TestForwardingRuntimeGuardsRejectUnsafeLegacyConfiguration(t *testing.T) {
-	identity := proxy.ClientIdentity{Email: "engineer@example.com"}
+	identity := requestcontext.ClientIdentity{Email: "engineer@example.com"}
 	inbound := http.Header{
 		"Authorization":      []string{"Bearer inbound-secret"},
 		"X-Weave-Router-Key": []string{"router-secret"},
@@ -190,11 +189,11 @@ func TestForwardingRuntimeGuardsRejectUnsafeLegacyConfiguration(t *testing.T) {
 		IdentityHeader:         "Cookie",
 	}
 
-	ctx := proxy.WithForwardedHeaderSnapshot(context.Background(), []*auth.ExternalAPIKey{legacyKey}, inbound)
-	snapshot, _ := ctx.Value(proxy.ForwardedHeaderSnapshotContextKey{}).(http.Header)
+	ctx := requestcontext.WithForwardedHeaderSnapshot(context.Background(), []*auth.ExternalAPIKey{legacyKey}, inbound)
+	snapshot, _ := ctx.Value(requestcontext.ForwardedHeaderSnapshotContextKey{}).(http.Header)
 	assert.Empty(t, snapshot, "protected values must not be retained in a request snapshot")
 
-	creds := &proxy.Credentials{
+	creds := &requestcontext.Credentials{
 		ForwardedClientHeaders: legacyKey.ForwardedClientHeaders,
 		BaggageHeader:          legacyKey.BaggageHeader,
 		IdentityHeader:         legacyKey.IdentityHeader,
@@ -202,48 +201,48 @@ func TestForwardingRuntimeGuardsRejectUnsafeLegacyConfiguration(t *testing.T) {
 	}
 	ctx = identityCtx(creds, identity)
 	upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
-	proxy.ApplyIdentityHeader(ctx, upstream)
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, inbound)
+	requestcontext.ApplyIdentityHeader(ctx, upstream)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, inbound)
 	assert.Empty(t, upstream.Header, "protected values must not be emitted by runtime-only credentials")
 }
 
 func TestForwardingRuntimeGuardsRejectBaggageOnlyCredentialRelay(t *testing.T) {
-	for name, identity := range map[string]proxy.ClientIdentity{
+	for name, identity := range map[string]requestcontext.ClientIdentity{
 		"without resolved email": {},
 		"with resolved email":    {Email: "engineer@example.com"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			creds := &proxy.Credentials{BaggageHeader: "Authorization"}
+			creds := &requestcontext.Credentials{BaggageHeader: "Authorization"}
 			ctx := identityCtx(creds, identity)
 			upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
-			proxy.ApplyForwardedClientHeaders(ctx, upstream, http.Header{"Authorization": []string{"Bearer inbound-secret"}})
+			requestcontext.ApplyForwardedClientHeaders(ctx, upstream, http.Header{"Authorization": []string{"Bearer inbound-secret"}})
 			assert.Empty(t, upstream.Header.Get("Authorization"))
 		})
 	}
 }
 
 func TestForwardingRuntimeGuardsPreserveUpstreamEstablishedHeaders(t *testing.T) {
-	creds := &proxy.Credentials{ForwardedClientHeaders: []string{"X-Correlation-ID"}}
-	ctx := identityCtx(creds, proxy.ClientIdentity{})
+	creds := &requestcontext.Credentials{ForwardedClientHeaders: []string{"X-Correlation-ID"}}
+	ctx := identityCtx(creds, requestcontext.ClientIdentity{})
 	upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	upstream.Header.Set("X-Correlation-ID", "provider-value")
 
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, http.Header{"X-Correlation-ID": []string{"client-value"}})
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, http.Header{"X-Correlation-ID": []string{"client-value"}})
 
 	assert.Equal(t, "provider-value", upstream.Header.Get("X-Correlation-ID"))
 }
 
 func TestForwardingRuntimeGuardsRejectCollidingLegacyDestinations(t *testing.T) {
-	creds := &proxy.Credentials{
+	creds := &requestcontext.Credentials{
 		ForwardedClientHeaders: []string{"X-Correlation-ID"},
 		IdentityHeader:         "x-correlation-id",
 		IdentityHeaderFormat:   auth.IdentityFormatEmail,
 	}
-	ctx := identityCtx(creds, proxy.ClientIdentity{Email: "engineer@example.com"})
+	ctx := identityCtx(creds, requestcontext.ClientIdentity{Email: "engineer@example.com"})
 	upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	proxy.ApplyIdentityHeader(ctx, upstream)
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, http.Header{"X-Correlation-ID": []string{"client-value"}})
+	requestcontext.ApplyIdentityHeader(ctx, upstream)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, http.Header{"X-Correlation-ID": []string{"client-value"}})
 
 	assert.Empty(t, upstream.Header.Get("X-Correlation-ID"))
 }

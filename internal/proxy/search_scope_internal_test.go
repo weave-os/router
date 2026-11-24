@@ -3,6 +3,8 @@ package proxy
 import (
 	"testing"
 
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -46,10 +48,9 @@ func TestSearchUseTracker_SessionsAreIndependent(t *testing.T) {
 }
 
 func scopeService(enabled bool) *Service {
-	return &Service{hmmServing: hmmPorts(),
-		scopedSearchRequirement:     enabled,
-		searchRequirementDecayTurns: DefaultSearchRequirementDecayTurns,
-		searchUse:                   newSearchUseTracker(),
+	return &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(),
+		ingress:   ingress.Formats{ScopedSearchRequirement: enabled, SearchRequirementDecayTurns: ingress.DefaultSearchRequirementDecayTurns},
+		searchUse: newSearchUseTracker(),
 	}
 }
 
@@ -108,7 +109,7 @@ func TestScopeSearchRequirement_RecentUseDecays(t *testing.T) {
 
 	got := svc.scopeSearchRequirement(key, searchUseEnv(t), reqs)
 	assert.True(t, got.CitationsOrSearch, "search turn")
-	for i := 0; i < DefaultSearchRequirementDecayTurns-1; i++ {
+	for i := 0; i < ingress.DefaultSearchRequirementDecayTurns-1; i++ {
 		got = svc.scopeSearchRequirement(key, advertisedOnlyEnv(t), reqs)
 		assert.True(t, got.CitationsOrSearch, "turn %d after use stays capable", i+1)
 	}

@@ -14,9 +14,12 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -30,7 +33,7 @@ func TestResponsesCodexRejectionRescuesToAnthropic(t *testing.T) {
 				svc, ctx := newCodexRescueService(upstream.URL)
 				body := `{"model":"auto","stream":true,"input":[{"role":"user","content":"synthetic task"}],"tools":[{"type":"function","name":"exec","parameters":{"type":"object","properties":{"cmd":{"type":"string"}},"required":["cmd"]}}]}`
 				rec := httptest.NewRecorder()
-				err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
+				err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, requestcontext.RoutePathResponses, strings.NewReader(body)))
 				assert.Equal(t, 1, fixture.preflights)
 				assert.Equal(t, 1, fixture.claudeAttempts)
 				assert.Zero(t, fixture.codexAttempts, "a rejected preflight must prevent GPT inference")
@@ -74,17 +77,17 @@ func (u *codexRescueUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 func newCodexRescueService(upstreamURL string) (*Service, context.Context) {
 	codexClient := openai.NewClient("synthetic-paid-key", upstreamURL)
 	codexClient.SetCodexBaseURL(upstreamURL)
-	svc := withHMMPorts(NewService(stateModelRouter{}, map[string]providers.Client{
+	svc := withHMMPorts(NewService(stateModelRouter{}, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstreamURL),
 		providers.ProviderOpenAI:    codexClient,
-	}, nil, nil, false, "", "", nil)).
+	}), nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true}})
-	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{})
-	ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestToken)
-	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{})
+	ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestToken)
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, codexTestAccountID)
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	return svc, ctx
 }
 

@@ -14,10 +14,11 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
@@ -54,14 +55,14 @@ var (
 // with no quota snapshot.
 func goldenCallerCodexSeatsCtx(seats ...*auth.SubscriptionAccount) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, goldenCallerCodexJWT)
-		ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, goldenLinkedCodexAccount)
+		ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, goldenCallerCodexJWT)
+		ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, goldenLinkedCodexAccount)
 		ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyOwnSeatFirst: true}})
 		ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyLinkedFirst)
-		ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
+		ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 		ctx = proxy.WithSubscriptionStateModels(ctx, []string{goldenCodexModel}, []string{goldenCodexModel})
-		ctx = proxy.WithManagedSubscriptionCandidates(ctx, seats)
-		return proxy.WithManagedSubscriptionUsage(ctx)
+		ctx = credentials.WithManagedSubscriptionCandidates(ctx, seats)
+		return credentials.WithManagedSubscriptionUsage(ctx)
 	}
 }
 
@@ -73,7 +74,7 @@ func goldenCreditsOffCtx(decorate func(context.Context) context.Context) func(co
 
 func goldenForcedCodexHeaders(suffix string) map[string]string {
 	headers := goldenCodexSessionHeadersFor(suffix)
-	headers[proxy.ForceModelHeader] = goldenCodexModel
+	headers[requestcontext.ForceModelHeader] = goldenCodexModel
 	return headers
 }
 

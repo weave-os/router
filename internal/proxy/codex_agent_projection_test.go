@@ -11,8 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -42,12 +44,12 @@ func TestCodexRoutesAgentRepliesWithoutChangingProviderInput(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			selected := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "scored"}}
 			upstream := &fakeProvider{proxyResponse: responsesTextUpstream}
-			svc := proxy.WithStrategyPorts(proxy.NewService(selected, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil), hmm.ServingPorts()).
-				WithOpenAIResponsesBroad(true).
+			svc := proxy.WithStrategyPorts(proxy.NewService(selected, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}), nil, nil, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil), hmm.ServingPorts()).
+				WithIngress(responsesBroadFormats(true)).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: selected, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 			body := []byte(`{"model":"weave-auto","stream":true,"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}],"input":[
 				{"type":"message","role":"user","content":"Repair the parser and verify edge cases"},` + test.delivery + `]}`)
-			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "synthetic-agent-projection"})
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "synthetic-agent-projection"})
 			ctx = router.WithStrategy(ctx, router.StrategyHMM)
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
@@ -83,15 +85,15 @@ func TestCodexRoutingHistoryStripsConsumedToolCommands(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			selected := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "scored"}}
 			upstream := &fakeProvider{proxyResponse: responsesTextUpstream}
-			svc := proxy.WithStrategyPorts(proxy.NewService(selected, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, newFakePinStore(), false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil), hmm.ServingPorts()).
-				WithOpenAIResponsesBroad(true).
+			svc := proxy.WithStrategyPorts(proxy.NewService(selected, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}), nil, newFakePinStore(), false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil), hmm.ServingPorts()).
+				WithIngress(responsesBroadFormats(true)).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: selected, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 			body := []byte(`{"model":"weave-auto","stream":true,"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}],"input":[
 				{"type":"message","role":"user","content":"Repair the parser"},
 				{"type":"agent_message","author":"/root/reviewer","recipient":"/root","content":[{"type":"input_text","text":"Review complete"}]},
 				{"type":"function_call","call_id":"read","name":"read_file","arguments":"{}"},
 				{"type":"function_call_output","call_id":"read","output":` + strconv.Quote(test.command) + `}]}`)
-			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "synthetic-command-projection"})
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "synthetic-command-projection"})
 			ctx = router.WithStrategy(ctx, router.StrategyHMM)
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 			require.NotNil(t, selected.capturedReq)

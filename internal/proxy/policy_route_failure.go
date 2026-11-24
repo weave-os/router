@@ -8,8 +8,10 @@ import (
 	"github.com/google/uuid"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 type routeFailureRequest struct {
@@ -23,13 +25,13 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, request route
 	if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
 		return
 	}
-	installationID := installationIDFromContext(ctx)
+	installationID := requestcontext.InstallationIDFromContext(ctx)
 	if installationID == uuid.Nil {
 		return
 	}
-	params := InsertTelemetryParams{
+	params := turnrecord.InsertTelemetryParams{
 		InstallationID: installationID.String(),
-		APIKeyID:       apiKeyIDFromContext(ctx),
+		APIKeyID:       requestcontext.APIKeyIDFromContext(ctx),
 		RequestID:      request.RequestID,
 		SpanType:       "router.upstream",
 		TraceID:        request.RequestID,
@@ -37,7 +39,7 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, request route
 		RequestedModel: request.RequestedModel,
 		TurnType:       string(turnType),
 		DecisionReason: DecisionReasonPolicyPinUnservable,
-		ErrorClass:     TurnErrorRoutingRefused,
+		ErrorClass:     turnrecord.TurnErrorRoutingRefused,
 		UserPrompt:     &userPrompt,
 		Strategy:       string(request.Strategy),
 		RouterUserID:   auth.UserIDFrom(ctx),

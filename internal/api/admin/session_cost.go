@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,23 +15,23 @@ import (
 const usdMicrosPerUSD = 1_000_000.0
 
 type sessionCostResponse struct {
-	ContextSnapshot        *proxy.ContextSnapshot `json:"context_snapshot,omitempty"`
-	SessionID              string                 `json:"session_id"`
-	RequestCount           int64                  `json:"request_count"`
-	ActualCostUSDMicros    int64                  `json:"actual_cost_usd_micros"`
-	ActualCostUSD          float64                `json:"actual_cost_usd"`
-	RequestedCostUSDMicros int64                  `json:"requested_cost_usd_micros"`
-	RequestedCostUSD       float64                `json:"requested_cost_usd"`
-	SavingsUSDMicros       int64                  `json:"savings_usd_micros"`
-	SavingsUSD             float64                `json:"savings_usd"`
-	InputTokens            int64                  `json:"input_tokens"`
-	OutputTokens           int64                  `json:"output_tokens"`
-	CacheCreationTokens    int64                  `json:"cache_creation_tokens"`
-	CacheReadTokens        int64                  `json:"cache_read_tokens"`
-	LastRecordedAt         string                 `json:"last_recorded_at"`
+	ContextSnapshot        *turnrecord.ContextSnapshot `json:"context_snapshot,omitempty"`
+	SessionID              string                      `json:"session_id"`
+	RequestCount           int64                       `json:"request_count"`
+	ActualCostUSDMicros    int64                       `json:"actual_cost_usd_micros"`
+	ActualCostUSD          float64                     `json:"actual_cost_usd"`
+	RequestedCostUSDMicros int64                       `json:"requested_cost_usd_micros"`
+	RequestedCostUSD       float64                     `json:"requested_cost_usd"`
+	SavingsUSDMicros       int64                       `json:"savings_usd_micros"`
+	SavingsUSD             float64                     `json:"savings_usd"`
+	InputTokens            int64                       `json:"input_tokens"`
+	OutputTokens           int64                       `json:"output_tokens"`
+	CacheCreationTokens    int64                       `json:"cache_creation_tokens"`
+	CacheReadTokens        int64                       `json:"cache_read_tokens"`
+	LastRecordedAt         string                      `json:"last_recorded_at"`
 }
 
-func SessionCostHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func SessionCostHandler(queries turnrecord.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation := middleware.InstallationFrom(c)
 		if installation == nil {
@@ -39,16 +39,16 @@ func SessionCostHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 
-		cost, err := proxySvc.SessionCost(c.Request.Context(), installation.ID, c.Param("session_id"))
-		if errors.Is(err, proxy.ErrInvalidSessionID) {
+		cost, err := queries.SessionCost(c.Request.Context(), installation.ID, c.Param("session_id"))
+		if errors.Is(err, turnrecord.ErrInvalidSessionID) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"message": "Invalid session id", "description": err.Error()})
 			return
 		}
-		if errors.Is(err, proxy.ErrSessionCostNotFound) || (err == nil && cost.BlindExperiment) {
+		if errors.Is(err, turnrecord.ErrSessionCostNotFound) || (err == nil && cost.BlindExperiment) {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"message": "No router cost found for this session. It may not exist, or its telemetry may not be recorded yet."})
 			return
 		}
-		if errors.Is(err, proxy.ErrSessionCostUnavailable) {
+		if errors.Is(err, turnrecord.ErrSessionCostUnavailable) {
 			observability.FromGin(c).Warn("Session cost requested but telemetry storage is not configured", "installation_id", installation.ID)
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"message": "WeaveRouter is not available on this deployment"})
 			return

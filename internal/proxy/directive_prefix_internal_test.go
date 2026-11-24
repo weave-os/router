@@ -5,7 +5,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -19,7 +22,7 @@ import (
 // codexCtx stands in for a request that arrived with `X-App: codex`.
 func codexCtx(sessionID string) context.Context {
 	return context.WithValue(context.Background(), ClientIdentityContextKey{},
-		ClientIdentity{ClientApp: ClientAppCodex, SessionID: sessionID})
+		ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: sessionID})
 }
 
 // The reported bug: Codex users were told "Use /unforce-model to clear", and
@@ -27,14 +30,14 @@ func codexCtx(sessionID string) context.Context {
 // forwards a leading slash. The ack must name the form that actually works.
 func TestForceModelCommand_CodexAckNamesTheDollarForm(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(codexCtx("sess-1"), rec, env,
-		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(codexCtx("sess-1")), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+	require.NoError(t, (forceModelCommands{svc}).handle(codexCtx("sess-1"), rec, env,
+		translate.ForceModelResult{Model: "opus"}, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(codexCtx("sess-1")), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
 
@@ -47,16 +50,16 @@ func TestForceModelCommand_CodexAckNamesTheDollarForm(t *testing.T) {
 // Claude Code expands and forwards slash commands, so it must keep them.
 func TestForceModelCommand_ClaudeCodeAckKeepsTheSlashForm(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{},
-		ClientIdentity{ClientApp: ClientAppClaudeCode})
-	require.NoError(t, svc.handleForceModelCommand(ctx, rec, env,
-		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+		ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
+	require.NoError(t, (forceModelCommands{svc}).handle(ctx, rec, env,
+		translate.ForceModelResult{Model: "opus"}, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(ctx), InstallationID: uuid.New(), SessionKey: DeriveSessionKey(env, "key-1")},
 
 		DeriveSessionKey(env, "key-1"), 10))
 
@@ -69,12 +72,12 @@ func TestForceModelCommand_ClaudeCodeAckKeepsTheSlashForm(t *testing.T) {
 // upstream and no pin store touched.
 func TestRouterSessionCommand_AnswersSyntheticallyFromRequestIdentity(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleRouterSessionCommand(
+	require.NoError(t, (routerInfoCommands{svc}).session(
 		codexCtx("01a08ca1-6f83-7233-9e53-bc6c07d2a805"), rec, env, 10))
 
 	assert.Contains(t, rec.Body.String(), "01a08ca1-6f83-7233-9e53-bc6c07d2a805")
@@ -85,34 +88,34 @@ func TestRouterSessionCommand_AnswersSyntheticallyFromRequestIdentity(t *testing
 // line, so a hint printed to a Codex user has to name the $ form. Every other
 // client sends "/" through.
 func TestDirectivePrefix(t *testing.T) {
-	assert.Equal(t, "$", directivePrefix(ClientAppCodex))
+	assert.Equal(t, "$", requestcontext.DirectivePrefix(requestcontext.ClientAppCodex))
 
 	for _, app := range []string{
-		ClientAppClaudeCode,
-		ClientAppCursor,
-		ClientAppGeminiCLI,
-		ClientAppOpencode,
+		requestcontext.ClientAppClaudeCode,
+		requestcontext.ClientAppCursor,
+		requestcontext.ClientAppGeminiCLI,
+		requestcontext.ClientAppOpencode,
 		"",
 		"something-unknown",
 	} {
-		assert.Equal(t, "/", directivePrefix(app), "expected slash for %q", app)
+		assert.Equal(t, "/", requestcontext.DirectivePrefix(app), "expected slash for %q", app)
 	}
 }
 
 func TestSupportsResponsesTerminalSurfaces(t *testing.T) {
-	assert.True(t, supportsResponsesTerminalSurfaces(ClientAppCodex))
-	assert.True(t, supportsResponsesTerminalSurfaces(ClientAppOpencode))
-	assert.False(t, supportsResponsesTerminalSurfaces(ClientAppCursor))
-	assert.False(t, supportsResponsesTerminalSurfaces(""))
+	assert.True(t, requestcontext.SupportsResponsesTerminalSurfaces(requestcontext.ClientAppCodex))
+	assert.True(t, requestcontext.SupportsResponsesTerminalSurfaces(requestcontext.ClientAppOpencode))
+	assert.False(t, requestcontext.SupportsResponsesTerminalSurfaces(requestcontext.ClientAppCursor))
+	assert.False(t, requestcontext.SupportsResponsesTerminalSurfaces(""))
 }
 
 func TestRouterSessionMessage_NamesTheIDAndTheClientsOwnSigil(t *testing.T) {
-	codex := conversation.RouterSessionMessage("01a08ca1-6f83-7233", directivePrefix(ClientAppCodex), translate.FormatOpenAI)
+	codex := conversation.RouterSessionMessage("01a08ca1-6f83-7233", requestcontext.DirectivePrefix(requestcontext.ClientAppCodex), translate.FormatOpenAI)
 	assert.Contains(t, codex, "01a08ca1-6f83-7233")
 	assert.Contains(t, codex, "$router-feedback")
 	assert.NotContains(t, codex, "/router-feedback")
 
-	claude := conversation.RouterSessionMessage("sess-abc", directivePrefix(ClientAppClaudeCode), translate.FormatAnthropic)
+	claude := conversation.RouterSessionMessage("sess-abc", requestcontext.DirectivePrefix(requestcontext.ClientAppClaudeCode), translate.FormatAnthropic)
 	assert.Contains(t, claude, "sess-abc")
 	assert.Contains(t, claude, "/router-feedback")
 	// Anthropic-format acks are formatted as routing markers so
@@ -124,7 +127,7 @@ func TestRouterSessionMessage_NamesTheIDAndTheClientsOwnSigil(t *testing.T) {
 // absent id has to read as absent.
 func TestRouterSessionMessage_MissingIDSaysSoRatherThanGuessing(t *testing.T) {
 	for _, format := range []translate.Format{translate.FormatOpenAI, translate.FormatAnthropic} {
-		msg := conversation.RouterSessionMessage("", directivePrefix(ClientAppCodex), format)
+		msg := conversation.RouterSessionMessage("", requestcontext.DirectivePrefix(requestcontext.ClientAppCodex), format)
 		assert.Contains(t, msg, "no session id")
 		assert.NotContains(t, msg, "session id: ")
 	}

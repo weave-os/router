@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/refusal"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -63,11 +64,11 @@ func classifiedRefusal(t *testing.T, err error) refusal.Contract {
 func TestSubscriptionLaneRefusalsPerMark(t *testing.T) {
 	for name, tc := range subscriptionLaneRefusalCases() {
 		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, tc.unavailable.Contract(), classifiedRefusal(t, subscriptionOnlyUnavailable(tc.ctx)))
-			assert.Equal(t, tc.poolExhausted.Contract(), classifiedRefusal(t, subscriptionPoolExhausted(tc.ctx)))
-			require.ErrorIs(t, subscriptionPoolExhausted(tc.ctx), ErrSubscriptionPoolExhausted)
-			assert.Equal(t, tc.paidUnfunded, paidCapacityUnfunded(tc.ctx))
-			assert.Equal(t, tc.linkedFirstStill, linkedFirst(tc.ctx))
+			assert.Equal(t, tc.unavailable.Contract(), classifiedRefusal(t, credentials.SubscriptionOnlyUnavailable(tc.ctx)))
+			assert.Equal(t, tc.poolExhausted.Contract(), classifiedRefusal(t, credentials.SubscriptionPoolExhausted(tc.ctx)))
+			require.ErrorIs(t, credentials.SubscriptionPoolExhausted(tc.ctx), credentials.ErrSubscriptionPoolExhausted)
+			assert.Equal(t, tc.paidUnfunded, credentials.PaidCapacityUnfunded(tc.ctx))
+			assert.Equal(t, tc.linkedFirstStill, credentials.LinkedFirst(tc.ctx))
 		})
 	}
 }
@@ -79,9 +80,9 @@ func TestUserSpendLimitRefusalClassifiesAsUserSpendLimitReached(t *testing.T) {
 func TestIncludedAllowanceSpentOnAFundedTurnIsNotACreditsRefusal(t *testing.T) {
 	ctx := entitlement.WithSpentWindow(context.Background(), entitlement.SpentWindow{})
 
-	err := subscriptionOnlyUnavailable(ctx)
+	err := credentials.SubscriptionOnlyUnavailable(ctx)
 
-	var allowanceSpent *IncludedAllowanceSpentError
+	var allowanceSpent *credentials.IncludedAllowanceSpentError
 	require.ErrorAs(t, err, &allowanceSpent)
 	assert.Equal(t, refusal.SubscriptionUnavailableForTurn.Contract(), classifiedRefusal(t, err))
 	cls, _ := ClassifyDispatchError(err)

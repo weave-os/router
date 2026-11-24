@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -65,7 +66,7 @@ func TestForceModelCommand_PinKeyIsDerivedFromUnstrippedOpeningMessage(t *testin
 		t.Run(tc.name, func(t *testing.T) {
 			store := newKeyRecordingPinStore()
 			fr := &fakeRouter{decision: router.Decision{Provider: tc.provider, Model: tc.model, Reason: "cluster"}}
-			svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{tc.provider: &fakeProvider{}}, nil, store, false, tc.provider, tc.model, nil), hmm.ServingPorts())
+			svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{tc.provider: &fakeProvider{}}), nil, store, false, tc.provider, tc.model, nil), hmm.ServingPorts())
 			ctx := authedCtx(uuid.New().String())
 
 			for i, body := range []string{tc.turnOne, tc.turnTwo} {

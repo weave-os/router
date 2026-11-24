@@ -10,9 +10,12 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 
@@ -48,11 +51,11 @@ func TestVerificationSafeTransportInboundOAuthUsesLinkedWithoutAPI(t *testing.T)
 	client := openai.NewClient("", upstream.URL)
 	client.SetCodexBaseURL(upstream.URL)
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "linked-account", AccessToken: "linked-token", ProviderAccount: "linked-provider-account"}}}
-	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(leaser)
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(leaser)
 	body := []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"inspect synthetic input"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}}],"reasoning_effort":"medium"}`)
-	ctx := context.WithValue(codexSubscriptionTestCtx(), APIKeyIDContextKey{}, "synthetic-key")
-	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
-	ctx = WithManagedSubscriptionUsage(ctx)
+	ctx := context.WithValue(codexSubscriptionTestCtx(), requestcontext.APIKeyIDContextKey{}, "synthetic-key")
+	ctx = context.WithValue(ctx, credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
+	ctx = credentials.WithManagedSubscriptionUsage(ctx)
 	recorder := httptest.NewRecorder()
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 	require.NoError(t, err)
@@ -60,7 +63,7 @@ func TestVerificationSafeTransportInboundOAuthUsesLinkedWithoutAPI(t *testing.T)
 	require.Equal(t, []string{"linked-provider-account"}, accountIDs)
 	require.Equal(t, []string{"/responses"}, paths)
 	require.Contains(t, recorder.Body.String(), "linked answer")
-	require.True(t, servedOnSubscription(ctx), "winning subscription must be cost-neutral")
+	require.True(t, credentials.ServedOnSubscription(ctx), "winning subscription must be cost-neutral")
 	require.Equal(t, "read_file", gjson.GetBytes(sent[0], "tools.0.name").String())
 	require.Equal(t, "medium", gjson.GetBytes(sent[0], "reasoning.effort").String())
 }
@@ -87,9 +90,9 @@ func TestVerificationSafeTransportManagedWinnerQuotaObservedFromHTTP(t *testing.
 	client.SetCodexBaseURL(upstream.URL)
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "quota-account", AccessToken: "quota-token", ProviderAccount: "quota-provider-account"}}}
 	observer := usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)
-	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(leaser).WithUsageObserver(observer)
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(leaser).WithUsageObserver(observer)
 	body := []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"inspect synthetic quota"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`)
-	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	recorder := httptest.NewRecorder()
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 	require.NoError(t, err)

@@ -9,8 +9,9 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 
@@ -88,7 +89,7 @@ func TestAddRoutingFundingSource(t *testing.T) {
 		},
 		{
 			name: "managed Claude subscription",
-			ctx: context.WithValue(WithManagedSubscriptionUsage(context.Background()), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
+			ctx: context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
 				auth.SubscriptionProviderClaude: {},
 			}),
 			provider: providers.ProviderAnthropic,
@@ -97,9 +98,9 @@ func TestAddRoutingFundingSource(t *testing.T) {
 		},
 		{
 			name: "managed Codex subscription is selected over BYOK",
-			ctx: context.WithValue(requestcontext.WithCredentials(WithManagedSubscriptionUsage(context.Background()), &requestcontext.Credentials{
+			ctx: context.WithValue(requestcontext.WithCredentials(credentials.WithManagedSubscriptionUsage(context.Background()), &requestcontext.Credentials{
 				Source: requestcontext.SourceBYOK,
-			}), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
+			}), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
 				auth.SubscriptionProviderCodex: {},
 			}),
 			provider: providers.ProviderOpenAI,
@@ -170,7 +171,7 @@ func TestAddRoutingFundingSource(t *testing.T) {
 
 func TestRoutingFundingSourceSkipsSpentManagedSeats(t *testing.T) {
 	resetAt := time.Now().Add(48 * time.Hour)
-	ctx := WithManagedSubscriptionCandidates(billing.WithOrganizationPrepaid(WithManagedSubscriptionUsage(context.Background())), []*auth.SubscriptionAccount{
+	ctx := credentials.WithManagedSubscriptionCandidates(billing.WithOrganizationPrepaid(credentials.WithManagedSubscriptionUsage(context.Background())), []*auth.SubscriptionAccount{
 		{ID: "synthetic-spent-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt},
 		{ID: "synthetic-reconnect-codex", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateReconnectRequired},
 	})
@@ -185,7 +186,7 @@ func TestRoutingFundingSourceSkipsSpentManagedSeats(t *testing.T) {
 func TestRoutingFundingSourceSkipsObservedSpentManagedSeats(t *testing.T) {
 	observer := usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)
 	observer.Record(observer.Key([]byte("subscription-account:synthetic-active-codex")), usage.Snapshot{Primary: usage.Window{UsedPercent: 1.0, WindowMinutes: 300}})
-	ctx := WithManagedSubscriptionCandidates(billing.WithOrganizationPrepaid(WithManagedSubscriptionUsage(context.Background())), []*auth.SubscriptionAccount{
+	ctx := credentials.WithManagedSubscriptionCandidates(billing.WithOrganizationPrepaid(credentials.WithManagedSubscriptionUsage(context.Background())), []*auth.SubscriptionAccount{
 		{ID: "synthetic-active-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive},
 	})
 	notice := translate.NewRouterNotice(translate.NoticeModelSelection, "✦ **Weave Router** → gpt-6-luna · model selected for this turn\n\n", "gpt-6-luna", "")
@@ -200,7 +201,7 @@ func TestRoutingFundingSourceSkipsObservedSpentManagedSeats(t *testing.T) {
 func TestAddRoutingFundingSourceSkipsSpentManagedPool(t *testing.T) {
 	now := time.Now()
 	spentSeatReset := now.Add(time.Hour)
-	ctx := WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{{
+	ctx := credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{{
 		ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 		State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &spentSeatReset,
 	}})

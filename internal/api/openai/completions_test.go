@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"weave-os/router/internal/api/openai"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -56,11 +58,11 @@ func TestChatCompletionHandler_CrossFormatOverflowReturnsNativeError(t *testing.
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			svc := proxy.WithStrategyPorts(proxy.NewService(
-				overflowRouter{}, map[string]providers.Client{providers.ProviderOpenAI: overflowProvider{}},
+				overflowRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: overflowProvider{}}),
 				nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil), hmm.ServingPorts())
 
 			engine := gin.New()
-			engine.POST("/v1/chat/completions", openai.ChatCompletionHandler(svc, nil))
+			engine.POST("/v1/chat/completions", openai.ChatCompletionHandler(svc, nil, ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage}))
 			body := fmt.Sprintf(`{"model":"gpt-5-mini","max_tokens":1024,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`, stream)
 			rec := httptest.NewRecorder()
 			engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))

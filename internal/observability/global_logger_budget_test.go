@@ -38,7 +38,7 @@ var globalLoggerBudget = map[string]int{
 	"internal/pubsub": 4,
 
 	// Fire-and-forget writebacks (SafeGo) + a pure predicate.
-	"internal/proxy": 4,
+	"internal/proxy": 3,
 	"internal/auth":  2,
 
 	// Allocation failures inside LRU construction and a row-parse fallback:
@@ -171,12 +171,13 @@ var postBindPrefixes = []string{
 // reservedKeyAllowlist are sites that bind a reserved key deliberately (the
 // binder itself, or a logger with no bound value to collide with).
 var reservedKeyAllowlist = map[string]bool{
-	"internal/observability/logger.go":   true, // Middleware binds them
-	"internal/proxy/session_key.go":      true, // bindRequestLogger binds them
-	"internal/auth/service.go":           true, // SafeGo loggers, off request path
-	"internal/proxy/service.go":          true, // OTel span attrs + telemetry rows
-	"internal/proxy/usage_bypass.go":     true, // OTel span attrs + telemetry rows
-	"internal/api/anthropic/messages.go": true, // pre-Middleware oversize-body log
+	"internal/observability/logger.go":                 true, // Middleware binds them
+	"internal/proxy/session_key.go":                    true, // bindRequestLogger binds them
+	"internal/auth/service.go":                         true, // SafeGo loggers, off request path
+	"internal/proxy/service.go":                        true, // OTel span attrs + telemetry rows
+	"internal/proxy/usage_bypass.go":                   true, // OTel span attrs + telemetry rows
+	"internal/credentials/subscription_only_bypass.go": true, // moved from internal/proxy/service.go
+	"internal/api/anthropic/messages.go":               true, // pre-Middleware oversize-body log
 }
 
 // TestNoReservedLogKeyShadowing fails when a log call passes a key already

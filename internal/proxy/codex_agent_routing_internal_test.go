@@ -13,7 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
@@ -22,6 +24,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rosterdata"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -62,7 +65,7 @@ func codexRoutingEnvelope(t *testing.T, agentPath string, toolResult bool) (cont
 	require.NoError(t, err)
 	env, err := translate.ParseOpenAI(converted.Body)
 	require.NoError(t, err)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, SessionID: "synthetic-codex-conversation"})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "synthetic-codex-conversation"})
 	ctx = context.WithValue(ctx, nativeResponsesBodyContextKey{}, body)
 	return router.WithStrategy(ctx, router.StrategyHMM), env
 }
@@ -115,8 +118,8 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 	routing.WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
 	store := &codexRoutingPinStore{stubPinStore: newStubPinStore(), pins: make(map[codexRoutingPinKey]sessionpin.Pin)}
 	upstream := &codexTitleProvider{}
-	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, store, false, providers.ProviderOpenAI, codexRoutingLuna.String(), nil)).
-		WithOpenAIResponsesBroad(true).
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}), nil, store, false, providers.ProviderOpenAI, codexRoutingLuna.String(), nil)).
+		WithIngress(responsesBroadFormats(true)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routing, Capabilities: capabilities}).
 		EditHMMConfig(func(c *hmm.Config) {
 			c.UpgradeSlidingThreshold = true
@@ -126,8 +129,8 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 	installationID := uuid.New()
 	rootCtx, root := codexRoutingEnvelope(t, "/root", true)
 	childCtx, child := codexRoutingEnvelope(t, "/root/reviewer", true)
-	rootCtx = context.WithValue(context.WithValue(rootCtx, InstallationIDContextKey{}, installationID.String()), APIKeyIDContextKey{}, "synthetic-api-key")
-	childCtx = context.WithValue(context.WithValue(childCtx, InstallationIDContextKey{}, installationID.String()), APIKeyIDContextKey{}, "synthetic-api-key")
+	rootCtx = context.WithValue(context.WithValue(rootCtx, requestcontext.InstallationIDContextKey{}, installationID.String()), requestcontext.APIKeyIDContextKey{}, "synthetic-api-key")
+	childCtx = context.WithValue(context.WithValue(childCtx, requestcontext.InstallationIDContextKey{}, installationID.String()), requestcontext.APIKeyIDContextKey{}, "synthetic-api-key")
 
 	turns := []struct {
 		child      bool
@@ -170,7 +173,7 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 	parentKey := deriveSessionKeyForRequest(rootCtx, root, "synthetic-api-key")
 	forceKey := deriveForceModelSessionKeyForRequest(rootCtx, root, "synthetic-api-key", parentKey)
 	forced := sessionpin.Pin{SessionKey: forceKey, Role: forceModelSessionRole, Model: codexRoutingSol.String(),
-		Provider: providers.ProviderOpenAI, Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires, ForcedThreadKey: sessionKeyHex(parentKey)}
+		Provider: providers.ProviderOpenAI, Reason: translate.ReasonUserForceModel, PinnedUntil: routingpolicy.PinNeverExpires, ForcedThreadKey: sessionKeyHex(parentKey)}
 	require.NoError(t, store.Upsert(rootCtx, forced))
 	for _, test := range []struct {
 		ctx  context.Context
@@ -236,7 +239,7 @@ func TestCodexAgentMessageBoundary(t *testing.T) {
 			requestCtx := context.WithValue(ctx, nativeResponsesBodyContextKey{}, []byte(test.native))
 			key := deriveSessionKeyForRequest(requestCtx, env, "synthetic-api-key")
 			assert.Equal(t, test.child, key != parentKey)
-			nonCodex := context.WithValue(requestCtx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppOpencode, SessionID: "synthetic-codex-conversation"})
+			nonCodex := context.WithValue(requestCtx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppOpencode, SessionID: "synthetic-codex-conversation"})
 			assert.Equal(t, parentKey, deriveSessionKeyForRequest(nonCodex, env, "synthetic-api-key"))
 		})
 	}

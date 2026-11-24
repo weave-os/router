@@ -18,9 +18,8 @@ import (
 )
 
 type fakeRescueServices struct {
-	rescueServices
-	dispatch.RescueCredentials
-	dispatch.RescueRouting
+	rescueCredentialPort
+	rescueRoutingPort
 	outcomes   map[string]error
 	dispatched []string
 	readmitted []string
@@ -47,24 +46,32 @@ func (f *fakeRescueServices) dispatchWithFallback(_ context.Context, in dispatch
 	return 0, f.outcomes[in.InitialDecision.Model]
 }
 
-func newSiblingRescueChain(ctx context.Context, svc *fakeRescueServices, primaryErr error, siblings ...router.Decision) *rescueChain {
+func newSiblingRescueChain(ctx context.Context, svc *fakeRescueServices, primaryErr error, siblings ...router.Decision) *dispatch.RescueChain {
 	primary := router.Decision{Model: "primary-model", Provider: providers.ProviderOpenAI}
-	c := &rescueChain{
-		rescuePorts: rescuePorts{svc: svc, credentials: svc, routing: svc},
-		r:           httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil),
-		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
-		preludeBuf:  newPreludeBuffer(httptest.NewRecorder()),
-		buildAttempt: func(router.Decision, translate.EmitOptions, string, context.Context) (dispatch.UpstreamAttempt, error) {
+	c := &dispatch.RescueChain{
+		RescuePorts: dispatch.RescuePorts{
+			Credentials: svc,
+			Routing:     svc,
+			Funding:     rescueFundingPort{},
+			Attempts:    rescueAttemptPort{svc},
+			Overflow:    rescueOverflowPort{},
+			Dispatch:    svc.dispatchWithFallback,
+		},
+		Markers:     rescueMarkers{},
+		HTTPRequest: httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil),
+		Log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		PreludeBuf:  newPreludeBuffer(httptest.NewRecorder()),
+		BuildAttempt: func(router.Decision, translate.EmitOptions, string, context.Context) (dispatch.UpstreamAttempt, error) {
 			return func(context.Context, router.Decision, dispatch.Upstream) error { return nil }, nil
 		},
-		respSummary:      &translate.ResponseSummary{StopReason: "stale"},
-		reqStats:         &providers.RequestMutationStats{},
-		decision:         primary,
-		proxyErr:         primaryErr,
-		siblingDecisions: siblings,
-		siblingViable:    len(siblings) > 0,
+		RespSummary:      &translate.ResponseSummary{StopReason: "stale"},
+		ReqStats:         &providers.RequestMutationStats{},
+		Decision:         primary,
+		ProxyErr:         primaryErr,
+		SiblingDecisions: siblings,
+		SiblingViable:    len(siblings) > 0,
 	}
-	c.holdPrimary()
+	c.HoldPrimary()
 	return c
 }
 
@@ -77,22 +84,22 @@ func TestRescueChainSiblingRescueWalksPastAFailedRescuer(t *testing.T) {
 	second := router.Decision{Model: "second-sibling", Provider: providers.ProviderGoogle}
 	c := newSiblingRescueChain(t.Context(), svc, primaryErr, first, second)
 
-	c.siblingRescue(context.Background())
+	c.SiblingRescue(context.Background())
 
 	if got, want := svc.dispatched, []string{"first-sibling", "second-sibling"}; !slices.Equal(got, want) {
 		t.Fatalf("dispatched = %v, want %v", got, want)
 	}
-	if c.proxyErr != nil || !c.siblingFailoverUsed || !c.siblingRescueRan {
-		t.Fatalf("proxyErr=%v siblingFailoverUsed=%v siblingRescueRan=%v, want served by a sibling", c.proxyErr, c.siblingFailoverUsed, c.siblingRescueRan)
+	if c.ProxyErr != nil || !c.SiblingFailoverUsed || !c.SiblingRescueRan {
+		t.Fatalf("proxyErr=%v siblingFailoverUsed=%v siblingRescueRan=%v, want served by a sibling", c.ProxyErr, c.SiblingFailoverUsed, c.SiblingRescueRan)
 	}
-	if c.decision.Model != "second-sibling" {
-		t.Fatalf("decision = %q, want the sibling that served", c.decision.Model)
+	if c.Decision.Model != "second-sibling" {
+		t.Fatalf("decision = %q, want the sibling that served", c.Decision.Model)
 	}
-	if c.rescuedPrimary.Model != "primary-model" || !errors.Is(c.rescuedPrimaryErr, primaryErr) {
-		t.Fatalf("rescuedPrimary = %q / %v, want the routed model and its error", c.rescuedPrimary.Model, c.rescuedPrimaryErr)
+	if c.RescuedPrimary.Model != "primary-model" || !errors.Is(c.RescuedPrimaryErr, primaryErr) {
+		t.Fatalf("rescuedPrimary = %q / %v, want the routed model and its error", c.RescuedPrimary.Model, c.RescuedPrimaryErr)
 	}
-	if c.respSummary.StopReason != "" {
-		t.Fatalf("respSummary not reset for the rescuer: %+v", *c.respSummary)
+	if c.RespSummary.StopReason != "" {
+		t.Fatalf("respSummary not reset for the rescuer: %+v", *c.RespSummary)
 	}
 }
 
@@ -100,12 +107,12 @@ func TestRescueChainSiblingRescueSkipsAfterTheDeferredErrorFlushed(t *testing.T)
 	svc := &fakeRescueServices{}
 	c := newSiblingRescueChain(t.Context(), svc, &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable},
 		router.Decision{Model: "first-sibling", Provider: providers.ProviderAnthropic})
-	c.deferredErrFlushed = true
+	c.DeferredErrFlushed = true
 
-	c.siblingRescue(context.Background())
+	c.SiblingRescue(context.Background())
 
-	if len(svc.dispatched) != 0 || c.siblingRescueOwed {
-		t.Fatalf("dispatched = %v, owed = %v; a flushed error forecloses the sibling walk", svc.dispatched, c.siblingRescueOwed)
+	if len(svc.dispatched) != 0 || c.SiblingRescueOwed {
+		t.Fatalf("dispatched = %v, owed = %v; a flushed error forecloses the sibling walk", svc.dispatched, c.SiblingRescueOwed)
 	}
 }
 
@@ -113,14 +120,14 @@ func TestRescueChainSiblingRescueRunsWithoutRequestStats(t *testing.T) {
 	svc := &fakeRescueServices{}
 	sibling := router.Decision{Model: "first-sibling", Provider: providers.ProviderAnthropic}
 	c := newSiblingRescueChain(t.Context(), svc, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests}, sibling)
-	c.reqStats = nil
+	c.ReqStats = nil
 
-	c.siblingRescue(context.Background())
+	c.SiblingRescue(context.Background())
 
 	if want := []string{"first-sibling"}; !slices.Equal(svc.dispatched, want) {
 		t.Fatalf("events = %v, want %v", svc.dispatched, want)
 	}
-	if c.servedProvider("unserved") != providers.ProviderAnthropic {
-		t.Fatalf("servedProvider = %q, want the binding that served", c.servedProvider("unserved"))
+	if c.ServedProvider("unserved") != providers.ProviderAnthropic {
+		t.Fatalf("servedProvider = %q, want the binding that served", c.ServedProvider("unserved"))
 	}
 }

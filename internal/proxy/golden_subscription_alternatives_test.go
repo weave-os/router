@@ -11,8 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 )
@@ -82,7 +84,7 @@ func goldenCodexPoolRequest(body string, accounts ...string) goldenRequest {
 		})
 	}
 	return goldenRequest{body: body, decorateContext: func(ctx context.Context) context.Context {
-		return proxy.WithManagedSubscriptionUsage(proxy.WithManagedSubscriptionCandidates(ctx, enrolled))
+		return credentials.WithManagedSubscriptionUsage(credentials.WithManagedSubscriptionCandidates(ctx, enrolled))
 	}}
 }
 
@@ -139,7 +141,7 @@ func goldenSubscriptionAlternativeScenarios() []goldenScenario {
 // turn is served on the deployment key instead of refused.
 func goldenForcedModelSeatDeniedScenario() goldenScenario {
 	req := goldenCodexPoolRequest(goldenAutoChatBody, "seat-a")
-	req.headers = map[string]string{proxy.ForceModelHeader: goldenCodexModel}
+	req.headers = map[string]string{requestcontext.ForceModelHeader: goldenCodexModel}
 	return goldenScenario{name: ingressOpenAI + "_stream_forced_model_seat_model_denied_served_on_deployment_key", ingress: ingressOpenAI,
 		decisions: []router.Decision{{Provider: providers.ProviderOpenAI, Model: goldenCodexModel, Reason: "golden_route"}},
 		upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {

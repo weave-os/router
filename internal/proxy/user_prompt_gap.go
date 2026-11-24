@@ -7,29 +7,25 @@ import (
 
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
-
-func (s *Service) WithSessionTurnClock(clock telemetry.SessionTurnClock) *Service {
-	s.turnClock = clock
-	return s
-}
 
 const sessionTurnClockTimeout = time.Second
 
-func advancesSessionTurnClock(p InsertTelemetryParams) bool {
+func advancesSessionTurnClock(p turnrecord.InsertTelemetryParams) bool {
 	if p.SpanType != "router.upstream" || len(p.SessionKey) == 0 || p.DecisionModel == "" || p.OutputTokens <= 0 {
 		return false
 	}
 	return p.TurnType == string(turntype.MainLoop) || p.TurnType == string(turntype.ToolResult)
 }
 
-func (s *Service) applyUserPromptGap(ctx context.Context, log *slog.Logger, p *InsertTelemetryParams) {
-	if s.turnClock == nil || !advancesSessionTurnClock(*p) {
+func (t turnTelemetry) applyUserPromptGap(ctx context.Context, log *slog.Logger, p *turnrecord.InsertTelemetryParams) {
+	if t.turnClock == nil || !advancesSessionTurnClock(*p) {
 		return
 	}
 	clockCtx, cancel := context.WithTimeout(ctx, sessionTurnClockTimeout)
 	defer cancel()
-	previous, found, err := s.turnClock.AdvanceSessionTurnClock(clockCtx, telemetry.SessionTurnClockAdvance{
+	previous, found, err := t.turnClock.AdvanceSessionTurnClock(clockCtx, telemetry.SessionTurnClockAdvance{
 		InstallationID:  p.InstallationID,
 		SessionKey:      p.SessionKey,
 		ResponseEndedAt: p.Timestamp.Add(time.Duration(p.TotalLatencyMs) * time.Millisecond),
@@ -44,7 +40,7 @@ func (s *Service) applyUserPromptGap(ctx context.Context, log *slog.Logger, p *I
 	}
 }
 
-func userPromptGap(p InsertTelemetryParams, previous telemetry.SessionTurnClockReading) (*int64, string) {
+func userPromptGap(p turnrecord.InsertTelemetryParams, previous telemetry.SessionTurnClockReading) (*int64, string) {
 	if p.UserPrompt == nil || !*p.UserPrompt || previous.ResponseEndedAt.After(p.Timestamp) {
 		return nil, ""
 	}

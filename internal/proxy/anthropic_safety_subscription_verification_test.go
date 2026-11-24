@@ -15,8 +15,11 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -49,9 +52,9 @@ func TestVerificationNativeAnthropicSubscriptionPreferredToPaidAPI(t *testing.T)
 				keyed[providers.ProviderAnthropic] = struct{}{}
 			}
 			client := anthropic.NewClient(apiKey, server.URL)
-			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil)).WithDeploymentKeyedProviders(keyed)
-			ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-subscription-token")
-			ctx = WithManagedSubscriptionUsage(ctx)
+			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: client}), nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil)).WithDeploymentKeyedProviders(keyed)
+			ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-subscription-token")
+			ctx = credentials.WithManagedSubscriptionUsage(ctx)
 			ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 			body := `{"model":"auto","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"synthetic billing"}],"tools":[{"name":"read_file","input_schema":{"type":"object"}}]}`
 			rec := httptest.NewRecorder()
@@ -61,7 +64,7 @@ func TestVerificationNativeAnthropicSubscriptionPreferredToPaidAPI(t *testing.T)
 			require.Zero(t, apiRequests)
 			require.Contains(t, rec.Body.String(), "authorized Anthropic answer")
 			require.Equal(t, "read_file", gjson.GetBytes(winningPayload, "tools.0.name").String())
-			require.True(t, servedOnSubscription(ctx))
+			require.True(t, credentials.ServedOnSubscription(ctx))
 		})
 	}
 }
@@ -76,8 +79,8 @@ func TestVerificationSuppressedInboundAnthropicOAuthNeverRelayed(t *testing.T) {
 	}))
 	defer server.Close()
 	client := anthropic.NewClient("", server.URL)
-	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil)).WithDeploymentKeyedProviders(map[string]struct{}{})
-	ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), InstallationSubscriptionRoutingDisabledContextKey{}, true)
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: client}), nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil)).WithDeploymentKeyedProviders(map[string]struct{}{})
+	ctx := context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true)
 	body := `{"model":"auto","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"synthetic billing"}]}`
 	request := httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", strings.NewReader(body))
 	request.Header.Set("Authorization", "Bearer sk-ant-oat01-synthetic-inbound-token")
@@ -114,8 +117,8 @@ func TestVerificationNativeAnthropicSubscriptionDelayedHeadersSucceed(t *testing
 	}))
 	defer server.Close()
 	client := anthropic.NewClientWithHeaderTimeouts("synthetic-api-key", server.URL, 30*time.Second, 30*time.Second)
-	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil)).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	ctx, cancel := context.WithTimeout(context.WithValue(WithManagedSubscriptionUsage(context.Background()), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-subscription-token"), time.Minute)
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: client}), nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil)).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+	ctx, cancel := context.WithTimeout(context.WithValue(credentials.WithManagedSubscriptionUsage(context.Background()), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-subscription-token"), time.Minute)
 	defer cancel()
 	body := `{"model":"auto","max_tokens":1000,"stream":true,"messages":[{"role":"user","content":"synthetic delayed turn"}]}`
 	rec := httptest.NewRecorder()
@@ -127,5 +130,5 @@ func TestVerificationNativeAnthropicSubscriptionDelayedHeadersSucceed(t *testing
 	require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_stop"))
 	require.Equal(t, int32(1), subscriptionRequests.Load())
 	require.Zero(t, apiRequests.Load(), "a slow subscription response must not be rescued on paid credentials")
-	require.True(t, servedOnSubscription(ctx))
+	require.True(t, credentials.ServedOnSubscription(ctx))
 }

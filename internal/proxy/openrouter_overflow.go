@@ -3,9 +3,11 @@ package proxy
 import (
 	"context"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 )
@@ -70,7 +72,7 @@ func (s *Service) openRouterOverflowBindings(ctx context.Context, target router.
 	if !ok {
 		return nil
 	}
-	if !binding.AcceptsImageCount(requestImageCountFromContext(ctx)) {
+	if !binding.AcceptsImageCount(requestcontext.RequestImageCountFromContext(ctx)) {
 		return nil
 	}
 	if _, excluded := s.excludedProvidersForRequest(ctx)[providers.ProviderOpenRouter]; excluded {
@@ -78,7 +80,7 @@ func (s *Service) openRouterOverflowBindings(ctx context.Context, target router.
 	}
 	if s.credentials.KeyedProviders != nil {
 		_, keyed := s.credentials.KeyedProviders[providers.ProviderOpenRouter]
-		if !keyed && BuildCredentialsMap(externalKeysFromContext(ctx))[providers.ProviderOpenRouter] == nil {
+		if !keyed && credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[providers.ProviderOpenRouter] == nil {
 			return nil
 		}
 	}
@@ -86,7 +88,7 @@ func (s *Service) openRouterOverflowBindings(ctx context.Context, target router.
 }
 
 func (s *Service) subscriptionStateTargetBindings(ctx context.Context, target router.Decision) []catalog.ProviderBinding {
-	if !openRouterOverflowEnabled(ctx) || subscriptionAttemptOnly(ctx) {
+	if !openRouterOverflowEnabled(ctx) || credentials.SubscriptionAttemptOnly(ctx) {
 		return s.resolveBindingsForDispatch(ctx, target)
 	}
 	return s.openRouterOverflowBindings(ctx, target)
@@ -107,7 +109,7 @@ func (s *Service) withOpenRouterOverflowTarget(ctx context.Context, in dispatch.
 			return ctx, in, err
 		}
 		in.Attempt = attempt
-		ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.SubscriptionStateHeaders)
+		ctx = s.resolveCredentials(credentials.ClearCredentials(ctx), target.Provider, target.Model, in.SubscriptionStateHeaders)
 		if in.OnSubscriptionStateTarget != nil {
 			in.OnSubscriptionStateTarget(target, bindings)
 		}

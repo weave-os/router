@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -20,6 +22,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rosterdata"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -41,7 +44,7 @@ func unscorableHMMService(store sessionpin.Store, sidecarFailure error) *Service
 	policyRouter := hmm.NewForStrategy(router.StrategyHMMEmbedding, unavailableHMMDecider{sidecarFailure},
 		map[string]struct{}{providers.ProviderAnthropic: {}})
 	policyRouter.WithArmSelector(selection.Selector(roster))
-	return withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	return withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: policyRouter})
 }
 
@@ -50,7 +53,7 @@ func TestHMMCommandOnlyTurnUsesEligibleRosterFallback(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(request))
 	require.NoError(t, err)
 	features := env.RoutingFeatures()
-	require.False(t, hasTextUserBoundary(conversationMessagesForRouting(env)))
+	require.False(t, routingpolicy.HasTextUserBoundary(conversationMessagesForRouting(env)))
 
 	sidecarFailure := errors.New("policy sidecar must not receive a command-only request")
 	svc := unscorableHMMService(nil, sidecarFailure)
@@ -79,7 +82,7 @@ func TestHMMCommandOnlyTurnUsesAdmittedRuntimeFallback(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(requestBody))
 	require.NoError(t, err)
 	features := env.RoutingFeatures()
-	require.False(t, hasTextUserBoundary(conversationMessagesForRouting(env)))
+	require.False(t, routingpolicy.HasTextUserBoundary(conversationMessagesForRouting(env)))
 
 	innerService := unscorableHMMService(nil, errors.New("policy sidecar must not receive a command-only request"))
 	innerRouter := innerService.strategies[router.StrategyHMMEmbedding].router
@@ -87,7 +90,7 @@ func TestHMMCommandOnlyTurnUsesAdmittedRuntimeFallback(t *testing.T) {
 		router.StrategyHMMEmbedding: innerRouter,
 	}}
 	admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMMEmbedding, snapshot)
-	service := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: admittedRouter})
 	ctx := policyregistry.WithServingSnapshot(
 		router.WithStrategy(context.Background(), router.StrategyHMMEmbedding),
@@ -164,7 +167,7 @@ func TestHMMCommandOnlyEscalationRespectsSessionFloor(t *testing.T) {
 	require.NotErrorIs(t, err, hmm.ErrHMMUnavailable)
 	classified, matched := ClassifyDispatchError(err)
 	require.True(t, matched)
-	assert.Equal(t, DispatchErrorNoEligibleArm, classified.Kind)
+	assert.Equal(t, ingress.DispatchErrorNoEligibleArm, classified.Kind)
 	assert.Equal(t, http.StatusBadRequest, classified.Status)
 
 	req.Candidates.ExcludedModels = nil
@@ -211,7 +214,7 @@ func TestHMMCommandOnlyTurnHonorsForcedClusterAndKeyList(t *testing.T) {
 	require.NotErrorIs(t, err, policy.ErrForcedClusterUnservable)
 	classified, matched = ClassifyDispatchError(err)
 	require.True(t, matched)
-	assert.Equal(t, DispatchErrorNoEligibleArm, classified.Kind)
+	assert.Equal(t, ingress.DispatchErrorNoEligibleArm, classified.Kind)
 	assert.Equal(t, http.StatusBadRequest, classified.Status)
 }
 
@@ -233,7 +236,7 @@ func TestHMMCommandOnlyTurnKeepsEligibleSessionPin(t *testing.T) {
 	turn, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, request)
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-4-6", turn.Decision.Model)
-	assert.Equal(t, unscorableHMMStickyReason, turn.Decision.Reason)
+	assert.Equal(t, routingpolicy.UnscorableHMMStickyReason, turn.Decision.Reason)
 	assert.True(t, turn.StickyHit)
 	store.mu.Lock()
 	defer store.mu.Unlock()

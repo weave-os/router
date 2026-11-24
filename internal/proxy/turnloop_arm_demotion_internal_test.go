@@ -5,13 +5,16 @@ import (
 	"net/http"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -31,7 +34,7 @@ func demotionTurnLoopEnv(t *testing.T) (*translate.RequestEnvelope, translate.Ro
 	return env, env.RoutingFeatures()
 }
 
-func runDemotionTurnLoop(t *testing.T, svc *Service, ctx context.Context) turnLoopResult {
+func runDemotionTurnLoop(t *testing.T, svc *Service, ctx context.Context) routingpolicy.TurnRoute {
 	t.Helper()
 	env, features := demotionTurnLoopEnv(t)
 	res, err := svc.runTurnLoop(
@@ -81,7 +84,7 @@ func TestTurnLoopExcludesDemotedModelUnderAuthoritativePolicy(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "arm-demotion-authoritative-test_policy",
 	}}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
@@ -111,7 +114,7 @@ func TestTurnLoopDropsDemotedPinOnScorerPath(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
@@ -126,15 +129,15 @@ func TestTurnLoopDropsDemotedPinOnScorerPath(t *testing.T) {
 // there has to count even when the base pin knows nothing about it.
 func TestTurnLoopHonoursDemotionRecordedOnHMMHistory(t *testing.T) {
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		sessionpin.DefaultRole:                 demotedPin(demotedPinModel),
-		hmmHistoryRole(sessionpin.DefaultRole): demotedPin(demotedPinModel, demotedPinModel),
+		sessionpin.DefaultRole:                  demotedPin(demotedPinModel),
+		hmm.HistoryRole(sessionpin.DefaultRole): demotedPin(demotedPinModel, demotedPinModel),
 	}}
 	scorer := &authoritativeTestRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
@@ -155,7 +158,7 @@ func TestTurnLoopKeepsForcedModelDespiteDemotion(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	res := runDemotionTurnLoop(t, svc, context.Background())

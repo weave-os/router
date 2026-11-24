@@ -8,9 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -92,7 +95,7 @@ func (s *overloadStubPinStore) SweepExpired(context.Context) error { return nil 
 func newOverloadTestService(store *overloadStubPinStore) *Service {
 	return withHMMPorts(NewService(
 		nil,
-		nil,
+		dispatch.NewClients(nil),
 		nil,
 		store,
 		false,
@@ -113,7 +116,7 @@ func TestMaybeDisableProviderAfterOverload_FirstStrikeOnlyIncrements(t *testing.
 		true,
 		overloadErr,
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
@@ -138,7 +141,7 @@ func TestMaybeDisableProviderAfterOverload_SecondStrikeDisablesAndEvicts(t *test
 		true,
 		overloadErr,
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: installationID, sessionKey: sessionKey},
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: installationID, SessionKey: sessionKey},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
@@ -149,7 +152,7 @@ func TestMaybeDisableProviderAfterOverload_SecondStrikeDisablesAndEvicts(t *test
 	assert.Equal(t, sessionpin.DefaultRole, expired.Role)
 	assert.Equal(t, installationID, expired.InstallationID)
 	// Second upsert is the HMM history row.
-	assert.Equal(t, hmmHistoryRole(sessionpin.DefaultRole), store.upserts[1].Role, "must expire the _hmm_history row too")
+	assert.Equal(t, hmm.HistoryRole(sessionpin.DefaultRole), store.upserts[1].Role, "must expire the _hmm_history row too")
 	assert.Empty(t, expired.Provider, "expired pin must clear provider so loadPin discards it")
 	assert.Empty(t, expired.Model, "expired pin must clear model so loadPin discards it")
 	assert.True(t, expired.PinnedUntil.Before(time.Now()),
@@ -169,7 +172,7 @@ func TestMaybeDisableProviderAfterOverload_SuccessResets(t *testing.T) {
 		true,
 		nil,
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
@@ -191,7 +194,7 @@ func TestMaybeDisableProviderAfterOverload_NonOverloadStatusIgnored(t *testing.T
 			true,
 			&providers.UpstreamErrorResponse{Status: status},
 			"anthropic",
-			"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+			"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 			sessionpin.DefaultRole, sessionpin.DefaultRole)
 
@@ -213,7 +216,7 @@ func TestMaybeDisableProviderAfterOverload_UserForcedSkipped(t *testing.T) {
 			true,
 			&providers.UpstreamErrorResponse{Status: providerOverloadedStatus},
 			"anthropic",
-			reason, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+			reason, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 			sessionpin.DefaultRole, sessionpin.DefaultRole)
 
@@ -233,7 +236,7 @@ func TestMaybeDisableProviderAfterOverload_NoStickyHitSkipped(t *testing.T) {
 		false,
 		&providers.UpstreamErrorResponse{Status: providerOverloadedStatus},
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
@@ -252,7 +255,7 @@ func TestMaybeDisableProviderAfterOverload_ZeroSessionKeySkipped(t *testing.T) {
 		true,
 		&providers.UpstreamErrorResponse{Status: providerOverloadedStatus},
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{}},
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{}},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
@@ -271,7 +274,7 @@ func TestMaybeDisableProviderAfterOverload_NilInstallationSkipped(t *testing.T) 
 		true,
 		&providers.UpstreamErrorResponse{Status: providerOverloadedStatus},
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.Nil, sessionKey: nonZeroSessionKey()},
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.Nil, SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
@@ -290,7 +293,7 @@ func TestMaybeDisableProviderAfterOverload_NonUpstreamErrorIgnored(t *testing.T)
 		true,
 		errors.New("upstream call: dial tcp: connection refused"),
 		"anthropic",
-		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic", routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 

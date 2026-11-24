@@ -57,7 +57,7 @@
             "PolicyID": "main-openai-responses",
             "PolicyRevision": "3",
             "Purpose": "openai_responses",
-            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+            "RegistryRevision": "sha256:2199d449ea260bc0d55bb53f0ef7966576bbe75dfa1a5fcac2d9e333b35e0843"
           },
           "Target": {
             "CatalogID": "gpt-5.6-sol",
@@ -237,7 +237,9 @@
           "role": "default_hmm_history",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "gpt-5.6-sol",
             "ServedProvider": "openai",
             "Strategy": "hmm_embedding"
@@ -373,7 +375,7 @@
             "PolicyID": "main-openai-responses",
             "PolicyRevision": "3",
             "Purpose": "openai_responses",
-            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+            "RegistryRevision": "sha256:2199d449ea260bc0d55bb53f0ef7966576bbe75dfa1a5fcac2d9e333b35e0843"
           },
           "Target": {
             "CatalogID": "gpt-5.6-sol",
@@ -544,6 +546,12 @@
             "LastInputTokens": 12,
             "LastOutputTokens": 7,
             "LastServedModel": "gpt-5.6-sol",
+            "ModelCaches": {
+              "gpt-5.6-sol": {
+                "MessageCount": 1,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "openai",
             "Reason": "hmm_policy",
             "Role": "default_hmm_history",
@@ -556,8 +564,10 @@
           "role": "default_hmm_history",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "PriorServedModel": "gpt-5.6-sol",
+            "PromptTokens": 12,
             "ServedModel": "gpt-5.6-sol",
             "ServedProvider": "openai",
             "Strategy": "hmm_embedding"
@@ -711,7 +721,7 @@
             "PolicyID": "main-openai-responses",
             "PolicyRevision": "3",
             "Purpose": "openai_responses",
-            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+            "RegistryRevision": "sha256:2199d449ea260bc0d55bb53f0ef7966576bbe75dfa1a5fcac2d9e333b35e0843"
           },
           "Target": {
             "CatalogID": "gpt-5.6-sol",
@@ -882,6 +892,12 @@
             "LastInputTokens": 12,
             "LastOutputTokens": 7,
             "LastServedModel": "gpt-5.6-sol",
+            "ModelCaches": {
+              "gpt-5.6-sol": {
+                "MessageCount": 3,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "openai",
             "Reason": "hmm_policy",
             "Role": "default_hmm_history",
@@ -894,8 +910,10 @@
           "role": "default_hmm_history",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 6,
             "OutputTokens": 7,
             "PriorServedModel": "gpt-5.6-sol",
+            "PromptTokens": 12,
             "ServedModel": "gpt-5.6-sol",
             "ServedProvider": "openai",
             "Strategy": "hmm_embedding"

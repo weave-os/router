@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
@@ -17,12 +18,12 @@ func withRoutingTranslationRequirements(ctx context.Context, env *translate.Requ
 	}
 	return req
 }
-func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
+func (s *Service) recordTurnUsage(ctx context.Context, res routingpolicy.TurnRoute, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
 	if s.pinStore == nil || res.HardPinned || res.CallerModelPassthrough {
 		return
 	}
 	if isHMMTurn(s.strategyPorts, res) {
-		s.recordHMMTurnHistory(ctx, res, servedProvider, servedModel, in, out, cacheCreation, cacheRead, outputLimitReached)
+		s.recordSwitchHistory(ctx, res, servedProvider, servedModel, in, out, cacheCreation, cacheRead, outputLimitReached)
 		return
 	}
 	var zeroKey [sessionpin.SessionKeyLen]byte
@@ -33,7 +34,7 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 		return
 	}
 	usage := sessionpin.Usage{
-		Strategy:            strategyForTurnLoopResult(res),
+		Strategy:            routingpolicy.StrategyForTurnRoute(res),
 		InputTokens:         in,
 		CachedReadTokens:    cacheRead,
 		CachedWriteTokens:   cacheCreation,
@@ -44,10 +45,13 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 		ServedProvider:      servedProvider,
 		PriorServedModel:    res.PriorServedModel,
 		SessionEverSwitched: res.SessionEverSwitched,
+		PromptTokens:        servedPromptTokens(servedProvider, in, cacheRead, cacheCreation),
+		MessageCount:        res.CacheShape().MessageCount,
+		CacheWriteTTL:       res.CacheShape().CacheWriteTTL,
 	}
 	role := res.PinRole
-	if isUserForcedReason(res.Decision.Reason) {
-		role = forceModelHistoryRole(role)
+	if routingpolicy.IsUserForcedReason(res.Decision.Reason) {
+		role = routingpolicy.ForceModelHistoryRole(role)
 	}
 	if role == "" {
 		role = sessionpin.DefaultRole

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -30,9 +31,9 @@ func TestClientBudgetServingAndPreviewUseOriginalVariantEachTurn(t *testing.T) {
 	provider := &fakeProvider{}
 	serving := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: budgetIngressModel}}
 	preview := &fakePreviewRouter{}
-	svc := proxy.WithStrategyPorts(proxy.NewService(serving, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, nil, false, providers.ProviderAnthropic, budgetIngressModel, nil), hmm.ServingPorts()).
+	svc := proxy.WithStrategyPorts(proxy.NewService(serving, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: provider}), nil, nil, false, providers.ProviderAnthropic, budgetIngressModel, nil), hmm.ServingPorts()).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: preview})
-	ctx := requestcontext.WithClientIdentity(context.Background(), proxy.ClientIdentity{SessionID: "session-a", ClientApp: proxy.ClientAppClaudeCode, UserAgent: budgetIngressUserAgent})
+	ctx := requestcontext.WithClientIdentity(context.Background(), requestcontext.ClientIdentity{SessionID: "session-a", ClientApp: requestcontext.ClientAppClaudeCode, UserAgent: budgetIngressUserAgent})
 
 	for _, tt := range []struct {
 		suffix string
@@ -60,7 +61,7 @@ func TestClientBudgetServingAndPreviewUseOriginalVariantEachTurn(t *testing.T) {
 func TestClientCompactionGuidanceAndResumeReachProvider(t *testing.T) {
 	provider := &fakeProvider{}
 	svc := makeProxyService(router.Decision{Provider: providers.ProviderAnthropic, Model: budgetIngressModel}, map[string]providers.Client{providers.ProviderAnthropic: provider})
-	ctx := requestcontext.WithClientIdentity(context.Background(), proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode, UserAgent: budgetIngressUserAgent})
+	ctx := requestcontext.WithClientIdentity(context.Background(), requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode, UserAgent: budgetIngressUserAgent})
 	for _, tt := range []struct {
 		name         string
 		model        string

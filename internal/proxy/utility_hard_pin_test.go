@@ -13,12 +13,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/routingpolicy/overrides"
 )
 
 type utilityHardPinSetup struct {
@@ -42,7 +47,7 @@ func gatewayKeyCtx(gateway string, aliased ...string) func(string) context.Conte
 		for _, model := range aliased {
 			key.ModelAliases[model] = "gw-" + model
 		}
-		return context.WithValue(authedCtx(installationID), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
+		return context.WithValue(authedCtx(installationID), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
 	}
 }
 
@@ -59,10 +64,10 @@ func newUtilityHardPinSvc(setup utilityHardPinSetup, fr *fakeRouter) *proxy.Serv
 		}}
 	}
 	return proxy.WithStrategyPorts(proxy.NewService(
-		fr, clients, nil, newFakePinStore(), true,
+		fr, dispatch.NewClients(clients), nil, newFakePinStore(), true,
 		policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel,
 		nil), hmm.ServingPorts()).
-		WithByokOnly(setup.byokOnly).WithHardPinResolver(proxy.CatalogUtilityHardPin)
+		WithByokOnly(setup.byokOnly).WithHardPinResolver(overrides.CatalogUtilityHardPin)
 }
 
 // Explore sub-agent hard pins resolve from the catalog against each
@@ -83,7 +88,7 @@ func TestService_UtilityHardPin_CatalogTargetPerInstallation(t *testing.T) {
 			name:    "excluded_default_model",
 			clients: []string{providers.ProviderAnthropic},
 			ctx: func(id string) context.Context {
-				return context.WithValue(authedCtx(id), proxy.InstallationExcludedModelsContextKey{}, []string{policy.UtilityHardPinDefaultModel})
+				return context.WithValue(authedCtx(id), requestcontext.InstallationExcludedModelsContextKey{}, []string{policy.UtilityHardPinDefaultModel})
 			},
 			wantModel: catalog.ModelIDClaudeHaiku55.String(),
 			wantVia:   providers.ProviderAnthropic,
@@ -114,8 +119,8 @@ func TestService_UtilityHardPin_CatalogTargetPerInstallation(t *testing.T) {
 			require.NoError(t, svc.ProxyMessages(legacyExploreCtx(setup.ctx(uuid.New().String())), []byte(exploreBody), rec, httpReq))
 
 			assert.Equal(t, 0, fr.routeCalls, "utility hard pins bypass the scorer")
-			assert.Equal(t, setup.wantModel, rec.Header().Get(proxy.HeaderRouterModel))
-			assert.Equal(t, setup.wantVia, rec.Header().Get(proxy.HeaderRouterProvider))
+			assert.Equal(t, setup.wantModel, rec.Header().Get(requestcontext.HeaderRouterModel))
+			assert.Equal(t, setup.wantVia, rec.Header().Get(requestcontext.HeaderRouterProvider))
 		})
 	}
 }
@@ -138,7 +143,7 @@ func TestService_UtilityHardPin_NoEligibleProviderIs400(t *testing.T) {
 	require.NotErrorIs(t, err, router.ErrRoutingUnavailable)
 	class, ok := proxy.ClassifyDispatchError(err)
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorNoEligibleProvider, class.Kind)
+	assert.Equal(t, ingress.DispatchErrorNoEligibleProvider, class.Kind)
 	assert.Equal(t, http.StatusBadRequest, class.Status)
 }
 

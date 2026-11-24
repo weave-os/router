@@ -12,10 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 // cortexPromptTooLong is the 71-byte 400 Cortex's AI gateway
@@ -37,7 +40,7 @@ func TestGatewayCompactionContextOverflowRescuesToFittingModel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, anthropicGateway.models, gatewayCompactionOpusModel)
 	assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models)
-	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Contains(t, rec.Body.String(), "summary")
 	assert.NotContains(t, rec.Body.String(), "Compact the conversation")
 }
@@ -54,7 +57,7 @@ func TestGatewayCompactionContextOverflowReachesCrossGatewayRescuer(t *testing.T
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models)
-	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // A conversation the estimate already puts past every Claude summarizer's
@@ -66,8 +69,8 @@ func TestGatewayCompactionPastEverySummarizerWindowReachesCrossGatewayRescuer(t 
 	svc = svc.WithHardPinResolver(func(HardPinRequest) (string, string, bool) {
 		return providers.ProviderAnthropicGateway, gatewayCompactionOpusModel, true
 	})
-	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{sol, gatewayCompactionOpusModel})
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx = context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, []string{sol, gatewayCompactionOpusModel})
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		gatewayKey(providers.ProviderAnthropicGateway, "https://gateway.example.com/anthropic", gatewayCompactionOpusModel, policy.PrecompactionDefaultModel),
 		gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/openai", sol),
 	})
@@ -82,7 +85,7 @@ func TestGatewayCompactionPastEverySummarizerWindowReachesCrossGatewayRescuer(t 
 	require.NoError(t, err)
 	assert.Equal(t, []string{gatewayCompactionOpusModel}, anthropicGateway.models, "only the utility pin is tried on the Claude gateway")
 	assert.Equal(t, []string{sol}, openAIGateway.models)
-	assert.Equal(t, sol, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, sol, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // Nothing fits: the turn fails as the provider's fault, never as an
@@ -103,7 +106,7 @@ func TestGatewayCompactionContextOverflowWithNothingFittingIsProviderFailure(t *
 	assert.GreaterOrEqual(t, class.Status, http.StatusInternalServerError)
 	assert.NotContains(t, class.Message, "Compact the conversation")
 	assert.NotContains(t, rec.Body.String(), "Compact the conversation")
-	assert.Equal(t, FailureOwnerProvider, dispatchErrorKindOwner(class.Kind))
+	assert.Equal(t, turnrecord.FailureOwnerProvider, dispatchErrorKindOwner(class.Kind))
 }
 
 // A non-compaction turn keeps the native prompt-too-long so the client compacts.
@@ -186,7 +189,7 @@ func TestStreamingCompactionOverflowingEverywhereNeverAsksToCompact(t *testing.T
 // the same provider type keeps the catalog window.
 func TestGatewayContextWindowAppliesMeasuredWindowOnlyToCortex(t *testing.T) {
 	windowOn := func(baseURL string) int {
-		ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			gatewayKey(providers.ProviderOpenAIGateway, baseURL, catalog.ModelGPT6Luna),
 		})
 		return gatewayContextWindow(cortexGatewayProvidersForRequest(ctx), catalog.ModelGPT6Luna, providers.ProviderOpenAIGateway)

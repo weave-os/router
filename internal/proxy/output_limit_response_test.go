@@ -8,12 +8,15 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -60,11 +63,10 @@ func TestProxyOutputLimitAcrossResponsePaths(t *testing.T) {
 						w.WriteHeader(http.StatusOK)
 						_, _ = w.Write([]byte(response))
 					}}
-					svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: path.provider, Model: path.model, Reason: "fresh"}},
-						map[string]providers.Client{path.provider: provider}, nil, store, false, path.provider, path.model, nil), hmm.ServingPorts()).
-						WithOpenAIResponsesBroad(path.wire == "responses").
-						WithNativeAnthropicResponseSignals(false).
-						WithNativeOpenAIResponseSignals(false)
+					svc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: path.provider, Model: path.model, Reason: "fresh"}},
+						dispatch.NewClients(map[string]providers.Client{path.provider: provider}), nil, store, false, path.provider, path.model, nil), hmm.ServingPorts()),
+						proxy.Deps{Telemetry: proxy.TelemetryDeps{Flags: &proxy.TelemetryFlags{TurnSignalCapture: true}}}).
+						WithIngress(responsesBroadFormats(path.wire == "responses"))
 					ctx := authedCtx(uuid.NewString())
 					rec := httptest.NewRecorder()
 					body := []byte(fmt.Sprintf(`{"model":%q,"max_tokens":64000,"stream":%t,"messages":[{"role":"user","content":"Inspect the repository files"}]}`, path.model, stream))
@@ -108,7 +110,7 @@ func TestProxyGeminiTelemetryClassifiesOutputCap(t *testing.T) {
 			}}
 			telem := newCaptureTelemetry()
 			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: capGeminiModel, Reason: "fresh"}},
-				map[string]providers.Client{providers.ProviderGoogle: provider}, nil, newFakePinStore(), false,
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: provider}), nil, newFakePinStore(), false,
 				providers.ProviderGoogle, capGeminiModel, telem), hmm.ServingPorts())
 
 			body := []byte(`{"contents":[{"role":"user","parts":[{"text":"Inspect the repository files"}]}],"generationConfig":{"maxOutputTokens":64000}}`)
@@ -123,9 +125,9 @@ func TestProxyGeminiTelemetryClassifiesOutputCap(t *testing.T) {
 			telem.mu.Lock()
 			defer telem.mu.Unlock()
 			require.NotEmpty(t, telem.rows)
-			want := proxy.TurnErrorClass("")
+			want := turnrecord.TurnErrorClass("")
 			if capped {
-				want = proxy.TurnErrorMaxTokens
+				want = turnrecord.TurnErrorMaxTokens
 			}
 			assert.Equal(t, want, telem.rows[len(telem.rows)-1].ErrorClass)
 		})
@@ -199,7 +201,7 @@ func TestTurnLoop_HighOutputKeepsActiveAndExpiredPins(t *testing.T) {
 			svc := newPinSvc(routes, store).EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false }).WithAvailableModels(map[string]struct{}{capAnthropicModel: {}, freshModel: {}})
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyMessages(authedCtx(uuid.NewString()), []byte(pinTestBody), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)))
-			assert.Equal(t, capAnthropicModel, rec.Header().Get(proxy.HeaderRouterModel))
+			assert.Equal(t, capAnthropicModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 		})
 	}
 }

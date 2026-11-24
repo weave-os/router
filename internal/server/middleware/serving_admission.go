@@ -11,9 +11,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/refusal"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -98,7 +98,7 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		ctx := policyregistry.WithServingAssertion(c.Request.Context(), assertion)
 		ctx = policyregistry.WithServingSnapshot(ctx, snapshot)
 		if assertion.Admission.Target != policyregistry.TargetInternal {
-			retired, err := proxy.WriteRetiredBetaRequest(c.Writer, c.Request, body)
+			retired, err := ingress.WriteRetiredBetaRequest(c.Writer, c.Request, body)
 			if err != nil {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_request_body"})
 				return

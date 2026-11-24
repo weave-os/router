@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
@@ -28,7 +30,7 @@ import (
 func TestNativeSearchCapturePreservesStatusAndSafeHeaders(t *testing.T) {
 	b := &nativeSearchBuffer{header: make(http.Header)}
 	b.Header().Set("Retry-After", "17")
-	b.Header().Set(HeaderRouterModel, "served-model")
+	b.Header().Set(requestcontext.HeaderRouterModel, "served-model")
 	b.Header().Set("Set-Cookie", "synthetic-cookie")
 	b.WriteHeader(http.StatusTooManyRequests)
 	_, err := b.Write([]byte(`{"error":{"type":"rate_limit_error"}}`))
@@ -38,7 +40,7 @@ func TestNativeSearchCapturePreservesStatusAndSafeHeaders(t *testing.T) {
 	rec := httptest.NewRecorder()
 	copyNativeSearchHeaders(rec, b.header)
 	assert.Equal(t, "17", rec.Header().Get("Retry-After"))
-	assert.Equal(t, "served-model", rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, "served-model", rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Empty(t, rec.Header().Get("Set-Cookie"))
 }
 
@@ -89,7 +91,7 @@ func TestNativeSearchErrorsUseAnthropicEnvelope(t *testing.T) {
 func TestNativeSearchPreservesRoutingPassthroughWithoutPins(t *testing.T) {
 	spy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
 	pins := newStubPinStore()
-	service := withHMMPorts(NewService(spy, nil, nil, pins, false, providers.ProviderOpenAI, catalog.ModelIDGPT56Luna.String(), nil))
+	service := withHMMPorts(NewService(spy, dispatch.NewClients(nil), nil, pins, false, providers.ProviderOpenAI, catalog.ModelIDGPT56Luna.String(), nil))
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)
 	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 	require.NoError(t, err)

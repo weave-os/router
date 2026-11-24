@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
@@ -37,8 +40,8 @@ func gatewayAllowlistCtx(allowed []string, aliased ...string) context.Context {
 		BaseURL:        "https://gateway.example.com",
 		ModelAliases:   aliases,
 	}
-	ctx := context.WithValue(authedCtx(id), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
-	return context.WithValue(ctx, proxy.InstallationAllowedModelsContextKey{}, allowed)
+	ctx := context.WithValue(authedCtx(id), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
+	return context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, allowed)
 }
 
 func anthropicOKProvider() *fakeProvider {
@@ -65,7 +68,7 @@ func TestService_GatewayForcedPinOutsideAllowlistServes(t *testing.T) {
 		Provider: providers.ProviderAnthropicGateway, Model: "claude-opus-5-5", Reason: "cluster:v0.2",
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(fr,
-		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()}),
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")
@@ -74,7 +77,7 @@ func TestService_GatewayForcedPinOutsideAllowlistServes(t *testing.T) {
 		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	assert.Equal(t, 0, fr.routeCalls, "the force must not fall through to automatic routing")
-	assert.Equal(t, "claude-opus-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-5", rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.NotContains(t, rec.Body.String(), "could not be served")
 }
 
@@ -85,7 +88,7 @@ func TestService_GatewayForceCommandOutsideAllowlistApplies(t *testing.T) {
 		Provider: providers.ProviderAnthropicGateway, Model: "claude-opus-5-5", Reason: "cluster:v0.2",
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(fr,
-		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()}),
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")
@@ -109,7 +112,7 @@ func TestService_GatewayForceCommandUnaliasedModelStillRejected(t *testing.T) {
 		Provider: providers.ProviderAnthropicGateway, Model: "claude-opus-5-5", Reason: "cluster:v0.2",
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(fr,
-		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()}),
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")

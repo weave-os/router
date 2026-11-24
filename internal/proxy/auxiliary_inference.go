@@ -5,9 +5,12 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/llmescalation"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
 )
@@ -19,9 +22,8 @@ const SpanTypePlatformAuxiliaryInference = "router.platform_auxiliary_inference"
 const decisionReasonEscalationJudge = "escalation_judge"
 
 const (
-	auxSuffixHandoverSummary          = "_summary"
-	auxSuffixPrecompactionSummary     = "_precompaction_summary"
-	auxSuffixCompactionHandoverSummry = "_compaction_summary"
+	auxSuffixHandoverSummary      = "_summary"
+	auxSuffixPrecompactionSummary = "_precompaction_summary"
 )
 
 func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, requestIDSuffix, externalID string, usage handover.Usage) {
@@ -30,10 +32,10 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 	}
 	pricing, _ := catalog.PrimaryPriceFor(usage.Model)
 	usageMods := catalog.UsageModifiers{CacheCreation1h: usage.CacheCreation1h, InferenceGeo: catalog.InferenceGeo(usage.InferenceGeo)}
-	apiKeyID := apiKeyIDFromContext(ctx)
+	apiKeyID := requestcontext.APIKeyIDFromContext(ctx)
 	auxRequestID := requestID + requestIDSuffix
 
-	byokServed := byokServedForProvider(ctx, usage.Provider)
+	byokServed := credentials.ByokServedForProvider(ctx, usage.Provider)
 
 	s.fireBilling(ctx, billing.DebitInferenceParams{
 		OrganizationID:  externalID,
@@ -46,21 +48,21 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		CacheRead:       usage.CacheRead,
 		Pricing:         pricing,
 		UsageModifiers:  usageMods,
-		HasOverride:     billing.HasOverrideFromContext(ctx) || weaveCreditsDenied(ctx),
+		HasOverride:     billing.HasOverrideFromContext(ctx) || billing.WeaveCreditsDeniedFromContext(ctx),
 		ByokServed:      byokServed,
 		APIKeyID:        apiKeyID,
 		RouterUserID:    auth.UserIDFrom(ctx),
 	})
 
-	installationID := installationIDFromContext(ctx)
+	installationID := requestcontext.InstallationIDFromContext(ctx)
 	if installationID == uuid.Nil {
 		return
 	}
-	clientID := ClientIdentityFrom(ctx)
+	clientID := requestcontext.ClientIdentityFrom(ctx)
 	inputCost := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead, pricing, usage.Provider, usageMods)
 	outputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(usage.InputTokens, usage.CacheCreation, usage.CacheRead, usage.Provider), usage.OutputTokens, pricing, usageMods)
 
-	s.fireTelemetry(ctx, InsertTelemetryParams{
+	s.fireTelemetry(ctx, turnrecord.InsertTelemetryParams{
 		InstallationID:         installationID.String(),
 		APIKeyID:               apiKeyID,
 		RequestID:              auxRequestID,
@@ -89,7 +91,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 
 func (s *Service) recordEscalationJudgeInference(ctx context.Context, installationID, requestID string, mode llmescalation.Mode, job llmescalation.Job, judgment llmescalation.Judgment, failure llmescalation.FailureCode) {
 	succeeded := failure == llmescalation.FailureNone
-	if s.telemetry == nil || installationID == "" || (!judgment.Usage.Known && !succeeded) {
+	if s.turnTelemetry.repo == nil || installationID == "" || (!judgment.Usage.Known && !succeeded) {
 		return
 	}
 	verdict := ""
@@ -106,7 +108,7 @@ func (s *Service) recordEscalationJudgeInference(ctx context.Context, installati
 	if judgment.CostSource == llmescalation.CostSourceProviderReported {
 		inputCost, outputCost = judgment.CostUSD, 0
 	}
-	s.fireTelemetry(ctx, InsertTelemetryParams{
+	s.fireTelemetry(ctx, turnrecord.InsertTelemetryParams{
 		InstallationID:           installationID,
 		RequestID:                requestID + "_escalation_judge_" + job.ID,
 		SpanType:                 SpanTypePlatformAuxiliaryInference,

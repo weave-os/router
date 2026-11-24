@@ -3,11 +3,12 @@ package proxy
 import (
 	"context"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 )
 
 func codexSubagentPath(ctx context.Context) string {
-	if ClientIdentityFrom(ctx).ClientApp != ClientAppCodex {
+	if requestcontext.ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppCodex {
 		return ""
 	}
 	native, _ := ctx.Value(nativeResponsesBodyContextKey{}).([]byte)
@@ -16,7 +17,7 @@ func codexSubagentPath(ctx context.Context) string {
 
 func subAgentHintForRequest(ctx context.Context, hint string) string {
 	if hint == "" && codexSubagentPath(ctx) != "" {
-		return ClientAppCodex
+		return requestcontext.ClientAppCodex
 	}
 	return hint
 }

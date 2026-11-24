@@ -20,7 +20,7 @@ import (
 func internalUpstreamModelsEngine(authSvc *auth.Service, proxySvc *proxy.Service) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.POST("/internal/v1/provider-keys/models", admin.InternalListUpstreamModelsHandler(authSvc, proxySvc))
+	engine.POST("/internal/v1/provider-keys/models", admin.InternalListUpstreamModelsHandler(authSvc, proxy.DispatchEngine(proxySvc)))
 	return engine
 }
 

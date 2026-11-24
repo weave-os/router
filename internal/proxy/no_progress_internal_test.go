@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/router/sessionpin"
@@ -35,12 +37,12 @@ func TestHandleNoProgressBreak_PreservesUserForcedPin(t *testing.T) {
 		},
 		found: true,
 	}
-	svc := &Service{hmmServing: hmmPorts(), pinStore: store}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), pinStore: store}
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"retry"}]}`))
 	require.NoError(t, err)
 	rec := httptest.NewRecorder()
 
-	err = loopBreakForTest(svc, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: key}, "default_high", "claude-opus-4-8", "anthropic").noProgress(context.Background(), rec, env, conversation.NoProgressMatchThreshold, 10)
+	err = loopBreakForTest(svc, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: key}, "default_high", "claude-opus-4-8", "anthropic").noProgress(context.Background(), rec, env, conversation.NoProgressMatchThreshold, 10)
 
 	require.NoError(t, err)
 
@@ -51,11 +53,11 @@ func TestHandleNoProgressBreak_PreservesUserForcedPin(t *testing.T) {
 
 func TestHandleNoProgressBreak_ZeroSessionKeyWritesNoPin(t *testing.T) {
 	store := &overwritingPinStore{}
-	svc := &Service{hmmServing: hmmPorts(), pinStore: store}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), pinStore: store}
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"retry"}]}`))
 	require.NoError(t, err)
 
-	err = loopBreakForTest(svc, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{}}, "default_high", "claude-opus-4-8", "anthropic").noProgress(context.Background(), httptest.NewRecorder(), env, conversation.NoProgressMatchThreshold, 10)
+	err = loopBreakForTest(svc, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{}}, "default_high", "claude-opus-4-8", "anthropic").noProgress(context.Background(), httptest.NewRecorder(), env, conversation.NoProgressMatchThreshold, 10)
 
 	require.NoError(t, err)
 	assert.False(t, store.found, "a zero-keyed pin row would be shared by every zero-keyed session")
@@ -63,11 +65,11 @@ func TestHandleNoProgressBreak_ZeroSessionKeyWritesNoPin(t *testing.T) {
 
 func TestHandleNoProgressBreak_ExpiresNonZeroSessionPin(t *testing.T) {
 	store := &overwritingPinStore{}
-	svc := &Service{hmmServing: hmmPorts(), pinStore: store}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), pinStore: store}
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"retry"}]}`))
 	require.NoError(t, err)
 
-	err = loopBreakForTest(svc, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: sessionKeyFromString("stuck-session")}, "default_high", "claude-opus-4-8", "anthropic").noProgress(context.Background(), httptest.NewRecorder(), env, conversation.NoProgressMatchThreshold, 10)
+	err = loopBreakForTest(svc, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: sessionKeyFromString("stuck-session")}, "default_high", "claude-opus-4-8", "anthropic").noProgress(context.Background(), httptest.NewRecorder(), env, conversation.NoProgressMatchThreshold, 10)
 
 	require.NoError(t, err)
 	assert.True(t, store.found)
@@ -77,9 +79,9 @@ type loopBreakCall struct {
 	stop conversation.LoopBreak
 }
 
-func loopBreakForTest(svc *Service, target sessionTarget, role, decisionModel, decisionProvider string) loopBreakCall {
+func loopBreakForTest(svc *Service, target routingpolicy.SessionTarget, role, decisionModel, decisionProvider string) loopBreakCall {
 	return loopBreakCall{stop: conversation.LoopBreak{
-		Pins: newLoopBreakPins(svc, target.strategy), InstallationID: target.installationID, SessionKey: target.sessionKey,
+		Pins: newLoopBreakPins(svc, target.Strategy), InstallationID: target.InstallationID, SessionKey: target.SessionKey,
 		Role: role, DecisionModel: decisionModel, DecisionProvider: decisionProvider,
 	}}
 }

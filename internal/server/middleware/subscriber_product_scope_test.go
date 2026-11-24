@@ -13,7 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -36,7 +37,7 @@ func runProductScopeMiddleware(
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
-		middleware.WithSubscriberAllowance(svc)(c)
+		middleware.WithSubscriberAllowance(svc, credentials.RequestPresentsCoveringSubscription)(c)
 		observed <- c.Request.Context()
 		if c.IsAborted() {
 			return
@@ -184,12 +185,12 @@ func TestWithSubscriberAllowance_ScopesAgentShadowWithoutSpendingAllowance(t *te
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), proxy.AgentShadowEvalContextKey{}, proxy.AgentShadowEvaluation{
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), requestcontext.AgentShadowEvalContextKey{}, requestcontext.AgentShadowEvaluation{
 			Model:     "claude-opus-4-8",
 			RolloutID: "rollout-1",
 			StateID:   "state-1",
 		}))
-		middleware.WithSubscriberAllowance(svc)(c)
+		middleware.WithSubscriberAllowance(svc, credentials.RequestPresentsCoveringSubscription)(c)
 		if c.IsAborted() {
 			return
 		}

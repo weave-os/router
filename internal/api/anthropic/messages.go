@@ -7,8 +7,9 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 
@@ -16,25 +17,29 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func PrepareHandoffHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
-	messages := MessagesHandler(svc, authSvc)
+func PrepareHandoffHandler(svc MessagesProxy, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
+	messages := MessagesHandler(svc, authSvc, vocab)
 	return func(c *gin.Context) {
-		c.Request = c.Request.WithContext(proxy.WithHandoffPreparation(c.Request.Context()))
+		c.Request = c.Request.WithContext(conversation.WithHandoffPreparation(c.Request.Context()))
 		messages(c)
 	}
 }
 
-func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
+type MessagesProxy interface {
+	ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error
+}
+
+func MessagesHandler(svc MessagesProxy, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
-		body, err := io.ReadAll(io.LimitReader(c.Request.Body, proxy.MaxRequestBodyBytes+1))
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, requestcontext.MaxRequestBodyBytes+1))
 		if err != nil {
 			log.Debug("Failed to read request body", "err", err)
 			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body.")
 			return
 		}
-		if len(body) > proxy.MaxRequestBodyBytes {
+		if len(body) > requestcontext.MaxRequestBodyBytes {
 			logOversizeBody(log, c.Request)
 			writeAnthropicError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body too large.")
 			return
@@ -51,7 +56,7 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 		)
 
 		ctx := stashClientIdentity(c.Request.Context(), c.Request.Header, body)
-		if _, agentShadow := proxy.AgentShadowEvalFromContext(ctx); !agentShadow {
+		if _, agentShadow := requestcontext.AgentShadowEvalFromContext(ctx); !agentShadow {
 			ctx = auth.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c), requestcontext.CallerFrom(ctx))
 			ctx, err = auth.ResolveRoutingAssignment(ctx, authSvc, middleware.InstallationFrom(c), requestcontext.CallerFrom(ctx))
 			if err != nil {
@@ -64,8 +69,8 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 		c.Request = c.Request.WithContext(ctx)
 
 		if err := svc.ProxyMessages(c.Request.Context(), body, c.Writer, c.Request); err != nil {
-			cls, ok := proxy.ClassifyDispatchError(err)
-			if ok && cls.Kind == proxy.DispatchErrorUpstreamStatus {
+			cls, ok := vocab.Classify(err)
+			if ok && cls.Kind == ingress.DispatchErrorUpstreamStatus {
 				if c.Writer.Written() {
 					return
 				}
@@ -77,7 +82,7 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 				return
 			}
 			if ok {
-				proxy.LogDispatchErrorClass(log, cls, err)
+				ingress.LogDispatchErrorClass(log, cls, err)
 				if cls.RetryAfter {
 					c.Header("Retry-After", "1")
 				}
@@ -88,7 +93,7 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 				return
 			}
 			log.Error("Proxy failed", "err", err)
-			writeAnthropicError(c, http.StatusBadGateway, "api_error", proxy.TerminalErrorMessage(err))
+			writeAnthropicError(c, http.StatusBadGateway, "api_error", vocab.TerminalMessage(err))
 			return
 		}
 	}
@@ -96,13 +101,13 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 
 func stashClientIdentity(ctx context.Context, h http.Header, body []byte) context.Context {
 	metaRaw := gjson.GetBytes(body, "metadata.user_id").String()
-	meta := proxy.ParseClaudeCodeMetadata(metaRaw)
+	meta := requestcontext.ParseClaudeCodeMetadata(metaRaw)
 
-	id := proxy.ClientIdentityFromHeaders(h)
-	id.DeviceID = proxy.NormalizeClientIdentifier(meta.DeviceID)
-	id.AccountID = proxy.NormalizeClientIdentifier(meta.AccountID)
+	id := requestcontext.ClientIdentityFromHeaders(h)
+	id.DeviceID = requestcontext.NormalizeClientIdentifier(meta.DeviceID)
+	id.AccountID = requestcontext.NormalizeClientIdentifier(meta.AccountID)
 	id.SessionID = requestcontext.AnthropicHeaderSessionID(h, meta)
-	if metaEmail := proxy.NormalizeEmail(meta.Email); metaEmail != "" {
+	if metaEmail := requestcontext.NormalizeEmail(meta.Email); metaEmail != "" {
 		id.Email = metaEmail
 	}
 	observability.FromContext(ctx).Debug("anthropic stashClientIdentity",
@@ -120,7 +125,7 @@ func stashClientIdentity(ctx context.Context, h http.Header, body []byte) contex
 	return requestcontext.WithClientIdentity(ctx, id)
 }
 
-func anthropicErrorType(cls proxy.DispatchErrorClass) string {
+func anthropicErrorType(cls ingress.DispatchErrorClass) string {
 	if cls.Refusal != nil {
 		return cls.Refusal.AnthropicType()
 	}
@@ -133,7 +138,7 @@ func anthropicErrorType(cls proxy.DispatchErrorClass) string {
 func logOversizeBody(log *slog.Logger, r *http.Request) {
 	log.Warn("Request body too large",
 		"content_length", r.ContentLength,
-		"max_body_bytes", proxy.MaxRequestBodyBytes,
+		"max_body_bytes", requestcontext.MaxRequestBodyBytes,
 		"client_session_id", r.Header.Get("X-Claude-Code-Session-Id"),
 		"user_agent", r.UserAgent(),
 	)

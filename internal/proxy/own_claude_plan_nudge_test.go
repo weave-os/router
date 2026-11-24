@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy"
@@ -28,14 +30,14 @@ func TestProxyMessages_SpentOwnClaudePlanNudgesToConnectASeat(t *testing.T) {
 	t.Cleanup(upstream.Close)
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: earlyStopLowModel, Reason: "test"}},
-		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", upstream.URL)},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", upstream.URL)}),
 		nil, newFakePinStore(), false, providers.ProviderAnthropic, earlyStopLowModel, newCaptureTelemetry()), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).WithRetrySleep(noRetrySleep).WithUsageObserver(exhaustedObserver())
 	body := `{"model":"claude-opus-4-7","max_tokens":4096,"stream":true,"messages":[{"role":"user","content":"hello"}]}`
 
 	serve := func(body string) string {
 		rec := httptest.NewRecorder()
-		ctx := context.WithValue(authedCtx("11111111-1111-1111-1111-111111111111"), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken)
+		ctx := context.WithValue(authedCtx("11111111-1111-1111-1111-111111111111"), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken)
 		require.NoError(t, svc.ProxyMessages(claudeCreditFallbackContext(ctx), []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 		return rec.Body.String()
 	}

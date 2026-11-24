@@ -12,8 +12,11 @@ import (
 
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -27,7 +30,7 @@ import (
 type modelListingClient struct {
 	models    []string
 	err       error
-	seenCreds *proxy.Credentials
+	seenCreds *requestcontext.Credentials
 }
 
 func (c *modelListingClient) Proxy(context.Context, router.Decision, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
@@ -37,7 +40,7 @@ func (c *modelListingClient) Passthrough(context.Context, providers.PreparedRequ
 	return nil
 }
 func (c *modelListingClient) ListModels(ctx context.Context) ([]string, error) {
-	c.seenCreds = proxy.CredentialsFromContext(ctx)
+	c.seenCreds = credentials.CredentialsFromContext(ctx)
 	return c.models, c.err
 }
 
@@ -56,7 +59,7 @@ func upstreamModelsEngine(authSvc *auth.Service, proxySvc *proxy.Service) *gin.E
 	engine := gin.New()
 	engine.GET("/admin/v1/provider-keys/:id/models", func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{ID: testInstallationID})
-	}, admin.ListUpstreamModelsHandler(authSvc, proxySvc))
+	}, admin.ListUpstreamModelsHandler(authSvc, proxy.DispatchEngine(proxySvc)))
 	return engine
 }
 
@@ -66,7 +69,7 @@ func upstreamModelsAuthService(keys []*auth.ExternalAPIKey) *auth.Service {
 }
 
 func upstreamModelsProxyService(providerMap map[string]providers.Client) *proxy.Service {
-	return proxy.WithStrategyPorts(proxy.NewService(nil, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	return proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(providerMap), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 }
 
 func TestListUpstreamModelsHandler_ReturnsEndpointModels(t *testing.T) {
@@ -131,7 +134,7 @@ func TestListUpstreamModelsHandler_UnsupportedProviderIs501(t *testing.T) {
 func discoverModelsEngine(proxySvc *proxy.Service) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.POST("/admin/v1/provider-keys/discover-models", admin.DiscoverModelsHandler(proxySvc))
+	engine.POST("/admin/v1/provider-keys/discover-models", admin.DiscoverModelsHandler(proxy.DispatchEngine(proxySvc)))
 	return engine
 }
 

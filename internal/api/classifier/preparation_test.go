@@ -80,7 +80,7 @@ func TestPrepareModelHandlerEnforcesRequestAndPreparationContract(t *testing.T) 
 			require.Equal(t, tc.calls, preparer.calls)
 			require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 			if tc.status == http.StatusAccepted || tc.status == http.StatusOK {
-				var preparation proxy.ModelPreparation
+				var preparation policy.ModelPreparation
 				require.NoError(t, json.Unmarshal(response.Body.Bytes(), &preparation))
 				require.Equal(t, strings.Repeat("a", 64)+".hmm_qwen.fc-synthetic1", preparation.OperationID)
 				require.Equal(t, tc.state, preparation.State)

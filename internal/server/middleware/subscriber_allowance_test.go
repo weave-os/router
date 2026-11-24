@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -154,7 +155,7 @@ func runAllowanceMiddlewareWithAuth(
 		if apiKey != nil {
 			c.Set("router_api_key", apiKey)
 		}
-		middleware.WithSubscriberAllowance(svc)(c)
+		middleware.WithSubscriberAllowance(svc, credentials.RequestPresentsCoveringSubscription)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -198,7 +199,7 @@ func TestWithSubscriberAllowance_ClaudeOAuthDoesNotRestrictNonSubscriber(t *test
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
-		middleware.WithSubscriberAllowance(svc)(c)
+		middleware.WithSubscriberAllowance(svc, credentials.RequestPresentsCoveringSubscription)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -295,10 +296,10 @@ func runSubscriberOrganizationBillingChain(
 		c.Set("router_api_key", subscriberAPIKey())
 		c.Next()
 	})
-	engine.Use(middleware.WithSubscriberAllowance(allowanceService))
-	engine.Use(middleware.WithBalanceCheck(billingService, billing.MinBalanceMicros))
-	engine.Use(middleware.WithAPIKeySpendCap(billingService))
-	engine.Use(middleware.WithOrgMonthlySpendCap(billingService))
+	engine.Use(middleware.WithSubscriberAllowance(allowanceService, credentials.RequestPresentsCoveringSubscription))
+	engine.Use(middleware.WithBalanceCheck(billingService, billing.MinBalanceMicros, credentials.RequestHasCustomerFunding))
+	engine.Use(middleware.WithAPIKeySpendCap(billingService, credentials.RequestHasCustomerFunding))
+	engine.Use(middleware.WithOrgMonthlySpendCap(billingService, credentials.RequestHasCustomerFunding))
 	reached := false
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		reached = true
@@ -386,7 +387,7 @@ func TestWithSubscriberAllowance_ExhaustedServesOnOrganizationCredits(t *testing
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
-		middleware.WithSubscriberAllowance(svc)(c)
+		middleware.WithSubscriberAllowance(svc, credentials.RequestPresentsCoveringSubscription)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -501,7 +502,7 @@ func TestWithSubscriberAllowance_ChargesTheResolvedCaller(t *testing.T) {
 			APIKeyID:     subscriberAPIKey().ID,
 		})
 		entitlements.observe = func(id entitlement.SubscriberID) { metered = id }
-		middleware.WithSubscriberAllowance(svc)(c)
+		middleware.WithSubscriberAllowance(svc, credentials.RequestPresentsCoveringSubscription)(c)
 		c.Status(http.StatusOK)
 	})
 
@@ -527,7 +528,7 @@ func TestWithSubscriberAllowance_StampsSpentWindow(t *testing.T) {
 			engine := gin.New()
 			engine.POST("/v1/messages", func(c *gin.Context) {
 				c.Set("router_api_key", subscriberAPIKey())
-				middleware.WithSubscriberAllowance(svc)(c)
+				middleware.WithSubscriberAllowance(svc, credentials.RequestPresentsCoveringSubscription)(c)
 				window, spent = entitlement.SpentWindowFromContext(c.Request.Context())
 				c.Status(http.StatusOK)
 			})
@@ -555,7 +556,7 @@ func runPoolAllowanceMiddleware(t *testing.T, entitlements *stubEntitlements, pr
 		c.Set("router_api_key", &auth.APIKey{ID: "33333333-3333-3333-3333-333333333333"})
 		c.Set("router_installation", &auth.Installation{ID: "installation", PoolSubjectID: allowanceSubscriberID})
 		c.Request = c.Request.WithContext(prepare(c.Request.Context()))
-		middleware.WithSubscriberAllowance(svc)(c)
+		middleware.WithSubscriberAllowance(svc, credentials.RequestPresentsCoveringSubscription)(c)
 		if c.IsAborted() {
 			return
 		}

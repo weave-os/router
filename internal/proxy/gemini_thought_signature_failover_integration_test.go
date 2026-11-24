@@ -8,10 +8,12 @@ import (
 	"sync"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/google"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -63,10 +65,10 @@ func TestProxyMessages_GeminiCorruptedThoughtSignatureFailsOverToBaselineAnthrop
 	tel := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-3-pro-preview"}},
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderGoogle:    google.NewNativeClient("test-google-key", googleUpstream.URL),
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
-		},
+		}),
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderGoogle:    {},
@@ -97,6 +99,6 @@ func TestProxyMessages_GeminiCorruptedThoughtSignatureFailsOverToBaselineAnthrop
 	assert.Contains(t, respBody, "event: message_start")
 	assert.Contains(t, respBody, "event: message_stop")
 	assert.NotContains(t, respBody, "Corrupted thought signature")
-	assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get(proxy.HeaderRouterProvider))
-	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get(requestcontext.HeaderRouterProvider))
+	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(requestcontext.HeaderRouterModel))
 }

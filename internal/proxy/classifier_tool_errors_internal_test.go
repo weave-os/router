@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -23,14 +25,14 @@ func TestClassifierCodexToolErrorsRequireIdentifiedResponsesIngress(t *testing.T
 		body         string
 		inferFailure bool
 	}{
-		{name: "Anthropic client tool", endpoint: router.EndpointAnthropicMessages, client: ClientAppClaudeCode, body: anthropic},
-		{name: "Chat client tool", endpoint: router.EndpointOpenAIChat, client: ClientAppCursor, body: chat},
+		{name: "Anthropic client tool", endpoint: router.EndpointAnthropicMessages, client: requestcontext.ClientAppClaudeCode, body: anthropic},
+		{name: "Chat client tool", endpoint: router.EndpointOpenAIChat, client: requestcontext.ClientAppCursor, body: chat},
 		{name: "Responses client tool", endpoint: router.EndpointOpenAIResponses, body: responses},
-		{name: "OpenCode Responses tool", endpoint: router.EndpointOpenAIResponses, client: ClientAppOpencode, body: responses},
-		{name: "Codex identity on Anthropic", endpoint: router.EndpointAnthropicMessages, client: ClientAppCodex, body: anthropic},
-		{name: "Codex identity on Chat", endpoint: router.EndpointOpenAIChat, client: ClientAppCodex, body: chat},
-		{name: "Codex Responses tool", endpoint: router.EndpointOpenAIResponses, client: ClientAppCodex, body: responses, inferFailure: true},
-		{name: "Codex unrelated namespace", endpoint: router.EndpointOpenAIResponses, client: ClientAppCodex, body: strings.Replace(responses, `"call_id":"c1","name"`, `"call_id":"c1","namespace":"client_tools","name"`, 1)},
+		{name: "OpenCode Responses tool", endpoint: router.EndpointOpenAIResponses, client: requestcontext.ClientAppOpencode, body: responses},
+		{name: "Codex identity on Anthropic", endpoint: router.EndpointAnthropicMessages, client: requestcontext.ClientAppCodex, body: anthropic},
+		{name: "Codex identity on Chat", endpoint: router.EndpointOpenAIChat, client: requestcontext.ClientAppCodex, body: chat},
+		{name: "Codex Responses tool", endpoint: router.EndpointOpenAIResponses, client: requestcontext.ClientAppCodex, body: responses, inferFailure: true},
+		{name: "Codex unrelated namespace", endpoint: router.EndpointOpenAIResponses, client: requestcontext.ClientAppCodex, body: strings.Replace(responses, `"call_id":"c1","name"`, `"call_id":"c1","namespace":"client_tools","name"`, 1)},
 	} {
 		for _, tool := range []string{"exec_command", "write_stdin"} {
 			for _, verdict := range []struct {
@@ -46,7 +48,7 @@ func TestClassifierCodexToolErrorsRequireIdentifiedResponsesIngress(t *testing.T
 					ctx := router.WithStrategy(context.Background(), router.StrategyLLMClassifier)
 					ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: fixture.client})
 					body := strings.NewReplacer("TOOL", tool, "OUTPUT", failure, "ERROR", verdict.field).Replace(fixture.body)
-					captured, err := (&Service{hmmServing: hmmPorts()}).withClassifierInput(ctx, []byte(body), fixture.endpoint)
+					captured, err := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).withClassifierInput(ctx, router.StrategyFromContext(ctx), []byte(body), fixture.endpoint)
 					require.NoError(t, err)
 					input := mustAs[router.ClassifierContext](t, captured.Value(classifierInputContextKey{}))
 					wantFailure := fixture.inferFailure

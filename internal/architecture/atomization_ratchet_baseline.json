@@ -1,27 +1,29 @@
 {
   "schema_version": "atomization_ratchet_v1",
   "ratchets": {
+    "hmm_history_identifier_references": {},
     "hmm_pin_field_references": {},
     "proxy_escalation_internal_references": {},
     "proxy_hmm_metadata_references": {},
     "proxy_reason_string_comparisons": {},
+    "proxy_router_layer_helper_calls": {},
     "serving_strategy_constant_references": {
-      "internal/api/admin": 6,
-      "internal/api/anthropic": 2,
       "internal/policyregistry": 5,
-      "internal/proxy": 15,
+      "internal/proxy": 7,
       "internal/server": 2,
-      "internal/server/middleware": 9,
       "internal/subscriptions/entitlement": 1,
       "internal/translate": 2
     },
     "serving_strategy_internal_imports": {},
     "strategy_from_context_callers": {
-      "internal/api/admin": 2,
       "internal/api/anthropic": 1,
-      "internal/proxy": 8,
-      "internal/server/middleware": 1
+      "internal/proxy": 3
     },
-    "strategy_serving_adapter_imports": {}
+    "strategy_serving_adapter_imports": {},
+    "upgrade_confidence_threshold_references": {
+      "internal/proxy": 2,
+      "internal/router/continuity": 5,
+      "internal/routingpolicy": 1
+    }
   }
 }

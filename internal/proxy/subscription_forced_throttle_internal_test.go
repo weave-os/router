@@ -9,10 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
@@ -22,17 +25,17 @@ import (
 // serve the forced model instead.
 func TestSubscriptionStateForcedModelThrottledPoolFundsCredits(t *testing.T) {
 	openAI := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("paid answer")}}}
-	svc := withHMMPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenAI: openAI}, nil, nil, false, "", "", nil)).
+	svc := withHMMPorts(NewService(stateModelRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: openAI}), nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{})
 	seats := []*auth.SubscriptionAccount{activeCodexAccount("seat-1"), activeCodexAccount("seat-2")}
-	ctx := WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(managedSubscriptionContext(auth.SubscriptionProviderCodex)), seats)
+	ctx := credentials.WithManagedSubscriptionCandidates(credentials.WithManagedSubscriptionUsage(managedSubscriptionContext(auth.SubscriptionProviderCodex)), seats)
 	for _, seat := range seats {
 		require.True(t, svc.recordManagedSubscriptionFailure(ctx, providers.ProviderOpenAI, stateCodexModel, subscriptions.Lease{AccountID: seat.ID}, codexRateLimitedErr()))
 	}
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateCodexModel})
-	ctx = withTurnFailures(ctx)
-	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateCodexModel})
+	ctx = requestcontext.WithTurnFailures(ctx)
+	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: candidates.ModelSet([]string{providers.ProviderOpenAI})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
 	inputs := dispatch.FailoverInputs{
@@ -48,7 +51,7 @@ func TestSubscriptionStateForcedModelThrottledPoolFundsCredits(t *testing.T) {
 		},
 	}
 
-	_, err := svc.dispatchWithFallback(ctx, inputs)
+	_, err := fallbackFor(svc).Dispatch(ctx, inputs)
 
 	require.NoError(t, err, "a throttled pool is not an allowlist problem and must not fail the turn")
 	require.Equal(t, 1, openAI.calls, "the forced model is served once on Weave credits")

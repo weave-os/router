@@ -3,31 +3,34 @@ package proxy
 import (
 	"context"
 	"testing"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestBaselineFor(t *testing.T) {
 	t.Run("known model returns itself", func(t *testing.T) {
-		s := &Service{hmmServing: hmmPorts(), defaultBaselineModel: "claude-sonnet-4-5"}
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), routing: routingpolicy.New(nil).WithDefaultBaselineModel("claude-sonnet-4-5")}
 		assert.Equal(t, "claude-opus-4-7", s.baselineFor(context.Background(), "claude-opus-4-7"))
 	})
 
 	t.Run("unknown model returns baseline", func(t *testing.T) {
-		s := &Service{hmmServing: hmmPorts(), defaultBaselineModel: "claude-sonnet-4-5"}
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), routing: routingpolicy.New(nil).WithDefaultBaselineModel("claude-sonnet-4-5")}
 		assert.Equal(t, "claude-sonnet-4-5", s.baselineFor(context.Background(), "weave-router"))
 	})
 
 	t.Run("empty model returns baseline", func(t *testing.T) {
-		s := &Service{hmmServing: hmmPorts(), defaultBaselineModel: "claude-sonnet-4-5"}
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), routing: routingpolicy.New(nil).WithDefaultBaselineModel("claude-sonnet-4-5")}
 		assert.Equal(t, "claude-sonnet-4-5", s.baselineFor(context.Background(), ""))
 	})
 
 	t.Run("weave-auto compares against the client's own default", func(t *testing.T) {
-		s := &Service{hmmServing: hmmPorts(), defaultBaselineModel: "claude-sonnet-4-5"}
-		claudeCode := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode})
-		codex := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
-		cursor := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCursor})
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), routing: routingpolicy.New(nil).WithDefaultBaselineModel("claude-sonnet-4-5")}
+		claudeCode := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
+		codex := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
+		cursor := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCursor})
 		assert.Equal(t, "claude-opus-5-5", s.baselineFor(claudeCode, "weave-auto"))
 		assert.Equal(t, "gpt-6.1-sol", s.baselineFor(codex, "weave-auto"))
 		assert.Equal(t, "claude-sonnet-4-5", s.baselineFor(cursor, "weave-auto"))
@@ -35,22 +38,22 @@ func TestBaselineFor(t *testing.T) {
 	})
 
 	t.Run("unknown model with no baseline returns empty", func(t *testing.T) {
-		s := &Service{hmmServing: hmmPorts()}
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 		assert.Empty(t, s.baselineFor(context.Background(), "weave-router"))
 	})
 }
 
 func TestWithDefaultBaselineModel(t *testing.T) {
-	s := &Service{hmmServing: hmmPorts()}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 	s.WithDefaultBaselineModel("claude-sonnet-4-5")
-	assert.Equal(t, "claude-sonnet-4-5", s.defaultBaselineModel)
+	assert.Equal(t, "claude-sonnet-4-5", s.routing.DefaultBaselineModel())
 }
 
 // The baseline rescue path must check the allowlist directly: passthrough-only
 // models never enter the desugared exclusion set, so ExcludedModels alone won't block them.
 func TestBaselineModelPermittedByAllowlist(t *testing.T) {
 	restricted := context.WithValue(context.Background(),
-		InstallationAllowedModelsContextKey{}, []string{"claude-opus-5"})
+		requestcontext.InstallationAllowedModelsContextKey{}, []string{"claude-opus-5"})
 
 	assert.True(t, modelPermittedByAllowlist(restricted, "claude-opus-5"),
 		"an allowlisted model clears the gate")

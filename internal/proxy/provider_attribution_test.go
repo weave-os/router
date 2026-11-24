@@ -17,17 +17,19 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
 
 const cortexGatewayURL = "https://acme-xy12345.snowflakecomputing.com/api/v2/cortex/anthropic"
 
-func cortexAttempt(model string, err error, class TurnErrorClass) dispatch.TracedAttempt {
+func cortexAttempt(model string, err error, class turnrecord.TurnErrorClass) dispatch.TracedAttempt {
 	return dispatch.TracedAttempt{
 		Target:    inference.Target{Provider: providers.ProviderAnthropicGateway, CatalogID: model},
 		BaseURL:   cortexGatewayURL,
 		Err:       err,
-		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(class), FailureOwner: string(FailureOwnerProvider)},
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(class), FailureOwner: string(turnrecord.FailureOwnerProvider)},
 	}
 }
 
@@ -61,11 +63,11 @@ func TestFlushUpstreamErrorAsAnthropic_PrefixesAttributionKeepingRetrySignals(t 
 	for _, tc := range []struct {
 		name, body, wantMessage, wantType string
 		status                            int
-		class                             TurnErrorClass
+		class                             turnrecord.TurnErrorClass
 	}{
-		{"429", `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}`, "Cortex returned 429 (rate limited) after 2 router retries: Rate limit exceeded", "rate_limit_error", 429, TurnErrorRateLimited},
-		{"529", `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`, "Cortex returned 529 (overloaded) after 2 router retries: Overloaded", "overloaded_error", 529, TurnErrorRateLimited},
-		{"5xx with Cortex body", `{"code":"390503","message":"Service temporarily unavailable. Request ID: 01b9","request_id":"01b9"}`, "Cortex returned 503 (server error) after 2 router retries: Service temporarily unavailable. Request ID: 01b9", "", 503, TurnErrorUpstream5xx},
+		{"429", `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}`, "Cortex returned 429 (rate limited) after 2 router retries: Rate limit exceeded", "rate_limit_error", 429, turnrecord.TurnErrorRateLimited},
+		{"529", `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`, "Cortex returned 529 (overloaded) after 2 router retries: Overloaded", "overloaded_error", 529, turnrecord.TurnErrorRateLimited},
+		{"5xx with Cortex body", `{"code":"390503","message":"Service temporarily unavailable. Request ID: 01b9","request_id":"01b9"}`, "Cortex returned 503 (server error) after 2 router retries: Service temporarily unavailable. Request ID: 01b9", "", 503, turnrecord.TurnErrorUpstream5xx},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			headers := http.Header{"Retry-After": {"7"}, "X-Should-Retry": {"true"}}
@@ -94,7 +96,7 @@ func TestFlushUpstreamErrorAsAnthropic_PrefixesAttributionKeepingRetrySignals(t 
 func TestFlushBufferedIfPresent_PrefixesOpenAIErrorMessage(t *testing.T) {
 	body := `{"error":{"message":"Too many requests","type":"rate_limit_error","code":"rate_limit_exceeded"}}`
 	upstreamErr := cortexStatusError(429, body, http.Header{"Retry-After": {"3"}, "Content-Type": {"text/html"}})
-	a := cortexAttempt("gpt-6-luna", upstreamErr, TurnErrorRateLimited)
+	a := cortexAttempt("gpt-6-luna", upstreamErr, turnrecord.TurnErrorRateLimited)
 	a.Target.Provider = providers.ProviderOpenAIGateway
 	err := attributeTerminalError(traceOf(a), upstreamErr)
 
@@ -110,7 +112,7 @@ func TestFlushBufferedIfPresent_PrefixesOpenAIErrorMessage(t *testing.T) {
 
 func TestAttributeTerminalError_AllAttemptsTimedOutNamesProvider(t *testing.T) {
 	timeoutErr := errors.New("upstream call: http2: timeout awaiting response headers")
-	a := cortexAttempt("claude-opus-5-5", timeoutErr, TurnErrorTimeout)
+	a := cortexAttempt("claude-opus-5-5", timeoutErr, turnrecord.TurnErrorTimeout)
 	err := attributeTerminalError(traceOf(a, a, a), timeoutErr)
 
 	assert.Equal(t, "Cortex timed out after 2 router retries (provider issue).", TerminalErrorMessage(err))
@@ -118,7 +120,7 @@ func TestAttributeTerminalError_AllAttemptsTimedOutNamesProvider(t *testing.T) {
 
 func TestSSEErrorEvents_GenericFailureNamesProvider(t *testing.T) {
 	stall := errors.New("upstream stream stalled")
-	a := cortexAttempt("claude-opus-5-5", stall, TurnErrorStreamStalled)
+	a := cortexAttempt("claude-opus-5-5", stall, turnrecord.TurnErrorStreamStalled)
 	err := attributeAttempt(a, 0, stall)
 
 	anthropic := httptest.NewRecorder()
@@ -140,11 +142,11 @@ func TestSiblingMarkerReason_NamesRealFailureClass(t *testing.T) {
 		a     dispatch.TracedAttempt
 		cause string
 	}{
-		{"timeout", cortexAttempt("gpt-6-luna", errors.New("timeout awaiting response headers"), TurnErrorTimeout), "timed out"},
-		{"429", cortexAttempt("gpt-6-luna", cortexStatusError(429, `{}`, nil), TurnErrorRateLimited), "was rate-limited"},
-		{"529", cortexAttempt("gpt-6-luna", cortexStatusError(529, `{}`, nil), TurnErrorRateLimited), "was overloaded"},
-		{"5xx", cortexAttempt("gpt-6-luna", cortexStatusError(502, `{}`, nil), TurnErrorUpstream5xx), "returned a 502"},
-		{"stalled", cortexAttempt("gpt-6-luna", errors.New("stalled"), TurnErrorStreamStalled), "stalled"},
+		{"timeout", cortexAttempt("gpt-6-luna", errors.New("timeout awaiting response headers"), turnrecord.TurnErrorTimeout), "timed out"},
+		{"429", cortexAttempt("gpt-6-luna", cortexStatusError(429, `{}`, nil), turnrecord.TurnErrorRateLimited), "was rate-limited"},
+		{"529", cortexAttempt("gpt-6-luna", cortexStatusError(529, `{}`, nil), turnrecord.TurnErrorRateLimited), "was overloaded"},
+		{"5xx", cortexAttempt("gpt-6-luna", cortexStatusError(502, `{}`, nil), turnrecord.TurnErrorUpstream5xx), "returned a 502"},
+		{"stalled", cortexAttempt("gpt-6-luna", errors.New("stalled"), turnrecord.TurnErrorStreamStalled), "stalled"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(tc.a))
@@ -170,7 +172,7 @@ func slowStartTraceOf(inbound []byte, attemptAt, firstAt time.Time, attempts ...
 func slowStartCtx(session, apiKeyID, userAgent string) context.Context {
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: session, UserAgent: userAgent})
 	ctx = observability.WithClientSessionID(ctx, session)
-	return context.WithValue(ctx, APIKeyIDContextKey{}, apiKeyID)
+	return context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, apiKeyID)
 }
 
 func TestSlowStartNotice_ThresholdBaselineAndCooldown(t *testing.T) {
@@ -195,7 +197,7 @@ func TestSlowStartNotice_ThresholdBaselineAndCooldown(t *testing.T) {
 	assert.False(t, shown, "once per session cooldown")
 
 	now = now.Add(slowStartCooldown)
-	failed := cortexAttempt("gpt-6-luna", errors.New("timeout awaiting response headers"), TurnErrorTimeout)
+	failed := cortexAttempt("gpt-6-luna", errors.New("timeout awaiting response headers"), turnrecord.TurnErrorTimeout)
 	failed.Target.Provider = providers.ProviderOpenAIGateway
 	notice, shown = slowStartNotice(ctx, slowStartTrace(now.Add(-40*time.Second), now.Add(-84*time.Second), failed), tracker, now)
 	require.True(t, shown)
@@ -218,7 +220,7 @@ func TestSlowStartNotice_BaselineRaisesThreshold(t *testing.T) {
 func TestTerminalErrorMessage_KeepsUpstreamMessageForResponses(t *testing.T) {
 	body := `{"error":{"message":"Rate limit exceeded for account. Please retry later.","type":"rate_limit_error","code":"rate_limit_exceeded"}}`
 	upstreamErr := cortexStatusError(429, body, http.Header{"Retry-After": {"2"}})
-	a := cortexAttempt("claude-opus-5", upstreamErr, TurnErrorRateLimited)
+	a := cortexAttempt("claude-opus-5", upstreamErr, turnrecord.TurnErrorRateLimited)
 	a.Target.Provider = providers.ProviderOpenAIGateway
 	err := attributeTerminalError(traceOf(a, a, a), upstreamErr)
 

@@ -9,9 +9,11 @@ import (
 	"slices"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
@@ -21,8 +23,8 @@ import (
 type subscriptionStateAllowedModelsKey struct{}
 
 func subscriptionStateModelsEnabled(ctx context.Context) bool {
-	enabled, _ := ctx.Value(InstallationSubscriptionStateModelsEnabledContextKey{}).(bool)
-	return !subscriptionFundingOutOfPlayForRequest(ctx) &&
+	enabled, _ := ctx.Value(requestcontext.InstallationSubscriptionStateModelsEnabledContextKey{}).(bool)
+	return !credentials.SubscriptionFundingOutOfPlayForRequest(ctx) &&
 		(enabled || openRouterOverflowEnabled(ctx) ||
 			len(installationSubscriptionModelsWhenActiveFromContext(ctx)) > 0 ||
 			len(installationSubscriptionModelsWhenInactiveFromContext(ctx)) > 0)
@@ -62,8 +64,8 @@ func (s *Service) memberPickPaidContext(ctx context.Context, req router.Request,
 		return ctx, false
 	}
 	if !slices.Contains(installationSubscriptionModelsWhenInactiveFromContext(ctx), pick.Model) {
-		paidModels, _ := ctx.Value(InstallationSubscriptionModelsWhenInactiveContextKey{}).([]string)
-		ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, append(slices.Clone(paidModels), pick.Model))
+		paidModels, _ := ctx.Value(requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}).([]string)
+		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, append(slices.Clone(paidModels), pick.Model))
 	}
 	paidModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
 	if !slices.Contains(paidModels, pick.Model) {
@@ -97,8 +99,8 @@ func (s *Service) subscriptionStateModelAvailable(ctx context.Context, req route
 		if seatAdmissionOf(s).mayAdmit(ctx, binding.Provider, model) {
 			return true
 		}
-		resolvedCredentials := s.resolveCredentials(clearCredentials(ctx), binding.Provider, model, headers)
-		if !servedOnSubscription(resolvedCredentials) {
+		resolvedCredentials := s.resolveCredentials(credentials.ClearCredentials(ctx), binding.Provider, model, headers)
+		if !credentials.ServedOnSubscription(resolvedCredentials) {
 			continue
 		}
 		if binding.Provider == providers.ProviderAnthropic && !s.claudeSubscriptionExhausted(ctx, headers) ||
@@ -123,16 +125,16 @@ func readmitSessionStrikes(ctx context.Context, request *router.Request) bool {
 }
 
 func beginSubscriptionStateLane(ctx context.Context, initial router.Decision) context.Context {
-	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*credentials.ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
 		usage.IntendedModel = initial.Model
 	}
-	return withClientAppRefusalPaidFallback(ctx, initial)
+	return credentials.WithClientAppRefusalPaidFallback(ctx, initial)
 }
 
 func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispatch.FailoverInputs) (int, error) {
 	request := *in.SubscriptionStateRequest
 	ctx = beginSubscriptionStateLane(ctx, in.InitialDecision)
-	sessionUnavailableModels := modelSet(sessionDemotedModelsFromContext(ctx))
+	sessionUnavailableModels := candidates.ModelSet(sessionDemotedModelsFromContext(ctx))
 	if sessionUnavailableModels == nil {
 		sessionUnavailableModels = make(map[string]struct{})
 	}
@@ -152,14 +154,14 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispat
 		ctx = pickCtx
 		includedModels = nil
 	}
-	ctx, rotationBudget := withSubscriptionAdmissionBudget(ctx)
+	ctx, rotationBudget := credentials.WithSubscriptionAdmissionBudget(ctx)
 	hasFixedTarget := request.ForceModel != "" || callerModelPassthroughActive(ctx) ||
 		in.Origin == policy.OverrideSourceDeployment || in.Origin == policy.OverrideSourceRequest
 	readmitted := false
 	var includedFailure error
 	var throttleWaited time.Duration
 	var spentCodexModels map[string]struct{}
-	for len(includedModels) > 0 && rotationBudget.remaining > 0 {
+	for len(includedModels) > 0 && rotationBudget.Remaining > 0 {
 		attemptModels := includedModels
 		if !hasFixedTarget {
 			attemptModels = s.withoutHeldSubscriptionModels(ctx, includedModels)
@@ -210,25 +212,25 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispat
 		if err == nil || committed(in.Prelude) || ctx.Err() != nil {
 			return winner, err
 		}
-		if !isSubscriptionPoolError(err) && !subscriptionLaneRefused(err) && !providers.IsRetryable(err) &&
-			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicClientAppRefused(ctx, err) {
+		if !credentials.IsSubscriptionPoolError(err) && !credentials.SubscriptionLaneRefused(err) && !providers.IsRetryable(err) &&
+			!credentials.CodexSubscriptionModelRejected(err) && !credentials.AnthropicSubscriptionModelRejected(err) && !credentials.CodexOAuthCredentialRejected(err) && !credentials.AnthropicOAuthCredentialRejected(err) && !credentials.AnthropicClientAppRefused(ctx, err) {
 			return winner, err
 		}
-		if !anotherSeatPoolCanServe(ctx, seatAdmissionOf(s), includedModels, target) && waitOutShortSeatThrottle(ctx, target.Provider, target.Model, err, s.clock.Now(), s.retrySleep, &throttleWaited) {
+		if !anotherSeatPoolCanServe(ctx, seatAdmissionOf(s), includedModels, target) && credentials.WaitOutShortSeatThrottle(ctx, target.Provider, target.Model, err, s.clock.Now(), s.engine.RetrySleep(), &throttleWaited) {
 			continue
 		}
-		includedFailure = includedFailureAfter(includedFailure, err, ownCodexLoginRejected(ctx, in.SubscriptionStateHeaders, s.usageObserver))
+		includedFailure = includedFailureAfter(includedFailure, err, ownCodexLoginRejected(ctx, in.SubscriptionStateHeaders, s.credentials.UsageObserver))
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
-		strikeModelUnlessFundingFailure(ctx, target.Model, err)
+		credentials.StrikeModelUnlessFundingFailure(ctx, target.Model, err)
 		if !hasFixedTarget {
 			s.holdSessionOffSubscriptionPool(ctx, target.Provider, target.Model)
 		}
-		includedModels, spentCodexModels = dropFailedIncludedModels(includedModels, target.Model, spentCodexModels, codexPlanSpentForTurn(ctx, in.SubscriptionStateHeaders, s.usageObserver, target.Provider, err, s.codexSubscriptionExhausted(ctx, in.SubscriptionStateHeaders)))
+		includedModels, spentCodexModels = dropFailedIncludedModels(includedModels, target.Model, spentCodexModels, codexPlanSpentForTurn(ctx, in.SubscriptionStateHeaders, s.credentials.UsageObserver, target.Provider, err, s.codexSubscriptionExhausted(ctx, in.SubscriptionStateHeaders)))
 		if hasFixedTarget {
 			break
 		}
 	}
-	if err := includedLaneVerdict(s.sessionHolds.withUnservedHoldsReleased(ctx, request.EnabledProviders)); err != nil {
+	if err := includedLaneVerdict(withUnservedHoldsReleased(ctx, &s.credentials.SessionHolds, request.EnabledProviders)); err != nil {
 		return -1, flushIncludedLaneVerdict(in, err)
 	}
 	if ctx.Err() != nil {
@@ -305,8 +307,8 @@ func (s *Service) subscriptionStatePaidTargetRefusal(ctx context.Context, header
 	if _, permitted := paidReq.Candidates.AllowedModels[target.Model]; !permitted {
 		return router.ErrAllowlistEmptiesPool
 	}
-	resolvedCredentials := s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, headers)
-	if servedOnSubscription(resolvedCredentials) || servedOnCodexSubscription(resolvedCredentials) {
+	resolvedCredentials := s.resolveCredentials(credentials.ClearCredentials(ctx), target.Provider, target.Model, headers)
+	if credentials.ServedOnSubscription(resolvedCredentials) || credentials.ServedOnCodexSubscription(resolvedCredentials) {
 		return router.ErrAllowlistEmptiesPool
 	}
 	if err := s.subscriptionAPIAuthorization(s.withSubscriptionFundingAuthorization(ctx, headers), target.Provider, target.Model); err != nil {
@@ -319,7 +321,7 @@ func (s *Service) subscriptionStatePaidTargetRefusal(ctx context.Context, header
 }
 
 func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in dispatch.FailoverInputs, target router.Decision, usesIncludedSubscription bool) (int, error) {
-	ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.SubscriptionStateHeaders)
+	ctx = s.resolveCredentials(credentials.ClearCredentials(ctx), target.Provider, target.Model, in.SubscriptionStateHeaders)
 	resolvedTargetBindings := s.subscriptionStateTargetBindings(ctx, target)
 	if !usesIncludedSubscription && in.OnSubscriptionStatePaidTarget != nil {
 		in.OnSubscriptionStatePaidTarget(target, resolvedTargetBindings)
@@ -343,7 +345,7 @@ func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in dispat
 	} else if in.OnAlternative != nil {
 		in.OnAlternative(target)
 	}
-	winner, err := s.dispatchWithFallback(ctx, in)
+	winner, err := fallbackFor(s).Dispatch(ctx, in)
 	if err == nil && in.SubscriptionStateWinnerProvider != nil && winner >= 0 && winner < len(resolvedTargetBindings) {
 		*in.SubscriptionStateWinnerProvider = resolvedTargetBindings[winner].Provider
 	}

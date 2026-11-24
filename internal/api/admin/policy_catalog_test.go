@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/api/admin"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
@@ -26,24 +27,23 @@ func (policyCatalogRouter) Route(context.Context, router.Request) (router.Decisi
 
 func TestPolicyCatalogHandlerReportsDefaultAndCapabilities(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	service := proxy.WithStrategyPorts(proxy.NewService(
-		nil, nil, nil, nil, false, "", "", nil), hmm.ServingPorts()).
-		WithPolicyStrategy(policy.StrategySpec{
-			Strategy: router.StrategyHMM,
-			Router:   policyCatalogRouter{},
-			Capabilities: policy.Capabilities{
-				SchemaVersion:          policy.SchemaVersionV1,
-				HonorsPreferredModels:  true,
-				HonorsQualityPriceBias: true,
-			},
-		}).WithPolicyStrategy(policy.StrategySpec{
+	service := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(
+		nil, dispatch.NewClients(nil), nil, nil, false, "", "", nil), hmm.ServingPorts()), proxy.Deps{Routing: &proxy.RoutingDeps{Strategies: []policy.StrategySpec{{
+		Strategy: router.StrategyHMM,
+		Router:   policyCatalogRouter{},
+		Capabilities: policy.Capabilities{
+			SchemaVersion:          policy.SchemaVersionV1,
+			HonorsPreferredModels:  true,
+			HonorsQualityPriceBias: true,
+		},
+	}, {
 		Strategy: router.StrategyHMMBeta,
 		Router:   policyCatalogRouter{},
-	})
+	}}}})
 	engine := gin.New()
 	engine.GET(
 		"/v1/router/policies",
-		admin.PolicyCatalogHandler(service, router.StrategyHMM),
+		admin.PolicyCatalogHandler(proxy.NewRoutingCatalog(service), router.StrategyHMM),
 	)
 
 	recorder := httptest.NewRecorder()

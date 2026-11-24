@@ -7,11 +7,14 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/respobserve"
 	"weave-os/router/internal/translate"
 )
 
@@ -24,10 +27,10 @@ type classifierRescuePolicy struct {
 
 func newClassifierRescuePolicy(ctx context.Context, s *Service) classifierRescuePolicy {
 	return classifierRescuePolicy{
-		enabled: s.ResolveCyberRefusalRetry(ctx),
-		models:  append([]string{s.ResolveCyberRefusalFallbackModel(ctx)}, catalog.ClassifierRescueOrder(s.subscriptionModels.servedForCaller(ctx, s.clock.Now()))...),
+		enabled: s.rescueConfig.CyberRefusalRetryEnabled(ctx),
+		models:  append([]string{s.rescueConfig.CyberRefusalFallbackModelFor(ctx)}, catalog.ClassifierRescueOrder(s.credentials.SubscriptionModels.ServedForCaller(credentials.CredentialsFromContext(ctx), s.clock.Now()))...),
 		unavailable: func(model string) bool {
-			return s.subscriptionModels.deniedForCaller(ctx, model, s.clock.Now())
+			return s.credentials.SubscriptionModels.DeniedForCaller(credentials.CredentialsFromContext(ctx), model, s.clock.Now())
 		},
 		rejected: func(model string, err error) {
 			s.recordSubscriptionModelRejection(ctx, providers.ProviderAnthropic, model, err)
@@ -110,11 +113,11 @@ func proxyClassifierWithRefusalRescue(ctx context.Context, proxy classifierProxy
 	}
 	servedResp := &bufferedResponse{header: make(http.Header)}
 	err := proxy(served, prep, servedResp)
-	if err != nil || !detectRefusalSignal(servedResp.body.Bytes()) {
+	if err != nil || !respobserve.DetectRefusalSignal(servedResp.body.Bytes()) {
 		return served, servedResp.replay(w, err)
 	}
 	log := observability.FromContext(ctx)
-	category := refusalCategory(servedResp.body.Bytes())
+	category := respobserve.RefusalCategory(servedResp.body.Bytes())
 	for _, target := range rescue.targets {
 		fallbackPrep, ok := rescue.prepare(prep, target)
 		if !ok {
@@ -122,20 +125,20 @@ func proxyClassifierWithRefusalRescue(ctx context.Context, proxy classifierProxy
 		}
 		fallbackResp := &bufferedResponse{header: make(http.Header)}
 		fallbackErr := proxy(target.decision, fallbackPrep, fallbackResp)
-		if anthropicSubscriptionModelRejected(fallbackErr) {
+		if credentials.AnthropicSubscriptionModelRejected(fallbackErr) {
 			rescue.rejected(target.decision.Model, fallbackErr)
 			log.Info("classifier refusal fallback model unavailable on subscription; trying next",
 				"from_model", served.Model, "to_model", target.decision.Model, "refusal_category", category)
 			continue
 		}
-		if fallbackErr != nil || fallbackResp.status != http.StatusOK || detectRefusalSignal(fallbackResp.body.Bytes()) {
+		if fallbackErr != nil || fallbackResp.status != http.StatusOK || respobserve.DetectRefusalSignal(fallbackResp.body.Bytes()) {
 			log.Info("classifier refusal not rescued on fallback model",
 				"from_model", served.Model, "to_model", target.decision.Model, "refusal_category", category, "fallback_err", fallbackErr)
 			break
 		}
 		log.Info("classifier refusal re-served on fallback model",
 			"from_model", served.Model, "to_model", target.decision.Model, "refusal_category", category)
-		w.Header().Set(HeaderRouterModel, target.decision.Model)
+		w.Header().Set(requestcontext.HeaderRouterModel, target.decision.Model)
 		return target.decision, fallbackResp.replay(w, nil)
 	}
 	return served, servedResp.replay(w, nil)

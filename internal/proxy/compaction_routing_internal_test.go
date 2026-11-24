@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
@@ -48,7 +50,7 @@ func newCompactionRoutingFixture(t *testing.T, scored router.Decision) compactio
 	calls := &atomic.Int32{}
 	store := newForceModelMapStore()
 	svc := withHMMPorts(NewService(compactionScorer{decision: scored, calls: calls},
-		map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil}),
 		nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
 		WithHardPinResolver(func(req HardPinRequest) (string, string, bool) {
 			return policy.UtilityTarget(policy.UtilityTargetRequest{
@@ -60,7 +62,7 @@ func newCompactionRoutingFixture(t *testing.T, scored router.Decision) compactio
 	return compactionRoutingFixture{svc: svc, store: store, scorerCalls: calls, installationID: uuid.New()}
 }
 
-func (f compactionRoutingFixture) run(t *testing.T, ctx context.Context, env *translate.RequestEnvelope, req router.Request) (turnLoopResult, error) {
+func (f compactionRoutingFixture) run(t *testing.T, ctx context.Context, env *translate.RequestEnvelope, req router.Request) (routingpolicy.TurnRoute, error) {
 	t.Helper()
 	features := env.RoutingFeatures()
 	req.RequestedModel = features.Model
@@ -92,7 +94,7 @@ func openAICatalogModels() map[string]struct{} {
 func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 	scored := router.Decision{Provider: providers.ProviderOpenAI, Model: compactionStrategyModel, Reason: "cluster_scored"}
 	f := newCompactionRoutingFixture(t, scored)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	env, err := translate.ParseOpenAI([]byte(codexCompactionBody))
 	require.NoError(t, err)
 
@@ -116,7 +118,7 @@ func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 func TestClaudeCodeCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 	scored := router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "cluster_scored"}
 	f := newCompactionRoutingFixture(t, scored)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
 	env, err := translate.ParseAnthropic([]byte(claudeCompactionBody))
 	require.NoError(t, err)
 
@@ -137,13 +139,13 @@ func TestCompactionStaysOnSessionPin(t *testing.T) {
 		parse  func([]byte) (*translate.RequestEnvelope, error)
 		pin    router.Decision
 	}{
-		{"codex", ClientAppCodex, codexCompactionBody, translate.ParseOpenAI,
+		{"codex", requestcontext.ClientAppCodex, codexCompactionBody, translate.ParseOpenAI,
 			router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna}},
-		{"codex on a low-tier model", ClientAppCodex, codexCompactionBody, translate.ParseOpenAI,
+		{"codex on a low-tier model", requestcontext.ClientAppCodex, codexCompactionBody, translate.ParseOpenAI,
 			router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.4-mini"}},
-		{"claude code", ClientAppClaudeCode, claudeCompactionBody, translate.ParseAnthropic,
+		{"claude code", requestcontext.ClientAppClaudeCode, claudeCompactionBody, translate.ParseAnthropic,
 			router.Decision{Provider: providers.ProviderAnthropic, Model: policy.PrecompactionLargeWindowModel}},
-		{"claude code on another vendor", ClientAppClaudeCode, claudeCompactionBody, translate.ParseAnthropic,
+		{"claude code on another vendor", requestcontext.ClientAppClaudeCode, claudeCompactionBody, translate.ParseAnthropic,
 			router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -169,7 +171,7 @@ func TestCompactionStaysOnSessionPin(t *testing.T) {
 func TestCompactionIneligibleSessionPinUsesScorer(t *testing.T) {
 	scored := router.Decision{Provider: providers.ProviderOpenAI, Model: compactionStrategyModel, Reason: "cluster_scored"}
 	f := newCompactionRoutingFixture(t, scored)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	env, err := translate.ParseOpenAI([]byte(codexCompactionBody))
 	require.NoError(t, err)
 	f.pinSession(t, ctx, env, router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna})

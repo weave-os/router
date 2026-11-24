@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -60,8 +61,8 @@ func TestManagedRebindIsolatesLearnedStateAndPreservesForceIntent(t *testing.T) 
 func TestManagedAdmissionIgnoresPersistedBetaPreference(t *testing.T) {
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	ctx = requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{StateNamespace: "admitted"})
-	svc := (&Service{hmmServing: hmmPorts()}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: context.DeadlineExceeded})
-	selected, err := svc.applySessionStrategy(ctx, [16]byte{1}, [16]byte{1})
+	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: context.DeadlineExceeded})
+	selected, _, err := svc.applySessionStrategy(ctx, router.StrategyFromContext(ctx), [16]byte{1}, [16]byte{1})
 	require.NoError(t, err, "managed requests must not even read retired beta preferences")
 	require.Equal(t, router.StrategyHMMEmbedding, router.StrategyFromContext(selected))
 }

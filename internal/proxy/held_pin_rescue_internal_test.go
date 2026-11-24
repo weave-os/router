@@ -14,7 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -46,7 +49,7 @@ func (c *heldPinGatewayClient) Proxy(_ context.Context, decision router.Decision
 
 func TestHeldAutomaticPinCannotRescueOutsideHeldGatewayAliases(t *testing.T) {
 	svc, ctx, upstream := heldPinRescueFixture()
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/v1", heldPinLunaModel),
 	})
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"continue"}]}`)
@@ -103,9 +106,9 @@ func heldPinRescueFixture() (*Service, context.Context, *heldPinGatewayClient) {
 		},
 	}}
 	upstream := &heldPinGatewayClient{}
-	svc := withHMMPorts(NewService(nil, map[string]providers.Client{
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderOpenAIGateway: upstream,
-	}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	}), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   policyRouter,
@@ -118,8 +121,8 @@ func heldPinRescueFixture() (*Service, context.Context, *heldPinGatewayClient) {
 	installationID := uuid.NewString()
 	ctx := ctxWithKeys(gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/v1", heldPinLunaModel, heldPinClaudeModel))
 	ctx = router.WithStrategy(ctx, strategy)
-	ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "key-1")
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, installationID)
+	ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "key-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, installationID)
 
 	return svc, ctx, upstream
 }
@@ -146,7 +149,7 @@ func TestHeldAutomaticGatewayPinRescuesToClaudeBeforeCommit(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, heldPinClaudeModel, rec.Header().Get(HeaderRouterModel))
+			assert.Equal(t, heldPinClaudeModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 			assert.Contains(t, rec.Body.String(), "recovered")
 			require.NotEmpty(t, upstream.models)
 			assert.Equal(t, heldPinClaudeModel, upstream.models[len(upstream.models)-1])

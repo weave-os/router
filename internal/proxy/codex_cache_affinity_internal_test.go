@@ -13,8 +13,10 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 )
@@ -27,15 +29,15 @@ func TestCodexSubscriptionIngressKeepsCacheAffinityAcrossTurns(t *testing.T) {
 		turns []string
 		run   func(*Service, context.Context, []byte, http.ResponseWriter, *http.Request) error
 	}{
-		{"messages", ClientAppClaudeCode, []string{
+		{"messages", requestcontext.ClientAppClaudeCode, []string{
 			`{"model":"auto","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"synthetic first turn"}]}`,
 			`{"model":"auto","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"synthetic first turn"},{"role":"assistant","content":"synthetic answer"},{"role":"user","content":"synthetic second turn"}]}`,
 		}, (*Service).ProxyMessages},
-		{"chat", ClientAppCodex, []string{
+		{"chat", requestcontext.ClientAppCodex, []string{
 			`{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic first turn"}]}`,
 			`{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic first turn"},{"role":"assistant","content":"synthetic answer"},{"role":"user","content":"synthetic second turn"}]}`,
 		}, (*Service).ProxyOpenAIChatCompletion},
-		{"responses", ClientAppCodex, []string{
+		{"responses", requestcontext.ClientAppCodex, []string{
 			`{"model":"auto","stream":true,"prompt_cache_key":"` + session + `","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic first turn"}]}]}`,
 			`{"model":"auto","stream":true,"prompt_cache_key":"` + session + `","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic first turn"}]},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"synthetic answer"}]},{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic second turn"}]}]}`,
 		}, (*Service).ProxyOpenAIResponses},
@@ -65,10 +67,10 @@ func TestCodexSubscriptionIngressKeepsCacheAffinityAcrossTurns(t *testing.T) {
 			client := openai.NewClient("", upstream.URL)
 			client.SetCodexBaseURL(upstream.URL)
 			lease := subscriptions.Lease{AccountID: "10000000-0000-4000-8000-000000000001", OwnerID: "10000000-0000-4000-8000-000000000002", Tier: auth.SubscriptionTierShared, AccessToken: "synthetic-included-token", ProviderAccount: "synthetic-provider-account"}
-			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, newRowBackedPinStore(), false, providers.ProviderOpenAI, codexCoveredModel, nil)).
+			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, newRowBackedPinStore(), false, providers.ProviderOpenAI, codexCoveredModel, nil)).
 				WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{lease}, repeatLast: true})
 			for _, body := range fixture.turns {
-				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 				ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: fixture.app, SessionID: session})
 				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader(body))
 				require.NoError(t, fixture.run(svc, ctx, []byte(body), httptest.NewRecorder(), req))

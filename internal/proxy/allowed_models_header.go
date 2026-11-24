@@ -6,17 +6,16 @@ import (
 	"sort"
 	"strings"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
-const AllowedModelsHeader = "x-weave-allowed-models"
-
 const AllowlistOverrideReasonPrefix = "allowlist_override:"
-
-type RequestAllowedModelsContextKey struct{}
 
 type RequestAllowedModels struct {
 	Requested []string
@@ -28,7 +27,7 @@ type AllowedModelsHeaderError struct {
 }
 
 func (e *AllowedModelsHeaderError) Error() string {
-	return fmt.Sprintf("invalid %s header: %s", AllowedModelsHeader, e.Reason)
+	return fmt.Sprintf("invalid %s header: %s", requestcontext.AllowedModelsHeader, e.Reason)
 }
 
 func ParseAllowedModelsHeader(raw string, installationAllowed []string) (RequestAllowedModels, error) {
@@ -74,7 +73,7 @@ func ParseAllowedModelsHeader(raw string, installationAllowed []string) (Request
 }
 
 func requestAllowedModelsFromContext(ctx context.Context) (RequestAllowedModels, bool) {
-	v, ok := ctx.Value(RequestAllowedModelsContextKey{}).(RequestAllowedModels)
+	v, ok := ctx.Value(requestcontext.RequestAllowedModelsContextKey{}).(RequestAllowedModels)
 	return v, ok && len(v.Effective) > 0
 }
 
@@ -110,7 +109,7 @@ func requestedAllowedModelsForTelemetry(ctx context.Context) []string {
 }
 
 func telemetryDecisionReason(ctx context.Context, reason string) string {
-	if _, ok := requestAllowedModelsFromContext(ctx); !ok || isUserForcedReason(reason) {
+	if _, ok := requestAllowedModelsFromContext(ctx); !ok || routingpolicy.IsUserForcedReason(reason) {
 		return reason
 	}
 	return AllowlistOverrideReasonPrefix + reason
@@ -134,7 +133,7 @@ func (s *Service) readmitForcedModel(
 	if _, ok := s.forcePolicyExcludedModels(ctx)[pin.Model]; ok {
 		return excluded
 	}
-	if advisorRejectsModel(env, pin.Model) {
+	if candidates.AdvisorRejectsModel(env, pin.Model) {
 		return excluded
 	}
 	if catalog.RequiresSignedToolHistory(pin.Model) && env.HasUnsignedToolCallHistory() {
@@ -145,10 +144,10 @@ func (s *Service) readmitForcedModel(
 		outputReserve = feats.MaxTokens
 	}
 	estimate := env.ContextOverflowTokenEstimate()
-	if modelStripsAnthropicSignatures(pin.Model) {
+	if candidates.StripsAnthropicSignatures(pin.Model) {
 		estimate -= env.SignatureTokenSavings()
 	}
-	if estimate+outputReserve > contextWindowForRequest(pin.Model, pin.Provider) {
+	if estimate+outputReserve > candidates.ContextWindow(pin.Model, pin.Provider) {
 		return excluded
 	}
 	out := make(map[string]struct{}, len(excluded))

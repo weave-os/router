@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/translate"
@@ -16,12 +17,12 @@ const (
 	claudeCodeAutoCompactBuffer    = 13_000
 )
 
-func resolveClientBudget(clientIdentity ClientIdentity, headers http.Header, model string, hadVariant bool) router.ClientBudget {
+func resolveClientBudget(clientIdentity requestcontext.ClientIdentity, headers http.Header, model string, hadVariant bool) router.ClientBudget {
 	budget := router.ClientBudget{
 		ModelVariant1M:   hadVariant,
 		InboundContext1M: translate.HasContext1MBeta(headers),
 	}
-	if clientIdentity.ClientApp != ClientAppClaudeCode {
+	if clientIdentity.ClientApp != requestcontext.ClientAppClaudeCode {
 		return budget
 	}
 	versionAndMetadata, ok := strings.CutPrefix(clientIdentity.UserAgent, "claude-cli/")

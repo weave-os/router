@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 )
@@ -30,15 +32,15 @@ func TestSlowStartNotice_CodexSubagentContinuations(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, envelope := codexRoutingEnvelope(t, test.agentPath, test.toolResult)
-			ctx = observability.WithClientSessionID(ctx, ClientIdentityFrom(ctx).SessionID)
+			ctx = observability.WithClientSessionID(ctx, requestcontext.ClientIdentityFrom(ctx).SessionID)
 			features := envelope.RoutingFeatures()
-			turn := turntype.Detect(envelope, features, subAgentHintForRequest(ctx, ""), openCodeCaller(ClientIdentityFrom(ctx)))
+			turn := turntype.Detect(envelope, features, subAgentHintForRequest(ctx, ""), openCodeCaller(requestcontext.ClientIdentityFrom(ctx)))
 			require.Equal(t, test.wantTurn, turn)
 
 			tracker, now := slowStartAfterBaseline(t)
 			trace := slowStartTrace(now.Add(-41*time.Second), now.Add(-41*time.Second))
 			ctx = context.WithValue(ctx, attemptTraceContextKey{}, trace)
-			muteSlowStartFor(ctx, turnLoopResult{TurnType: turn})
+			muteSlowStartFor(ctx, routingpolicy.TurnRoute{TurnType: turn})
 			_, shown := slowStartNotice(ctx, trace, tracker, now)
 			assert.Equal(t, test.wantNotice, shown)
 
@@ -79,7 +81,7 @@ func TestSlowStartNotice_ReplayedCodexToolLoop(t *testing.T) {
 			tracker, now := slowStartAfterBaseline(t)
 			trace := slowStartTraceOf(inbound, now.Add(-41*time.Second), now.Add(-41*time.Second))
 			ctx := slowStartCtx("synthetic-session", "synthetic-key", "codex/0.166.0")
-			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, UserAgent: "codex/0.166.0"})
+			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex, UserAgent: "codex/0.166.0"})
 			_, shown := slowStartNotice(ctx, trace, tracker, now)
 			assert.Equal(t, test.wantNotice, shown)
 		})
@@ -89,17 +91,17 @@ func TestSlowStartNotice_ReplayedCodexToolLoop(t *testing.T) {
 func TestSlowStartNotice_TurnVisibility(t *testing.T) {
 	for _, test := range []struct {
 		name       string
-		turn       turnLoopResult
+		turn       routingpolicy.TurnRoute
 		wantNotice bool
 	}{
-		{"automatic subagent", turnLoopResult{TurnType: turntype.SubAgentDispatch}, false},
-		{"hard-pinned subagent", turnLoopResult{TurnType: turntype.SubAgentDispatch, HardPinned: true}, false},
-		{"hard-pinned compaction", turnLoopResult{TurnType: turntype.Compaction, HardPinned: true}, false},
-		{"suggestion", turnLoopResult{TurnType: turntype.MainLoop, SuggestionMode: true}, false},
-		{"recap", turnLoopResult{TurnType: turntype.Recap}, false},
-		{"caller passthrough", turnLoopResult{TurnType: turntype.MainLoop, CallerModelPassthrough: true}, false},
-		{"parent prompt", turnLoopResult{TurnType: turntype.MainLoop}, true},
-		{"parent tool result", turnLoopResult{TurnType: turntype.ToolResult}, true},
+		{"automatic subagent", routingpolicy.TurnRoute{TurnType: turntype.SubAgentDispatch}, false},
+		{"hard-pinned subagent", routingpolicy.TurnRoute{TurnType: turntype.SubAgentDispatch, HardPinned: true}, false},
+		{"hard-pinned compaction", routingpolicy.TurnRoute{TurnType: turntype.Compaction, HardPinned: true}, false},
+		{"suggestion", routingpolicy.TurnRoute{TurnType: turntype.MainLoop, SuggestionMode: true}, false},
+		{"recap", routingpolicy.TurnRoute{TurnType: turntype.Recap}, false},
+		{"caller passthrough", routingpolicy.TurnRoute{TurnType: turntype.MainLoop, CallerModelPassthrough: true}, false},
+		{"parent prompt", routingpolicy.TurnRoute{TurnType: turntype.MainLoop}, true},
+		{"parent tool result", routingpolicy.TurnRoute{TurnType: turntype.ToolResult}, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			tracker, now := slowStartAfterBaseline(t)

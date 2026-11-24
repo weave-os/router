@@ -5,12 +5,14 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -37,7 +39,7 @@ func TestAutomaticUtilitySelectionDoesNotUseDeploymentShortcut(t *testing.T) {
 						Metadata: &router.RoutingMetadata{PolicyPinHonoured: true},
 					}}
 					pins := newStubPinStore()
-					service := withHMMPorts(NewService(scorer, nil, nil, pins, false,
+					service := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, pins, false,
 						providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 
 					envelope, err := translate.ParseAnthropic([]byte(fixture.body))
@@ -82,7 +84,7 @@ func TestAutomaticUtilitySelectionDoesNotUseDeploymentShortcut(t *testing.T) {
 }
 
 func TestTitleNeverEmitsDroppedForceDiagnostic(t *testing.T) {
-	assert.Empty(t, routingMarkerFor(turnLoopResult{
+	assert.Empty(t, routingMarkerFor(routingpolicy.TurnRoute{
 		TurnType:         turntype.TitleGen,
 		Decision:         router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String()},
 		ForcedPinDropped: true,
@@ -93,7 +95,7 @@ func TestTitleNeverEmitsDroppedForceDiagnostic(t *testing.T) {
 func TestBaselineMarkerNeverPrefixesMachineConsumedTurns(t *testing.T) {
 	for _, turnType := range []turntype.TurnType{turntype.TitleGen, turntype.Probe, turntype.Classifier} {
 		t.Run(string(turnType), func(t *testing.T) {
-			assert.Empty(t, baselineRoutingMarkerFor(turnLoopResult{
+			assert.Empty(t, baselineRoutingMarkerFor(routingpolicy.TurnRoute{
 				TurnType:         turnType,
 				PriorServedModel: catalog.ModelIDGPT55.String(),
 			}, catalog.ModelIDClaudeSonnet46.String()))
@@ -111,7 +113,7 @@ func TestAutomaticProbeWithoutConcreteTargetScoresWithoutPinning(t *testing.T) {
 				Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String(),
 			}}
 			pins := newStubPinStore()
-			service := withHMMPorts(NewService(scorer, nil, nil, pins, false,
+			service := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, pins, false,
 				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 
 			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)
@@ -144,7 +146,7 @@ func TestDefaultProbeDroppedForceDoesNotAttachConversationState(t *testing.T) {
 				Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String(),
 			}}
 			pins := newStubPinStore()
-			service := withHMMPorts(NewService(scorer, nil, nil, pins, false,
+			service := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, pins, false,
 				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 
 			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)

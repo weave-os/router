@@ -10,8 +10,11 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
@@ -30,7 +33,7 @@ const geminiInjectedBody = `{
 
 func geminiExperimentContext(installationID string, arm auth.BlindExperimentArm) context.Context {
 	ctx := authedCtx(installationID)
-	ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
+	ctx = context.WithValue(ctx, requestcontext.PolicyTrainingAllowedContextKey{}, true)
 	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "router-user-1")
 	return context.WithValue(ctx, auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
 		Active:              true,
@@ -46,19 +49,19 @@ func TestProxyGeminiGenerateContent_RoutesToGoogleProvider(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderGoogle: googleProv},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: googleProv}),
 		nil, store,
 		false, providers.ProviderGoogle, "gemini-2.5-flash",
 		nil), hmm.ServingPorts())
 
-	ctx := context.WithValue(authedCtx("00000000-0000-0000-0000-000000000001"), proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+	ctx := context.WithValue(authedCtx("00000000-0000-0000-0000-000000000001"), credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader(""))
 	require.NoError(t, svc.ProxyGeminiGenerateContent(ctx, []byte(geminiInjectedBody), rec, httpReq))
 
-	assert.Equal(t, "gemini-2.5-pro", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "gemini-2.5-pro", rec.Header().Get(requestcontext.HeaderRouterModel))
 	assertContextHeaders(t, rec.Header())
-	assert.Equal(t, providers.ProviderGoogle, rec.Header().Get(proxy.HeaderRouterProvider))
+	assert.Equal(t, providers.ProviderGoogle, rec.Header().Get(requestcontext.HeaderRouterProvider))
 	require.Len(t, googleProv.proxyBodies, 1, "the upstream Google client must be invoked once")
 	body := string(googleProv.proxyBodies[0])
 	assert.NotContains(t, body, `"model"`,
@@ -73,10 +76,10 @@ func TestProxyGeminiGenerateContent_RestrictsRoutingToGeminiFamily(t *testing.T)
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderGoogle:    googleProv,
-		},
+		}),
 		nil, store,
 		false, providers.ProviderGoogle, "gemini-2.5-flash",
 		nil), hmm.ServingPorts())
@@ -95,10 +98,10 @@ func TestProxyGeminiGenerateContent_CrossFormatReturnsSentinel(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster"}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderGoogle:    &fakeProvider{},
-		},
+		}),
 		nil, store,
 		false, providers.ProviderGoogle, "gemini-2.5-flash",
 		nil), hmm.ServingPorts())
@@ -121,7 +124,7 @@ func TestProxyGeminiGenerateContent_DelaysMarkerUntilFirstUpstreamEvent(t *testi
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
-		map[string]providers.Client{providers.ProviderGoogle: googleProv},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: googleProv}),
 		nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil), hmm.ServingPorts()).
 		WithRetrySleep(noRetrySleep)
 	rec := httptest.NewRecorder()
@@ -147,7 +150,7 @@ func TestProxyGeminiGenerateContent_NoticeDeliveryHonoursAttemptCancellation(t *
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
-		map[string]providers.Client{providers.ProviderGoogle: googleProv},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: googleProv}),
 		nil, newFakePinStore(), false, providers.ProviderGoogle, "gemini-2.5-flash", nil), hmm.ServingPorts()).
 		WithRetrySleep(noRetrySleep)
 	rec := httptest.NewRecorder()
@@ -167,7 +170,7 @@ func TestProxyGeminiGenerateContent_RetriesBuffered429WithoutMarkerLeak(t *testi
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
-		map[string]providers.Client{providers.ProviderGoogle: googleProv},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: googleProv}),
 		nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil), hmm.ServingPorts()).
 		WithRetrySleep(noRetrySleep)
 	rec := httptest.NewRecorder()
@@ -189,7 +192,7 @@ func TestProxyGeminiGenerateContent_DemotesUnrescuedResponseHeaderTimeout(t *tes
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-1.5-pro", Reason: "cluster"}},
-		map[string]providers.Client{providers.ProviderGoogle: googleProvider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: googleProvider}),
 		nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil), hmm.ServingPorts()).
 		WithRetrySleep(noRetrySleep).WithRescuedFailureArmDemotion(true)
 	recorder := httptest.NewRecorder()
@@ -210,7 +213,7 @@ func TestProxyGeminiGenerateContent_DemotesUnrescuedWatchdogStall(t *testing.T) 
 	googleProvider := &fakeProvider{proxyErr: providers.ErrUpstreamOutputStall}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-1.5-pro", Reason: "cluster"}},
-		map[string]providers.Client{providers.ProviderGoogle: googleProvider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: googleProvider}),
 		nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil), hmm.ServingPorts()).
 		WithRetrySleep(noRetrySleep).WithRescuedFailureArmDemotion(true)
 	recorder := httptest.NewRecorder()
@@ -237,7 +240,7 @@ func TestProxyGeminiGenerateContent_TransientRateLimitHonoursRetryAfterCap(t *te
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
-		map[string]providers.Client{providers.ProviderGoogle: googleProv},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: googleProv}),
 		nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil), hmm.ServingPorts()).
 		WithRetrySleep(noRetrySleep).WithTransientRateLimit(true, 45)
 	rec := httptest.NewRecorder()
@@ -256,7 +259,7 @@ func TestProxyGeminiGenerateContent_PersistsPassthroughExperimentTelemetry(t *te
 	telemetry := newCaptureTelemetry()
 	service := proxy.WithStrategyPorts(proxy.NewService(
 		routerSpy,
-		map[string]providers.Client{providers.ProviderGoogle: googleProvider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: googleProvider}),
 		nil, newFakePinStore(), false,
 		providers.ProviderGoogle, "gemini-2.5-flash", telemetry), hmm.ServingPorts())
 
@@ -315,7 +318,7 @@ func TestProxyGeminiGenerateContent_PersistsSubscriberTelemetry(t *testing.T) {
 			telemetry := newCaptureTelemetry()
 			service := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
-				map[string]providers.Client{providers.ProviderGoogle: googleProvider},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: googleProvider}),
 				nil, newFakePinStore(), false,
 				providers.ProviderGoogle, "gemini-2.5-flash", telemetry), hmm.ServingPorts())
 
@@ -349,7 +352,7 @@ func TestProxyGeminiGenerateContent_PersistsExperimentUpstreamError(t *testing.T
 	telemetry := newCaptureTelemetry()
 	service := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
-		map[string]providers.Client{providers.ProviderGoogle: googleProvider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: googleProvider}),
 		nil, newFakePinStore(), false,
 		providers.ProviderGoogle, "gemini-2.5-flash", telemetry), hmm.ServingPorts())
 

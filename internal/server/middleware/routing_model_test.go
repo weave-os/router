@@ -124,7 +124,7 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 			}
 			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", strings.NewReader(body))
 			if tc.force {
-				req.Header.Set(proxy.ForceModelHeader, "gpt-6.1-sol")
+				req.Header.Set(requestcontext.ForceModelHeader, "gpt-6.1-sol")
 			}
 			recorder := httptest.NewRecorder()
 			engine.ServeHTTP(recorder, req)
@@ -137,18 +137,19 @@ func TestClassifierThreadsRemainExplicitlyEnrolled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	installation := uuid.New()
 	store := &threadEndpointStore{}
-	svc := &proxy.Service{}
-	require.NoError(t, svc.WithClassifierSessions(proxy.ClassifierSessionConfig{
+	sessions, err := proxy.NewClassifierSessions(proxy.ClassifierSessionConfig{
 		Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64),
 		SelectionPolicySHA256: strings.Repeat("b", 64), SigningKey: []byte(strings.Repeat("k", 32)),
 		InstallationIDs: []uuid.UUID{installation},
-	}, store, unusedThreadClassifier{}))
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installation.String())
-	ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, "test-credential")
+	}, store, unusedThreadClassifier{})
+	require.NoError(t, err)
+	svc := proxy.WithDeps(&proxy.Service{}, proxy.Deps{Routing: &proxy.RoutingDeps{ClassifierSessions: sessions}})
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installation.String())
+	ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "test-credential")
 	engine := gin.New()
 	engine.POST("/v1/router/threads", classifier.StartThreadHandler(svc))
 	for _, path := range []string{"/v1/messages", "/v1/responses"} {
-		engine.POST(path, middleware.WithClassifierThread(svc, svc.PolicyStrategyAvailable), func(c *gin.Context) {
+		engine.POST(path, middleware.WithClassifierThread(svc, proxy.NewRoutingCatalog(svc).PolicyStrategyAvailable), func(c *gin.Context) {
 			strategy := router.StrategyFromContext(c.Request.Context())
 			if _, enrolled := c.Request.Context().Value(classifierEnrollmentTestKey{}).(bool); enrolled {
 				require.Equal(t, router.StrategyLLMClassifier, strategy)
@@ -170,7 +171,7 @@ func TestClassifierThreadsRemainExplicitlyEnrolled(t *testing.T) {
 		for _, token := range []string{"", "forged", ticket.Token} {
 			req := httptest.NewRequestWithContext(ctx, http.MethodPost, path, strings.NewReader(`{"model":"`+string(router.ModelAutomatic)+`"}`))
 			if token != "" {
-				req.Header.Set(proxy.ClassifierThreadHeader, token)
+				req.Header.Set(requestcontext.ClassifierThreadHeader, token)
 			}
 			if token == ticket.Token {
 				req = req.WithContext(context.WithValue(req.Context(), classifierEnrollmentTestKey{}, true))
@@ -231,7 +232,7 @@ func TestRoutingModelGeminiURLOverridesBodyAndRejectsForceHeader(t *testing.T) {
 				body := `{"model":"` + string(bodyModel) + `","contents":[{"role":"user","parts":[{"text":"hello"}]}]}`
 				request := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1beta/models/"+string(router.ModelQwen)+":generateContent", strings.NewReader(body))
 				if forced {
-					request.Header.Set(proxy.ForceModelHeader, "gpt-6.1-sol")
+					request.Header.Set(requestcontext.ForceModelHeader, "gpt-6.1-sol")
 				}
 				response := httptest.NewRecorder()
 				engine.ServeHTTP(response, request)

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,26 +18,26 @@ import (
 
 func TestResolveBindingsForDispatchHonorsImageCount(t *testing.T) {
 	model := "xiaomi/mimo-v2.6-pro"
-	s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{
 		providers.ProviderDeepInfra:  {},
 		providers.ProviderOpenRouter: {},
 	}}}
 	decision := router.Decision{Model: model, Provider: providers.ProviderDeepInfra}
 
-	large := s.resolveBindingsForDispatch(withRequestImageCount(context.Background(), 17), decision)
+	large := s.resolveBindingsForDispatch(requestcontext.WithRequestImageCount(context.Background(), 17), decision)
 	require.Len(t, large, 1)
 	assert.Equal(t, providers.ProviderOpenRouter, large[0].Provider)
 
-	small := s.resolveBindingsForDispatch(withRequestImageCount(context.Background(), 3), decision)
+	small := s.resolveBindingsForDispatch(requestcontext.WithRequestImageCount(context.Background(), 3), decision)
 	require.GreaterOrEqual(t, len(small), 2)
 	assert.Equal(t, providers.ProviderDeepInfra, small[0].Provider)
 }
 
 func TestResolveBindingsForDispatchKeepsExplicitForceWhenNoEligibleBinding(t *testing.T) {
 	model := "xiaomi/mimo-v2.6-pro"
-	s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderDeepInfra: {}}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderDeepInfra: {}}}}
 	bindings := s.resolveBindingsForDispatch(
-		withRequestImageCount(context.Background(), 17),
+		requestcontext.WithRequestImageCount(context.Background(), 17),
 		router.Decision{Model: model, Provider: providers.ProviderDeepInfra, Reason: translate.ReasonUserForceModel},
 	)
 	require.Len(t, bindings, 1)
@@ -64,10 +66,10 @@ func TestSiblingRescueSkipsBindingOverImageLimit(t *testing.T) {
 }
 
 func TestOpenRouterOverflowBindingsAllowsUncappedImageCount(t *testing.T) {
-	s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenRouter: {}}}}
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenRouter: {}}}}
 	decision := router.Decision{Model: "xiaomi/mimo-v2.6-pro", Provider: providers.ProviderOpenRouter}
-	large := s.openRouterOverflowBindings(withRequestImageCount(context.Background(), 17), decision)
+	large := s.openRouterOverflowBindings(requestcontext.WithRequestImageCount(context.Background(), 17), decision)
 	require.Len(t, large, 1)
 	assert.Equal(t, providers.ProviderOpenRouter, large[0].Provider)
-	require.Len(t, s.openRouterOverflowBindings(withRequestImageCount(context.Background(), 3), decision), 1)
+	require.Len(t, s.openRouterOverflowBindings(requestcontext.WithRequestImageCount(context.Background(), 3), decision), 1)
 }

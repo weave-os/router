@@ -14,10 +14,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 )
 
 // These are opt-in acceptance requirements for a proposed policy, not claims
@@ -27,7 +31,7 @@ func TestRecoveryAcceptanceRescued502HasBoundedWithdrawal(t *testing.T) {
 	svc := newRateLimitTestService(store, true, 45)
 	primary := router.Decision{Provider: providers.ProviderOpenAIGateway, Model: catalog.ModelGPT6Luna}
 	model, _ := svc.maybeStrikeArmAfterRescuedFailure(context.Background(), true, false,
-		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, primary, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, primary, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
@@ -149,10 +153,10 @@ func TestRecoveryAcceptanceCooldownExpiryAdmitsOneConcurrentProbe(t *testing.T) 
 	provider := &blockingRecoveryClient{entered: make(chan struct{}, callers), release: make(chan struct{})}
 	scorer := &recoveryObservedRouter{requests: make(chan router.Request, callers+1)}
 	store := &recoveryObservedStore{rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{catalog.ModelGPT6Luna: rateLimitTestNow}},
+		hmm.HistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{catalog.ModelGPT6Luna: rateLimitTestNow}},
 	}}, reads: make(chan recoveryBucketRead, 128)}
 	sibling := &recoveryAlternativeClient{}
-	svc := withHMMPorts(NewService(scorer, map[string]providers.Client{providers.ProviderOpenAIGateway: provider, providers.ProviderAnthropicGateway: sibling},
+	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAIGateway: provider, providers.ProviderAnthropicGateway: sibling}),
 		nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil)).
 		WithTransientRateLimit(true, 45)
 	now := rateLimitTestNow.Add(-time.Nanosecond)
@@ -162,7 +166,7 @@ func TestRecoveryAcceptanceCooldownExpiryAdmitsOneConcurrentProbe(t *testing.T) 
 	body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic concurrent recovery"}]}`)
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil)))
-	require.Equal(t, recoveryOpusModel, rec.Header().Get(HeaderRouterModel))
+	require.Equal(t, recoveryOpusModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	require.Contains(t, (<-scorer.requests).Candidates.AutomaticExcludedModels, catalog.ModelGPT6Luna, "before expiry the real turn loop must load the history cooldown")
 	require.Empty(t, provider.entered)
 	now = rateLimitTestNow
@@ -212,14 +216,14 @@ observe:
 	var bucket [sessionpin.SessionKeyLen]byte
 	historyReads := 0
 	for read := range store.reads {
-		if read.role != hmmHistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))) {
+		if read.role != hmm.HistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))) {
 			continue
 		}
 		if bucket == ([sessionpin.SessionKeyLen]byte{}) {
 			bucket = read.key
 		}
 		require.Equal(t, bucket, read.key, "all callers must address the same full session key")
-		if read.role == hmmHistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))) {
+		if read.role == hmm.HistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))) {
 			historyReads++
 		}
 	}

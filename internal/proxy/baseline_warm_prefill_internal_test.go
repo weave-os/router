@@ -3,6 +3,7 @@ package proxy
 import (
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 
@@ -15,21 +16,21 @@ func priorTurnEndedAt(d time.Duration) time.Time {
 }
 
 // priorTurn is a previous turn whose 100k-token prompt the baseline would hold warm.
-func priorTurn(model string, ago time.Duration) turnLoopResult {
-	return turnLoopResult{PriorServedModel: model, PriorServedEndedAt: priorTurnEndedAt(ago), PriorPromptTokens: 100_000}
+func priorTurn(model string, ago time.Duration) routingpolicy.TurnRoute {
+	return routingpolicy.TurnRoute{PriorServedModel: model, PriorServedEndedAt: priorTurnEndedAt(ago), PriorPromptTokens: 100_000}
 }
 
 func TestBaselineWarmPrefillTokens_SwitchWithinBaselineTTLIsCorrected(t *testing.T) {
 	turnResult := priorTurn("claude-opus-5", 2*time.Minute)
 
-	assert.Equal(t, 100_000, turnResult.baselineWarmPrefillTokens(time.Now(), 100_000, 0, "gpt-5.6-sol", "claude-opus-5", false),
+	assert.Equal(t, 100_000, baselineWarmPrefillTokens(turnResult, time.Now(), 100_000, 0, "gpt-5.6-sol", "claude-opus-5", false),
 		"switching away from the baseline pays a cold prefill the baseline would have read warm")
 }
 
 func TestBaselineWarmPrefillTokens_SwitchBackToBaselineIsCorrected(t *testing.T) {
 	turnResult := priorTurn("gpt-5.6-sol", 2*time.Minute)
 
-	assert.Equal(t, 100_000, turnResult.baselineWarmPrefillTokens(time.Now(), 100_000, 0, "claude-opus-5", "claude-opus-5", false),
+	assert.Equal(t, 100_000, baselineWarmPrefillTokens(turnResult, time.Now(), 100_000, 0, "claude-opus-5", "claude-opus-5", false),
 		"returning to the baseline re-primes a cache the baseline never let go cold")
 }
 
@@ -38,9 +39,9 @@ func TestBaselineWarmPrefillTokens_SwitchBackToBaselineIsCorrected(t *testing.T)
 func TestBaselineWarmPrefillTokens_LimitedToPreviousPrompt(t *testing.T) {
 	turnResult := priorTurn("claude-opus-5", 2*time.Minute)
 
-	assert.Equal(t, 100_000, turnResult.baselineWarmPrefillTokens(time.Now(), 110_000, 0, "gpt-5.6-sol", "claude-opus-5", false),
+	assert.Equal(t, 100_000, baselineWarmPrefillTokens(turnResult, time.Now(), 110_000, 0, "gpt-5.6-sol", "claude-opus-5", false),
 		"10k of new content stays a write")
-	assert.Equal(t, 95_000, turnResult.baselineWarmPrefillTokens(time.Now(), 105_000, 5_000, "gpt-5.6-sol", "claude-opus-5", false),
+	assert.Equal(t, 95_000, baselineWarmPrefillTokens(turnResult, time.Now(), 105_000, 5_000, "gpt-5.6-sol", "claude-opus-5", false),
 		"a 5k system prefix the served model already read is not repriced again")
 }
 
@@ -49,35 +50,35 @@ func TestBaselineWarmPrefillTokens_LimitedToPreviousPrompt(t *testing.T) {
 func TestBaselineWarmPrefillTokens_EffortOnlyChangeIsNotASwitch(t *testing.T) {
 	turnResult := priorTurn("gpt-5.6-sol:low", time.Minute)
 
-	assert.Zero(t, turnResult.baselineWarmPrefillTokens(time.Now(), 100_000, 0, "gpt-5.6-sol", "claude-opus-5", false))
+	assert.Zero(t, baselineWarmPrefillTokens(turnResult, time.Now(), 100_000, 0, "gpt-5.6-sol", "claude-opus-5", false))
 }
 
 // The TTL that matters is the baseline's: Anthropic holds the prefix for an
 // hour, OpenAI for five minutes.
 func TestBaselineWarmPrefillTokens_UsesBaselineProviderTTL(t *testing.T) {
 	turnResult := priorTurn("gpt-5.6-sol", 20*time.Minute)
-	assert.Equal(t, 100_000, turnResult.baselineWarmPrefillTokens(time.Now(), 100_000, 0, "claude-opus-5", "claude-opus-5", false),
+	assert.Equal(t, 100_000, baselineWarmPrefillTokens(turnResult, time.Now(), 100_000, 0, "claude-opus-5", "claude-opus-5", false),
 		"a 20m gap is inside the Anthropic baseline's cache TTL")
 
 	turnResult = priorTurn("claude-opus-5", 20*time.Minute)
-	assert.Zero(t, turnResult.baselineWarmPrefillTokens(time.Now(), 100_000, 0, "gpt-5.6-sol", "gpt-5.6-sol", false),
+	assert.Zero(t, baselineWarmPrefillTokens(turnResult, time.Now(), 100_000, 0, "gpt-5.6-sol", "gpt-5.6-sol", false),
 		"a 20m gap expires the OpenAI baseline's cache, so it would have re-primed too")
 }
 
 // A fresh HMM switch has no thread pin; the prior served turn lives only on
 // the HMM history pin, and its timing and size must come from that same pin.
 func TestApplySwitchHistory_ReadsThePriorTurnFromTheSelectedPin(t *testing.T) {
-	hmmHistory := sessionpin.Pin{
+	switchHistory := sessionpin.Pin{
 		LastServedModel:      "claude-opus-5",
 		Provider:             providers.ProviderAnthropic,
 		LastTurnEndedAt:      priorTurnEndedAt(2 * time.Minute),
 		LastInputTokens:      2_000,
 		LastCachedReadTokens: 98_000,
 	}
-	var turnResult turnLoopResult
-	turnResult.applySwitchHistory(sessionpin.Pin{}, hmmHistory)
+	var turnResult routingpolicy.TurnRoute
+	applySwitchHistory(&turnResult, sessionpin.Pin{}, switchHistory)
 
-	assert.Equal(t, 100_000, turnResult.baselineWarmPrefillTokens(time.Now(), 110_000, 0, "gpt-5.6-sol", "claude-opus-5", false))
+	assert.Equal(t, 100_000, baselineWarmPrefillTokens(turnResult, time.Now(), 110_000, 0, "gpt-5.6-sol", "claude-opus-5", false))
 }
 
 // Gateway and Wafer Anthropic bindings report usage in the Anthropic shape,
@@ -85,29 +86,29 @@ func TestApplySwitchHistory_ReadsThePriorTurnFromTheSelectedPin(t *testing.T) {
 func TestPriorPromptTokens_AnthropicFamilyAddsDisjointCacheCounters(t *testing.T) {
 	for _, provider := range []string{providers.ProviderAnthropic, providers.ProviderAnthropicGateway, providers.ProviderWaferAnthropic} {
 		pin := sessionpin.Pin{Provider: provider, LastInputTokens: 2_000, LastCachedReadTokens: 90_000, LastCachedWriteTokens: 8_000}
-		assert.Equal(t, 100_000, priorPromptTokens(pin), provider)
+		assert.Equal(t, 100_000, routingpolicy.PriorPromptTokens(pin), provider)
 	}
 	openAI := sessionpin.Pin{Provider: providers.ProviderOpenAI, LastInputTokens: 100_000, LastCachedReadTokens: 90_000}
-	assert.Equal(t, 100_000, priorPromptTokens(openAI), "OpenAI prompt_tokens already include cached tokens")
+	assert.Equal(t, 100_000, routingpolicy.PriorPromptTokens(openAI), "OpenAI prompt_tokens already include cached tokens")
 }
 
 func TestBaselineWarmPrefillTokens_BaselineWouldAlsoBeCold(t *testing.T) {
 	cases := map[string]struct {
-		turnResult       turnLoopResult
+		turnResult       routingpolicy.TurnRoute
 		baseline         string
 		historyTruncated bool
 	}{
-		"first turn":           {turnResult: turnLoopResult{PriorServedEndedAt: priorTurnEndedAt(time.Minute), PriorPromptTokens: 100_000}, baseline: "claude-opus-5"},
-		"no prior turn time":   {turnResult: turnLoopResult{PriorServedModel: "claude-opus-5", PriorPromptTokens: 100_000}, baseline: "claude-opus-5"},
-		"no prior prompt size": {turnResult: turnLoopResult{PriorServedModel: "claude-opus-5", PriorServedEndedAt: priorTurnEndedAt(time.Minute)}, baseline: "claude-opus-5"},
-		"client trimmed":       {turnResult: turnLoopResult{PriorServedModel: "claude-opus-5", PriorServedEndedAt: priorTurnEndedAt(time.Minute), PriorPromptTokens: 100_000, PrefixTrimmed: true}, baseline: "claude-opus-5"},
+		"first turn":           {turnResult: routingpolicy.TurnRoute{PriorServedEndedAt: priorTurnEndedAt(time.Minute), PriorPromptTokens: 100_000}, baseline: "claude-opus-5"},
+		"no prior turn time":   {turnResult: routingpolicy.TurnRoute{PriorServedModel: "claude-opus-5", PriorPromptTokens: 100_000}, baseline: "claude-opus-5"},
+		"no prior prompt size": {turnResult: routingpolicy.TurnRoute{PriorServedModel: "claude-opus-5", PriorServedEndedAt: priorTurnEndedAt(time.Minute)}, baseline: "claude-opus-5"},
+		"client trimmed":       {turnResult: routingpolicy.TurnRoute{PriorServedModel: "claude-opus-5", PriorServedEndedAt: priorTurnEndedAt(time.Minute), PriorPromptTokens: 100_000, PrefixTrimmed: true}, baseline: "claude-opus-5"},
 		"ingress truncation":   {turnResult: priorTurn("claude-opus-5", time.Minute), baseline: "claude-opus-5", historyTruncated: true},
 		"unpriced baseline":    {turnResult: priorTurn("claude-opus-5", time.Minute), baseline: "not-a-model"},
 		"cache gap past TTL":   {turnResult: priorTurn("claude-opus-5", 2*time.Hour), baseline: "claude-opus-5"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			assert.Zero(t, tc.turnResult.baselineWarmPrefillTokens(time.Now(), 100_000, 0, "gpt-5.6-sol", tc.baseline, tc.historyTruncated))
+			assert.Zero(t, baselineWarmPrefillTokens(tc.turnResult, time.Now(), 100_000, 0, "gpt-5.6-sol", tc.baseline, tc.historyTruncated))
 		})
 	}
 }

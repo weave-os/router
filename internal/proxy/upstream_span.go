@@ -3,6 +3,8 @@ package proxy
 import (
 	"context"
 	"time"
+	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/telemetry/respobserve"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -12,6 +14,7 @@ import (
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/translate"
 )
 
@@ -30,11 +33,11 @@ type upstreamSpan struct {
 	feats               translate.RoutingFeatures
 	decision            router.Decision
 	provider            string
-	routeRes            *turnLoopResult
+	routeRes            *routingpolicy.TurnRoute
 	taskArm             taskArmTurn
 	sessionKey          [sessionpin.SessionKeyLen]byte
 	respSummary         translate.ResponseSummary
-	refusal             *refusalObserver
+	refusal             *respobserve.RefusalObserver
 	extractor           *telemetry.UsageExtractor
 	inputTokens         int
 	outputTokens        int
@@ -54,7 +57,7 @@ type upstreamSpan struct {
 	crossFormat         bool
 	dispatch            *upstreamSpanDispatch
 	effortServed        dispatch.EffortResolution
-	captureMode         ContentCaptureMode
+	captureMode         capture.Mode
 	strategyPorts       continuity.StrategyPorts
 	strategy            router.Strategy
 	subscriptionAttrs   func(*telemetry.AttrBuilder)
@@ -62,7 +65,7 @@ type upstreamSpan struct {
 
 func recordUpstreamSpan(ctx context.Context, clock auth.Clock, span upstreamSpan) (*telemetry.AttrBuilder, observationContext) {
 	builder := upstreamSpanAttrs(ctx, clock, span)
-	if span.captureMode == CaptureOff {
+	if span.captureMode == capture.Off {
 		builder.Int64("request.message_count", int64(span.feats.MessageCount)).
 			Bool("request.has_tools", span.feats.HasTools)
 	}
@@ -116,8 +119,8 @@ func upstreamSpanAttrs(ctx context.Context, clock auth.Clock, span upstreamSpan)
 	}
 	if span.refusal != nil {
 		builder.
-			Bool("upstream.refusal", span.refusal.refused).
-			String("upstream.refusal_category", span.refusal.category)
+			Bool("upstream.refusal", span.refusal.Refused).
+			String("upstream.refusal_category", span.refusal.Category)
 	}
 	builder.
 		Int64("usage.input_tokens", int64(span.inputTokens)).

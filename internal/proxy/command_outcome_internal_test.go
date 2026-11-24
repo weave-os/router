@@ -10,7 +10,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -38,15 +41,15 @@ func TestCommandOutcomesAcrossSurfaces(t *testing.T) {
 		for _, streaming := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%v/stream=%t", surface, streaming), func(t *testing.T) {
 				store := newForceModelMapStore()
-				svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+				svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 					WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
-				app := ClientAppClaudeCode
+				app := requestcontext.ClientAppClaudeCode
 				if surface != translate.FormatAnthropic {
-					app = ClientAppCodex
+					app = requestcontext.ClientAppCodex
 				}
 				ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: app, SessionID: "synthetic-session"})
-				ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
-				ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "synthetic-key")
+				ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())
+				ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "synthetic-key")
 				seen := map[string]bool{}
 				for _, command := range []struct {
 					text        string
@@ -77,7 +80,7 @@ func TestCommandOutcomesAcrossSurfaces(t *testing.T) {
 					req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", nil)
 					requestContext := ctx
 					if command.excluded {
-						requestContext = context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{"claude-opus-5-5"})
+						requestContext = context.WithValue(ctx, requestcontext.InstallationExcludedModelsContextKey{}, []string{"claude-opus-5-5"})
 					}
 					switch surface {
 					case translate.FormatAnthropic:
@@ -118,7 +121,7 @@ func TestCommandOutcomesAcrossSurfaces(t *testing.T) {
 							continue
 						}
 						if command.transition == translate.PinCleared {
-							assert.Equal(t, userUnforcedReason, pin.Reason)
+							assert.Equal(t, routingpolicy.ReasonUserUnforced, pin.Reason)
 						} else {
 							assert.Equal(t, "claude-opus-5-5", pin.Model)
 						}
@@ -144,12 +147,12 @@ func (*failedCommandStore) Upsert(context.Context, sessionpin.Pin) error {
 
 func TestCommandOutcomeRequiresPersistence(t *testing.T) {
 	store := &failedCommandStore{newForceModelMapStore()}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	env := forceCommandEnv(t)
 	for _, command := range []translate.ForceModelResult{{Model: "opus"}, {Clear: true}} {
 		rec := httptest.NewRecorder()
-		err := svc.handleForceModelCommand(context.Background(), rec, env, command, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, [sessionpin.SessionKeyLen]byte{2}, 1)
+		err := (forceModelCommands{svc}).handle(context.Background(), rec, env, command, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, [sessionpin.SessionKeyLen]byte{2}, 1)
 		require.Error(t, err)
 		assert.Empty(t, rec.Header().Get(translate.RouterCommandHeader))
 		assert.Empty(t, rec.Body.String())
@@ -157,15 +160,15 @@ func TestCommandOutcomeRequiresPersistence(t *testing.T) {
 }
 
 func TestLoopStopsPreserveHistoricalForcePin(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, nil, nil, newForceModelMapStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, newForceModelMapStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 	env := forceCommandEnv(t)
 	for _, repetition := range []bool{false, true} {
 		rec := httptest.NewRecorder()
 		var err error
 		if repetition {
-			err = loopBreakForTest(svc, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic).textRepetition(context.Background(), rec, env, 3, "synthetic", 1)
+			err = loopBreakForTest(svc, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic).textRepetition(context.Background(), rec, env, 3, "synthetic", 1)
 		} else {
-			err = loopBreakForTest(svc, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic).noProgress(context.Background(), rec, env, 3, 1, translate.ReasonUserForceModel)
+			err = loopBreakForTest(svc, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic).noProgress(context.Background(), rec, env, 3, 1, translate.ReasonUserForceModel)
 		}
 		require.NoError(t, err)
 		outcome := readCommandOutcome(t, rec)
@@ -180,10 +183,10 @@ func (*commandWriteFailure) Write([]byte) (int, error) { return 0, errors.New("s
 
 func TestAcknowledgmentWriteFailureDoesNotUndoPin(t *testing.T) {
 	store := newForceModelMapStore()
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	key := [sessionpin.SessionKeyLen]byte{2}
-	err := svc.handleForceModelCommand(context.Background(), &commandWriteFailure{httptest.NewRecorder()}, forceCommandEnv(t), translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, key, 1)
+	err := (forceModelCommands{svc}).handle(context.Background(), &commandWriteFailure{httptest.NewRecorder()}, forceCommandEnv(t), translate.ForceModelResult{Model: "opus"}, routingpolicy.SessionTarget{Strategy: router.StrategyFromContext(context.Background()), InstallationID: uuid.New(), SessionKey: [sessionpin.SessionKeyLen]byte{1}}, key, 1)
 	require.Error(t, err)
 	pin, found, err := store.Get(context.Background(), key, forceModelSessionRole)
 	require.NoError(t, err)
@@ -193,10 +196,10 @@ func TestAcknowledgmentWriteFailureDoesNotUndoPin(t *testing.T) {
 
 func TestHeaderPersistenceFailureRetainsSameActionForce(t *testing.T) {
 	store := &failedCommandStore{newForceModelMapStore()}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
-	request.Header.Set(ForceModelHeader, "opus:high")
+	request.Header.Set(requestcontext.ForceModelHeader, "opus:high")
 	_, model, err := svc.applyForceModelHeader(context.Background(), request, uuid.New(), [sessionpin.SessionKeyLen]byte{1})
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-5-5:high", model)

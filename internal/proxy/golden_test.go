@@ -24,6 +24,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/catalog"
@@ -159,13 +160,12 @@ func newGoldenHarness(t *testing.T, sc goldenScenario) *goldenHarness {
 	require.NoError(t, err)
 
 	rt := &goldenRouter{decisions: sc.decisions, err: sc.routeErr, noCandidateErr: sc.noCandidateErr, rec: h.rec}
-	svc := proxy.WithStrategyPorts(proxy.NewService(rt, providerMap, nil, h.pins, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", h.telemetry), hmm.ServingPorts()).
-		WithClock(h.clock.Now).
+	svc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(rt, dispatch.NewClients(providerMap), nil, h.pins, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", h.telemetry), hmm.ServingPorts()),
+		proxy.Deps{Telemetry: proxy.TelemetryDeps{Clock: h.clock.Now, Billing: billing.NewService(&goldenBilling{rec: h.rec})}}).
 		WithDeploymentKeyedProviders(available).
 		WithProviderOverloaded(false, breaker.New(breaker.Defaults(), h.clock.Now)).
 		WithRetrySleep(h.clock.Sleep).
-		WithBillingService(billing.NewService(&goldenBilling{rec: h.rec})).
 		WithInferenceExecutor(executor).
 		WithInferencePlans(plans).
 		WithInferenceDeployment(policy.DeploymentPolicyConfig{AvailableProviders: available})
@@ -207,9 +207,9 @@ type goldenRequestTrace struct {
 func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) goldenRequestTrace {
 	t.Helper()
 	h.clock.Advance(req.advance)
-	base := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "golden-key")
-	base = context.WithValue(base, proxy.InstallationIDContextKey{}, goldenInstallationID)
-	base = context.WithValue(base, proxy.ExternalIDContextKey{}, "golden-org")
+	base := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "golden-key")
+	base = context.WithValue(base, requestcontext.InstallationIDContextKey{}, goldenInstallationID)
+	base = context.WithValue(base, requestcontext.ExternalIDContextKey{}, "golden-org")
 	if h.rec.credentialLabels != nil {
 		base = h.rec.exposed.withLogger(base)
 	}

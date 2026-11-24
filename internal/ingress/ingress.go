@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/translate"
+	"weave-os/router/internal/websearch"
 )
 
 type Adapter interface {
@@ -24,10 +25,25 @@ type Formats struct {
 		Adapter
 		StreamErrorWriter
 	}
-	Anthropic Anthropic
-	Keepalive time.Duration
+	Anthropic                   Anthropic
+	OpenAIChat                  OpenAIChat
+	Responses                   Responses
+	Keepalive                   time.Duration
+	AllowedModelsHeader         bool
+	OpenAIResponsesBroad        bool
+	EscapeNormalize             bool
+	CCOrchToolsCrossVendor      bool
+	CCTaskToolsCrossVendor      bool
+	CCAutonomySystemAppend      bool
+	CCWorkspaceSystemAppend     bool
+	ScopedSearchRequirement     bool
+	SearchRequirementDecayTurns int
+	WebSearch                   websearch.Executor
 }
 
+const DefaultSearchRequirementDecayTurns = 3
+
 func New(keepalive time.Duration) Formats {
-	return Formats{Gemini: Gemini{}, Anthropic: Anthropic{}, Keepalive: keepalive}
+	return Formats{Gemini: Gemini{}, Anthropic: Anthropic{}, OpenAIChat: OpenAIChat{}, Responses: Responses{}, Keepalive: keepalive,
+		OpenAIResponsesBroad: true, CCOrchToolsCrossVendor: true, SearchRequirementDecayTurns: DefaultSearchRequirementDecayTurns}
 }

@@ -9,9 +9,12 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
@@ -42,7 +45,7 @@ func classifierPassthroughFixture(t *testing.T, obs *usage.Observer) (*proxy.Ser
 		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"` + classifierRequestedMdl + `","content":[{"type":"text","text":"<severity>0</severity>"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
 	}}
 	store := newFakePinStore()
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil), hmm.ServingPorts())
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}), nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil), hmm.ServingPorts())
 	if obs != nil {
 		svc = svc.WithUsageObserver(obs)
 	}
@@ -50,7 +53,7 @@ func classifierPassthroughFixture(t *testing.T, obs *usage.Observer) (*proxy.Ser
 }
 
 func classifierSubscriptionCtx() context.Context {
-	return claudeCreditFallbackContext(context.WithValue(authedCtx(uuid.New().String()), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken))
+	return claudeCreditFallbackContext(context.WithValue(authedCtx(uuid.New().String()), credentials.AnthropicSubscriptionContextKey{}, bypassSubToken))
 }
 
 func classifierRequest(ctx context.Context) (*httptest.ResponseRecorder, *http.Request) {
@@ -86,8 +89,8 @@ func TestClassifier_SubscriptionPassthrough_SkipsScorer(t *testing.T) {
 	assert.Equal(t, 0, fr.routeCalls, "a subscription classifier must not be scored")
 	require.Len(t, p.proxyBodies, 1)
 	assert.Contains(t, string(p.proxyBodies[0]), `"model":"`+classifierRequestedMdl+`"`, "passthrough must preserve the requested model")
-	assert.Equal(t, classifierPassthroughReason, rec.Header().Get(proxy.HeaderRouterDecision))
-	assert.Equal(t, classifierRequestedMdl, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, classifierPassthroughReason, rec.Header().Get(requestcontext.HeaderRouterDecision))
+	assert.Equal(t, classifierRequestedMdl, rec.Header().Get(requestcontext.HeaderRouterModel))
 	require.NotNil(t, p.proxyCreds[0])
 	assert.True(t, p.proxyCreds[0].OAuth, "the dispatch must carry the caller's own subscription credential")
 	assert.Equal(t, 1, store.getCalls, "only the force-model lookup may touch the pin store")
@@ -104,8 +107,8 @@ func TestClassifier_NoSubscription_ServesRequestedModel(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(claudeCreditFallbackContext(authedCtx(uuid.New().String())), []byte(classifierBody), rec, req))
 
 	assert.Equal(t, 0, fr.routeCalls, "an API-billed classifier must not be scored")
-	assert.Equal(t, classifierRequestedMdl, rec.Header().Get(proxy.HeaderRouterModel))
-	assert.Equal(t, classifierModelReason, rec.Header().Get(proxy.HeaderRouterDecision))
+	assert.Equal(t, classifierRequestedMdl, rec.Header().Get(requestcontext.HeaderRouterModel))
+	assert.Equal(t, classifierModelReason, rec.Header().Get(requestcontext.HeaderRouterDecision))
 	require.Len(t, p.proxyBodies, 1)
 	assert.Equal(t, classifierBody, string(p.proxyBodies[0]))
 	assertNoPinWrite(t, store)
@@ -116,12 +119,12 @@ func TestClassifier_NoSubscription_ServesRequestedModel(t *testing.T) {
 func TestClassifier_RequestedModelNotAllowed_IsScored(t *testing.T) {
 	svc, fr, _, store := classifierPassthroughFixture(t, nil)
 	rec, req := classifierRequest(t.Context())
-	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.InstallationAllowedModelsContextKey{}, []string{classifierScorerPickMdl})
+	ctx := context.WithValue(authedCtx(uuid.New().String()), requestcontext.InstallationAllowedModelsContextKey{}, []string{classifierScorerPickMdl})
 
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, req))
 
 	assert.Equal(t, 1, fr.routeCalls)
-	assert.Equal(t, classifierScorerPickMdl, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, classifierScorerPickMdl, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assertNoPinWrite(t, store)
 }
 
@@ -136,7 +139,7 @@ func TestClassifier_ExhaustedHeaderSubscription_ServesRequestedModel(t *testing.
 	require.NoError(t, svc.ProxyMessages(claudeCreditFallbackContext(authedCtx(uuid.New().String())), []byte(classifierBody), rec, req))
 
 	assert.Equal(t, 0, fr.routeCalls)
-	assert.Equal(t, classifierRequestedMdl, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, classifierRequestedMdl, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // A main-loop turn with the same subscription and no usage-bypass opt-in is
@@ -149,7 +152,7 @@ func TestClassifier_MainLoopWithSubscription_StillScored(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(mainLoop), rec, req))
 
 	assert.Equal(t, 1, fr.routeCalls, "without the usage-bypass opt-in a main-loop turn is scored")
-	assert.NotEqual(t, classifierPassthroughReason, rec.Header().Get(proxy.HeaderRouterDecision))
+	assert.NotEqual(t, classifierPassthroughReason, rec.Header().Get(requestcontext.HeaderRouterDecision))
 }
 
 // A /force-model pin is for the conversation; Claude Code's classifier calls
@@ -166,8 +169,8 @@ func TestClassifier_ForceModel_DoesNotApply(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req))
 
 	assert.Equal(t, 0, fr.routeCalls)
-	assert.Equal(t, classifierPassthroughReason, rec.Header().Get(proxy.HeaderRouterDecision))
-	assert.Equal(t, classifierRequestedMdl, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, classifierPassthroughReason, rec.Header().Get(requestcontext.HeaderRouterDecision))
+	assert.Equal(t, classifierRequestedMdl, rec.Header().Get(requestcontext.HeaderRouterModel))
 	require.Len(t, p.proxyBodies, 1)
 	assert.Contains(t, string(p.proxyBodies[0]), `"model":"`+classifierRequestedMdl+`"`)
 }
@@ -182,7 +185,7 @@ func TestClassifier_ExhaustedSubscription_ServesOnDeploymentKey(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req))
 
 	assert.Equal(t, 0, fr.routeCalls, "a classifier is never scored")
-	assert.NotEqual(t, classifierPassthroughReason, rec.Header().Get(proxy.HeaderRouterDecision))
+	assert.NotEqual(t, classifierPassthroughReason, rec.Header().Get(requestcontext.HeaderRouterDecision))
 	require.Len(t, p.proxyCreds, 1)
 	if creds := p.proxyCreds[0]; creds != nil {
 		assert.False(t, creds.OAuth, "the spent subscription must not be forwarded when a fallback key exists")
@@ -196,7 +199,7 @@ func TestClassifier_ExhaustedSubscription_NoFallbackRefusesBeforeDispatch(t *tes
 	svc, fr, p, _ := classifierPassthroughFixture(t, exhaustedObserver())
 	rec, req := classifierRequest(t.Context())
 
-	require.ErrorIs(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req), proxy.ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req), credentials.ErrSubscriptionPoolExhausted)
 	assert.Equal(t, 0, fr.routeCalls)
 	assert.Empty(t, p.proxyCreds, "known spent credential cannot be dispatched")
 }
@@ -208,7 +211,7 @@ func TestClassifier_SubscriptionOnly_Exhausted_Refuses402(t *testing.T) {
 	err := svc.ProxyMessages(billing.WithSubscriptionOnly(classifierSubscriptionCtx(), billing.SubscriptionOnlyCreditsDepleted), []byte(classifierBody), rec, req)
 
 	require.Error(t, err)
-	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable)
+	require.ErrorIs(t, err, credentials.ErrCreditsExhaustedSubscriptionUnavailable)
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur when the subscription cannot serve the classifier")
 }
 
@@ -228,7 +231,7 @@ func TestClassifier_SubscriptionOnly_VerifiedEnterpriseOverage_PassesThrough(t *
 	assert.Equal(t, 0, fr.routeCalls, "a usage-billed seat's classifier must not be scored")
 	require.Len(t, p.proxyBodies, 1)
 	assert.Contains(t, string(p.proxyBodies[0]), `"model":"`+classifierRequestedMdl+`"`)
-	assert.Equal(t, classifierPassthroughReason, rec.Header().Get(proxy.HeaderRouterDecision))
+	assert.Equal(t, classifierPassthroughReason, rec.Header().Get(requestcontext.HeaderRouterDecision))
 }
 
 // A passthrough that hits a retryable upstream error falls back to the routed
@@ -251,7 +254,7 @@ func TestClassifier_PassthroughRetryable_FallsBackToRoutedDispatch_NoPin(t *test
 	}}
 	upstream := &swapErrProvider{first: limit, second: nil, inner: inner}
 	store := newFakePinStore()
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil), hmm.ServingPorts())
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil), hmm.ServingPorts())
 	rec, req := classifierRequest(t.Context())
 
 	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req))
@@ -259,8 +262,8 @@ func TestClassifier_PassthroughRetryable_FallsBackToRoutedDispatch_NoPin(t *test
 	assert.Equal(t, 2, upstream.calls, "passthrough attempt, then the routed dispatch")
 	assert.Equal(t, 1, fr.routeCalls, "the scorer runs once, on the reroute")
 	assert.NotEqual(t, http.StatusTooManyRequests, rec.Code, "the passthrough 429 must not reach the client")
-	assert.Equal(t, classifierScorerPickMdl, rec.Header().Get(proxy.HeaderRouterModel))
-	assert.Equal(t, "cluster:v0.2", rec.Header().Get(proxy.HeaderRouterDecision))
+	assert.Equal(t, classifierScorerPickMdl, rec.Header().Get(requestcontext.HeaderRouterModel))
+	assert.Equal(t, "cluster:v0.2", rec.Header().Get(requestcontext.HeaderRouterDecision))
 	assert.Equal(t, 1, store.getCalls, "the reroute must not load the conversation's pin for a classifier")
 	assertNoPinWrite(t, store)
 }

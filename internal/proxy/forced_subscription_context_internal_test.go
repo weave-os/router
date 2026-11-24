@@ -16,11 +16,17 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
@@ -41,20 +47,20 @@ func TestForcedSubscriptionContextEstimatePreservesHardExclusions(t *testing.T) 
 		t.Run(scenario.name, func(t *testing.T) {
 			request := router.Request{
 				Candidates: router.Candidates{
-					ExcludedModels:       modelSet([]string{gatewayCompactionOpusModel}),
-					SafetyExcludedModels: modelSet([]string{gatewayCompactionOpusModel}),
+					ExcludedModels:       candidates.ModelSet([]string{gatewayCompactionOpusModel}),
+					SafetyExcludedModels: candidates.ModelSet([]string{gatewayCompactionOpusModel}),
 				},
 			}
 			if scenario.forced {
 				request.ForceModel = gatewayCompactionOpusModel
 			}
 			if scenario.estimate {
-				request.Candidates.ContextWindowExcludedModels = modelSet([]string{gatewayCompactionOpusModel})
+				request.Candidates.ContextWindowExcludedModels = candidates.ModelSet([]string{gatewayCompactionOpusModel})
 			}
 			if scenario.unsignedHistory {
-				request.Candidates.UnsignedHistoryExcludedModels = modelSet([]string{gatewayCompactionOpusModel})
+				request.Candidates.UnsignedHistoryExcludedModels = candidates.ModelSet([]string{gatewayCompactionOpusModel})
 			}
-			_, narrowed := (&Service{hmmServing: hmmPorts()}).subscriptionStateRequest(context.Background(), request, []string{gatewayCompactionOpusModel})
+			_, narrowed := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).subscriptionStateRequest(context.Background(), request, []string{gatewayCompactionOpusModel})
 			_, allowed := narrowed.Candidates.AllowedModels[gatewayCompactionOpusModel]
 			assert.Equal(t, scenario.wantServed, allowed)
 			assert.Contains(t, request.Candidates.ExcludedModels, gatewayCompactionOpusModel, "state routing must not mutate the original request")
@@ -78,7 +84,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 		{name: "real overflow allows compaction and continuation", overflow: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			var models, credentials, apiKeys, contents, efforts []string
+			var models, authHeaders, apiKeys, contents, efforts []string
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, err := io.ReadAll(r.Body)
 				if err != nil {
@@ -87,7 +93,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 					return
 				}
 				models = append(models, gjson.GetBytes(body, "model").String())
-				credentials = append(credentials, r.Header.Get("Authorization"))
+				authHeaders = append(authHeaders, r.Header.Get("Authorization"))
 				apiKeys = append(apiKeys, r.Header.Get("x-api-key"))
 				efforts = append(efforts, gjson.GetBytes(body, "output_config.effort").String())
 				content := gjson.GetBytes(body, "messages.0.content")
@@ -116,24 +122,24 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 			defer upstream.Close()
 			store := &forcedPinStore{pin: sessionpin.Pin{
 				Provider: providers.ProviderAnthropic, Model: gatewayCompactionOpusModel,
-				Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires,
+				Reason: translate.ReasonUserForceModel, PinnedUntil: routingpolicy.PinNeverExpires,
 			}}
-			svc := withHMMPorts(NewService(nil, map[string]providers.Client{
+			svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{
 				providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL),
 				providers.ProviderOpenAI:    planClient{&fakeClient{name: providers.ProviderOpenAI}},
-			}, nil, store, false, "", "", nil)).
+			}), nil, store, false, "", "", nil)).
 				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true}}).
-				WithAvailableModels(modelSet([]string{gatewayCompactionOpusModel, catalog.ModelGPT6Luna})).
-				WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})).
+				WithAvailableModels(candidates.ModelSet([]string{gatewayCompactionOpusModel, catalog.ModelGPT6Luna})).
+				WithDeploymentKeyedProviders(candidates.ModelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})).
 				WithRetrySleep(func(context.Context, time.Duration) error { return nil })
-			ctx := context.WithValue(withClaudeCreditFallback(context.Background()), APIKeyIDContextKey{}, "synthetic-key")
-			ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
-			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode, SessionID: "synthetic-session"})
-			ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
-			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{gatewayCompactionOpusModel})
-			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{gatewayCompactionOpusModel})
+			ctx := context.WithValue(withClaudeCreditFallback(context.Background()), requestcontext.APIKeyIDContextKey{}, "synthetic-key")
+			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())
+			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode, SessionID: "synthetic-session"})
+			ctx = context.WithValue(ctx, credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+			ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{gatewayCompactionOpusModel})
+			ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{gatewayCompactionOpusModel})
 			if scenario.directSubscription {
-				ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-token")
+				ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-token")
 			}
 
 			// The body estimate plus output reserve exceeds Opus's window while
@@ -146,11 +152,11 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				})
 				require.NoError(t, err)
 				recorder := httptest.NewRecorder()
-				request := httptest.NewRequestWithContext(ctx, http.MethodPost, routePathMessages, strings.NewReader(string(body)))
+				request := httptest.NewRequestWithContext(ctx, http.MethodPost, requestcontext.RoutePathMessages, strings.NewReader(string(body)))
 				if scenario.forceWithEffort {
-					request.Header.Set(ForceModelHeader, gatewayCompactionOpusModel+":high")
+					request.Header.Set(requestcontext.ForceModelHeader, gatewayCompactionOpusModel+":high")
 				}
-				err = svc.ProxyMessages(WithManagedSubscriptionUsage(ctx), body, recorder, request)
+				err = svc.ProxyMessages(credentials.WithManagedSubscriptionUsage(ctx), body, recorder, request)
 				return recorder, err
 			}
 
@@ -159,7 +165,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				require.Error(t, err)
 				class, ok := ClassifyDispatchError(err)
 				require.True(t, ok)
-				require.Equal(t, DispatchErrorContextWindowExceeded, class.Kind)
+				require.Equal(t, ingress.DispatchErrorContextWindowExceeded, class.Kind)
 				require.Len(t, models, 1, "a real overflow must reach the client without retrying the oversized turn")
 				_, err = proxyTurn(largeHistory, "Your task is to create a detailed summary of the conversation so far.")
 				require.Error(t, err)
@@ -189,7 +195,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 					continue
 				}
 				wantCredential := "Bearer synthetic-token"
-				assert.Equal(t, wantCredential, credentials[i], "context estimation must not force a paid attempt")
+				assert.Equal(t, wantCredential, authHeaders[i], "context estimation must not force a paid attempt")
 				if scenario.forceWithEffort {
 					assert.Equal(t, "high", efforts[i], "canonicalizing the model must preserve the requested wire effort")
 				}

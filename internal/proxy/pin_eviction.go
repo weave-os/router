@@ -5,10 +5,12 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -46,7 +48,7 @@ func (s *Service) expireSessionPinRow(
 	if !invalidateContinuation {
 		return nil
 	}
-	return s.invalidatePostCommandContinuation(ctx, strategy, sessionKey, role)
+	return postCommandContinuation(s, strategy).Invalidate(ctx, sessionKey, role)
 }
 
 func expiredSessionPin(
@@ -70,7 +72,7 @@ func expiredSessionPin(
 	}
 }
 
-func (s *Service) expireSessionPinAndHMMHistory(
+func (s *Service) expireSessionPinAndSwitchHistory(
 	ctx context.Context, strategy router.Strategy,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
@@ -80,7 +82,7 @@ func (s *Service) expireSessionPinAndHMMHistory(
 	if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, reason); err != nil {
 		return err
 	}
-	historyRole := hmmHistoryRole(role)
+	historyRole := s.strategyPorts.History.HistoryRole(role)
 	if historyRole == role {
 		return nil
 	}
@@ -158,9 +160,9 @@ func (s *Service) maybeExpireSubscriptionArmPin(
 
 func subscriptionArmPinEvictionReason(err error) string {
 	switch {
-	case isSubscriptionPoolError(err):
+	case credentials.IsSubscriptionPoolError(err):
 		return pinEvictionReasonSubscriptionPool
-	case anthropicSubscriptionModelRejected(err):
+	case credentials.AnthropicSubscriptionModelRejected(err):
 		return pinEvictionReasonSubscriptionModel
 	default:
 		return ""
@@ -172,13 +174,13 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 	stickyHit bool,
 	proxyErr error,
 	decisionReason string,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role string,
 ) {
-	if !stickyHit || s.pinStore == nil || target.installationID == uuid.Nil {
+	if !stickyHit || s.pinStore == nil || target.InstallationID == uuid.Nil {
 		return
 	}
-	if target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+	if target.SessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return
 	}
 	if strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
@@ -188,7 +190,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 	log := observability.FromContext(ctx)
 
 	if proxyErr == nil {
-		if err := s.pinStore.ResetUpstreamErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy); err != nil {
+		if err := s.pinStore.ResetUpstreamErrors(context.WithoutCancel(ctx), target.SessionKey, role, target.Strategy); err != nil {
 			log.Error("pin error-counter reset failed", "err", err, "role", role)
 		}
 		return
@@ -202,7 +204,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 		return
 	}
 
-	count, err := s.pinStore.IncrementUpstreamErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy)
+	count, err := s.pinStore.IncrementUpstreamErrors(context.WithoutCancel(ctx), target.SessionKey, role, target.Strategy)
 	if err != nil {
 		log.Error("pin error-counter increment failed", "err", err, "role", role, "upstream_status", status)
 		return
@@ -217,7 +219,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 		return
 	}
 
-	if err := s.expireSessionPin(ctx, target.strategy, target.installationID, target.sessionKey, role, "upstream_error_strike_threshold"); err != nil {
+	if err := s.expireSessionPin(ctx, target.Strategy, target.InstallationID, target.SessionKey, role, "upstream_error_strike_threshold"); err != nil {
 		log.Error("pin eviction upsert failed", "err", err, "role", role)
 		return
 	}

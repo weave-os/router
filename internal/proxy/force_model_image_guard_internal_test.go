@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
@@ -45,7 +47,7 @@ func TestRunTurnLoop_ForcedTextOnlyModel_DropsPinForImageTurn(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
-	svc := withHMMPorts(NewService(fr, nil, nil, store, false,
+	svc := withHMMPorts(NewService(fr, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithAvailableModels(fr.available).
 		EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false })
@@ -87,7 +89,7 @@ func TestRunTurnLoop_ForcedTextOnlyModel_HonoredWithoutImages(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
-	svc := withHMMPorts(NewService(fr, nil, nil, store, false,
+	svc := withHMMPorts(NewService(fr, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithAvailableModels(fr.available).
 		EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false })
@@ -114,7 +116,7 @@ func TestRunTurnLoop_ForcedImageCapModel_ReachesProvider(t *testing.T) {
 	const imageCount = 17
 	available := map[string]struct{}{model: {}}
 	fr := &tierProbeRouter{available: available}
-	svc := withHMMPorts(NewService(fr, nil, nil, &forcedPinStore{}, false,
+	svc := withHMMPorts(NewService(fr, dispatch.NewClients(nil), nil, &forcedPinStore{}, false,
 		providers.ProviderDeepInfra, model, nil)).
 		WithAvailableModels(available).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderDeepInfra: {}}).
@@ -151,7 +153,7 @@ func TestRunTurnLoop_ForcedImageCapModel_ReachesProvider(t *testing.T) {
 	assert.True(t, res.StickyHit)
 	assert.Empty(t, fr.captured, "an honored force must not invoke the scorer")
 
-	bindings := svc.resolveBindingsForDispatch(withRequestImageCount(context.Background(), imageCount), res.Decision)
+	bindings := svc.resolveBindingsForDispatch(requestcontext.WithRequestImageCount(context.Background(), imageCount), res.Decision)
 	require.Len(t, bindings, 1)
 	assert.Equal(t, providers.ProviderDeepInfra, bindings[0].Provider)
 }

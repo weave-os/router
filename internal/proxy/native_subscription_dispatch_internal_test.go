@@ -12,8 +12,11 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 )
@@ -41,16 +44,16 @@ func TestNativeCodexSubscriptionWithDepletedCredits(t *testing.T) {
 			defer upstream.Close()
 			client := openai.NewClient("synthetic-paid-key", upstream.URL)
 			client.SetCodexBaseURL(upstream.URL)
-			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
+			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 			ctx := codexSubscriptionTestCtx()
 			expectedBearer := "Bearer " + codexTestToken
 			if managed {
-				ctx = context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+				ctx = context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 				svc.WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "synthetic-seat", AccessToken: "synthetic-linked-token", ProviderAccount: codexTestAccountID}}})
 				expectedBearer = "Bearer synthetic-linked-token"
 			}
-			ctx = WithManagedSubscriptionUsage(billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted))
+			ctx = credentials.WithManagedSubscriptionUsage(billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted))
 			body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"inspect synthetic input"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 			recorder := httptest.NewRecorder()
 			err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))

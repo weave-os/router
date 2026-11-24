@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
@@ -97,10 +99,9 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 	// --- Pipeline A: signed feedback-link submission ---
 	repo := &fakeFeedbackRepoForSpanTest{}
 	signer := feedback.NewSigner("secret", time.Hour)
-	linkSvc := proxy.WithStrategyPorts(proxy.NewService(nil, nil, emitter, nil, false, "", "", nil), hmm.ServingPorts()).
-		WithFeedback(repo, signer, "https://router.example.com")
+	links := feedback.NewLinks(repo, signer, "https://router.example.com", emitter, time.Now)
 
-	err := linkSvc.SubmitFeedback(context.Background(), feedback.SubmitFeedbackParams{
+	err := links.SubmitFeedback(context.Background(), feedback.SubmitFeedbackParams{
 		InstallationID: "inst-1",
 		ExternalID:     "org-1",
 		RequestID:      "req-1",
@@ -117,7 +118,7 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
 	cmdSvc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		emitter,
 		store,
 		false,
@@ -133,8 +134,8 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 			{"role":"user","content":"/router-feedback got stuck on Haiku for too long"}
 		]
 	}`
-	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
-	ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, uuid.New().String())
+	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "key-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.New().String())
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, cmdSvc.ProxyMessages(ctx, []byte(body), rec, httpReq))

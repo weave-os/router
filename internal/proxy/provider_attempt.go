@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -26,7 +27,7 @@ func invokeLeasedProviderAttempt(service *Service, ctx context.Context, plan inf
 	observability.FromContext(ctx).Debug("Invoking leased provider attempt", "purpose", plan.Purpose(), "target", attempt.target.CatalogID, "subscription_account_id", attempt.lease.AccountID, "managed", attempt.managed)
 	err := attempt.inputs.Attempt(ctx, attempt.decision, dispatch.NewUpstream(attempt.client))
 	if err == nil && !attempt.managed {
-		service.subscriptionModels.markServedForCaller(ctx, attempt.decision.Provider, attempt.decision.Model, service.clock.Now())
+		service.credentials.SubscriptionModels.MarkServedForCaller(credentials.CredentialsFromContext(ctx), attempt.decision.Provider, attempt.decision.Model, service.clock.Now())
 	}
 	return started, err
 }

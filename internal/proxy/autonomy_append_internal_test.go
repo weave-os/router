@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -23,7 +24,7 @@ const autonomyGateBody = `{
 }`
 
 func newAutonomyGateService() *Service {
-	return withHMMPorts(NewService(nil, map[string]providers.Client{}, nil, nil,
+	return withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{}), nil, nil,
 		false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 }
@@ -48,24 +49,26 @@ func TestAutonomySystemAppendApplies_GateAndTurnType(t *testing.T) {
 	env := parseGateBody(t, autonomyGateBody)
 
 	t.Run("flag off never fires", func(t *testing.T) {
-		assert.False(t, svc.autonomySystemAppendApplies(autonomyGateCtx(false, ClientAppClaudeCode), []byte(autonomyGateBody), env, turntype.MainLoop))
+		assert.False(t, svc.autonomySystemAppendApplies(autonomyGateCtx(false, requestcontext.ClientAppClaudeCode), []byte(autonomyGateBody), env, turntype.MainLoop))
 	})
 	t.Run("deployment default on fires without an org override", func(t *testing.T) {
-		on := newAutonomyGateService().WithCCAutonomySystemAppend(true)
-		assert.True(t, on.autonomySystemAppendApplies(autonomyGateCtx(false, ClientAppClaudeCode), []byte(autonomyGateBody), env, turntype.MainLoop))
+		on := newAutonomyGateService()
+		on.ingress.CCAutonomySystemAppend = true
+		assert.True(t, on.autonomySystemAppendApplies(autonomyGateCtx(false, requestcontext.ClientAppClaudeCode), []byte(autonomyGateBody), env, turntype.MainLoop))
 	})
 	t.Run("org override turns a default-on deployment off", func(t *testing.T) {
-		on := newAutonomyGateService().WithCCAutonomySystemAppend(true)
-		off := flags.WithOverrides(autonomyGateCtx(false, ClientAppClaudeCode), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyCCAutonomySystemAppend: false}})
+		on := newAutonomyGateService()
+		on.ingress.CCAutonomySystemAppend = true
+		off := flags.WithOverrides(autonomyGateCtx(false, requestcontext.ClientAppClaudeCode), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyCCAutonomySystemAppend: false}})
 		assert.False(t, on.autonomySystemAppendApplies(off, []byte(autonomyGateBody), env, turntype.MainLoop))
 	})
 	t.Run("only claude code identity qualifies", func(t *testing.T) {
-		assert.True(t, svc.autonomySystemAppendApplies(autonomyGateCtx(true, ClientAppClaudeCode), []byte(autonomyGateBody), env, turntype.MainLoop))
-		assert.False(t, svc.autonomySystemAppendApplies(autonomyGateCtx(true, ClientAppCodex), []byte(autonomyGateBody), env, turntype.MainLoop))
+		assert.True(t, svc.autonomySystemAppendApplies(autonomyGateCtx(true, requestcontext.ClientAppClaudeCode), []byte(autonomyGateBody), env, turntype.MainLoop))
+		assert.False(t, svc.autonomySystemAppendApplies(autonomyGateCtx(true, requestcontext.ClientAppCodex), []byte(autonomyGateBody), env, turntype.MainLoop))
 		assert.False(t, svc.autonomySystemAppendApplies(autonomyGateCtx(true, ""), []byte(autonomyGateBody), env, turntype.MainLoop))
 	})
 	t.Run("turn types", func(t *testing.T) {
-		ctx := autonomyGateCtx(true, ClientAppClaudeCode)
+		ctx := autonomyGateCtx(true, requestcontext.ClientAppClaudeCode)
 		want := map[turntype.TurnType]bool{
 			turntype.MainLoop:         true,
 			turntype.ToolResult:       true,
@@ -84,7 +87,7 @@ func TestAutonomySystemAppendApplies_GateAndTurnType(t *testing.T) {
 
 func TestAutonomySystemAppendApplies_IdempotentAndSkipsSearchSubTurn(t *testing.T) {
 	svc := newAutonomyGateService()
-	ctx := autonomyGateCtx(true, ClientAppClaudeCode)
+	ctx := autonomyGateCtx(true, requestcontext.ClientAppClaudeCode)
 
 	t.Run("request already carrying the instruction is left alone", func(t *testing.T) {
 		body := `{"model":"claude-opus-5","system":[{"type":"text","text":"You are Claude Code."},{"type":"text","text":"You are operating autonomously. The user is not watching in real time."}],"messages":[{"role":"user","content":"go"}],"max_tokens":8}`

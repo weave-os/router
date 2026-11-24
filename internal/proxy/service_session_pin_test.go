@@ -14,13 +14,17 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -32,7 +36,7 @@ type fakePinStore struct {
 	mu                     sync.Mutex
 	pin                    sessionpin.Pin
 	hasPin                 bool
-	hmmHistory             sessionpin.Pin
+	switchHistory          sessionpin.Pin
 	hasHMMHistory          bool
 	getErr                 error
 	getCalls               int
@@ -77,7 +81,7 @@ func (f *fakePinStore) Get(ctx context.Context, key [sessionpin.SessionKeyLen]by
 		if !f.hasHMMHistory {
 			return sessionpin.Pin{}, false, nil
 		}
-		pin := f.hmmHistory
+		pin := f.switchHistory
 		pin.SessionKey = key
 		pin.Role = role
 		return pin, true, nil
@@ -229,7 +233,7 @@ func assertOnlyHMMHistoryUpserts(t *testing.T, store *fakePinStore) {
 func newPinSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		false,
@@ -239,10 +243,10 @@ func newPinSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 
 }
 
-func newPinSvcWithTelemetry(fr *fakeRouter, store *fakePinStore, telemetry proxy.TelemetryRepository) *proxy.Service {
+func newPinSvcWithTelemetry(fr *fakeRouter, store *fakePinStore, telemetry turnrecord.TelemetryRepository) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		false,
@@ -253,8 +257,8 @@ func newPinSvcWithTelemetry(fr *fakeRouter, store *fakePinStore, telemetry proxy
 }
 
 func authedCtx(installationID string) context.Context {
-	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
-	return context.WithValue(ctx, proxy.InstallationIDContextKey{}, installationID)
+	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "key-1")
+	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, installationID)
 }
 
 // authedCtxWithExternalKey also stashes a BYOK ExternalAPIKey, as the auth
@@ -266,7 +270,7 @@ func authedCtxWithExternalKey(installationID, provider string, plaintext []byte)
 		Provider:       provider,
 		Plaintext:      plaintext,
 	}}
-	return context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, keys)
+	return context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, keys)
 }
 
 const pinTestBody = `{
@@ -304,9 +308,9 @@ func TestService_NativeWebSearchSubTurnPassesThroughRequestedModel(t *testing.T)
 			))
 
 			assert.Zero(t, fr.routeCalls, "an isolated search sub-turn must bypass policy scoring")
-			assert.Equal(t, requestedModel, rec.Header().Get(proxy.HeaderRouterModel))
-			assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get(proxy.HeaderRouterProvider))
-			assert.Equal(t, "native_web_search_passthrough", rec.Header().Get(proxy.HeaderRouterDecision))
+			assert.Equal(t, requestedModel, rec.Header().Get(requestcontext.HeaderRouterModel))
+			assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get(requestcontext.HeaderRouterProvider))
+			assert.Equal(t, "native_web_search_passthrough", rec.Header().Get(requestcontext.HeaderRouterDecision))
 			assert.Empty(t, store.upserts, "an isolated search sub-turn must not create a session pin")
 			assert.Zero(t, store.resetCalls, "pass-through must not mutate a parent pin's error state")
 			assert.Zero(t, store.overloadResetCalls, "pass-through must not mutate a parent pin's overload state")
@@ -329,7 +333,7 @@ func TestService_InContextNativeWebSearchKeepsAnthropicPin(t *testing.T) {
 		Model:    "claude-fable-5-1",
 		Reason:   "cluster:v0.2",
 	}}
-	svc := newPinSvc(fr, store).WithScopedSearchRequirement(true, proxy.DefaultSearchRequirementDecayTurns)
+	svc := newPinSvc(fr, store).WithIngress(scopedSearchFormats())
 	body := []byte(`{
 		"model":"claude-opus-4-8",
 		"tools":[{"type":"web_search_20250305","name":"web_search"}],
@@ -349,7 +353,7 @@ func TestService_InContextNativeWebSearchKeepsAnthropicPin(t *testing.T) {
 	require.NotNil(t, fr.capturedReq)
 	assert.False(t, fr.capturedReq.TranslationRequirements.CitationsOrSearch,
 		"advertising native search without using it must not constrain policy routing")
-	assert.Equal(t, "claude-opus-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-5", rec.Header().Get(requestcontext.HeaderRouterModel))
 	waitForUpsert(t, store)
 }
 
@@ -361,17 +365,17 @@ func TestService_NativeSearchResultHistoryFiltersPolicyCandidatesInGo(t *testing
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderOpenAI:    &fakeProvider{},
-		},
+		}),
 		nil,
 		nil,
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
 		nil), hmm.ServingPorts()).
-		WithScopedSearchRequirement(true, proxy.DefaultSearchRequirementDecayTurns)
+		WithIngress(scopedSearchFormats())
 	body := []byte(`{
 		"model":"claude-opus-4-8",
 		"tools":[{"type":"web_search_20250305","name":"web_search"}],
@@ -415,7 +419,7 @@ func TestService_SessionPin_PostgresHitKeepsPinnedModel(t *testing.T) {
 
 	// Scorer runs even on a pin hit, but planner keeps the pin (no prior-turn usage).
 	assert.Equal(t, 1, fr.routeCalls, "scorer runs every MainLoop turn under the planner")
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(requestcontext.HeaderRouterModel))
 	waitForUpsert(t, store)
 }
 
@@ -454,7 +458,7 @@ func TestService_SessionPin_ImageTurnEvictsTextOnlyPin(t *testing.T) {
 	assert.True(t, fr.capturedReq.HasImages, "routing request must carry the image signal")
 	_, excluded := fr.capturedReq.Candidates.ExcludedModels["z-ai/glm-5.1"]
 	assert.False(t, excluded, "pin must be dropped, not hard-excluded; the scorer's image filter drops it softly")
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel),
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel),
 		"served model must be the image-capable fresh decision, not the text-only pin")
 }
 
@@ -510,7 +514,7 @@ func TestService_SessionPin_ExpiredPinIsIgnored(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "expired pin must not be served (sweep races leave stale rows)")
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // compactionBody triggers the compaction detector (§3.4).
@@ -547,8 +551,8 @@ func TestService_Classifier_ServesRequestedModelNotHardPinned(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "an API-billed classifier is served on the requested model")
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
-	assert.Equal(t, "classifier_requested_model", rec.Header().Get(proxy.HeaderRouterDecision))
+	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(requestcontext.HeaderRouterModel))
+	assert.Equal(t, "classifier_requested_model", rec.Header().Get(requestcontext.HeaderRouterDecision))
 	assert.Equal(t, 1, store.getCalls, "classifier checks force-model state only, never the conversation pin")
 
 	select {
@@ -577,7 +581,7 @@ func TestService_Classifier_IgnoresExistingSessionPin(t *testing.T) {
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, httpReq))
 
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "the session pin must not replace the requested model")
+	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(requestcontext.HeaderRouterModel), "the session pin must not replace the requested model")
 }
 
 // Regression guard: excluded_models must be honored on the hard-pin tier too.
@@ -610,21 +614,21 @@ func TestService_HardPin_TitleGen_AppliesExcludedModels(t *testing.T) {
 		providers.ProviderGoogle:    &fakeProvider{proxyResponse: okResp},
 	}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
-		fr, providerMap, nil, store, false,
+		fr, dispatch.NewClients(providerMap), nil, store, false,
 		providers.ProviderGoogle, excludedModel,
 		nil), hmm.ServingPorts()).
 		WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()),
-		proxy.InstallationExcludedModelsContextKey{}, []string{excludedModel})
+		requestcontext.InstallationExcludedModelsContextKey{}, []string{excludedModel})
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(titleGenBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "title generation must bypass the cluster scorer")
-	assert.Equal(t, allowedFallback, rec.Header().Get(proxy.HeaderRouterModel),
+	assert.Equal(t, allowedFallback, rec.Header().Get(requestcontext.HeaderRouterModel),
 		"hard-pin must skip the excluded model and serve an allowed candidate")
-	assert.NotEqual(t, excludedModel, rec.Header().Get(proxy.HeaderRouterModel),
+	assert.NotEqual(t, excludedModel, rec.Header().Get(requestcontext.HeaderRouterModel),
 		"excluded model must never be served on the hard-pin tier")
 }
 
@@ -639,7 +643,7 @@ func TestService_CompactionWithoutSessionPinIsScored(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(compactionBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "compaction without a session pin is scored, not hard-pinned")
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel))
 
 	select {
 	case <-store.upsertCh:
@@ -653,7 +657,7 @@ func TestService_HardPin_ExploreRoutesToHaikuWhenFlagOn(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		true,
@@ -668,7 +672,7 @@ func TestService_HardPin_ExploreRoutesToHaikuWhenFlagOn(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "Explore must bypass cluster scorer when hardPinExplore=on")
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(requestcontext.HeaderRouterModel))
 
 	select {
 	case <-store.upsertCh:
@@ -687,7 +691,7 @@ func TestService_HardPin_HMMExploreBypassesBootHardPin(t *testing.T) {
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		true,
@@ -702,7 +706,7 @@ func TestService_HardPin_HMMExploreBypassesBootHardPin(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "HMM strategy must classify subagent dispatch instead of boot-hard-pinning Explore")
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 func TestService_HMMSubAgentUsesFreshDecision(t *testing.T) {
@@ -728,7 +732,7 @@ func TestService_HMMSubAgentUsesFreshDecision(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "subagent HMM turns may still score for diagnostics")
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel),
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel),
 		"an HMM Explore subagent must follow the fresh sidecar decision instead of an existing execution pin")
 	store.mu.Lock()
 	assertOnlyHMMHistoryUpserts(t, store)
@@ -746,7 +750,7 @@ func TestService_HardPin_ExploreFallsThroughWhenFlagOff(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "Explore must fall through when hardPinExplore=off")
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // WithSubAgentOverride must route SubAgentDispatch turns to the configured
@@ -766,10 +770,10 @@ func TestService_HardPin_SubAgentOverrideRoutesIndependentlyOfHardPin(t *testing
 	}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic:  &fakeProvider{},
 			providers.ProviderOpenRouter: &fakeProvider{proxyResponse: openRouterResp},
-		},
+		}),
 		nil,
 		store,
 		false,
@@ -784,9 +788,9 @@ func TestService_HardPin_SubAgentOverrideRoutesIndependentlyOfHardPin(t *testing
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "sub-agent override must bypass the cluster scorer")
-	assert.Equal(t, "local/qwen3-coder", rec.Header().Get(proxy.HeaderRouterModel))
-	assert.Equal(t, providers.ProviderOpenRouter, rec.Header().Get(proxy.HeaderRouterProvider))
-	assert.NotEqual(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel),
+	assert.Equal(t, "local/qwen3-coder", rec.Header().Get(requestcontext.HeaderRouterModel))
+	assert.Equal(t, providers.ProviderOpenRouter, rec.Header().Get(requestcontext.HeaderRouterProvider))
+	assert.NotEqual(t, "claude-haiku-4-5", rec.Header().Get(requestcontext.HeaderRouterModel),
 		"must not fall back to the shared hardPinProvider/hardPinModel pair")
 }
 
@@ -797,10 +801,10 @@ func TestService_HardPin_SubAgentOverrideLeavesMainLoopUnaffected(t *testing.T) 
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic:  &fakeProvider{},
 			providers.ProviderOpenRouter: &fakeProvider{},
-		},
+		}),
 		nil,
 		store,
 		false,
@@ -815,7 +819,7 @@ func TestService_HardPin_SubAgentOverrideLeavesMainLoopUnaffected(t *testing.T) 
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "main-loop turn must still go through the cluster scorer")
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // Without WithSubAgentOverride, behavior must be identical to before this
@@ -825,7 +829,7 @@ func TestService_HardPin_NoSubAgentOverrideUsesSharedHardPin(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		true,
@@ -840,7 +844,7 @@ func TestService_HardPin_NoSubAgentOverrideUsesSharedHardPin(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls)
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel),
+	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(requestcontext.HeaderRouterModel),
 		"must fall back to the shared hardPinProvider/hardPinModel pair")
 }
 
@@ -853,7 +857,7 @@ func TestService_HardPin_PartialSubAgentOverrideFallsThroughToScorer(t *testing.
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		false,
@@ -868,7 +872,7 @@ func TestService_HardPin_PartialSubAgentOverrideFallsThroughToScorer(t *testing.
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "incomplete override must not hard-pin; scorer must run")
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // An explicit sub-agent override is Go-owned dispatch policy and applies under
@@ -888,10 +892,10 @@ func TestService_HardPin_SubAgentOverrideAppliesUnderHMMStrategy(t *testing.T) {
 	}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic:  &fakeProvider{},
 			providers.ProviderOpenRouter: &fakeProvider{proxyResponse: openRouterResp},
-		},
+		}),
 		nil,
 		store,
 		false,
@@ -906,8 +910,8 @@ func TestService_HardPin_SubAgentOverrideAppliesUnderHMMStrategy(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "sub-agent override must bypass the HMM classifier")
-	assert.Equal(t, "local/qwen3-coder", rec.Header().Get(proxy.HeaderRouterModel))
-	assert.Equal(t, providers.ProviderOpenRouter, rec.Header().Get(proxy.HeaderRouterProvider))
+	assert.Equal(t, "local/qwen3-coder", rec.Header().Get(requestcontext.HeaderRouterModel))
+	assert.Equal(t, providers.ProviderOpenRouter, rec.Header().Get(requestcontext.HeaderRouterProvider))
 }
 
 // Without a hard pin or override, an HMM sub-agent turn is classified like any
@@ -922,7 +926,7 @@ func TestService_HMMStrategy_SubAgentTurnIsClassifiedWithoutOverride(t *testing.
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		false,
@@ -937,7 +941,7 @@ func TestService_HMMStrategy_SubAgentTurnIsClassifiedWithoutOverride(t *testing.
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "sub-agent turn must go through the classifier")
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // A sub-agent override naming a provider the request isn't eligible for
@@ -949,7 +953,7 @@ func TestService_HardPin_SubAgentOverrideIneligibleProviderErrors(t *testing.T) 
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		false,
@@ -980,10 +984,10 @@ const openAIPinTestBody = `{
 func newOpenAIPinSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderOpenAI:    &fakeProvider{},
-		},
+		}),
 		nil, store,
 		false, providers.ProviderAnthropic, "claude-haiku-4-5",
 		nil), hmm.ServingPorts())
@@ -1011,7 +1015,7 @@ func TestService_SessionPin_OpenAI_PostgresHitKeepsPinnedModel(t *testing.T) {
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(openAIPinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "scorer runs every MainLoop turn under the planner")
-	assert.Equal(t, "gpt-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "gpt-5", rec.Header().Get(requestcontext.HeaderRouterModel))
 	waitForUpsert(t, store)
 }
 
@@ -1062,7 +1066,7 @@ func TestService_SessionPin_AgentForceModelCommandContinuesOnForcedModel(t *test
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "the newly forced pin must bypass automatic routing")
-	assert.Equal(t, "claude-opus-5-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-5-5", rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.NotContains(t, rec.Body.String(), "force-model applied", "only a user-issued command gets a synthetic acknowledgment")
 	require.NotEmpty(t, store.upserts)
 	assert.Equal(t, "claude-opus-5-5", store.upserts[0].Model)
@@ -1097,7 +1101,7 @@ func TestService_SessionPin_OpenAI_AgentForceModelCommandContinuesOnForcedModel(
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "the newly forced pin must bypass automatic routing")
-	assert.Equal(t, "gpt-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "gpt-5", rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.NotContains(t, rec.Body.String(), "force-model applied", "only a user-issued command gets a synthetic acknowledgment")
 	require.NotEmpty(t, store.upserts)
 	assert.Equal(t, "gpt-5", store.upserts[0].Model)
@@ -1155,12 +1159,12 @@ func TestService_SessionPin_OpenAIResponses_OpenCodeForceModelCommandFromToolOut
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 	}}
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderAnthropic: &fakeProvider{},
 		providers.ProviderOpenAI:    openAIProvider,
-	}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	}), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
-	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppOpencode})
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(forceBody), rec, httpReq))
@@ -1169,7 +1173,7 @@ func TestService_SessionPin_OpenAIResponses_OpenCodeForceModelCommandFromToolOut
 	require.NotEmpty(t, store.upserts)
 	assert.Equal(t, "gpt-5", store.upserts[0].Model)
 	assert.Equal(t, providers.ProviderOpenAI, store.upserts[0].Provider)
-	assert.Equal(t, "gpt-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "gpt-5", rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Contains(t, rec.Body.String(), "ok")
 }
 
@@ -1262,7 +1266,7 @@ func TestService_SessionPin_OpenAI_ToolResultShortCircuit(t *testing.T) {
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(toolResultBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "disabled tool-result scoring must not re-run the scorer")
-	assert.Equal(t, "gpt-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "gpt-5", rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // newOpenAIHardPinSvc keeps the hard-pin target on OpenAI so the path stays
@@ -1270,10 +1274,10 @@ func TestService_SessionPin_OpenAI_ToolResultShortCircuit(t *testing.T) {
 func newOpenAIHardPinSvc(fr *fakeRouter, store *fakePinStore, hardPinExplore bool) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderOpenAI:    &fakeProvider{},
-		},
+		}),
 		nil, store,
 		hardPinExplore,
 		providers.ProviderOpenAI,
@@ -1304,7 +1308,7 @@ func TestService_OpenAI_CompactionPhraseDoesNotHardPin(t *testing.T) {
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(compactionOpenAIBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "OpenAI body must run the scorer, not hard-pin")
-	assert.Equal(t, "gpt-4o", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "gpt-4o", rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 func TestService_HardPin_OpenAI_SubAgentHeaderHintRoutesToHardPin(t *testing.T) {
@@ -1320,7 +1324,7 @@ func TestService_HardPin_OpenAI_SubAgentHeaderHintRoutesToHardPin(t *testing.T) 
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(openAIPinTestBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "x-weave-subagent-type must trigger Explore hard-pin")
-	assert.Equal(t, "gpt-4o-mini", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "gpt-4o-mini", rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // Regression guard (PR #100): ROUTER_HARD_PIN_MODEL must win over the
@@ -1332,7 +1336,7 @@ func TestService_HardPin_BypassesTierCeiling(t *testing.T) {
 	// Hard-pin is opus; inbound model is haiku — hard pin wins regardless.
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		false,
@@ -1348,7 +1352,7 @@ func TestService_HardPin_BypassesTierCeiling(t *testing.T) {
 	body := `{"model":"claude-haiku-4-5","system":"Your task is to create a detailed summary of the conversation so far.","messages":[{"role":"user","content":"go"}]}`
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httpReq))
 
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel), "operator hard-pin must win over the tier ceiling")
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel), "operator hard-pin must win over the tier ceiling")
 }
 
 // haikuClampBody requests haiku (Low); scorer returns opus (High) — router
@@ -1372,7 +1376,7 @@ func TestService_TierClamp_HaikuRequestedHonorsHighScore(t *testing.T) {
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(haikuClampBody), rec, httpReq))
 
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel), "haiku-requested hard turn must honor the scorer's Opus upgrade, not clamp down")
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel), "haiku-requested hard turn must honor the scorer's Opus upgrade, not clamp down")
 }
 
 // TestService_TierClamp_OpusRequestedDecisionPassesThrough confirms an
@@ -1388,7 +1392,7 @@ func TestService_TierClamp_OpusRequestedDecisionPassesThrough(t *testing.T) {
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel), "scorer's pick must pass through unchanged")
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel), "scorer's pick must pass through unchanged")
 }
 
 // Pin-hit path: a prior opus pin outranks a haiku-requested turn — the
@@ -1412,7 +1416,7 @@ func TestService_TierClamp_PinAboveRequestedTierHonored(t *testing.T) {
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(haikuClampBody), rec, httpReq))
 
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel), "pin above the requested tier must be honored, not clamped down")
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel), "pin above the requested tier must be honored, not clamped down")
 }
 
 // A user-forced pin is served unchanged with the plain "user_forced" reason.
@@ -1434,8 +1438,8 @@ func TestService_ForcedPin_ReasonStaysUserForced(t *testing.T) {
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
-	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
-	assert.Equal(t, translate.ReasonUserForceModel, rec.Header().Get(proxy.HeaderRouterDecision), "forced pin keeps the plain user_forced reason")
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(requestcontext.HeaderRouterModel))
+	assert.Equal(t, translate.ReasonUserForceModel, rec.Header().Get(requestcontext.HeaderRouterDecision), "forced pin keeps the plain user_forced reason")
 }
 
 // buildCyclicLoopBody builds a wide re-read cycle (same files re-Read, no
@@ -1483,7 +1487,7 @@ func TestService_UserForcedPin_IneligibleProviderFallsThrough(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "ineligible-provider forced pin must fall through to the scorer")
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "must dispatch to the eligible provider, not gpt-5/openai")
+	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(requestcontext.HeaderRouterModel), "must dispatch to the eligible provider, not gpt-5/openai")
 }
 
 func TestService_ClaudeOAuthDoesNotRestrictForcedOpenAIPinWithoutSubscriptionOnly(t *testing.T) {
@@ -1497,10 +1501,10 @@ func TestService_ClaudeOAuthDoesNotRestrictForcedOpenAIPinWithoutSubscriptionOnl
 	}
 	fr := &fakeRouter{err: errors.New("forced pin must bypass the scorer")}
 	openAI := ccTaskToolProvider()
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderAnthropic: &fakeProvider{},
 		providers.ProviderOpenAI:    openAI,
-	}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+	}), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderAnthropic: {},
 			providers.ProviderOpenAI:    {},
@@ -1514,8 +1518,8 @@ func TestService_ClaudeOAuthDoesNotRestrictForcedOpenAIPinWithoutSubscriptionOnl
 
 	assert.Zero(t, fr.routeCalls, "Claude OAuth alone must not make an OpenAI force pin ineligible")
 	require.Len(t, openAI.proxyBodies, 1)
-	assert.Equal(t, "gpt-6-luna", rec.Header().Get(proxy.HeaderRouterModel))
-	assert.Equal(t, providers.ProviderOpenAI, rec.Header().Get(proxy.HeaderRouterProvider))
+	assert.Equal(t, "gpt-6-luna", rec.Header().Get(requestcontext.HeaderRouterModel))
+	assert.Equal(t, providers.ProviderOpenAI, rec.Header().Get(requestcontext.HeaderRouterProvider))
 }
 
 // x-weave-force-model is the headless equivalent of /force-model: it must
@@ -1528,7 +1532,7 @@ func TestService_ForceModelHeader_WritesUserForcedPin(t *testing.T) {
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
-	httpReq.Header.Set(proxy.ForceModelHeader, "opus")
+	httpReq.Header.Set(requestcontext.ForceModelHeader, "opus")
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	store.mu.Lock()
@@ -1544,7 +1548,7 @@ func TestService_ForceModelHeader_WritesUserForcedPin(t *testing.T) {
 	assert.Equal(t, "claude-opus-5-5", forced.Model, "alias 'opus' resolves to the canonical id")
 	assert.Equal(t, providers.ProviderAnthropic, forced.Provider)
 	assert.Equal(t, 0, fr.routeCalls, "a valid force bypasses automatic routing")
-	assert.Equal(t, "claude-opus-5-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-5-5", rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // An unrecognized x-weave-force-model value fails the request: routing on
@@ -1558,7 +1562,7 @@ func TestService_ForceModelHeader_UnknownModelRejected(t *testing.T) {
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
-	httpReq.Header.Set(proxy.ForceModelHeader, "totally-not-a-model")
+	httpReq.Header.Set(requestcontext.ForceModelHeader, "totally-not-a-model")
 	err := svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq)
 
 	require.Error(t, err)
@@ -1600,7 +1604,7 @@ func TestService_HardPin_TitleGen_GatewayExclusive_ResolvesAlias(t *testing.T) {
 		}},
 	}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
-		fr, providerMap, nil, store, false,
+		fr, dispatch.NewClients(providerMap), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		nil), hmm.ServingPorts()).
 		WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
@@ -1613,7 +1617,7 @@ func TestService_HardPin_TitleGen_GatewayExclusive_ResolvesAlias(t *testing.T) {
 	assert.Equal(t, []string{providers.ProviderOpenAIGateway}, seen.CustomBindings[aliasedModel],
 		"hard-pin resolver must receive the key's configuration-declared bindings")
 	assert.Contains(t, seen.GatewayProviders, providers.ProviderOpenAIGateway)
-	assert.Equal(t, aliasedModel, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, aliasedModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // A gateway key that aliases nothing is a configuration problem the customer
@@ -1626,7 +1630,7 @@ func TestService_HardPin_TitleGen_GatewayExclusive_NoAliasReportsConfigError(t *
 
 	providerMap := map[string]providers.Client{providers.ProviderOpenAIGateway: &fakeProvider{}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
-		fr, providerMap, nil, store, false,
+		fr, dispatch.NewClients(providerMap), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		nil), hmm.ServingPorts()).
 		WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
@@ -1653,7 +1657,7 @@ func authedCtxWithGatewayKey(installationID, aliasedModel string) context.Contex
 	if aliasedModel != "" {
 		key.ModelAliases = map[string]string{aliasedModel: aliasedModel}
 	}
-	return context.WithValue(authedCtx(installationID), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
+	return context.WithValue(authedCtx(installationID), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
 }
 
 // A /force-model pin that names an unavailable provider was silently dropped:
@@ -1687,7 +1691,7 @@ func TestService_SessionPin_ForcedPinDropped_SurfacesInMarker(t *testing.T) {
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderOpenAI: openAI},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: openAI}),
 		nil, store,
 		false, providers.ProviderOpenAI, "gpt-4o-mini",
 		nil), hmm.ServingPorts())
@@ -1698,7 +1702,7 @@ func TestService_SessionPin_ForcedPinDropped_SurfacesInMarker(t *testing.T) {
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "an unservable forced pin must fall through to routing")
-	assert.Equal(t, "gpt-5.5", rec.Header().Get(proxy.HeaderRouterModel),
+	assert.Equal(t, "gpt-5.5", rec.Header().Get(requestcontext.HeaderRouterModel),
 		"the scorer's pick serves the turn")
 	assert.Contains(t, rec.Body.String(), "force-model pin could not be served",
 		"the dropped pin must be surfaced, not silently swallowed")

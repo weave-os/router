@@ -6,10 +6,13 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -172,13 +175,13 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 		Model:             forcedModel,
 		Reason:            translate.ReasonUserForceModel,
 		Strategy:          router.StrategyHMMEmbedding,
-		PinnedUntil:       pinNeverExpires,
+		PinnedUntil:       routingpolicy.PinNeverExpires,
 		LastOutputTokens:  32000,
 		LastTurnEndedAt:   endedAt,
 		LastOutputLimitAt: endedAt,
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := withHMMPorts(NewService(freshRouter, nil, nil, store, false,
+	svc := withHMMPorts(NewService(freshRouter, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	features := child.RoutingFeatures()
@@ -201,10 +204,10 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	_, controlStillPresent := store.pins[forceModelMapKey(forceSessionKey, forceModelSessionRole)]
-	_, historyPresent := store.pins[forceModelMapKey(childThreadKey, forceModelHistoryRole(result.PinRole))]
+	_, historyPresent := store.pins[forceModelMapKey(childThreadKey, routingpolicy.ForceModelHistoryRole(result.PinRole))]
 	assert.True(t, controlStillPresent)
 	assert.True(t, historyPresent)
-	assert.Equal(t, pinNeverExpires, store.pins[forceModelMapKey(childThreadKey, forceModelHistoryRole(result.PinRole))].PinnedUntil)
+	assert.Equal(t, routingpolicy.PinNeverExpires, store.pins[forceModelMapKey(childThreadKey, routingpolicy.ForceModelHistoryRole(result.PinRole))].PinnedUntil)
 }
 
 func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
@@ -228,7 +231,7 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 		Provider:       providers.ProviderAnthropic,
 		Model:          "claude-opus-5",
 		Reason:         translate.ReasonUserForceModel,
-		PinnedUntil:    pinNeverExpires,
+		PinnedUntil:    routingpolicy.PinNeverExpires,
 	}
 	store.pins[forceModelMapKey(threadKey, role)] = sessionpin.Pin{
 		SessionKey:     threadKey,
@@ -240,15 +243,15 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 		Strategy:       router.StrategyHMMEmbedding,
 		PinnedUntil:    time.Now().Add(time.Hour),
 	}
-	store.pins[forceModelMapKey(threadKey, hmmHistoryRole(role))] = sessionpin.Pin{
+	store.pins[forceModelMapKey(threadKey, hmm.HistoryRole(role))] = sessionpin.Pin{
 		SessionKey: threadKey,
-		Role:       hmmHistoryRole(role),
+		Role:       hmm.HistoryRole(role),
 		DemotionCooldowns: map[string]time.Time{
 			catalog.ModelGPT6Luna: time.Now().Add(-time.Minute),
 		},
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := withHMMPorts(NewService(freshRouter, nil, nil, store, false,
+	svc := withHMMPorts(NewService(freshRouter, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	svc.WithTransientRateLimit(true, 45)
@@ -289,20 +292,20 @@ func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 		SessionKey:     forceKey,
 		Role:           forceModelSessionRole,
 		InstallationID: installationID,
-		Reason:         userUnforcedReason,
-		PinnedUntil:    pinNeverExpires,
+		Reason:         routingpolicy.ReasonUserUnforced,
+		PinnedUntil:    routingpolicy.PinNeverExpires,
 	}
-	store.pins[forceModelMapKey(threadKey, forceModelHistoryRole(role))] = sessionpin.Pin{
+	store.pins[forceModelMapKey(threadKey, routingpolicy.ForceModelHistoryRole(role))] = sessionpin.Pin{
 		SessionKey:      threadKey,
-		Role:            forceModelHistoryRole(role),
+		Role:            routingpolicy.ForceModelHistoryRole(role),
 		LastServedModel: "claude-opus-5",
 		LastTurnEndedAt: time.Now(),
-		PinnedUntil:     pinNeverExpires,
+		PinnedUntil:     routingpolicy.PinNeverExpires,
 	}
 	freshRouter := &tierProbeRouter{
 		available: map[string]struct{}{"claude-haiku-4-5": {}},
 	}
-	svc := withHMMPorts(NewService(freshRouter, nil, nil, store, false,
+	svc := withHMMPorts(NewService(freshRouter, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	result, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
@@ -336,10 +339,10 @@ func TestRunTurnLoop_SessionForceOverridesAuxiliaryHardPin(t *testing.T) {
 		Provider:       providers.ProviderAnthropic,
 		Model:          "claude-opus-5",
 		Reason:         translate.ReasonUserForceModel,
-		PinnedUntil:    pinNeverExpires,
+		PinnedUntil:    routingpolicy.PinNeverExpires,
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := withHMMPorts(NewService(freshRouter, nil, nil, store, false,
+	svc := withHMMPorts(NewService(freshRouter, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	features := env.RoutingFeatures()
@@ -372,10 +375,10 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	threadKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadKey)
 	store := newForceModelMapStore()
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
-	forcedModel, _, err := svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: "fable"}, installationID, threadKey, forceKey)
+	forcedModel, _, err := (forceModelCommands{svc}).apply(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: "fable"}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
 	assert.Equal(t, fableModelID, forcedModel)
 	pin, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
@@ -384,14 +387,14 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	assert.Equal(t, fableModelID, pin.Model)
 	assert.Equal(t, providers.ProviderAnthropic, pin.Provider)
 	assert.Equal(t, translate.ReasonUserForceModel, pin.Reason)
-	assert.Equal(t, pinNeverExpires, pin.PinnedUntil)
+	assert.Equal(t, routingpolicy.PinNeverExpires, pin.PinnedUntil)
 	for _, role := range forceModelClearRoles() {
 		_, threadForceFound, getErr := store.Get(ctx, threadKey, role)
 		require.NoError(t, getErr)
 		assert.False(t, threadForceFound, "new force state must have only one authoritative row")
 	}
 
-	nextModel, _, err := svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: "astra"}, installationID, threadKey, forceKey)
+	nextModel, _, err := (forceModelCommands{svc}).apply(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: "astra"}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
 	assert.Equal(t, astraModelID, nextModel)
 	switched, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
@@ -400,21 +403,21 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	assert.Equal(t, fableModelID, switched.LastServedModel)
 	assert.Equal(t, providers.ProviderOpenAI, switched.Provider)
 
-	_, _, err = svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Clear: true}, installationID, threadKey, forceKey)
+	_, _, err = (forceModelCommands{svc}).apply(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Clear: true}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
 	cleared, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
 	require.NoError(t, err)
 	require.True(t, found)
-	assert.Equal(t, pinNeverExpires, cleared.PinnedUntil, "the clear tombstone prevents legacy child pins from reviving")
+	assert.Equal(t, routingpolicy.PinNeverExpires, cleared.PinnedUntil, "the clear tombstone prevents legacy child pins from reviving")
 	assert.Empty(t, cleared.Model)
 	assert.Equal(t, astraModelID, cleared.LastServedModel)
 	assert.True(t, cleared.HasEverSwitched)
-	assert.Equal(t, userUnforcedReason, cleared.Reason)
+	assert.Equal(t, routingpolicy.ReasonUserUnforced, cleared.Reason)
 }
 
 func TestRecordTurnUsage_ForcedDecisionWritesThreadHistoryOnly(t *testing.T) {
 	store := newForceModelMapStore()
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	threadKey := [sessionpin.SessionKeyLen]byte{1}
@@ -427,12 +430,12 @@ func TestRecordTurnUsage_ForcedDecisionWritesThreadHistoryOnly(t *testing.T) {
 		Model:      "claude-opus-5",
 		Reason:     translate.ReasonUserForceModel,
 	}
-	store.pins[forceModelMapKey(threadKey, forceModelHistoryRole(role))] = sessionpin.Pin{
+	store.pins[forceModelMapKey(threadKey, routingpolicy.ForceModelHistoryRole(role))] = sessionpin.Pin{
 		SessionKey: threadKey,
-		Role:       forceModelHistoryRole(role),
+		Role:       routingpolicy.ForceModelHistoryRole(role),
 	}
 
-	svc.recordTurnUsage(context.Background(), turnLoopResult{
+	svc.recordTurnUsage(context.Background(), routingpolicy.TurnRoute{
 		SessionKey: threadKey,
 		PinRole:    role,
 		Decision: router.Decision{
@@ -444,7 +447,7 @@ func TestRecordTurnUsage_ForcedDecisionWritesThreadHistoryOnly(t *testing.T) {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	require.Equal(t, []string{forceModelHistoryRole(role)}, store.usageRoles)
+	require.Equal(t, []string{routingpolicy.ForceModelHistoryRole(role)}, store.usageRoles)
 	require.Equal(t, [][sessionpin.SessionKeyLen]byte{threadKey}, store.usageKeys)
 	assert.Empty(t, store.pins[forceModelMapKey(controlKey, forceModelSessionRole)].LastServedModel)
 }

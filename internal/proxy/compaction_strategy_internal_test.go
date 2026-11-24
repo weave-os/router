@@ -11,13 +11,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/routingpolicy/overrides"
 	"weave-os/router/internal/translate"
 )
 
@@ -25,11 +29,11 @@ const compactionStrategyModel = "gpt-6.1-terra"
 
 func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	store := newForceModelMapStore()
-	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: nil}, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}), nil, store, false,
 		providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil)).
 		WithAvailableModels(map[string]struct{}{compactionStrategyModel: {}}).
-		WithHardPinResolver(CatalogUtilityHardPin)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, SessionID: "compaction-strategy-test"})
+		WithHardPinResolver(overrides.CatalogUtilityHardPin)
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "compaction-strategy-test"})
 	ctx = router.WithStrategy(ctx, router.StrategyHMM)
 	env, err := translate.ParseOpenAI([]byte(`{"model":"weave-hmm-20261019-0001v1","messages":[{"role":"user","content":"You are performing a CONTEXT CHECKPOINT COMPACTION. Summarize the work."}]}`))
 	require.NoError(t, err)
@@ -44,12 +48,12 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 		decision := router.Decision{Provider: providers.ProviderOpenAI, Model: compactionStrategyModel,
 			Metadata: &router.RoutingMetadata{Strategy: string(strategy)}}
 		routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(turnCtx)).WriteNew(turnCtx, installationID, sessionKey, sessionpin.DefaultRole, decision)
-		svc.recordTurnUsage(turnCtx, turnLoopResult{
+		svc.recordTurnUsage(turnCtx, routingpolicy.TurnRoute{
 			InstallationID: installationID, SessionKey: sessionKey, PinRole: sessionpin.DefaultRole,
 			Strategy: strategy, Decision: decision,
 		}, decision.Provider, decision.Model, 100, 10, 0, 0, false)
 	}
-	history, found, err := store.Get(ctx, sessionKey, hmmHistoryRole(sessionpin.DefaultRole))
+	history, found, err := store.Get(ctx, sessionKey, hmm.HistoryRole(sessionpin.DefaultRole))
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, router.StrategyHMMEmbedding, history.Strategy)
@@ -88,21 +92,21 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	sessionPins := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(ctx))
 	_, active := sessionPins.Load(ctx, sessionKey, sessionpin.DefaultRole)
 	assert.False(t, active, "ordinary routing must still reject another strategy's pin")
-	assert.Empty(t, sessionPins.LoadHMMHistory(ctx, sessionKey, sessionpin.DefaultRole).LastServedModel)
+	assert.Empty(t, hmm.LoadHistory(ctx, sessionPins.HistoryRows(), sessionKey, sessionpin.DefaultRole).LastServedModel)
 }
 
 func TestCodexCompactionDispatchAcrossStrategies(t *testing.T) {
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(sessionpin.DefaultRole): {
+		hmm.HistoryRole(sessionpin.DefaultRole): {
 			Provider: providers.ProviderOpenAI, LastServedModel: compactionStrategyModel,
 			Strategy: router.StrategyHMMEmbedding, LastTurnEndedAt: time.Now(),
 		},
 	}}
-	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: untypedResponsesStreamProvider{}},
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: untypedResponsesStreamProvider{}}),
 		nil, store, false, providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil)).
 		WithHardPinResolver(func(HardPinRequest) (string, string, bool) { return "", "", false })
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	body := []byte(`{"model":"weave-hmm-20261019-0001v1","stream":true,"input":[
 		{"type":"message","role":"user","content":[{"type":"input_text","text":"Review the patch."}]},
 		{"type":"agent_message","author":"child","recipient":"parent","content":[{"type":"encrypted_content","encrypted_content":"synthetic-opaque-content"}]},
@@ -111,7 +115,7 @@ func TestCodexCompactionDispatchAcrossStrategies(t *testing.T) {
 	err := svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, compactionStrategyModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, compactionStrategyModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Contains(t, rec.Body.String(), `"delta":"handoff"`)
 	assert.Contains(t, rec.Body.String(), "event: response.completed")
 }
@@ -129,7 +133,7 @@ func TestCompactionCrossStrategyHistoryHonorsEligibility(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-				hmmHistoryRole(sessionpin.DefaultRole): {
+				hmm.HistoryRole(sessionpin.DefaultRole): {
 					Provider: providers.ProviderOpenAI, LastServedModel: compactionStrategyModel,
 					Strategy: router.StrategyHMMEmbedding, LastTurnEndedAt: time.Now(),
 				},
@@ -139,6 +143,7 @@ func TestCompactionCrossStrategyHistoryHonorsEligibility(t *testing.T) {
 				providers: map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}},
 				available: test.available,
 				now:       time.Now(),
+				history:   hmm.ServingPorts().History,
 			}
 			ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
 			_, _, ok := session.decision(ctx, [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, test.req)

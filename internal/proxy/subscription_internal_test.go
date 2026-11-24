@@ -4,11 +4,11 @@ import (
 	"context"
 	"net/http"
 	"testing"
-	"weave-os/router/internal/subscriptionlane"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,43 +20,43 @@ const testCodexLunaModel = "gpt-6-luna"
 
 func TestSubscriptionCredsFromToken(t *testing.T) {
 	t.Run("accepts oat token", func(t *testing.T) {
-		creds := subscriptionCredsFromToken("sk-ant-oat01-token")
+		creds := credentials.SubscriptionCredsFromToken("sk-ant-oat01-token")
 		require.NotNil(t, creds)
 		assert.True(t, creds.OAuth)
-		assert.Equal(t, credSourceSubscription, creds.Source)
+		assert.Equal(t, requestcontext.SourceSubscription, creds.Source)
 		assert.Equal(t, []byte("sk-ant-oat01-token"), creds.APIKey)
 	})
 	t.Run("trims whitespace", func(t *testing.T) {
-		creds := subscriptionCredsFromToken("  sk-ant-oat01-token  ")
+		creds := credentials.SubscriptionCredsFromToken("  sk-ant-oat01-token  ")
 		require.NotNil(t, creds)
 		assert.Equal(t, []byte("sk-ant-oat01-token"), creds.APIKey,
 			"the token must be canonicalized before use")
 	})
 	t.Run("rejects api key", func(t *testing.T) {
-		assert.Nil(t, subscriptionCredsFromToken("sk-ant-api-real-key"),
+		assert.Nil(t, credentials.SubscriptionCredsFromToken("sk-ant-api-real-key"),
 			"a real API key is not a subscription token and must not be flagged OAuth")
 	})
 	t.Run("rejects router key", func(t *testing.T) {
-		assert.Nil(t, subscriptionCredsFromToken("rk_router_key"))
+		assert.Nil(t, credentials.SubscriptionCredsFromToken("rk_router_key"))
 	})
 	t.Run("rejects empty", func(t *testing.T) {
-		assert.Nil(t, subscriptionCredsFromToken(""))
+		assert.Nil(t, credentials.SubscriptionCredsFromToken(""))
 	})
 }
 
 func TestResolveAndInjectCredentials_AnthropicBYOKBeatsSubscription(t *testing.T) {
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, testInstallationID)
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, testInstallationID)
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
 	})
-	ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
+	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
 
-	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
-	creds := CredentialsFromContext(out)
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
+	creds := credentials.CredentialsFromContext(out)
 	require.NotNil(t, creds)
 	assert.False(t, creds.OAuth)
-	assert.Equal(t, credSourceBYOK, creds.Source)
+	assert.Equal(t, requestcontext.SourceBYOK, creds.Source)
 	assert.Equal(t, []byte("sk-ant-api-byok"), creds.APIKey)
 }
 
@@ -64,14 +64,14 @@ func TestResolveAndInjectCredentials_SubscriptionIgnoredForNonAnthropic(t *testi
 	// The subscription token can only pay for Claude models. A non-Anthropic
 	// route must fall back to BYOK and never resolve the subscription token.
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, testInstallationID)
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, testInstallationID)
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-oai-byok")},
 	})
-	ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
+	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
 
-	out := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.4-nano", http.Header{})
-	creds := CredentialsFromContext(out)
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.4-nano", http.Header{})
+	creds := credentials.CredentialsFromContext(out)
 	require.NotNil(t, creds)
 	assert.False(t, creds.OAuth)
 	assert.Equal(t, []byte("sk-oai-byok"), creds.APIKey,
@@ -79,15 +79,15 @@ func TestResolveAndInjectCredentials_SubscriptionIgnoredForNonAnthropic(t *testi
 }
 
 func TestResolveAndInjectCredentials_AnthropicBYOKBeatsInboundSubscription(t *testing.T) {
-	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
 	})
 	headers := http.Header{"Authorization": []string{"Bearer sk-ant-oat01-subscription-token"}}
-	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
-	creds := CredentialsFromContext(out)
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
+	creds := credentials.CredentialsFromContext(out)
 	require.NotNil(t, creds)
 	assert.False(t, creds.OAuth)
-	assert.Equal(t, credSourceBYOK, creds.Source)
+	assert.Equal(t, requestcontext.SourceBYOK, creds.Source)
 	assert.Equal(t, []byte("sk-ant-api-byok"), creds.APIKey)
 }
 
@@ -95,35 +95,35 @@ func TestResolveAndInjectCredentials_SelfHostedInboundSubscription(t *testing.T)
 	// No router key (nil installation): the caller's own Authorization bearer
 	// carries the subscription token and is resolved via client extraction.
 	headers := http.Header{"Authorization": []string{"Bearer sk-ant-oat01-subscription-token"}}
-	out := resolveAndInjectCredentials(context.Background(), providers.ProviderAnthropic, "claude-opus-4-8", headers)
-	creds := CredentialsFromContext(out)
+	out := credentials.ResolveAndInjectCredentials(context.Background(), providers.ProviderAnthropic, "claude-opus-4-8", headers)
+	creds := credentials.CredentialsFromContext(out)
 	require.NotNil(t, creds)
 	assert.True(t, creds.OAuth)
-	assert.Equal(t, credSourceSubscription, creds.Source)
+	assert.Equal(t, requestcontext.SourceSubscription, creds.Source)
 }
 
 func TestResolveAndInjectCredentials_RouterKeyedInboundSubscription(t *testing.T) {
 	// Managed CC: router key auth via X-Weave-Router-Key, CC's own subscription
 	// OAuth token in Authorization, no extra credential, no BYOK. Inbound bearer
 	// must still resolve as the subscription credential.
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
 	headers := http.Header{"Authorization": []string{"Bearer sk-ant-oat01-subscription-token"}}
-	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
-	creds := CredentialsFromContext(out)
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
+	creds := credentials.CredentialsFromContext(out)
 	require.NotNil(t, creds)
 	assert.True(t, creds.OAuth,
 		"a managed CC turn must resolve its inbound subscription bearer even when router-keyed")
-	assert.Equal(t, credSourceSubscription, creds.Source)
+	assert.Equal(t, requestcontext.SourceSubscription, creds.Source)
 	assert.Equal(t, []byte("sk-ant-oat01-subscription-token"), creds.APIKey)
 }
 
 func TestResolveAndInjectCredentials_RouterKeyedInboundApiKeyNotForwarded(t *testing.T) {
 	// Router-key path must not forward a general inbound API key, only the
 	// sk-ant-oat OAuth subset — otherwise it'd widen the cross-provider-leak guard.
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
 	headers := http.Header{"Authorization": []string{"Bearer sk-ant-api-real-client-key"}}
-	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
-	assert.Nil(t, CredentialsFromContext(out),
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
+	assert.Nil(t, credentials.CredentialsFromContext(out),
 		"a non-OAuth inbound API key must not be forwarded on the router-key path; the deployment key is the correct fallback")
 }
 
@@ -131,18 +131,18 @@ const codexTestJWT = "eyJhbGciOiJSUzI1NiJ9.codex-access.signature"
 
 func TestResolveAndInjectCredentials_CodexSubscriptionBeatsBYOK(t *testing.T) {
 	// A Codex subscription must win over BYOK, reading past the router-key guard.
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-oai-byok")},
 	})
-	ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestJWT)
-	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-999")
+	ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestJWT)
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-999")
 
-	out := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.6-sol", http.Header{})
-	creds := CredentialsFromContext(out)
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.6-sol", http.Header{})
+	creds := credentials.CredentialsFromContext(out)
 	require.NotNil(t, creds)
 	assert.True(t, creds.OAuth)
-	assert.Equal(t, credSourceCodexSubscription, creds.Source)
+	assert.Equal(t, requestcontext.SourceCodexSubscription, creds.Source)
 	assert.Equal(t, []byte(codexTestJWT), creds.APIKey)
 	assert.Equal(t, []byte("acct-999"), creds.AccountID)
 }
@@ -150,18 +150,18 @@ func TestResolveAndInjectCredentials_CodexSubscriptionBeatsBYOK(t *testing.T) {
 func TestResolveAndInjectCredentials_CodexInboundBeatsBYOK(t *testing.T) {
 	// Self-hosted (no router key): an inbound Authorization JWT + ChatGPT-Account-ID
 	// must beat a present BYOK OpenAI key so the turn bills at the subscription fee.
-	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-oai-byok")},
 	})
 	headers := http.Header{
 		"Authorization":      []string{"Bearer " + codexTestJWT},
 		"Chatgpt-Account-Id": []string{"acct-999"},
 	}
-	out := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.6-sol", headers)
-	creds := CredentialsFromContext(out)
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.6-sol", headers)
+	creds := credentials.CredentialsFromContext(out)
 	require.NotNil(t, creds)
 	assert.True(t, creds.OAuth, "the inbound Codex subscription must win over BYOK")
-	assert.Equal(t, credSourceCodexSubscription, creds.Source)
+	assert.Equal(t, requestcontext.SourceCodexSubscription, creds.Source)
 	assert.Equal(t, []byte("acct-999"), creds.AccountID)
 }
 
@@ -169,17 +169,17 @@ func TestResolveAndInjectCredentials_RouterKeyedInboundCodexSubscription(t *test
 	// Managed Codex: router key auth via X-Weave-Router-Key, Codex's own ChatGPT
 	// auth in Authorization + ChatGPT-Account-ID, no extra credential, no BYOK.
 	// Inbound bearer must still resolve as Codex subscription (mirrors #460).
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
 	headers := http.Header{
 		"Authorization":      []string{"Bearer " + codexTestJWT},
 		"Chatgpt-Account-Id": []string{"acct-999"},
 	}
-	out := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.6-sol", headers)
-	creds := CredentialsFromContext(out)
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.6-sol", headers)
+	creds := credentials.CredentialsFromContext(out)
 	require.NotNil(t, creds)
 	assert.True(t, creds.OAuth,
 		"a managed Codex turn must resolve its inbound subscription bearer even when router-keyed")
-	assert.Equal(t, credSourceCodexSubscription, creds.Source)
+	assert.Equal(t, requestcontext.SourceCodexSubscription, creds.Source)
 	assert.Equal(t, []byte("acct-999"), creds.AccountID)
 }
 
@@ -200,11 +200,11 @@ func TestGenericOpenAIAliasesUseCodexSubscription(t *testing.T) {
 			assert.Equal(t, "gpt-6.2-sol", model)
 			assert.Equal(t, providers.ProviderOpenAI, provider)
 
-			ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, codexTestJWT)
-			ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-999")
-			creds := CredentialsFromContext(resolveAndInjectCredentials(ctx, provider, model, http.Header{}))
+			ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, codexTestJWT)
+			ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-999")
+			creds := credentials.CredentialsFromContext(credentials.ResolveAndInjectCredentials(ctx, provider, model, http.Header{}))
 			require.NotNil(t, creds)
-			assert.Equal(t, credSourceCodexSubscription, creds.Source)
+			assert.Equal(t, requestcontext.SourceCodexSubscription, creds.Source)
 			assert.Equal(t, []byte("acct-999"), creds.AccountID)
 		})
 	}
@@ -213,49 +213,49 @@ func TestGenericOpenAIAliasesUseCodexSubscription(t *testing.T) {
 func TestResolveAndInjectCredentials_CodexCoverageIsModelScoped(t *testing.T) {
 	for _, model := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-sol", "gpt-6.1-sol", testCodexLunaModel} {
 		t.Run(model+" uses Codex OAuth", func(t *testing.T) {
-			ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
-			ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+			ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
+			ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 				{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-oai-byok")},
 			})
-			ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestJWT)
-			ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-999")
+			ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestJWT)
+			ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-999")
 
-			creds := CredentialsFromContext(resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, model, http.Header{}))
+			creds := credentials.CredentialsFromContext(credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, model, http.Header{}))
 			require.NotNil(t, creds)
 			assert.True(t, creds.OAuth)
-			assert.Equal(t, credSourceCodexSubscription, creds.Source)
+			assert.Equal(t, requestcontext.SourceCodexSubscription, creds.Source)
 		})
 	}
 
 	t.Run("infrastructure OpenAI model uses BYOK", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
-		ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
+		ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-oai-byok")},
 		})
-		ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestJWT)
-		ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-999")
+		ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestJWT)
+		ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-999")
 
-		creds := CredentialsFromContext(resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.4-nano", http.Header{}))
+		creds := credentials.CredentialsFromContext(credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.4-nano", http.Header{}))
 		require.NotNil(t, creds)
 		assert.False(t, creds.OAuth)
-		assert.Equal(t, credSourceBYOK, creds.Source)
+		assert.Equal(t, requestcontext.SourceBYOK, creds.Source)
 		assert.Equal(t, []byte("sk-oai-byok"), creds.APIKey)
 	})
 
 	t.Run("infrastructure OpenAI model clears prior Codex OAuth for deployment fallback", func(t *testing.T) {
-		prior := &Credentials{
+		prior := &requestcontext.Credentials{
 			APIKey:    []byte(codexTestJWT),
 			AccountID: []byte("acct-999"),
-			Source:    credSourceCodexSubscription,
+			Source:    requestcontext.SourceCodexSubscription,
 			OAuth:     true,
 		}
-		ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
-		ctx = context.WithValue(ctx, CredentialsContextKey{}, prior)
-		ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestJWT)
-		ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-999")
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
+		ctx = context.WithValue(ctx, requestcontext.CredentialsContextKey{}, prior)
+		ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestJWT)
+		ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-999")
 
-		out := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.4-nano", http.Header{})
-		assert.Nil(t, CredentialsFromContext(out),
+		out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.4-nano", http.Header{})
+		assert.Nil(t, credentials.CredentialsFromContext(out),
 			"an infrastructure model must clear Codex OAuth so the OpenAI client uses its deployment key")
 	})
 }
@@ -263,25 +263,25 @@ func TestResolveAndInjectCredentials_CodexCoverageIsModelScoped(t *testing.T) {
 func TestResolveAndInjectCredentials_RouterKeyedInboundOpenAIApiKeyNotForwarded(t *testing.T) {
 	// Router-key path must not forward a general inbound OpenAI key — only the
 	// Codex OAuth subset (JWT + ChatGPT-Account-ID) is honored.
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
 	headers := http.Header{"Authorization": []string{"Bearer sk-proj-real-client-key"}}
-	out := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.6-sol", headers)
-	assert.Nil(t, CredentialsFromContext(out),
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.6-sol", headers)
+	assert.Nil(t, credentials.CredentialsFromContext(out),
 		"a non-OAuth inbound OpenAI key must not be forwarded on the router-key path; the deployment key is the correct fallback")
 }
 
 func TestResolveAndInjectCredentials_CodexSubscriptionIgnoredForNonOpenAI(t *testing.T) {
 	// The Codex token can only pay for OpenAI; a non-OpenAI route must not
 	// resolve it.
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
 	})
-	ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestJWT)
-	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-999")
+	ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestJWT)
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-999")
 
-	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
-	creds := CredentialsFromContext(out)
+	out := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
+	creds := credentials.CredentialsFromContext(out)
 	require.NotNil(t, creds)
 	assert.False(t, creds.OAuth)
 	assert.Equal(t, []byte("sk-ant-api-byok"), creds.APIKey,
@@ -290,9 +290,9 @@ func TestResolveAndInjectCredentials_CodexSubscriptionIgnoredForNonOpenAI(t *tes
 
 func TestCodexResponsesRequest(t *testing.T) {
 	t.Run("subscription on a router-keyed request", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
-		ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestJWT)
-		ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-1")
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
+		ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestJWT)
+		ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-1")
 		assert.True(t, codexResponsesRequest(ctx, http.Header{}))
 	})
 	t.Run("inbound bearer + account-id off the router key", func(t *testing.T) {
@@ -305,7 +305,7 @@ func TestCodexResponsesRequest(t *testing.T) {
 	t.Run("inbound bearer + account-id on a router-keyed request", func(t *testing.T) {
 		// Detection must agree with resolveAndInjectCredentials here: not
 		// gated on the installation's absence.
-		ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
 		headers := http.Header{
 			"Authorization":      []string{"Bearer " + codexTestJWT},
 			"Chatgpt-Account-Id": []string{"acct-1"},
@@ -313,8 +313,8 @@ func TestCodexResponsesRequest(t *testing.T) {
 		assert.True(t, codexResponsesRequest(ctx, headers))
 	})
 	t.Run("token without account-id is not a Codex request", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
-		ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestJWT)
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
+		ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestJWT)
 		assert.False(t, codexResponsesRequest(ctx, http.Header{}))
 	})
 	t.Run("plain request is not a Codex request", func(t *testing.T) {
@@ -323,55 +323,28 @@ func TestCodexResponsesRequest(t *testing.T) {
 }
 
 func TestClearCredentials(t *testing.T) {
-	ctx := context.WithValue(context.Background(), CredentialsContextKey{},
-		&Credentials{APIKey: []byte("sk-ant-oat01-token"), Source: credSourceSubscription, OAuth: true})
-	require.NotNil(t, CredentialsFromContext(ctx))
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{},
+		&requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-token"), Source: requestcontext.SourceSubscription, OAuth: true})
+	require.NotNil(t, credentials.CredentialsFromContext(ctx))
 
-	cleared := clearCredentials(ctx)
-	assert.Nil(t, CredentialsFromContext(cleared),
+	cleared := credentials.ClearCredentials(ctx)
+	assert.Nil(t, credentials.CredentialsFromContext(cleared),
 		"clearCredentials must make CredentialsFromContext report none so the synthetic call falls back to the deployment key")
-}
-
-func TestResolveSummarizerCreds_DropsSubscriptionToken(t *testing.T) {
-	// The synthetic summarizer body has no Claude Code identity block, which a
-	// subscription token requires — so it must never run on one.
-	headers := http.Header{"Authorization": []string{"Bearer sk-ant-oat01-subscription-token"}}
-	creds := resolveSummarizerCreds(context.Background(), providers.ProviderAnthropic, headers)
-	assert.Nil(t, creds,
-		"resolveSummarizerCreds must decline a subscription OAuth token so the synthetic summary call doesn't 401")
 }
 
 func TestServedOnSubscription(t *testing.T) {
 	t.Run("true for an OAuth credential", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), CredentialsContextKey{},
-			&Credentials{APIKey: []byte("sk-ant-oat01-token"), Source: credSourceSubscription, OAuth: true})
-		assert.True(t, servedOnSubscription(ctx), "billing must treat an OAuth-credentialed turn as subscription-served")
+		ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{},
+			&requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-token"), Source: requestcontext.SourceSubscription, OAuth: true})
+		assert.True(t, credentials.ServedOnSubscription(ctx), "billing must treat an OAuth-credentialed turn as subscription-served")
 	})
 	t.Run("false for a non-OAuth credential", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), CredentialsContextKey{},
-			&Credentials{APIKey: []byte("sk-ant-api-byok"), Source: credSourceBYOK})
-		assert.False(t, servedOnSubscription(ctx))
+		ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{},
+			&requestcontext.Credentials{APIKey: []byte("sk-ant-api-byok"), Source: requestcontext.SourceBYOK})
+		assert.False(t, credentials.ServedOnSubscription(ctx))
 	})
 	t.Run("false when no credential resolved (deployment key)", func(t *testing.T) {
-		assert.False(t, servedOnSubscription(context.Background()),
+		assert.False(t, credentials.ServedOnSubscription(context.Background()),
 			"a deployment-key turn is Weave-fronted and must bill at full cost")
 	})
-}
-
-func TestResolveSummarizerCreds_ReturnsBYOK(t *testing.T) {
-	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
-	})
-	creds := resolveSummarizerCreds(ctx, providers.ProviderAnthropic, http.Header{})
-	require.NotNil(t, creds)
-	assert.Equal(t, []byte("sk-ant-api-byok"), creds.APIKey,
-		"a real BYOK key is a valid summarizer credential and must be used")
-}
-
-func TestSummarizerCredsFor_SkipsAKeyOwingAnUnpayableFee(t *testing.T) {
-	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")}})
-	require.NotNil(t, summarizerCredsFor(ctx, providers.ProviderAnthropic, http.Header{}), "a funded turn summarizes on the key")
-	unfunded, _ := billing.NewService(nil).WithByokFeeRate(0.05).TripSubscriptionLane(ctx, subscriptionlane.CreditsDepletedCovered)
-	assert.Nil(t, summarizerCredsFor(unfunded, providers.ProviderAnthropic, http.Header{}),
-		"an organization that cannot pay the BYOK fee must not be charged one for a summary")
 }

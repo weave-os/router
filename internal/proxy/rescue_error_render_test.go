@@ -9,11 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -45,9 +46,9 @@ func TestProxyMessages_SubscriptionRescueFailurePreservesHTTPError(t *testing.T)
 			Model:    "claude-opus-4-8",
 			Metadata: &router.RoutingMetadata{CandidateModels: []string{"claude-opus-4-8"}},
 		}},
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", upstream.URL),
-		},
+		}),
 		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithRetrySleep(noRetrySleep).
@@ -55,7 +56,7 @@ func TestProxyMessages_SubscriptionRescueFailurePreservesHTTPError(t *testing.T)
 
 	ctx := context.WithValue(
 		authedCtx("11111111-1111-1111-1111-111111111111"),
-		proxy.AnthropicSubscriptionContextKey{},
+		credentials.AnthropicSubscriptionContextKey{},
 		"sk-ant-oat01-subscription-token",
 	)
 	rec := httptest.NewRecorder()

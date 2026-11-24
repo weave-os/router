@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/gin-gonic/gin"
 )
@@ -41,7 +41,7 @@ func metricsScope(c *gin.Context) (allInstallations bool, installationID string,
 	return false, installation.ID, true
 }
 
-func MetricsSummaryHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func MetricsSummaryHandler(queries turnrecord.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		from, to := parseTimeWindow(c)
 
@@ -51,13 +51,13 @@ func MetricsSummaryHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		}
 
 		var (
-			summary proxy.TelemetrySummary
+			summary turnrecord.TelemetrySummary
 			err     error
 		)
 		if allInstallations {
-			summary, err = proxySvc.MetricsSummaryAll(c.Request.Context(), from, to)
+			summary, err = queries.MetricsSummaryAll(c.Request.Context(), from, to)
 		} else {
-			summary, err = proxySvc.MetricsSummary(c.Request.Context(), installationID, from, to)
+			summary, err = queries.MetricsSummary(c.Request.Context(), installationID, from, to)
 		}
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch metrics."})
@@ -74,7 +74,7 @@ func MetricsSummaryHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-func MetricsTimeseriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func MetricsTimeseriesHandler(queries turnrecord.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		granularity := c.DefaultQuery("granularity", "hour")
 		if granularity != "hour" && granularity != "day" && granularity != "week" {
@@ -88,13 +88,13 @@ func MetricsTimeseriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		}
 
 		var (
-			buckets []proxy.TelemetryBucket
+			buckets []turnrecord.TelemetryBucket
 			err     error
 		)
 		if allInstallations {
-			buckets, err = proxySvc.MetricsTimeseriesAll(c.Request.Context(), from, to, granularity)
+			buckets, err = queries.MetricsTimeseriesAll(c.Request.Context(), from, to, granularity)
 		} else {
-			buckets, err = proxySvc.MetricsTimeseries(c.Request.Context(), installationID, from, to, granularity)
+			buckets, err = queries.MetricsTimeseries(c.Request.Context(), installationID, from, to, granularity)
 		}
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch timeseries."})
@@ -125,7 +125,7 @@ type metricsModelBreakdownResponse struct {
 	Buckets []modelBreakdownBucket `json:"buckets"`
 }
 
-func MetricsModelBreakdownHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func MetricsModelBreakdownHandler(queries turnrecord.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		granularity := c.DefaultQuery("granularity", "hour")
 		if granularity != "hour" && granularity != "day" && granularity != "week" {
@@ -139,13 +139,13 @@ func MetricsModelBreakdownHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		}
 
 		var (
-			buckets []proxy.TelemetryModelBucket
+			buckets []turnrecord.TelemetryModelBucket
 			err     error
 		)
 		if allInstallations {
-			buckets, err = proxySvc.MetricsModelBreakdownAll(c.Request.Context(), from, to, granularity)
+			buckets, err = queries.MetricsModelBreakdownAll(c.Request.Context(), from, to, granularity)
 		} else {
-			buckets, err = proxySvc.MetricsModelBreakdown(c.Request.Context(), installationID, from, to, granularity)
+			buckets, err = queries.MetricsModelBreakdown(c.Request.Context(), installationID, from, to, granularity)
 		}
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch model breakdown."})
@@ -192,7 +192,7 @@ type metricsDetailsResponse struct {
 	Rows []metricsDetailRow `json:"rows"`
 }
 
-func MetricsDetailsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func MetricsDetailsHandler(queries turnrecord.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		from, to := parseTimeWindow(c)
 		const defaultLimit = 100
@@ -214,13 +214,13 @@ func MetricsDetailsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		}
 
 		var (
-			rows []proxy.TelemetryRow
+			rows []turnrecord.TelemetryRow
 			err  error
 		)
 		if allInstallations {
-			rows, err = proxySvc.MetricsRowsAll(c.Request.Context(), from, to, limit)
+			rows, err = queries.MetricsRowsAll(c.Request.Context(), from, to, limit)
 		} else {
-			rows, err = proxySvc.MetricsRows(c.Request.Context(), installationID, from, to, limit)
+			rows, err = queries.MetricsRows(c.Request.Context(), installationID, from, to, limit)
 		}
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch details."})

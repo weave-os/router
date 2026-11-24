@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/sjson"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 )
 
@@ -25,7 +26,7 @@ func TestClassifierSearchChildIsolationAndReplay(t *testing.T) {
 	parentThread := mustAs[router.ClassifierThread](t, parent.Value(classifierThreadContextKey{}))
 	classify := func(ctx context.Context, body string) context.Context {
 		t.Helper()
-		captured, err := svc.withClassifierInput(ctx, []byte(body), router.EndpointAnthropicMessages)
+		captured, err := svc.withClassifierInput(ctx, router.StrategyFromContext(ctx), []byte(body), router.EndpointAnthropicMessages)
 		require.NoError(t, err)
 		_, err = svc.classifyThread(captured, mustAs[router.ClassifierContext](t, captured.Value(classifierInputContextKey{})))
 		require.NoError(t, err)
@@ -59,12 +60,12 @@ func TestClassifierSearchChildIsolationAndReplay(t *testing.T) {
 	require.Equal(t, "Synthetic answer", inputs[2].User.PrecedingResponses[0].Content)
 
 	// Parent advancement cannot change a retry's child identity.
-	replica := &Service{hmmServing: hmmPorts(), clock: svc.clock}
+	replica := wireCredentialPorts(&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), clock: svc.clock})
 	require.NoError(t, replica.WithClassifierSessions(svc.classifierSessions.config, store, svc.classifierSessions.classifier))
 	var workers sync.WaitGroup
 	for range 8 {
 		workers.Go(func() {
-			captured, err := replica.withClassifierInput(parent, []byte(classifierSearchBody), router.EndpointAnthropicMessages)
+			captured, err := replica.withClassifierInput(parent, router.StrategyFromContext(parent), []byte(classifierSearchBody), router.EndpointAnthropicMessages)
 			if err != nil {
 				t.Errorf("capture retry: %v", err)
 				return
@@ -88,7 +89,7 @@ func TestClassifierSearchChildIsolationAndReplay(t *testing.T) {
 	require.NotEqual(t, childThread.ThreadID, mustAs[router.ClassifierThread](t, differentParentChild.Value(classifierThreadContextKey{})).ThreadID)
 
 	// An ordinary history reset is still rejected, even after a helper succeeds.
-	captured, err := svc.withClassifierInput(parent, []byte(first), router.EndpointAnthropicMessages)
+	captured, err := svc.withClassifierInput(parent, router.StrategyFromContext(parent), []byte(first), router.EndpointAnthropicMessages)
 	require.NoError(t, err)
 	_, err = svc.classifyThread(captured, mustAs[router.ClassifierContext](t, captured.Value(classifierInputContextKey{})))
 	require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
@@ -111,7 +112,7 @@ func TestClassifierSearchDoesNotResetOrdinaryThreads(t *testing.T) {
 			parent := classifierAdmit(t, svc, principal)
 			body, err := sjson.Set(classifierSearchBody, test.path, test.value)
 			require.NoError(t, err)
-			captured, err := svc.withClassifierInput(parent, []byte(body), router.EndpointAnthropicMessages)
+			captured, err := svc.withClassifierInput(parent, router.StrategyFromContext(parent), []byte(body), router.EndpointAnthropicMessages)
 			require.NoError(t, err)
 			require.Equal(t, parent.Value(classifierThreadContextKey{}), captured.Value(classifierThreadContextKey{}))
 			require.Len(t, store.threads, 1)
@@ -124,19 +125,19 @@ func TestClassifierSearchRejectsMissingParentAndRetiredChild(t *testing.T) {
 	parent := classifierAdmit(t, svc, principal)
 	thread := mustAs[router.ClassifierThread](t, parent.Value(classifierThreadContextKey{}))
 	delete(store.threads, thread.ThreadID)
-	_, err := svc.withClassifierInput(parent, []byte(classifierSearchBody), router.EndpointAnthropicMessages)
+	_, err := svc.withClassifierInput(parent, router.StrategyFromContext(parent), []byte(classifierSearchBody), router.EndpointAnthropicMessages)
 	require.ErrorIs(t, err, router.ErrClassifierThreadInvalid)
 	require.Empty(t, store.threads)
 	store.threads[thread.ThreadID] = thread
-	captured, err := svc.withClassifierInput(parent, []byte(classifierSearchBody), router.EndpointAnthropicMessages)
+	captured, err := svc.withClassifierInput(parent, router.StrategyFromContext(parent), []byte(classifierSearchBody), router.EndpointAnthropicMessages)
 	require.NoError(t, err)
 	child := mustAs[router.ClassifierThread](t, captured.Value(classifierThreadContextKey{}))
 	child.ReleaseSHA256 = strings.Repeat("f", 64)
 	store.threads[child.ThreadID] = child
-	_, err = svc.withClassifierInput(parent, []byte(classifierSearchBody), router.EndpointAnthropicMessages)
+	_, err = svc.withClassifierInput(parent, router.StrategyFromContext(parent), []byte(classifierSearchBody), router.EndpointAnthropicMessages)
 	require.ErrorIs(t, err, router.ErrClassifierThreadInvalid)
 	require.Len(t, store.threads, 2)
 	thread.ThreadID = uuid.New()
-	_, err = svc.withClassifierInput(context.WithValue(parent, classifierThreadContextKey{}, thread), []byte(classifierSearchBody), router.EndpointAnthropicMessages)
+	_, err = svc.withClassifierInput(context.WithValue(parent, classifierThreadContextKey{}, thread), router.StrategyFromContext(parent), []byte(classifierSearchBody), router.EndpointAnthropicMessages)
 	require.ErrorIs(t, err, router.ErrClassifierThreadInvalid)
 }

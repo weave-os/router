@@ -13,7 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -67,15 +70,15 @@ func gatewayCompactionFixture(anthropicErr error) (*Service, context.Context, *g
 			CandidateProviders: map[string]string{catalog.ModelGPT6Luna: providers.ProviderOpenAIGateway},
 		},
 	}
-	svc := withHMMPorts(NewService(fixedRouter{decision: scored}, map[string]providers.Client{
+	svc := withHMMPorts(NewService(fixedRouter{decision: scored}, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderAnthropicGateway: anthropicGateway,
 		providers.ProviderOpenAIGateway:    openAIGateway,
-	}, nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
+	}), nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
 		WithHardPinResolver(fastest).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	ctx := rescuedFailureCtx()
-	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel})
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx = context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel})
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		gatewayKey(providers.ProviderAnthropicGateway, "https://gateway.example.com/anthropic", gatewayCompactionOpusModel, policy.PrecompactionDefaultModel),
 		gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/openai", catalog.ModelGPT6Luna),
 	})
@@ -98,7 +101,7 @@ func TestGatewayCompactionUsesScoredModel(t *testing.T) {
 	rec, err := proxyGatewayCompaction(t, svc, ctx)
 
 	require.NoError(t, err)
-	assert.Equal(t, gatewayCompactionOpusModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, gatewayCompactionOpusModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Equal(t, []string{gatewayCompactionOpusModel}, anthropicGateway.models, "the scored model behind the held gateway serves the turn")
 	assert.Empty(t, openAIGateway.models)
 }
@@ -117,7 +120,7 @@ func TestGatewayCompactionFailsOverBeforeCommit(t *testing.T) {
 		assert.Equal(t, gatewayCompactionOpusModel, model)
 	}
 	assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models, "the scorer's next candidate rescues the failed model")
-	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Contains(t, rec.Body.String(), "summary")
 }
 

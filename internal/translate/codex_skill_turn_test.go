@@ -212,3 +212,51 @@ func TestExtractForceModelCommand_CodexAppDirectiveLookalikesAreNotCommands(t *t
 		})
 	}
 }
+
+const codexHookContext = "Hook context returned as additionalContext by a UserPromptSubmit hook."
+
+func codexDeveloperItem(text string) any {
+	return map[string]any{
+		"type": "message", "role": "developer",
+		"content": []any{map[string]any{"type": "input_text", "text": text}},
+	}
+}
+
+// Codex inserts a UserPromptSubmit hook's additionalContext as a developer
+// message between the typed directive and the skill block it invokes.
+func TestExtractForceModelCommand_HookContextBetweenDirectiveAndSkillBlob(t *testing.T) {
+	env := codexEnvelope(t,
+		codexUserItem("<environment_context><cwd>/x</cwd></environment_context>"),
+		codexUserItem("$fm astra"),
+		codexDeveloperItem(codexHookContext),
+		codexUserItem(codexSkillBlob),
+	)
+	res, found := env.ExtractForceModelCommand()
+	require.True(t, found, "hook context must not hide the directive the user typed")
+	assert.Equal(t, "astra", res.Model)
+	assert.False(t, res.FromToolResult)
+}
+
+func TestExtractForceModelCommand_HookContextAfterAnAckDoesNotRevivePriorTurn(t *testing.T) {
+	env := codexEnvelope(t,
+		codexUserItem("$fm astra"),
+		codexAssistantItem("pinned"),
+		codexDeveloperItem(codexHookContext),
+		codexUserItem(codexSkillBlob),
+	)
+	_, found := env.ExtractForceModelCommand()
+	assert.False(t, found, "skipping hook context must not reach back past an assistant turn")
+}
+
+func TestStripThenExtract_HookContextDoesNotEatTheFeedbackDirective(t *testing.T) {
+	env := codexEnvelope(t,
+		codexUserItem("$rf - too slow on this one"),
+		codexDeveloperItem(codexHookContext),
+		codexUserItem(codexSkillBlob),
+	)
+	env.StripRouterFeedbackArtifacts()
+	res, found := env.ExtractRouterFeedbackCommand()
+	require.True(t, found)
+	assert.Equal(t, "down", res.Rating)
+	assert.Equal(t, "too slow on this one", res.Feedback)
+}

@@ -9,6 +9,12 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/inference"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +34,7 @@ func TestSubscriptionModelAccessDoesNotPayAndRemembers(t *testing.T) {
 			svc := in.parityService(upstream)
 			for i := 0; i < 2; i++ {
 				rec, req, body := in.request(t, stream)
-				require.ErrorIs(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req), ErrWeaveCreditsDisabled)
+				require.ErrorIs(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req), credentials.ErrWeaveCreditsDisabled)
 				assert.Empty(t, rec.Body.String(), "the handler owns rendering the unpaid refusal")
 			}
 			assert.Equal(t, 1, upstream.subDispatches)
@@ -46,7 +52,7 @@ func TestSubscriptionModelAccessOpenAIIngressDoesNotPayAndRemembers(t *testing.T
 	for range 2 {
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-		require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(billing.WithWeaveCreditsDenied(in.subCtx()), body, recorder, request), ErrWeaveCreditsDisabled)
+		require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(billing.WithWeaveCreditsDenied(in.subCtx()), body, recorder, request), credentials.ErrWeaveCreditsDisabled)
 		assert.Empty(t, recorder.Body.String(), "the handler owns rendering the unpaid refusal")
 	}
 
@@ -59,16 +65,16 @@ func TestSubscriptionModelAccessPreservesFailedAttemptAttribution(t *testing.T) 
 	upstream := &parityUpstream{subErr: modelAccessError(), paidErr: modelAccessError()}
 	svc := in.parityService(upstream)
 	telemetry := &auxTelemetryRepo{}
-	svc.telemetry = telemetry
+	svc.turnTelemetry.repo = telemetry
 	rec, req, body := in.request(t, false)
-	require.ErrorIs(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req), ErrWeaveCreditsDisabled)
+	require.ErrorIs(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req), credentials.ErrWeaveCreditsDisabled)
 	assert.Empty(t, rec.Body.String(), "blocked funding must not commit a success response")
 	assert.Equal(t, 1, upstream.subDispatches)
 	assert.Zero(t, upstream.paidDispatches)
 	// Learning a denial must not retroactively change the credential of the failed attempt.
 	rows := telemetry.waitForRows(1)
 	require.Len(t, rows, 1)
-	assert.Equal(t, credSourceSubscription, rows[0].CredentialSource)
+	assert.Equal(t, requestcontext.SourceSubscription, rows[0].CredentialSource)
 }
 
 func TestSubscriptionModelAccessDoesNotSpendWithoutPermission(t *testing.T) {
@@ -98,15 +104,15 @@ func TestSubscriptionModelAccessScopeAndExpiry(t *testing.T) {
 	svc.clock = func() time.Time { return now }
 	svc.recordSubscriptionModelRejection(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), in.provider, in.model, modelAccessError())
 	resolved := svc.resolveCredentials(billing.WithWeaveCreditsDenied(in.subCtx()), in.provider, in.model, nil)
-	assert.Nil(t, CredentialsFromContext(resolved))
-	assert.Nil(t, CredentialsFromContext(resolveAndInjectCredentials(resolved, in.provider, in.model, nil)))
-	assert.True(t, servedOnSubscription(svc.resolveCredentials(resolved, in.provider, accessOtherModel, nil)))
-	assert.True(t, servedOnSubscription(svc.resolveCredentials(context.WithValue(billing.WithWeaveCreditsDenied(in.subCtx()), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other"), in.provider, in.model, nil)))
-	assert.False(t, servedOnSubscription(svc.resolveCredentials(billing.WithSubscriptionOnly(billing.WithWeaveCreditsDenied(in.subCtx()), billing.SubscriptionOnlyCreditsDepleted), in.provider, in.model, nil)), "known denied OAuth must never be replayed")
+	assert.Nil(t, credentials.CredentialsFromContext(resolved))
+	assert.Nil(t, credentials.CredentialsFromContext(credentials.ResolveAndInjectCredentials(resolved, in.provider, in.model, nil)))
+	assert.True(t, credentials.ServedOnSubscription(svc.resolveCredentials(resolved, in.provider, accessOtherModel, nil)))
+	assert.True(t, credentials.ServedOnSubscription(svc.resolveCredentials(context.WithValue(billing.WithWeaveCreditsDenied(in.subCtx()), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other"), in.provider, in.model, nil)))
+	assert.False(t, credentials.ServedOnSubscription(svc.resolveCredentials(billing.WithSubscriptionOnly(billing.WithWeaveCreditsDenied(in.subCtx()), billing.SubscriptionOnlyCreditsDepleted), in.provider, in.model, nil)), "known denied OAuth must never be replayed")
 	linkedFirstContext := billing.WithSubscriptionOnly(billing.WithWeaveCreditsDenied(in.subCtx()), billing.SubscriptionOnlyLinkedFirst)
-	assert.False(t, servedOnSubscription(svc.resolveCredentials(linkedFirstContext, in.provider, in.model, nil)), "a denied linked subscription must not be replayed")
+	assert.False(t, credentials.ServedOnSubscription(svc.resolveCredentials(linkedFirstContext, in.provider, in.model, nil)), "a denied linked subscription must not be replayed")
 	now = now.Add(16 * time.Minute)
-	assert.True(t, servedOnSubscription(svc.resolveCredentials(billing.WithWeaveCreditsDenied(in.subCtx()), in.provider, in.model, nil)), "access changes are rechecked after expiry")
+	assert.True(t, credentials.ServedOnSubscription(svc.resolveCredentials(billing.WithWeaveCreditsDenied(in.subCtx()), in.provider, in.model, nil)), "access changes are rechecked after expiry")
 }
 
 func TestSubscriptionModelAccessOnlyLearnsModelRejection(t *testing.T) {
@@ -120,11 +126,11 @@ func TestSubscriptionModelAccessOnlyLearnsModelRejection(t *testing.T) {
 	} {
 		svc := in.deploymentKeyedService()
 		svc.recordSubscriptionModelRejection(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), in.provider, in.model, err)
-		assert.True(t, servedOnSubscription(svc.resolveCredentials(billing.WithWeaveCreditsDenied(in.subCtx()), in.provider, in.model, nil)))
+		assert.True(t, credentials.ServedOnSubscription(svc.resolveCredentials(billing.WithWeaveCreditsDenied(in.subCtx()), in.provider, in.model, nil)))
 	}
 	svc := in.deploymentKeyedService()
 	svc.recordSubscriptionModelRejection(in.resolved(in.byokCtx(context.Background())), in.provider, in.model, modelAccessError())
-	assert.True(t, servedOnSubscription(svc.resolveCredentials(billing.WithWeaveCreditsDenied(in.subCtx()), in.provider, in.model, nil)))
+	assert.True(t, credentials.ServedOnSubscription(svc.resolveCredentials(billing.WithWeaveCreditsDenied(in.subCtx()), in.provider, in.model, nil)))
 }
 
 func TestSubscriptionModelAccessLearnsServedModelsPerSubscription(t *testing.T) {
@@ -136,10 +142,67 @@ func TestSubscriptionModelAccessLearnsServedModelsPerSubscription(t *testing.T) 
 			require.NoError(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req))
 
 			now := time.Now()
-			assert.Equal(t, []string{in.model}, svc.subscriptionModels.servedForCaller(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), now))
-			other := context.WithValue(billing.WithWeaveCreditsDenied(in.subCtx()), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other")
-			assert.Empty(t, svc.subscriptionModels.servedForCaller(in.resolved(other), now), "served models are per subscription")
-			assert.Empty(t, svc.subscriptionModels.servedForCaller(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), now.Add(subscriptionModelServedTTL+time.Minute)), "served models expire")
+			assert.Equal(t, []string{in.model}, svc.credentials.SubscriptionModels.ServedForCaller(credentials.CredentialsFromContext(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx()))), now))
+			other := context.WithValue(billing.WithWeaveCreditsDenied(in.subCtx()), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other")
+			assert.Empty(t, svc.credentials.SubscriptionModels.ServedForCaller(credentials.CredentialsFromContext(in.resolved(other)), now), "served models are per subscription")
+			assert.Empty(t, svc.credentials.SubscriptionModels.ServedForCaller(credentials.CredentialsFromContext(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx()))), now.Add(credentials.SubscriptionModelServedTTL+time.Minute)), "served models expire")
 		})
 	}
+}
+
+func TestSubscriptionModelAccessFollowsTheWinningCredentialOfAFinishedManagedTurn(t *testing.T) {
+	now := time.Now()
+	svc := wireCredentialPorts(&Service{clock: func() time.Time { return now }})
+	requested := &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-requested"), OAuth: true}
+	winning := &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-winning"), OAuth: true}
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, requested)
+	ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{Finished: true, WinningCredentials: winning})
+
+	recordSubscriptionModelOutcome(svc, ctx, providers.ProviderAnthropic, "claude-sonnet-4-5", nil)
+
+	assert.Equal(t, []string{"claude-sonnet-4-5"}, svc.credentials.SubscriptionModels.ServedForCaller(winning, now))
+	assert.Empty(t, svc.credentials.SubscriptionModels.ServedForCaller(requested, now), "the served model belongs to the credential that served the turn")
+}
+
+func finishedManagedTurnOnAnotherCredential() (ctx context.Context, requested, winning *requestcontext.Credentials) {
+	requested = &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-requested"), OAuth: true}
+	winning = &requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-winning"), OAuth: true}
+	ctx = context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, requested)
+	ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &credentials.ManagedSubscriptionUsage{Finished: true, WinningCredentials: winning})
+	return ctx, requested, winning
+}
+
+type blankPurposePlan struct{ inference.ResolvedPlan }
+
+func (blankPurposePlan) Purpose() inference.Purpose { return inference.Purpose("") }
+
+func TestLeasedProviderAttemptMarksTheModelServedForTheWinningCredential(t *testing.T) {
+	now := time.Now()
+	svc := wireCredentialPorts(&Service{clock: func() time.Time { return now }})
+	ctx, requested, winning := finishedManagedTurnOnAnotherCredential()
+	succeedingAttempt := func(context.Context, router.Decision, dispatch.Upstream) error { return nil }
+
+	_, err := invokeLeasedProviderAttempt(svc, ctx, blankPurposePlan{}, leasedProviderAttempt{
+		inputs:   dispatch.FailoverInputs{Attempt: succeedingAttempt},
+		decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-5-5"},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude-sonnet-5-5"}, svc.credentials.SubscriptionModels.ServedForCaller(winning, now))
+	assert.Empty(t, svc.credentials.SubscriptionModels.ServedForCaller(requested, now), "the served model belongs to the credential that served the turn")
+}
+
+func TestClassifierRescuePolicyReadsServedAndDeniedModelsOfTheWinningCredential(t *testing.T) {
+	now := time.Now()
+	svc := wireCredentialPorts(&Service{clock: func() time.Time { return now }})
+	ctx, requested, winning := finishedManagedTurnOnAnotherCredential()
+	access := &svc.credentials.SubscriptionModels
+	access.MarkServedForCaller(winning, providers.ProviderAnthropic, "claude-sonnet-5-5", now)
+	access.MarkServedForCaller(requested, providers.ProviderAnthropic, "claude-haiku-5-5", now)
+	access.DenyForProvider(winning.APIKey, "", "claude-opus-5-5", now.Add(time.Hour))
+
+	policy := newClassifierRescuePolicy(ctx, svc)
+
+	assert.Equal(t, []string{"claude-sonnet-5-5"}, policy.models[1:], "rescue candidates come from the credential that served the turn")
+	assert.True(t, policy.unavailable("claude-opus-5-5"), "a model denied to the winning credential is skipped")
 }

@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
@@ -17,6 +19,7 @@ import (
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
 
@@ -64,7 +67,7 @@ func authorityShadowBasePin() sessionpin.Pin {
 
 // runAuthorityShadowTurn drives one authoritative-per-turn main-loop turn and
 // returns the turn loop's result.
-func runAuthorityShadowTurn(t *testing.T, enabled bool, fresh router.Decision) turnLoopResult {
+func runAuthorityShadowTurn(t *testing.T, enabled bool, fresh router.Decision) routingpolicy.TurnRoute {
 	t.Helper()
 	return runAuthorityShadowTurnWithPin(t, enabled, fresh, authorityShadowPin())
 }
@@ -74,14 +77,14 @@ func runAuthorityShadowTurnWithPin(
 	enabled bool,
 	fresh router.Decision,
 	pin sessionpin.Pin,
-) turnLoopResult {
+) routingpolicy.TurnRoute {
 	t.Helper()
 	strategy := router.Strategy("authority-cache-shadow-test")
 	store := newStubPinStore()
 	store.getFound = true
 	store.getPin = pin
 	svc := withHMMPorts(NewService(
-		nil, nil, nil, store, false,
+		nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		EditHMMConfig(func(c *hmm.Config) { c.AuthorityCacheShadow = enabled }).
 		EditContinuityConfig(func(c *continuity.Config) {
@@ -178,7 +181,7 @@ func TestAuthorityCacheShadowKillSwitch(t *testing.T) {
 	assert.False(t, result.AuthorityShadow.Computed)
 	assert.Equal(t, shadowFreshModel, result.Decision.Model)
 
-	var params InsertTelemetryParams
+	var params turnrecord.InsertTelemetryParams
 	applyAuthorityShadowTelemetry(&params, result)
 	assert.Empty(t, params.AuthorityShadowOutcome)
 	assert.Nil(t, params.AuthorityShadowExpectedSavingsUSD)
@@ -266,7 +269,7 @@ func TestAuthorityCacheShadowCandidateScoreCoverage(t *testing.T) {
 // expected savings, and clamping it to zero destroys the measurement.
 func TestApplyAuthorityShadowTelemetryPreservesSignedEV(t *testing.T) {
 	stay := 0.71
-	res := turnLoopResult{AuthorityShadow: authorityCacheShadow{
+	res := routingpolicy.TurnRoute{AuthorityShadow: routingpolicy.AuthorityCacheShadow{
 		Computed:     true,
 		StayModel:    shadowPinnedModel,
 		StayProvider: providers.ProviderAnthropic,
@@ -284,7 +287,7 @@ func TestApplyAuthorityShadowTelemetryPreservesSignedEV(t *testing.T) {
 		},
 	}}
 
-	var params InsertTelemetryParams
+	var params turnrecord.InsertTelemetryParams
 	applyAuthorityShadowTelemetry(&params, res)
 
 	assert.Equal(t, "stay", params.AuthorityShadowOutcome)
@@ -406,7 +409,7 @@ func TestCandidateScoreFor(t *testing.T) {
 func TestAuthorityCacheShadowPersistsGateDivergenceVerdict(t *testing.T) {
 	result := runAuthorityShadowTurn(t, true, hmmFreshDecision(nil))
 
-	var params InsertTelemetryParams
+	var params turnrecord.InsertTelemetryParams
 	applyAuthorityShadowTelemetry(&params, result)
 
 	require.NotNil(t, params.AuthorityShadowWouldDiverge)
@@ -430,7 +433,7 @@ func TestAuthorityCacheShadowEarlyExitLeavesEVColumnsNull(t *testing.T) {
 	require.True(t, result.AuthorityShadow.Computed)
 	require.False(t, result.AuthorityShadow.EVRan(), "no_pin returns before the EV block")
 
-	var params InsertTelemetryParams
+	var params turnrecord.InsertTelemetryParams
 	applyAuthorityShadowTelemetry(&params, result)
 
 	// The verdict itself is real evidence and must persist.
@@ -444,4 +447,16 @@ func TestAuthorityCacheShadowEarlyExitLeavesEVColumnsNull(t *testing.T) {
 	assert.Empty(t, params.AuthorityShadowCorrectedOutcome,
 		"the zero Outcome renders as \"stay\"; an uncomputed verdict must stay NULL")
 	assert.Nil(t, params.AuthorityShadowCorrectedSavingsUSD)
+}
+
+func candidateScoreFor(ports continuity.StrategyPorts, dec router.Decision, servedIdentity string) *float64 {
+	return candidateScoreForWithProvider(ports, dec, servedIdentity, dec.Provider)
+}
+
+func candidateScoreForWithProvider(ports continuity.StrategyPorts, dec router.Decision, servedIdentity, provider string) *float64 {
+	return candidateScoreForWithArm(ports, dec, servedIdentity, provider, "")
+}
+
+func candidateScoreForWithArm(ports continuity.StrategyPorts, dec router.Decision, servedIdentity, provider, rosterArmID string) *float64 {
+	return ports.Facts.CandidateScore(dec, servedIdentity, provider, rosterArmID)
 }

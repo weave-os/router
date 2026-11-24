@@ -25,7 +25,7 @@ const (
 	ServingProposalV2     ServingSchema = "router_serving_proposal_v2"
 )
 
-const servingArtifactsNamespace = "artifacts/"
+const ServingArtifactsNamespace = "artifacts/"
 
 type ClassifierComponent struct {
 	Identity        ClassifierIdentity   `json:"identity"`
@@ -122,7 +122,7 @@ func (c ClassifierComponent) validate() error {
 	if err := identity.validateVariants(); err != nil {
 		return err
 	}
-	if err := validateArtifactRef(c.Package); err != nil {
+	if err := ValidateArtifactRef(c.Package); err != nil {
 		return err
 	}
 	if c.Package.SHA256 != identity.PackageSHA256 {
@@ -135,18 +135,18 @@ func (c ClassifierComponent) validate() error {
 		if strings.TrimSpace(name) == "" {
 			return errors.New("auxiliary model name is required")
 		}
-		if err := validateArtifactRef(ref); err != nil {
+		if err := ValidateArtifactRef(ref); err != nil {
 			return fmt.Errorf("auxiliary model %q: %w", name, err)
 		}
 	}
-	return validateArtifactRef(c.Configuration)
+	return ValidateArtifactRef(c.Configuration)
 }
 
 func (p ServingProvenance) validate() error {
 	if !sourceRevisionPattern.MatchString(p.RouterRevision) || !sourceRevisionPattern.MatchString(p.WeaveRevision) {
 		return errors.New("serving provenance requires exact router and Weave source revisions")
 	}
-	return validateArtifactRef(p.BuildAttestation)
+	return ValidateArtifactRef(p.BuildAttestation)
 }
 
 func (c CandidateComposition) Equal(other CandidateComposition) bool {
@@ -203,7 +203,7 @@ func (b LaneBinding) validate() error {
 	if err := b.Classifier.validate(); err != nil {
 		return err
 	}
-	return validateArtifactRef(b.Attestation)
+	return ValidateArtifactRef(b.Attestation)
 }
 
 func (l ServingLane) validate(root string, profileKey string) error {
@@ -457,5 +457,5 @@ func isServingArtifactManifest(manifest ServingManifest) bool {
 }
 
 func isServingArtifactURI(uri, root string) bool {
-	return strings.HasPrefix(uri, strings.TrimRight(root, "/")+"/"+servingArtifactsNamespace)
+	return strings.HasPrefix(uri, strings.TrimRight(root, "/")+"/"+ServingArtifactsNamespace)
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -18,7 +19,7 @@ import (
 
 func expiredRotationContext(provider auth.SubscriptionProvider) context.Context {
 	ctx := managedSubscriptionContext(provider)
-	return context.WithValue(ctx, subscriptionRotationBudgetKey{}, &subscriptionAdmissionBudget{})
+	return context.WithValue(ctx, credentials.SubscriptionRotationBudgetKey{}, &credentials.SubscriptionAdmissionBudget{})
 }
 
 func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
@@ -32,7 +33,7 @@ func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 	var oauthCalls, apiCalls int
 	in.Attempt = func(attemptCtx context.Context, _ router.Decision, _ dispatch.Upstream) error {
 		require.NoError(t, attemptCtx.Err(), "paid recovery runs on the caller's live context")
-		if creds := CredentialsFromContext(attemptCtx); creds != nil && creds.OAuth {
+		if creds := credentials.CredentialsFromContext(attemptCtx); creds != nil && creds.OAuth {
 			oauthCalls++
 		} else {
 			apiCalls++
@@ -42,14 +43,14 @@ func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 		return err
 	}
 
-	_, err := svc.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(svc).Dispatch(ctx, in)
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
 	require.Zero(t, oauthCalls, "no included attempt is admitted after the rotation budget expired")
 	require.Zero(t, apiCalls)
 	require.Empty(t, rec.Body.String())
 	require.Empty(t, leaser.cooldownIDs, "budget expiry alone never cools down an account")
-	require.False(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{})).Served)
+	require.False(t, mustAs[*credentials.ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served)
 }
 
 func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {
@@ -70,9 +71,9 @@ func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {
 		return nil
 	}
 
-	_, err := svc.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(svc).Dispatch(ctx, in)
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolUnavailable)
 	class, classified := ClassifyDispatchError(err)
 	require.True(t, classified)
 	require.Equal(t, http.StatusServiceUnavailable, class.Status, "a spent admission budget is not proof the pool is exhausted")

@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
@@ -151,7 +153,7 @@ func TestRunTurnLoop_ForcedModelContextOverflow_StaysInTier(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
-	svc := withHMMPorts(NewService(fr, nil, nil, store, false,
+	svc := withHMMPorts(NewService(fr, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithAvailableModels(fr.available).
 		EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false })
@@ -195,7 +197,7 @@ func TestRunTurnLoop_ForcedModelOverridesHardPin(t *testing.T) {
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
 	svc := withHMMPorts(NewService(
 		fr,
-		nil,
+		dispatch.NewClients(nil),
 		nil,
 		store,
 		false,
@@ -239,7 +241,7 @@ func TestRunTurnLoop_ForcedModelServesDespiteDisabledProvider(t *testing.T) {
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
 	svc := withHMMPorts(NewService(
 		fr,
-		nil,
+		dispatch.NewClients(nil),
 		nil,
 		store,
 		false,
@@ -279,7 +281,7 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
 	svc := withHMMPorts(NewService(
 		fr,
-		nil,
+		dispatch.NewClients(nil),
 		nil,
 		store,
 		false,
@@ -296,7 +298,7 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 	key := DeriveSessionKey(env, "key-1")
 	headerReq, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
-	headerReq.Header.Set(ForceModelHeader, "opus")
+	headerReq.Header.Set(requestcontext.ForceModelHeader, "opus")
 	_, _, forceErr := svc.applyForceModelHeader(context.Background(), headerReq, uuid.New(), key)
 	require.NoError(t, forceErr)
 
@@ -311,38 +313,4 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 		"the x-weave-force-model pin must outrank the automatic compaction hard-pin")
 	assert.Equal(t, translate.ReasonUserForceModel, res.Decision.Reason)
 	assert.False(t, res.HardPinned)
-}
-
-// Guards the empty-pool escape hatch: with no in-tier candidate, the helper
-// must return ok=false rather than hand the scorer an empty pool.
-func TestRestrictToTier_FallsBackWhenNoInTierCandidate(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
-		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}})
-
-	excluded := map[string]struct{}{"deepseek/deepseek-v4-pro": {}}
-	out, ok := svc.restrictToTier(excluded, catalog.TierHigh)
-	assert.False(t, ok, "no high-tier model is available, so the constraint must not apply")
-	assert.Equal(t, excluded, out, "the original denylist is returned unchanged on fallback")
-}
-
-// Every available model outside the target tier gets excluded; in-tier
-// models stay eligible.
-func TestRestrictToTier_ExcludesOtherTiers(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
-		WithAvailableModels(map[string]struct{}{
-			"claude-opus-5":     {}, // high
-			"claude-haiku-4-5":  {}, // low
-			"claude-sonnet-4-6": {}, // mid
-		})
-
-	out, ok := svc.restrictToTier(nil, catalog.TierHigh)
-	require.True(t, ok)
-	_, haikuExcluded := out["claude-haiku-4-5"]
-	_, sonnetExcluded := out["claude-sonnet-4-6"]
-	_, opusExcluded := out["claude-opus-5"]
-	assert.True(t, haikuExcluded, "low-tier excluded")
-	assert.True(t, sonnetExcluded, "mid-tier excluded")
-	assert.False(t, opusExcluded, "high-tier stays eligible")
 }

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/eligibility"
@@ -20,14 +21,14 @@ func TestRefusalContract_GeminiStatus(t *testing.T) {
 		want string
 	}{
 		{err: eligibility.ErrModelIneligible, want: "PERMISSION_DENIED"},
-		{err: proxy.ErrSubscriptionClientAppRefused, want: "PERMISSION_DENIED"},
-		{err: proxy.ErrSpendCapSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
-		{err: proxy.ErrCreditsExhaustedSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
-		{err: proxy.ErrWeaveCreditsDisabled, want: "FAILED_PRECONDITION"},
-		{err: proxy.ErrClaudeEnterpriseSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
-		{err: proxy.ErrSubscriptionPoolExhausted, want: "RESOURCE_EXHAUSTED"},
-		{err: proxy.ErrSubscriptionPoolThrottled, want: "RESOURCE_EXHAUSTED"},
-		{err: proxy.ErrSubscriptionPoolUnavailable, want: "UNAVAILABLE"},
+		{err: credentials.ErrSubscriptionClientAppRefused, want: "PERMISSION_DENIED"},
+		{err: credentials.ErrSpendCapSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
+		{err: credentials.ErrCreditsExhaustedSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
+		{err: credentials.ErrWeaveCreditsDisabled, want: "FAILED_PRECONDITION"},
+		{err: credentials.ErrClaudeEnterpriseSubscriptionUnavailable, want: "FAILED_PRECONDITION"},
+		{err: credentials.ErrSubscriptionPoolExhausted, want: "RESOURCE_EXHAUSTED"},
+		{err: credentials.ErrSubscriptionPoolThrottled, want: "RESOURCE_EXHAUSTED"},
+		{err: credentials.ErrSubscriptionPoolUnavailable, want: "UNAVAILABLE"},
 		{err: billing.ErrUserMonthlySpendLimitReached, want: "FAILED_PRECONDITION"},
 		{err: billing.ErrSpendLimitCheckUnavailable, want: "UNAVAILABLE"},
 		{err: router.ErrPolicyPinUnavailable, want: "UNAVAILABLE"},

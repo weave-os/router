@@ -32,41 +32,42 @@ type atomicClassifierConfig struct {
 	InstallationIDs       []uuid.UUID `json:"installation_ids"`
 }
 
-func configureAtomicClassifier(service *proxy.Service, pool *pgxpool.Pool, providers map[string]struct{}) error {
+func configureAtomicClassifier(pool *pgxpool.Pool, providers map[string]struct{}) (*proxy.ClassifierSessions, []policy.StrategySpec, error) {
 	path := os.Getenv("ROUTER_LLM_CLASSIFIER_CONFIG")
 	if path == "" {
-		return nil
+		return nil, nil, nil
 	}
 	if servingTargetConfigured() {
-		return errors.New("llm classifier requires managed Modal release integration before enabling managed serving")
+		return nil, nil, errors.New("llm classifier requires managed Modal release integration before enabling managed serving")
 	}
 	payload, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	var config atomicClassifierConfig
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&config); err != nil {
-		return err
+		return nil, nil, err
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return errors.New("classifier configuration contains trailing JSON")
+		return nil, nil, errors.New("classifier configuration contains trailing JSON")
 	}
 	roster, err := rosterdata.Load(config.SelectionPolicyFile)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	escalationClasses := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
 	if roster.SHA256 != config.SelectionPolicySHA256 || roster.SchemaVersion != rosterdata.SchemaVersionPolicyV1 || !slices.Equal(roster.ClassOrder, escalationClasses) {
-		return errors.New("classifier selection policy digest, schema or taxonomy mismatch")
+		return nil, nil, errors.New("classifier selection policy digest, schema or taxonomy mismatch")
 	}
 	client, err := policyclient.NewAtomicClassifier(config.Endpoint, os.Getenv("ROUTER_LLM_CLASSIFIER_BEARER"), config.Release, config.ReleaseSHA256, nil)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	if err := service.WithClassifierSessions(proxy.ClassifierSessionConfig{Release: config.Release, ReleaseSHA256: config.ReleaseSHA256, SelectionPolicySHA256: config.SelectionPolicySHA256, SigningKey: []byte(os.Getenv("ROUTER_LLM_CLASSIFIER_SIGNING_KEY")), InstallationIDs: config.InstallationIDs}, postgres.NewClassifierSessionRepo(pool), client); err != nil {
-		return err
+	sessions, err := proxy.NewClassifierSessions(proxy.ClassifierSessionConfig{Release: config.Release, ReleaseSHA256: config.ReleaseSHA256, SelectionPolicySHA256: config.SelectionPolicySHA256, SigningKey: []byte(os.Getenv("ROUTER_LLM_CLASSIFIER_SIGNING_KEY")), InstallationIDs: config.InstallationIDs}, postgres.NewClassifierSessionRepo(pool), client)
+	if err != nil {
+		return nil, nil, err
 	}
 	capabilities := policy.Capabilities{SchemaVersion: policy.SchemaVersionV4, HonorsPreferredModels: true, HonorsQualityPriceBias: true, HonorsClusterModelLists: true, AuthoritativePerTurnSelection: true}
 	resolver := policy.NewResolver(catalog.HMMRoutingTargetSet(providers), providers, armid.ForModel, policy.ManagedProviderPolicy())
@@ -75,6 +76,5 @@ func configureAtomicClassifier(service *proxy.Service, pool *pgxpool.Pool, provi
 		SelectionPolicyReleaseID: config.Release, SelectionPolicySHA256: config.SelectionPolicySHA256},
 		policy.AtomicClassifierFacts{Release: config.Release, ReleaseSHA256: config.ReleaseSHA256}, resolver).
 		WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
-	service.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: classifierRouter, Unavailable: router.ErrClassifierUnavailable, Capabilities: capabilities})
-	return nil
+	return sessions, []policy.StrategySpec{{Strategy: router.StrategyLLMClassifier, Router: classifierRouter, Unavailable: router.ErrClassifierUnavailable, Capabilities: capabilities}}, nil
 }

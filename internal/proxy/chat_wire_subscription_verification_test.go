@@ -11,8 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 )
@@ -32,14 +35,14 @@ func TestVerificationUnrepresentableChatRefusesAPIWithoutQuotaProof(t *testing.T
 	client := openai.NewClient("synthetic-api-key", server.URL)
 	client.SetCodexBaseURL(server.URL)
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "unsafe-wire-account", AccessToken: "unsafe-wire-seat"}}}
-	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
-	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
-	ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "unsafe-wire-account", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx = credentials.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "unsafe-wire-account", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 	body := `{"model":"auto","n":2,"logprobs":true,"stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 	rec := httptest.NewRecorder()
-	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body))), ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body))), credentials.ErrSubscriptionPoolUnavailable)
 	require.Empty(t, bearers)
 	require.Empty(t, paths)
 	require.NotContains(t, rec.Body.String(), "chat answer")
-	require.False(t, servedOnSubscription(ctx))
+	require.False(t, credentials.ServedOnSubscription(ctx))
 }

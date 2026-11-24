@@ -3,33 +3,33 @@ package admin
 import (
 	"net/http"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/policy"
 
 	"github.com/gin-gonic/gin"
 )
 
-func InternalInferencePoliciesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func InternalInferencePoliciesHandler(plans dispatch.InferencePlanInspector) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, proxySvc.InferencePolicyRegistry().StaticProjection())
+		c.JSON(http.StatusOK, plans.InferencePolicyRegistry().StaticProjection())
 	}
 }
 
-func InternalInferenceDeploymentHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func InternalInferenceDeploymentHandler(plans dispatch.InferencePlanInspector) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, proxySvc.InferenceDeploymentProjection())
+		c.JSON(http.StatusOK, plans.InferenceDeploymentProjection())
 	}
 }
 
-func InternalInferenceResolveHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func InternalInferenceResolveHandler(plans dispatch.InferencePlanInspector) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req policy.InspectionRequest
 		if err := c.ShouldBindJSON(&req); err != nil || len(req.Purpose) == 0 {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "A purpose is required."})
 			return
 		}
-		plan, err := proxySvc.InspectInferencePlan(req)
+		plan, err := plans.InspectInferencePlan(req)
 		if err != nil {
 			if projected, ok := policy.ProjectResolutionError(err); ok {
 				c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": projected})

@@ -1,10 +1,16 @@
 package proxy
 
-import "weave-os/router/internal/router/continuity"
+import (
+	"weave-os/router/internal/router/bandswap"
+	"weave-os/router/internal/router/continuity"
+)
 
-type hmmServing struct {
-	hmmConfig     continuity.AuthoritativeConfig
-	strategyPorts continuity.StrategyPorts
+type strategyServing struct {
+	continuityConfig   continuity.Config
+	hmmConfig          continuity.AuthoritativeConfig
+	strategyPorts      continuity.StrategyPorts
+	bandSwap           *bandswap.Classifier
+	classifierSessions *ClassifierSessions
 }
 
 func WithStrategyPorts(s *Service, ports continuity.StrategyPorts) *Service {

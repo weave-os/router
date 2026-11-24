@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/uuid"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
@@ -12,6 +11,8 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -70,16 +71,6 @@ func (h *Helper) WithShadowDefault(classifier flags.EscalationClassifier) {
 func (h *Helper) WithSwitchyardActive(enabled bool) {
 	h.switchyardActiveEnabled = enabled
 }
-
-func (h *Helper) LLMStore() llmescalation.Store {
-	return h.llmStore
-}
-
-func (h *Helper) SwitchyardJudgeReady() bool { return h.llmJudge != nil }
-
-func (h *Helper) QwenJudgeReady() bool { return h.qwenJudge != nil }
-
-func (h *Helper) SwitchyardActiveEnabled() bool { return h.switchyardActiveEnabled }
 
 func (h *Helper) selection(ctx context.Context) flags.EscalationConfig {
 	return flags.EscalationWithDeploymentShadow(ctx, h.shadowDefault)

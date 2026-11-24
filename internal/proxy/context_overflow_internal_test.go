@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/policy"
 
@@ -60,13 +61,13 @@ func TestClassifyDispatchError_ContextOverflowIsNative(t *testing.T) {
 	} {
 		cls, ok := ClassifyDispatchError(err)
 		require.True(t, ok, name)
-		assert.Equal(t, DispatchErrorContextWindowExceeded, cls.Kind, name)
+		assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, cls.Kind, name)
 		assert.Equal(t, http.StatusBadRequest, cls.Status, name)
 		assert.True(t, strings.HasPrefix(cls.Message, "prompt is too long"), "Claude Code and opencode key compaction off this wording")
 		assert.True(t, cls.Kind.IsClientError(), name)
-		assert.Equal(t, "context_length_exceeded", OpenAIErrorCode(cls.Kind))
+		assert.Equal(t, "context_length_exceeded", ingress.OpenAIErrorCode(cls.Kind))
 	}
-	assert.Empty(t, OpenAIErrorCode(DispatchErrorUpstreamStatus))
+	assert.Empty(t, ingress.OpenAIErrorCode(ingress.DispatchErrorUpstreamStatus))
 }
 
 func TestFlushHelpersLeaveOverflowToHandler(t *testing.T) {

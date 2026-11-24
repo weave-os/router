@@ -12,9 +12,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
-	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -44,12 +47,12 @@ func TestCodexOwnPlanSpentIsRememberedAcrossTurns(t *testing.T) {
 	defer server.Close()
 	client := openai.NewClient("weave-capacity", server.URL)
 	client.SetCodexBaseURL(server.URL)
-	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithUsageObserver(usage.NewObserver([]byte("test-salt"), time.Hour, time.Now))
 
 	for turn := 0; turn < 2; turn++ {
-		ctx := WithManagedSubscriptionUsage(context.WithValue(context.Background(), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111"))
+		ctx := credentials.WithManagedSubscriptionUsage(context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111"))
 		body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 		rec := httptest.NewRecorder()
 		require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body)))
@@ -88,12 +91,12 @@ func TestCodexOwnTokenRejectionIsRememberedAcrossTurns(t *testing.T) {
 	defer server.Close()
 	client := openai.NewClient("weave-capacity", server.URL)
 	client.SetCodexBaseURL(server.URL)
-	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithUsageObserver(usage.NewObserver([]byte("test-salt"), time.Hour, time.Now))
 
 	for turn := 0; turn < 2; turn++ {
-		ctx := WithManagedSubscriptionUsage(context.WithValue(context.Background(), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111"))
+		ctx := credentials.WithManagedSubscriptionUsage(context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111"))
 		body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 		rec := httptest.NewRecorder()
 		require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body)))

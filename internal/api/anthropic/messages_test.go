@@ -12,8 +12,11 @@ import (
 
 	anthropicapi "weave-os/router/internal/api/anthropic"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
@@ -137,7 +140,7 @@ func newTestService(r router.Router, clientName string, client providers.Client)
 	if clientName != "" && client != nil {
 		providerMap[clientName] = client
 	}
-	return proxy.WithStrategyPorts(proxy.NewService(r, providerMap, nil, nil, false, "", "", nil), hmm.ServingPorts())
+	return proxy.WithStrategyPorts(proxy.NewService(r, dispatch.NewClients(providerMap), nil, nil, false, "", "", nil), hmm.ServingPorts())
 }
 
 func errorEnvelope(t *testing.T, body []byte) map[string]any {
@@ -153,7 +156,7 @@ func errorEnvelope(t *testing.T, body []byte) map[string]any {
 func messagesEngine(svc *proxy.Service) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.POST("/v1/messages", anthropicapi.MessagesHandler(svc, nil))
+	engine.POST("/v1/messages", anthropicapi.MessagesHandler(svc, nil, errorVocabulary))
 	return engine
 }
 
@@ -167,7 +170,7 @@ func TestMessagesHandler_RequestTooLarge(t *testing.T) {
 	svc := newTestService(&fakeRouter{}, "", nil)
 	engine := messagesEngine(svc)
 
-	oversized := bytes.Repeat([]byte("a"), proxy.MaxRequestBodyBytes+1)
+	oversized := bytes.Repeat([]byte("a"), requestcontext.MaxRequestBodyBytes+1)
 	rec := postMessages(t.Context(), engine, oversized)
 
 	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
@@ -299,7 +302,7 @@ data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","err
 			client := &fakeProviderClient{proxyStatus: http.StatusOK, proxyBody: responsesOverflow, flushProxyBody: true, propagateProxyWriteErr: true}
 			svc := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5-mini", Reason: "test"}},
-				map[string]providers.Client{providers.ProviderOpenAI: client},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}),
 				nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil), hmm.ServingPorts())
 
 			reqBody := fmt.Sprintf(`{"model":"gpt-5-mini","max_tokens":1024,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`, stream)
@@ -356,13 +359,13 @@ func TestMessagesHandler_AgentShadowDoesNotUpsertRouterUser(t *testing.T) {
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{ID: uuid.NewString()})
-		ctx := context.WithValue(c.Request.Context(), proxy.AgentShadowEvalContextKey{}, proxy.AgentShadowEvaluation{
+		ctx := context.WithValue(c.Request.Context(), requestcontext.AgentShadowEvalContextKey{}, requestcontext.AgentShadowEvaluation{
 			Model: "claude-opus-4-8", RolloutID: "pilot-1", StateID: "state-1",
 		})
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	})
-	engine.POST("/v1/messages", anthropicapi.MessagesHandler(svc, authSvc))
+	engine.POST("/v1/messages", anthropicapi.MessagesHandler(svc, authSvc, errorVocabulary))
 	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}],"metadata":{"user_id":"{\"account_uuid\":\"real-account\",\"email\":\"person@example.com\"}"},"max_tokens":4096}`)
 
 	recorder := postMessages(t.Context(), engine, body)
@@ -421,7 +424,7 @@ func TestRouteHandler_RequestTooLarge(t *testing.T) {
 	svc := newTestService(&fakeRouter{}, "", nil)
 	engine := routeEngine(svc)
 
-	oversized := bytes.Repeat([]byte("a"), proxy.MaxRequestBodyBytes+1)
+	oversized := bytes.Repeat([]byte("a"), requestcontext.MaxRequestBodyBytes+1)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route", bytes.NewReader(oversized)))
 
@@ -447,8 +450,8 @@ func TestRouteHandler_HappyPathReturnsDecision(t *testing.T) {
 func TestRouteHandler_ForwardsAuthorizationForProviderEligibility(t *testing.T) {
 	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}
 	var got router.Request
-	svc := newTestService(&fakeRouter{decision: decision, got: &got}, providers.ProviderAnthropic, &fakeProviderClient{}).
-		WithByokOnly(true)
+	svc := proxy.WithDeps(newTestService(&fakeRouter{decision: decision, got: &got}, providers.ProviderAnthropic, &fakeProviderClient{}),
+		proxy.Deps{BYOKOnly: true})
 	engine := routeEngine(svc)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route", bytes.NewReader([]byte(validAnthropicBody)))
 	req.Header.Set("Authorization", "Bearer sk-ant-oat01-claude-code-token")
@@ -493,10 +496,10 @@ func TestPreviewRouteHandler_ReturnsFrozenPolicyPlan(t *testing.T) {
 		RosterSHA256:         "sha256:roster",
 		EligibleRosterIDs:    []string{"anthropic/claude-opus-4-8", "openai/gpt-5.5"},
 	}}
-	svc := newTestService(&fakeRouter{}, "", nil).WithPolicyStrategy(policy.StrategySpec{
+	svc := proxy.WithDeps(newTestService(&fakeRouter{}, "", nil), proxy.Deps{Routing: &proxy.RoutingDeps{Strategies: []policy.StrategySpec{{
 		Strategy: router.StrategyHMM,
 		Router:   previewer,
-	})
+	}}}})
 	engine := previewRouteEngine(svc, true)
 	recorder := httptest.NewRecorder()
 
@@ -522,7 +525,7 @@ func TestRouteAnthropicRequest_ForwardsValidInstallationIDUUIDVerbatim(t *testin
 	var got router.Request
 	svc := newTestService(&fakeRouter{decision: decision, got: &got}, "", nil)
 
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID.String())
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installID.String())
 	_, err := svc.RouteAnthropicRequest(ctx, []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
 	assert.Equal(t, installID.String(), got.InstallationID,
@@ -536,7 +539,7 @@ func TestRouteAnthropicRequest_DropsMalformedInstallationIDInsteadOfForwardingRa
 
 	// "not-a-uuid" is the regression case: pre-fix leaked through verbatim,
 	// diverging tenant attribution from ProxyMessages (which drops invalid IDs).
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "not-a-uuid")
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "not-a-uuid")
 	_, err := svc.RouteAnthropicRequest(ctx, []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
 	assert.Empty(t, got.InstallationID,
@@ -549,7 +552,7 @@ func TestRouteAnthropicRequest_DropsEmptyInstallationIDInsteadOfForwardingRaw(t 
 	var got router.Request
 	svc := newTestService(&fakeRouter{decision: decision, got: &got}, "", nil)
 
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "")
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "")
 	_, err := svc.RouteAnthropicRequest(ctx, []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
 	assert.Empty(t, got.InstallationID,
@@ -574,7 +577,7 @@ func TestRouteAnthropicRequest_DropsMissingInstallationIDInsteadOfForwardingRaw(
 func passthroughEngine(svc *proxy.Service) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(svc))
+	engine.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(svc, errorVocabulary))
 	return engine
 }
 
@@ -595,7 +598,7 @@ func TestPassthroughHandler_RequestTooLarge(t *testing.T) {
 	svc := newTestService(&fakeRouter{}, "", nil)
 	engine := passthroughEngine(svc)
 
-	oversized := bytes.Repeat([]byte("a"), proxy.MaxRequestBodyBytes+1)
+	oversized := bytes.Repeat([]byte("a"), requestcontext.MaxRequestBodyBytes+1)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader(oversized)))
 
@@ -621,7 +624,7 @@ func TestMessagesHandler_UnservableCompactionTellsClientNotToRetry(t *testing.T)
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-5", Reason: "test"}},
-		map[string]providers.Client{providers.ProviderAnthropic: client},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: client}),
 		nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-4-5", nil), hmm.ServingPorts())
 
 	body := `{"model":"claude-sonnet-4-5","max_tokens":4096,"messages":[{"role":"user","content":"Your task is to create a detailed summary of the conversation so far. Do not call any tools."}]}`
@@ -632,3 +635,5 @@ func TestMessagesHandler_UnservableCompactionTellsClientNotToRetry(t *testing.T)
 	assert.Equal(t, "false", rec.Header().Get("x-should-retry"))
 	assert.NotContains(t, rec.Body.String(), "Compact the conversation")
 }
+
+var errorVocabulary = ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage}

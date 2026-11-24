@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/credentials/usage"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -37,7 +39,7 @@ func spentCodexService(p *fakeProvider) *proxy.Service {
 	obs.Record(obs.Key([]byte(codexSubToken)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 1.0, WindowMinutes: 300},
 	})
-	return proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts()).
+	return proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: p}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts()).
 		WithUsageObserver(obs).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 }
@@ -79,7 +81,7 @@ func TestSubscriptionOnly_OpenAI_SpentCodexPlan_DepletedStillRefuses402(t *testi
 	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted)
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
 	require.Error(t, err)
-	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable)
+	require.ErrorIs(t, err, credentials.ErrCreditsExhaustedSubscriptionUnavailable)
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur against depleted credits")
 }
 
@@ -94,7 +96,7 @@ func TestLinkedFirst_OpenAI_PaidRoute_ContinuesOnCredits(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"id":"x","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`)
 	}}
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenRouter: p}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenRouter: p}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 	body := `{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Refactor the auth middleware and add tests."}],"max_tokens":4096,"tools":[{"type":"function","function":{"name":"edit_file","parameters":{"type":"object"}}}]}`
 	rec, req := codexSubRequest(t, body)
@@ -116,7 +118,7 @@ func TestLinkedFirst_Anthropic_SpentClaudePlan_ContinuesOnWeaveKey(t *testing.T)
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
 		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
 	})
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}), nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
 		WithUsageObserver(obs).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
@@ -161,7 +163,7 @@ func TestLinkedFirst_Anthropic_BypassThrottled_ReroutesOnCredits(t *testing.T) {
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: observing}, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: observing}), nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
 		WithUsageObserver(obs).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
@@ -190,13 +192,13 @@ func TestLinkedFirst_Anthropic_SpentClaudePlan_NoFallbackKey_RefusesPoolExhauste
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
 		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
 	})
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}), nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
 		WithUsageObserver(obs)
 
 	rec, req, body := bypassRequest(t)
 	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyLinkedFirst)
 	err := svc.ProxyMessages(ctx, body, rec, req)
-	require.ErrorIs(t, err, proxy.ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, credentials.ErrSubscriptionPoolExhausted)
 	assert.Empty(t, p.proxyBodies, "a plan already known to be spent must not be dispatched on when nothing else can serve")
 }
 
@@ -233,7 +235,7 @@ func (*planRefusingProvider) Passthrough(context.Context, providers.PreparedRequ
 }
 
 func (p *planRefusingProvider) Proxy(ctx context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
-	if creds := proxy.CredentialsFromContext(ctx); creds != nil && creds.OAuth {
+	if creds := credentials.CredentialsFromContext(ctx); creds != nil && creds.OAuth {
 		p.subscriptionCalls++
 		return &providers.UpstreamErrorResponse{
 			Status: http.StatusBadRequest,
@@ -268,7 +270,7 @@ func TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_RefusesPaidReroute(t *tes
 		t.Run(map[bool]string{false: "non_streaming", true: "streaming"}[stream], func(t *testing.T) {
 			p := &planRefusingProvider{stream: stream}
 			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl, Reason: "cluster:v0.2"}}
-			svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
+			svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}), nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
 				WithUsageObserver(underThresholdObserver()).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
@@ -277,7 +279,7 @@ func TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_RefusesPaidReroute(t *tes
 				body = []byte(`{"model":"` + bypassRequestedMdl + `","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 			}
 			ctx := billing.WithWeaveCreditsDenied(billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyLinkedFirst))
-			require.ErrorIs(t, svc.ProxyMessages(ctx, body, rec, req), proxy.ErrWeaveCreditsDisabled)
+			require.ErrorIs(t, svc.ProxyMessages(ctx, body, rec, req), credentials.ErrWeaveCreditsDisabled)
 
 			assert.Positive(t, p.subscriptionCalls)
 			assert.Zero(t, p.paidCalls, "a client-app refusal cannot authorize organization-credit inference")
@@ -292,7 +294,7 @@ func TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_RefusesPaidReroute(t *tes
 func TestCreditsDepleted_Anthropic_BypassThirdPartyRefusal_StaysOffCredits(t *testing.T) {
 	p := &planRefusingProvider{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl, Reason: "cluster:v0.2"}}
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}), nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil), hmm.ServingPorts()).
 		WithUsageObserver(underThresholdObserver()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 

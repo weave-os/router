@@ -11,8 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -30,7 +33,7 @@ const (
 )
 
 func TestNormalizeHMMStayPin_HighOutputIsNotExhaustion(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, nil, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}), nil, nil, false,
 		providers.ProviderAnthropic, outputLimitFirstModel, nil))
 
 	pin := sessionpin.Pin{Provider: providers.ProviderAnthropic, LastServedModel: outputLimitFirstModel,
@@ -55,15 +58,15 @@ func TestPostCommandContinuation_UsesTerminalEvidence(t *testing.T) {
 				pin.LastOutputLimitAt = pin.LastTurnEndedAt
 			}
 			store.pins[forceModelMapKey(key, pin.Role)] = pin
-			svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil))
+			svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil))
 			ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
-			svc.grantPostCommandContinuation(ctx, router.StrategyFromContext(ctx), uuid.New(), key, pin.Role)
-			got, found := svc.consumePostCommandContinuation(ctx, router.StrategyFromContext(ctx), key, pin.Role)
+			postCommandContinuation(svc, router.StrategyFromContext(ctx)).Grant(ctx, uuid.New(), key, pin.Role)
+			got, found := postCommandContinuation(svc, router.StrategyFromContext(ctx)).Consume(ctx, key, pin.Role)
 			assert.Equal(t, !capped, found)
 			if found {
 				assert.Equal(t, outputLimitFirstModel, got.Model)
 			}
-			_, found = svc.consumePostCommandContinuation(ctx, router.StrategyFromContext(ctx), key, pin.Role)
+			_, found = postCommandContinuation(svc, router.StrategyFromContext(ctx)).Consume(ctx, key, pin.Role)
 			assert.False(t, found, "a continuation remains one-shot")
 		})
 	}
@@ -71,14 +74,14 @@ func TestPostCommandContinuation_UsesTerminalEvidence(t *testing.T) {
 
 func TestRefreshPin_PreservesOutputLimitEvidence(t *testing.T) {
 	store := newStubPinStore()
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil))
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil))
 	ended := time.Now().Add(-time.Second)
 	pin := sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: outputLimitSecondModel, LastServedModel: outputLimitFirstModel,
 		LastTurnEndedAt: ended, LastOutputLimitAt: ended, LastOutputTokens: 128}
 	routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(context.Background())).Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{1}, pin, sessionpin.DefaultRole,
 		router.Decision{Provider: providers.ProviderAnthropic, Model: outputLimitSecondModel})
 	require.Len(t, store.upserts, 1)
-	assert.Equal(t, outputLimitFirstModel, maxedOutServedModel(store.upserts[0]), "refreshing the anchor cannot lose the prior served outcome")
+	assert.Equal(t, outputLimitFirstModel, candidates.MaxedOutServedModel(store.upserts[0]), "refreshing the anchor cannot lose the prior served outcome")
 }
 
 type outputLimitSequenceRouter struct {
@@ -132,8 +135,8 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 				store := newForceModelMapStore()
 				routes := &outputLimitSequenceRouter{choices: []string{outputLimitFirstModel, outputLimitSecondModel}}
 				upstream := &outputLimitSequenceProvider{stopReason: "tool_use", output: 32000}
-				ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "output-limit-key")
-				ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
+				ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "output-limit-key")
+				ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())
 				ctx = router.WithStrategy(ctx, router.StrategyHMM)
 				messages := []any{map[string]any{"role": "user", "content": "Inspect the repository files"}}
 				for action := 0; action < 8; action++ {
@@ -141,10 +144,10 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 					if trueCap && action == 3 {
 						upstream.stopReason, upstream.output = "max_tokens", 128
 					}
-					svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, store, false,
-						providers.ProviderAnthropic, outputLimitFirstModel, nil)).
+					svc := WithDeps(withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, store, false,
+						providers.ProviderAnthropic, outputLimitFirstModel, nil)),
+						Deps{Telemetry: TelemetryDeps{Flags: &TelemetryFlags{TurnSignalCapture: true, NativeOpenAIResponseSignals: true}}}).
 						EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
-						WithNativeAnthropicResponseSignals(false).
 						WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routes,
 							Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
 					body, err := json.Marshal(map[string]any{"model": outputLimitSecondModel, "max_tokens": 64000, "stream": stream,
@@ -157,7 +160,7 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 					if trueCap && action == 4 {
 						want = outputLimitSecondModel
 					}
-					assert.Equal(t, want, rec.Header().Get(HeaderRouterModel), "action %d", action)
+					assert.Equal(t, want, rec.Header().Get(requestcontext.HeaderRouterModel), "action %d", action)
 					require.Len(t, routes.requests, action+1)
 					if trueCap && action == 4 {
 						assert.Contains(t, routes.requests[action].Candidates.SafetyExcludedModels, outputLimitFirstModel)

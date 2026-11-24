@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/credentials/usage"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 )
 
@@ -29,9 +31,9 @@ const (
 // account id as the auth middleware stashes them, plus an installation id so
 // resolveAndInjectCredentials takes the router-keyed subscription-first branch.
 func codexSubscriptionTestCtx() context.Context {
-	ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, codexTestToken)
-	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
-	return context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, codexTestToken)
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, codexTestAccountID)
+	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 }
 
 // TestCodexFailover_EligibilityAndSuppression covers the load-bearing predicates
@@ -39,41 +41,41 @@ func codexSubscriptionTestCtx() context.Context {
 // such, a deployment OpenAI key counts as a fallback, and suppressing the
 // subscription flips credential resolution off the spent ChatGPT token.
 func TestCodexFailover_EligibilityAndSuppression(t *testing.T) {
-	ctx := resolveAndInjectCredentials(codexSubscriptionTestCtx(), providers.ProviderOpenAI, codexCoveredModel, http.Header{})
-	require.True(t, servedOnCodexSubscription(ctx),
+	ctx := credentials.ResolveAndInjectCredentials(codexSubscriptionTestCtx(), providers.ProviderOpenAI, codexCoveredModel, http.Header{})
+	require.True(t, credentials.ServedOnCodexSubscription(ctx),
 		"a resolved ChatGPT OAuth token + account id must report servedOnCodexSubscription")
 
 	t.Run("out-of-roster catalog model resolves Codex OAuth", func(t *testing.T) {
-		resolved := resolveAndInjectCredentials(codexSubscriptionTestCtx(), providers.ProviderOpenAI, "gpt-6-astra", http.Header{})
-		assert.True(t, servedOnCodexSubscription(resolved),
+		resolved := credentials.ResolveAndInjectCredentials(codexSubscriptionTestCtx(), providers.ProviderOpenAI, "gpt-6-astra", http.Header{})
+		assert.True(t, credentials.ServedOnCodexSubscription(resolved),
 			"selected OpenAI catalog models outside the automatic Codex roster must get a subscription funding attempt")
 	})
 
 	t.Run("no fallback key: not eligible", func(t *testing.T) {
-		s := &Service{hmmServing: hmmPorts()} // no deployment OpenAI key, no BYOK
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()} // no deployment OpenAI key, no BYOK
 		assert.False(t, s.openaiFallbackKeyAvailable(ctx),
 			"without a Weave/BYOK OpenAI key there is nothing to fail over to")
 	})
 
 	t.Run("deployment OpenAI key present: eligible", func(t *testing.T) {
-		s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
 		assert.True(t, s.openaiFallbackKeyAvailable(ctx),
 			"a deployment OpenAI key is a valid failover target for a spent ChatGPT plan")
 	})
 
 	t.Run("suppression flips resolution off the subscription", func(t *testing.T) {
-		suppressed := withSuppressedCodexSubscription(codexSubscriptionTestCtx())
-		suppressed = resolveAndInjectCredentials(suppressed, providers.ProviderOpenAI, codexCoveredModel, http.Header{})
-		assert.False(t, servedOnCodexSubscription(suppressed),
+		suppressed := credentials.WithSuppressedCodexSubscription(codexSubscriptionTestCtx())
+		suppressed = credentials.ResolveAndInjectCredentials(suppressed, providers.ProviderOpenAI, codexCoveredModel, http.Header{})
+		assert.False(t, credentials.ServedOnCodexSubscription(suppressed),
 			"the retry must not resolve back onto the spent ChatGPT token")
-		assert.False(t, servedOnSubscription(suppressed),
+		assert.False(t, credentials.ServedOnSubscription(suppressed),
 			"a suppressed turn is paid from Weave credits, so it must not bill at the subscription rate")
 	})
 
 	t.Run("suppression is Codex-scoped", func(t *testing.T) {
-		ctx := context.WithValue(codexSubscriptionTestCtx(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-test-subscription-token")
-		suppressed := resolveAndInjectCredentials(withSuppressedCodexSubscription(ctx), providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
-		assert.True(t, servedOnSubscription(suppressed),
+		ctx := context.WithValue(codexSubscriptionTestCtx(), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-test-subscription-token")
+		suppressed := credentials.ResolveAndInjectCredentials(credentials.WithSuppressedCodexSubscription(ctx), providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
+		assert.True(t, credentials.ServedOnSubscription(suppressed),
 			"suppressing the Codex token must leave a Claude subscription on the same request untouched")
 	})
 }
@@ -90,7 +92,7 @@ func TestCodexQuotaExhaustion_Classification(t *testing.T) {
 			Body: []byte(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached",` +
 				`"plan_type":"team","resets_at":` + strconv.FormatInt(resetAt.Unix(), 10) + `}}`),
 		}
-		got, exhausted := codexQuotaExhaustion(err)
+		got, exhausted := credentials.CodexQuotaExhaustion(err)
 		require.True(t, exhausted, "usage_limit_reached is the ChatGPT plan-window rejection")
 		assert.Equal(t, resetAt, got, "the upstream-reported reset bounds how long the plan stays suppressed")
 	})
@@ -100,7 +102,7 @@ func TestCodexQuotaExhaustion_Classification(t *testing.T) {
 			Status: http.StatusTooManyRequests,
 			Body:   []byte(`{"error":{"type":"insufficient_quota","message":"Your workspace is out of credits."}}`),
 		}
-		got, exhausted := codexQuotaExhaustion(err)
+		got, exhausted := credentials.CodexQuotaExhaustion(err)
 		require.True(t, exhausted, "an out-of-credits workspace can't serve the turn either")
 		assert.True(t, got.IsZero(), "no resets_at means no known reset instant")
 	})
@@ -110,13 +112,13 @@ func TestCodexQuotaExhaustion_Classification(t *testing.T) {
 			Status: http.StatusTooManyRequests,
 			Body:   []byte(`{"error":{"type":"rate_limit_exceeded","message":"Slow down"}}`),
 		}
-		_, exhausted := codexQuotaExhaustion(err)
+		_, exhausted := credentials.CodexQuotaExhaustion(err)
 		assert.False(t, exhausted,
 			"a transient per-minute throttle must not mark the plan spent for the rest of the window")
 	})
 
 	t.Run("non-upstream error is not exhaustion", func(t *testing.T) {
-		_, exhausted := codexQuotaExhaustion(context.DeadlineExceeded)
+		_, exhausted := credentials.CodexQuotaExhaustion(context.DeadlineExceeded)
 		assert.False(t, exhausted, "a transport error says nothing about the plan's quota")
 	})
 }
@@ -146,7 +148,7 @@ func TestCodexSubscriptionModelRejected(t *testing.T) {
 		{name: "unstructured not found", err: &providers.UpstreamErrorResponse{Status: http.StatusNotFound, Body: []byte(`not found`)}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, codexSubscriptionModelRejected(tc.err))
+			assert.Equal(t, tc.want, credentials.CodexSubscriptionModelRejected(tc.err))
 		})
 	}
 }
@@ -155,26 +157,26 @@ func TestCodexSubscriptionModelRejected(t *testing.T) {
 // or expired ChatGPT token, which needs recovery without assuming spent quota.
 func TestCodexOAuthCredentialRejected(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
-		assert.True(t, codexOAuthCredentialRejected(&providers.UpstreamErrorResponse{Status: status}),
+		assert.True(t, credentials.CodexOAuthCredentialRejected(&providers.UpstreamErrorResponse{Status: status}),
 			"a %d from the Codex backend means the OAuth token itself was refused", status)
 	}
-	assert.False(t, codexOAuthCredentialRejected(&providers.UpstreamErrorResponse{Status: http.StatusBadRequest}),
+	assert.False(t, credentials.CodexOAuthCredentialRejected(&providers.UpstreamErrorResponse{Status: http.StatusBadRequest}),
 		"a 400 is a request-shape problem the Weave key would hit identically")
-	assert.False(t, codexOAuthCredentialRejected(context.DeadlineExceeded),
+	assert.False(t, credentials.CodexOAuthCredentialRejected(context.DeadlineExceeded),
 		"only buffered upstream envelopes classify as credential rejections")
 }
 
 func TestCodexReconnectNudgeDistinguishesRejectedCredentialsFromSpentQuota(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {
-			svc := &Service{hmmServing: hmmPorts(), usageObserver: usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)}
+			svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{UsageObserver: usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)}}
 			ctx := codexSubscriptionTestCtx()
-			resolved := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, codexCoveredModel, http.Header{})
-			svc.recordCodexCredentialUnusable(ctx, CredentialsFromContext(resolved), &providers.UpstreamErrorResponse{
+			resolved := credentials.ResolveAndInjectCredentials(ctx, providers.ProviderOpenAI, codexCoveredModel, http.Header{})
+			svc.recordCodexCredentialUnusable(ctx, credentials.CredentialsFromContext(resolved), &providers.UpstreamErrorResponse{
 				Status: status, Body: []byte(`{"error":{"type":"usage_limit_reached"}}`),
 			})
 			require.True(t, svc.codexSubscriptionExhausted(ctx, http.Header{}))
-			nudge := codexSubscriptionReconnectNudge(ctx, http.Header{}, svc.usageObserver)
+			nudge := codexSubscriptionReconnectNudge(ctx, http.Header{}, svc.credentials.UsageObserver)
 			if status == http.StatusTooManyRequests {
 				assert.Contains(t, nudge, "plan is out of usage")
 				assert.NotContains(t, nudge, "login was rejected")
@@ -190,9 +192,8 @@ func TestCodexReconnectNudgeDistinguishesRejectedCredentialsFromSpentQuota(t *te
 // x-codex-* headers, so without recording it the observer keeps reading the plan
 // as having slack and every later turn re-buys the same rejected round-trip.
 func TestCodexQuotaExhaustion_RecordedForLaterTurns(t *testing.T) {
-	svc := &Service{hmmServing: hmmPorts(),
-		usageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now),
-		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(),
+		credentials: credentials.Brokerage{UsageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now), KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
 	}
 	ctx := codexSubscriptionTestCtx()
 	headers := http.Header{}
@@ -216,14 +217,14 @@ func TestCodexQuotaExhaustion_RecordedForLaterTurns(t *testing.T) {
 func TestCodexExhaustionWindow_OutlivesWeeklyReset(t *testing.T) {
 	now := time.Now()
 
-	weekly := codexExhaustionWindow(now.Add(6*24*time.Hour), now)
+	weekly := credentials.CodexExhaustionWindow(now.Add(6*24*time.Hour), now)
 	assert.Greater(t, time.Duration(weekly.WindowMinutes)*time.Minute, 6*24*time.Hour-time.Minute,
 		"a weekly reset must be retained until it actually resets")
 
-	rolling := codexExhaustionWindow(now.Add(2*time.Hour), now)
-	assert.Equal(t, codexQuotaWindowMinutes, rolling.WindowMinutes,
+	rolling := credentials.CodexExhaustionWindow(now.Add(2*time.Hour), now)
+	assert.Equal(t, credentials.CodexQuotaWindowMinutes, rolling.WindowMinutes,
 		"a reset inside the rolling window keeps the default length; freshFor clamps to ResetAt")
-	assert.Equal(t, codexQuotaWindowMinutes, codexExhaustionWindow(time.Time{}, now).WindowMinutes,
+	assert.Equal(t, credentials.CodexQuotaWindowMinutes, credentials.CodexExhaustionWindow(time.Time{}, now).WindowMinutes,
 		"a body naming no reset falls back to the rolling window")
 }
 
@@ -260,9 +261,8 @@ func TestCodexQuotaExhaustion_SuppressionLastsUntilThePlanResets(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := time.Now()
-			svc := &Service{hmmServing: hmmPorts(),
-				usageObserver: usage.NewObserver([]byte("test-salt"), time.Minute, func() time.Time { return clock }),
-				credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
+			svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(),
+				credentials: credentials.Brokerage{UsageObserver: usage.NewObserver([]byte("test-salt"), time.Minute, func() time.Time { return clock }), KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
 			}
 			ctx, headers := codexSubscriptionTestCtx(), http.Header{}
 
@@ -291,7 +291,7 @@ const (
 func (*codexQuotaClient) SupportsSubscriptions() bool { return true }
 
 func (c *codexQuotaClient) Proxy(ctx context.Context, _ router.Decision, _ providers.PreparedRequest, _ http.ResponseWriter, _ *http.Request) error {
-	creds := CredentialsFromContext(ctx)
+	creds := credentials.CredentialsFromContext(ctx)
 	c.oauthPerCall = append(c.oauthPerCall, creds != nil && creds.OAuth)
 	return &providers.UpstreamErrorResponse{
 		Status:  http.StatusTooManyRequests,
@@ -310,10 +310,10 @@ func (c *codexQuotaClient) Passthrough(context.Context, providers.PreparedReques
 func codexQuotaService(client providers.Client) *Service {
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}},
-		map[string]providers.Client{providers.ProviderOpenAI: client},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}),
 		nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	return svc
 }
 
@@ -365,7 +365,7 @@ func TestCodexRescue_FailedRetryWritesNothingIntoACommittedResponsesStream(t *te
 
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 	require.Error(t, err)
 
@@ -380,7 +380,7 @@ func TestCodexRescue_FailedRetryWritesNothingIntoACommittedResponsesStream(t *te
 // credential the turn has would leave it unable to dispatch at all, which is
 // strictly worse than letting the subscription answer.
 func TestCodexSubscriptionExhausted_NoFallbackKey(t *testing.T) {
-	svc := &Service{hmmServing: hmmPorts(), usageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)}
+	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), credentials: credentials.Brokerage{UsageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)}}
 	ctx := codexSubscriptionTestCtx()
 
 	svc.recordCodexQuotaExhaustion(ctx, http.Header{}, &providers.UpstreamErrorResponse{

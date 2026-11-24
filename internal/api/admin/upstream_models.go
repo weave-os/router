@@ -5,9 +5,10 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 )
@@ -18,7 +19,7 @@ type discoverModelsRequest struct {
 	BaseURL  *string `json:"base_url"`
 }
 
-func DiscoverModelsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+func DiscoverModelsHandler(lister dispatch.UpstreamModelLister) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req discoverModelsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -34,8 +35,8 @@ func DiscoverModelsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		if baseURL != nil {
 			key.BaseURL = *baseURL
 		}
-		creds := proxy.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[req.Provider]
-		models, err := proxySvc.ListUpstreamModels(c.Request.Context(), req.Provider, creds)
+		creds := credentials.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[req.Provider]
+		models, err := lister.ListUpstreamModels(c.Request.Context(), req.Provider, creds)
 		if err != nil {
 			abortForListingError(c, req.Provider, "", err)
 			return
@@ -44,7 +45,7 @@ func DiscoverModelsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-func ListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) gin.HandlerFunc {
+func ListUpstreamModelsHandler(authSvc *auth.Service, lister dispatch.UpstreamModelLister) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
@@ -73,8 +74,8 @@ func ListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) g
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to load provider key."})
 			return
 		}
-		creds := proxy.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[key.Provider]
-		models, err := proxySvc.ListUpstreamModels(c.Request.Context(), key.Provider, creds)
+		creds := credentials.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[key.Provider]
+		models, err := lister.ListUpstreamModels(c.Request.Context(), key.Provider, creds)
 		if err != nil {
 			abortForListingError(c, key.Provider, key.ID, err)
 			return
@@ -84,7 +85,7 @@ func ListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) g
 }
 
 func abortForListingError(c *gin.Context, provider, keyID string, err error) {
-	if errors.Is(err, proxy.ErrModelListingUnsupported) || errors.Is(err, proxy.ErrProviderNotConfigured) {
+	if errors.Is(err, dispatch.ErrModelListingUnsupported) || errors.Is(err, dispatch.ErrProviderNotConfigured) {
 		c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{"error": "This provider does not support model listing; enter aliases manually."})
 		return
 	}

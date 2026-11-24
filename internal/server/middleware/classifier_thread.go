@@ -2,12 +2,13 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -15,12 +16,16 @@ import (
 
 const classifierThreadField = "weave_classifier_thread"
 
-func WithClassifierThread(service *proxy.Service, availability StrategyAvailability) gin.HandlerFunc {
+type ClassifierThreadAdmission interface {
+	AdmitClassifierThread(ctx context.Context, threadToken string) (context.Context, error)
+}
+
+func WithClassifierThread(service ClassifierThreadAdmission, availability StrategyAvailability) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		threadToken := c.GetHeader(proxy.ClassifierThreadHeader)
-		headerValues := c.Request.Header.Values(proxy.ClassifierThreadHeader)
-		c.Request.Header.Del(proxy.ClassifierThreadHeader)
-		if len(headerValues) == 1 && threadToken == proxy.ClassifierThreadUnavailableToken {
+		threadToken := c.GetHeader(requestcontext.ClassifierThreadHeader)
+		headerValues := c.Request.Header.Values(requestcontext.ClassifierThreadHeader)
+		c.Request.Header.Del(requestcontext.ClassifierThreadHeader)
+		if len(headerValues) == 1 && threadToken == requestcontext.ClassifierThreadUnavailableToken {
 			observability.FromGin(c).Warn("Client could not enroll classifier thread", "path", c.FullPath())
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "classifier_client_unavailable"})
 			return
@@ -30,11 +35,11 @@ func WithClassifierThread(service *proxy.Service, availability StrategyAvailabil
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "invalid_classifier_thread"})
 			return
 		}
-		body, err := io.ReadAll(io.LimitReader(c.Request.Body, proxy.MaxRequestBodyBytes+1))
-		if err != nil || len(body) > proxy.MaxRequestBodyBytes {
-			observability.FromGin(c).Debug("Classifier request body read rejected", "path", c.FullPath(), "size_bytes", len(body), "max_body_bytes", proxy.MaxRequestBodyBytes, "err", err)
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, requestcontext.MaxRequestBodyBytes+1))
+		if err != nil || len(body) > requestcontext.MaxRequestBodyBytes {
+			observability.FromGin(c).Debug("Classifier request body read rejected", "path", c.FullPath(), "size_bytes", len(body), "max_body_bytes", requestcontext.MaxRequestBodyBytes, "err", err)
 			status := http.StatusBadRequest
-			if len(body) > proxy.MaxRequestBodyBytes {
+			if len(body) > requestcontext.MaxRequestBodyBytes {
 				status = http.StatusRequestEntityTooLarge
 			}
 			c.AbortWithStatusJSON(status, gin.H{"error": "invalid_request_body"})

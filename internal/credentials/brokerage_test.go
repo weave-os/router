@@ -28,7 +28,7 @@ func apiKeyHeaders(key string) http.Header {
 }
 
 func TestEligibility_NilKeyedProvidersTreatsRegisteredAsDeploymentKeyed(t *testing.T) {
-	got := credentials.Brokerage{}.Eligibility(context.Background(), credentials.EligibilityRequest{
+	got := (&credentials.Brokerage{}).Eligibility(context.Background(), credentials.EligibilityRequest{
 		Registered: set(providers.ProviderAnthropic, providers.ProviderOpenAI),
 	})
 	assert.Equal(t, set(providers.ProviderAnthropic, providers.ProviderOpenAI), got.EnabledProviders)
@@ -104,7 +104,7 @@ func TestPolicyExcludedProviders_OverrideReplacesInstallationList(t *testing.T) 
 	assert.Equal(t, set(providers.ProviderGoogle), b.PolicyExcludedProviders([]string{providers.ProviderOpenAI}))
 	assert.Equal(t, set(providers.ProviderGoogle, providers.ProviderOpenAI),
 		b.ExcludedProviders([]string{providers.ProviderAnthropic}, []string{providers.ProviderOpenAI}))
-	assert.Nil(t, credentials.Brokerage{}.PolicyExcludedProviders(nil))
+	assert.Nil(t, (&credentials.Brokerage{}).PolicyExcludedProviders(nil))
 }
 
 func TestEnabledProviders_MatchesEligibility(t *testing.T) {
@@ -130,7 +130,7 @@ func TestUsesNonDeploymentCreds_AnyClientCredentialKeepsDeploymentSideCallsOff(t
 		"a client bearer for any provider must skip the deployment-keyed handover summarizer")
 	assert.True(t, b.UsesNonDeploymentCreds(nil, apiKeyHeaders("sk-ant-api-client")))
 	assert.True(t, b.UsesNonDeploymentCreds([]*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAI, Plaintext: []byte("byok")}}, http.Header{}))
-	assert.True(t, credentials.Brokerage{BYOKOnly: true}.UsesNonDeploymentCreds(nil, http.Header{}))
+	assert.True(t, (&credentials.Brokerage{BYOKOnly: true}).UsesNonDeploymentCreds(nil, http.Header{}))
 	assert.False(t, b.UsesNonDeploymentCreds(nil, http.Header{}))
 }
 

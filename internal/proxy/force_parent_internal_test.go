@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -33,14 +35,14 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	require.Equal(t, controlKey, deriveForceModelSessionKeyForRequest(ctx, child, apiKeyID, childKey))
 	store := newForceModelMapStore()
 	scorer := &tierProbeRouter{available: map[string]struct{}{catalog.ModelIDClaudeHaiku45.String(): {}}}
-	svc := withHMMPorts(NewService(scorer, nil, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
+	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 	apply := func(command translate.ForceModelResult) string {
 		t.Helper()
-		_, ack, err := svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), command, installationID, parentKey, controlKey)
+		_, ack, err := (forceModelCommands{svc}).apply(ctx, router.StrategyFromContext(ctx), command, installationID, parentKey, controlKey)
 		require.NoError(t, err)
 		return ack.render(parent.SourceFormat())
 	}
-	route := func(env *translate.RequestEnvelope) turnLoopResult {
+	route := func(env *translate.RequestEnvelope) routingpolicy.TurnRoute {
 		t.Helper()
 		features := env.RoutingFeatures()
 		routed, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{RequestedModel: features.Model})
@@ -93,11 +95,11 @@ func TestForceParentDoesNotOverrideChildCompaction(t *testing.T) {
 	require.NoError(t, err)
 	store := newForceModelMapStore()
 	scored := router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String()}
-	svc := withHMMPorts(NewService(fixedRouter{decision: scored}, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), nil))
+	svc := withHMMPorts(NewService(fixedRouter{decision: scored}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}), nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), nil))
 	parentKey := deriveSessionKeyForRequest(ctx, parent, apiKeyID)
 	require.Equal(t, parentKey, deriveSessionKeyForRequest(ctx, compaction, apiKeyID))
 	features := compaction.RoutingFeatures()
-	route := func() turnLoopResult {
+	route := func() routingpolicy.TurnRoute {
 		t.Helper()
 		turn, err := svc.runTurnLoop(ctx, compaction, features, testTurnRequest(ctx, apiKeyID, installationID), "explore", nil, router.Request{RequestedModel: features.Model})
 		require.NoError(t, err)
@@ -105,7 +107,7 @@ func TestForceParentDoesNotOverrideChildCompaction(t *testing.T) {
 	}
 	baseline := route()
 	controlKey := deriveForceModelSessionKeyForRequest(ctx, parent, apiKeyID, parentKey)
-	_, _, err = svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: catalog.ModelIDClaudeOpus48.String(), ParentOnly: true}, installationID, parentKey, controlKey)
+	_, _, err = (forceModelCommands{svc}).apply(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: catalog.ModelIDClaudeOpus48.String(), ParentOnly: true}, installationID, parentKey, controlKey)
 	require.NoError(t, err)
 	child := route()
 	assert.Equal(t, baseline.Decision.Model, child.Decision.Model, "a parent force must not change the child's compaction model")

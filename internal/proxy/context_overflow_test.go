@@ -11,8 +11,11 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -35,7 +38,7 @@ func TestProxyMessages_UpstreamOverflowIsLeftForNativeRendering(t *testing.T) {
 	upstream := overflowingProvider(`{"error":{"message":"Your input exceeds the context window of this model.","code":"context_length_exceeded"}}`)
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster"}},
-		map[string]providers.Client{providers.ProviderAnthropic: upstream},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}),
 		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	rec := httptest.NewRecorder()
@@ -45,7 +48,7 @@ func TestProxyMessages_UpstreamOverflowIsLeftForNativeRendering(t *testing.T) {
 	require.Error(t, err)
 	cls, ok := proxy.ClassifyDispatchError(err)
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, cls.Kind)
 	assert.Len(t, upstream.proxyBodies, 1, "an overflow is not retried against the same window")
 	assert.Zero(t, rec.Body.Len(), "the upstream's OpenAI-shaped body must not reach an Anthropic client")
 }
@@ -58,7 +61,7 @@ func TestProxyMessages_ForcedModelDispatchesPastByteEstimate(t *testing.T) {
 	const forced = "claude-sonnet-4-5"
 	upstream := &fakeProvider{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5", Reason: "cluster"}}
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: upstream},
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}),
 		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithAvailableModels(map[string]struct{}{forced: {}, "claude-opus-5": {}})
 
@@ -68,7 +71,7 @@ func TestProxyMessages_ForcedModelDispatchesPastByteEstimate(t *testing.T) {
 	content := strconv.QuoteToASCII(strings.Repeat("中", 150_000))
 	body := []byte(`{"model":"` + forced + `","max_tokens":1024,"messages":[{"role":"user","content":` + content + `}]}`)
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
-	httpReq.Header.Set(proxy.ForceModelHeader, forced)
+	httpReq.Header.Set(requestcontext.ForceModelHeader, forced)
 	require.NoError(t, svc.ProxyMessages(authedCtx(overflowInstallationID), body, httptest.NewRecorder(), httpReq))
 
 	require.Len(t, upstream.proxyBodies, 1)
@@ -82,7 +85,7 @@ func proxyResponsesOverflow(t *testing.T, stream bool) *httptest.ResponseRecorde
 	upstream := overflowingProvider(`{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1050000 tokens > 1000000 maximum"}}`)
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster"}},
-		map[string]providers.Client{providers.ProviderAnthropic: upstream},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}),
 		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	rec := httptest.NewRecorder()
@@ -94,7 +97,7 @@ func proxyResponsesOverflow(t *testing.T, stream bool) *httptest.ResponseRecorde
 	require.Error(t, err)
 	cls, ok := proxy.ClassifyDispatchError(err)
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, cls.Kind)
 	return rec
 }
 
@@ -167,23 +170,23 @@ func TestCrossFormatResponsesOverflowClassifiesAsContextWindowExceeded(t *testin
 			},
 		},
 	}
-	for name, ingress := range ingresses {
+	for name, surface := range ingresses {
 		for _, stream := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s/stream=%t", name, stream), func(t *testing.T) {
 				upstream := &responsesOverflowClient{}
 				svc := proxy.WithStrategyPorts(proxy.NewService(
 					&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5-mini", Reason: "cluster"}},
-					map[string]providers.Client{providers.ProviderOpenAI: upstream},
+					dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}),
 					nil, newFakePinStore(), false, providers.ProviderOpenAI, "gpt-5-mini", nil), hmm.ServingPorts())
 
 				rec := httptest.NewRecorder()
-				body := []byte(fmt.Sprintf(ingress.body, stream))
-				err := ingress.proxy(svc)(authedCtx(overflowInstallationID), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, ingress.path, nil))
+				body := []byte(fmt.Sprintf(surface.body, stream))
+				err := surface.proxy(svc)(authedCtx(overflowInstallationID), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, surface.path, nil))
 
 				require.Error(t, err)
 				cls, ok := proxy.ClassifyDispatchError(err)
 				require.True(t, ok)
-				assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind)
+				assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, cls.Kind)
 				require.Equal(t, []providers.Endpoint{providers.EndpointResponses}, upstream.endpoints,
 					"served on the Responses API, and an overflow is not retried against the same window")
 				assert.NotContains(t, rec.Body.String(), "upstream Responses request failed")
@@ -211,7 +214,7 @@ func hmmOverflowService(provider string, upstream providers.Client, models ...st
 	}
 	resolver := policy.NewResolver(available, map[string]struct{}{provider: {}}, func(m catalog.Model) string { return m.ID }, policy.ManagedProviderPolicy())
 	routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyHMM, Unavailable: hmm.ErrHMMUnavailable}, overflowPolicy{}, resolver)
-	return proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{provider: upstream},
+	return proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{provider: upstream}),
 		nil, newFakePinStore(), false, provider, models[0], nil), hmm.ServingPorts()).
 		WithAvailableModels(available).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routing, Unavailable: hmm.ErrHMMUnavailable})
@@ -252,7 +255,7 @@ func TestHMMTotalOverflowReachesUpstreamOnEveryIngress(t *testing.T) {
 			require.Error(t, err)
 			cls, ok := proxy.ClassifyDispatchError(err)
 			require.True(t, ok)
-			assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind, "got %v", err)
+			assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, cls.Kind, "got %v", err)
 			require.Len(t, upstream.proxyBodies, 1, "the widest model is dispatched so the provider decides")
 		})
 	}
@@ -275,7 +278,7 @@ func TestTotalOverflowIgnoresWiderUnservableModel(t *testing.T) {
 	require.Error(t, err)
 	cls, ok := proxy.ClassifyDispatchError(err)
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind, "got %v", err)
+	assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, cls.Kind, "got %v", err)
 	require.Len(t, upstream.proxyBodies, 1, "the widest servable model is dispatched so the provider decides")
 }
 
@@ -285,7 +288,7 @@ func TestHMMPolicyEmptiedPoolStaysNoRoutableModels(t *testing.T) {
 	upstream := &fakeProvider{}
 	svc := hmmOverflowService(providers.ProviderAnthropic, upstream, "claude-opus-4-8", "claude-haiku-4-5")
 	ctx := context.WithValue(router.WithStrategy(authedCtx(overflowInstallationID), router.StrategyHMM),
-		proxy.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-8", "claude-haiku-4-5"})
+		requestcontext.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-8", "claude-haiku-4-5"})
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`)
 
 	err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
@@ -293,6 +296,6 @@ func TestHMMPolicyEmptiedPoolStaysNoRoutableModels(t *testing.T) {
 	require.Error(t, err)
 	cls, ok := proxy.ClassifyDispatchError(err)
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorNoRoutableModels, cls.Kind, "got %v", err)
+	assert.Equal(t, ingress.DispatchErrorNoRoutableModels, cls.Kind, "got %v", err)
 	assert.Empty(t, upstream.proxyBodies)
 }

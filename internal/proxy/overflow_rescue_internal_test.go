@@ -12,7 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -51,10 +55,10 @@ func gatewayOverflowFixture(anthropicErr, openAIErr error) (*Service, context.Co
 		Provider: providers.ProviderAnthropicGateway,
 		Model:    gatewayCompactionOpusModel,
 		Reason:   "test",
-	}}, map[string]providers.Client{
+	}}, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderAnthropicGateway: anthropicGateway,
 		providers.ProviderOpenAIGateway:    openAIGateway,
-	}, nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
+	}), nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	return routed, ctx, anthropicGateway, openAIGateway
 }
@@ -74,7 +78,7 @@ func TestGatewayOverflowOnOrdinaryTurnRescuesAcrossGateways(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, []string{gatewayCompactionOpusModel}, anthropicGateway.models, "same-gateway peers share the window that rejected it")
 			assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models)
-			assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(HeaderRouterModel))
+			assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(requestcontext.HeaderRouterModel))
 			assert.Contains(t, rec.Body.String(), "summary")
 			assert.NotContains(t, rec.Body.String(), "prompt is too long")
 		})
@@ -88,19 +92,19 @@ func TestGatewayOverflowEverywhereOnOrdinaryTurnStillAsksToCompact(t *testing.T)
 		Status: http.StatusBadRequest,
 		Body:   []byte(`{"error":{"message":"Your input exceeds the context window of this model.","type":"invalid_request_error","code":"context_length_exceeded"}}`),
 	}
-	for name, ingress := range gatewayOverflowIngresses {
+	for name, surface := range gatewayOverflowIngresses {
 		t.Run(name, func(t *testing.T) {
 			svc, ctx, _, openAIGateway := gatewayOverflowFixture(cortexPromptTooLong(), lunaOverflow)
-			body := []byte(ingress.body)
+			body := []byte(surface.body)
 			rec := httptest.NewRecorder()
 
-			err := ingress.proxy(svc)(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", bytes.NewReader(body)))
+			err := surface.proxy(svc)(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", bytes.NewReader(body)))
 
 			require.Error(t, err)
 			assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models)
 			class, ok := ClassifyDispatchError(err)
 			require.True(t, ok)
-			assert.Equal(t, DispatchErrorContextWindowExceeded, class.Kind)
+			assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, class.Kind)
 		})
 	}
 }
@@ -146,8 +150,8 @@ func TestOverflowRescueDecisionsSkipRescuerPastItsWindow(t *testing.T) {
 func TestOverflowRescueDecisionsKeepReadmissionInsideTheRescuers(t *testing.T) {
 	const mini = "gpt-4.1-mini"
 	svc, ctx, _, _ := gatewayOverflowFixture(nil, nil)
-	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel, mini})
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx = context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel, mini})
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		gatewayKey(providers.ProviderAnthropicGateway, "https://gateway.example.com/anthropic", gatewayCompactionOpusModel, policy.PrecompactionDefaultModel),
 		gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/openai", catalog.ModelGPT6Luna, mini),
 	})
