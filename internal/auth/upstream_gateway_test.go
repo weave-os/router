@@ -211,6 +211,7 @@ func TestParseUpstreamGatewayIssuers(t *testing.T) {
 		"user email header":   `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k","user_email_headers":["X-Gateway-User-Email"]}]`,
 		"duplicate issuer":    `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k"},{"issuer_url":"https://issuer.example","audience":"b","subjects":["s"],"session_issuer_kid":"k"}]`,
 		"bad max lifetime":    `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k","max_lifetime":"forever"}]`,
+		"trailing value":      `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k"}] [{"issuer_url":"https://other.example"}]`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := auth.ParseUpstreamGatewayIssuers(raw)

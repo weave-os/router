@@ -67,6 +67,9 @@ func ParseUpstreamGatewayIssuers(raw string) ([]UpstreamGatewayIssuer, error) {
 	if err := decoder.Decode(&entries); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidUpstreamGatewayIssuer, err)
 	}
+	if decoder.More() {
+		return nil, fmt.Errorf("%w: unexpected data after the issuer list", ErrInvalidUpstreamGatewayIssuer)
+	}
 	issuers := make([]UpstreamGatewayIssuer, 0, len(entries))
 	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
