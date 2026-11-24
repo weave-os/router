@@ -73,7 +73,7 @@ sha() { # sha <file>: lowercase hex SHA-256
 }
 file_absent() { [ ! -e "$1" ]; }
 log_has() { grep -q -- "$2" "$1" 2>/dev/null; }
-no_glob_match() { # no_glob_match <pattern>: no file matches the glob
+no_glob_match() {
   compgen -G "$1" >/dev/null && return 1 || return 0
 }
 
@@ -169,25 +169,25 @@ done
 
 # A lab is one victim machine (scratch $HOME, cache) plus one publisher tree.
 # Paths under the publisher mirror the real URLs.
-new_lab() { # new_lab <name>: sets c, home, pub, log
-  c="$work/$1"; home="$c/home"; pub="$c/pub"; log="$c/curl.log"
-  mkdir -p "$home" "$c/cache" "$pub/raw/weave-os/router/main/install" "$pub/selfhost/install"
+new_lab() { # new_lab <name>: sets lab, home, pub, log
+  lab="$work/$1"; home="$lab/home"; pub="$lab/pub"; log="$lab/curl.log"
+  mkdir -p "$home" "$lab/cache" "$pub/raw/weave-os/router/main/install" "$pub/selfhost/install"
   : >"$log"
 }
-rel_dir() { printf '%s\n' "$pub/raw/weave-os/router/$1/install"; } # rel_dir <tag>
+rel_dir() { printf '%s\n' "$pub/raw/weave-os/router/$1/install"; }
 
 # victim_env <path_dir>: the clean environment every victim process runs in.
 # Only HOME, cache, PATH and the shim's own variables; no WEAVE_* override.
 victim_env() {
-  printf '%s\n' env -i "HOME=$home" "XDG_CACHE_HOME=$c/cache" "TMPDIR=$c" \
+  printf '%s\n' env -i "HOME=$home" "XDG_CACHE_HOME=$lab/cache" "TMPDIR=$lab" \
     "PATH=$shim_bin:$1" "MIT_PUB_ROOT=$pub" "MIT_CURL_LOG=$log" "MIT_REAL_CURL=$real_curl"
 }
 
-cc_payload() { printf '{"model":{"id":"%s"},"transcript_path":"%s/none.jsonl"}' "${cc_model:-claude-opus-5}" "$c"; }
+cc_payload() { printf '{"model":{"id":"%s"},"transcript_path":"%s/none.jsonl"}' "${cc_model:-claude-opus-5}" "$lab"; }
 codex_payload() { printf '%s' '{"session_id":"s-integrity","model":"gpt-5.6-terra","last_assistant_message":"done"}'; }
 
 # run_tool <tool> <installed> [VAR=value...]: one victim invocation; stderr is
-# captured in $c/stderr. The extra assignments are the case's own overrides.
+# captured in $lab/stderr. The extra assignments are the case's own overrides.
 run_tool() {
   local tool="$1" installed="$2" path_dir="$PATH"; shift 2
   local extra=() a
@@ -197,10 +197,10 @@ run_tool() {
   local env_cmd=()
   mapfile -t env_cmd < <(victim_env "$path_dir")
   if [ "$tool" = "cc" ]; then
-    cc_payload | "${env_cmd[@]}" "${extra[@]+"${extra[@]}"}" bash "$installed" >/dev/null 2>"$c/stderr"
+    cc_payload | "${env_cmd[@]}" "${extra[@]+"${extra[@]}"}" bash "$installed" >/dev/null 2>"$lab/stderr"
   else
-    codex_payload | "${env_cmd[@]}" "WEAVE_CODEX_STATUS_TITLE_FILE=$c/title" "${extra[@]+"${extra[@]}"}" \
-      bash "$installed" >/dev/null 2>"$c/stderr"
+    codex_payload | "${env_cmd[@]}" "WEAVE_CODEX_STATUS_TITLE_FILE=$lab/title" "${extra[@]+"${extra[@]}"}" \
+      bash "$installed" >/dev/null 2>"$lab/stderr"
   fi
 }
 
@@ -228,7 +228,7 @@ self_refresh_lab() {
   mkdir -p "$(dirname "$installed")"
   cp "$(tool_keyed "$tool")" "$installed"; chmod 755 "$installed"
   release_dir="$(rel_dir "$next_tag")"; mkdir -p "$release_dir"
-  good="$c/genuine.sh"
+  good="$lab/genuine.sh"
   cp "$(tool_keyed "$tool")" "$good"; retag "$good" "$next_tag"
   printf '# genuine %s release body\n' "$next_tag" >>"$good"
   cp "$good" "$pub/raw/weave-os/router/main/install/$file"
@@ -398,7 +398,7 @@ for tool in cc codex; do
     "$url_var=https://raw.githubusercontent.com/weave-os/router/$next_tag/install/$file"
   settle "$installed" "$next_tag/install/MANIFEST"
   expect_refused "$tool: WEAVE_STATUSLINE_TRUST_UNSIGNED=1 is refused for the default publisher" "$before"
-  check_not_contains "$tool: no opt-in warning for the default publisher" "$(cat "$c/stderr")" "skipping signature verification"
+  check_not_contains "$tool: no opt-in warning for the default publisher" "$(cat "$lab/stderr")" "skipping signature verification"
   run_tool "$tool" "$installed"
   sleep 0.3
   if file_absent "$home/canary.txt"; then ok "$tool: the unsigned body never runs"; else no "$tool: the unsigned body never runs" "no canary" "$(cat "$home/canary.txt")"; fi
@@ -441,7 +441,7 @@ for tool in cc codex; do
   else
     no "$tool: WEAVE_STATUSLINE_TRUST_UNSIGNED=1 swaps an unsigned self-hosted copy" "installed == self-hosted copy" "not swapped"
   fi
-  check_contains "$tool: the opt-in prints its warning to stderr" "$(cat "$c/stderr")" \
+  check_contains "$tool: the opt-in prints its warning to stderr" "$(cat "$lab/stderr")" \
     "WEAVE_STATUSLINE_TRUST_UNSIGNED=1: skipping signature verification."
   check_not_contains "$tool: the opt-in fetched no MANIFEST" "$(cat "$log")" "MANIFEST"
 
@@ -459,7 +459,7 @@ self_refresh_lab cc cc-price-miss-refused
 tamper_served
 cc_model="unpriced-model-x" run_tool cc "$installed"
 settle "$installed" "$next_tag/install/cc-statusline.sh"
-if compgen -G "$c/cache/weave-router/checked-at*.miss.unpriced-model-x" >/dev/null; then
+if compgen -G "$lab/cache/weave-router/checked-at*.miss.unpriced-model-x" >/dev/null; then
   ok "a refused price-miss refresh keeps its stamp"
 else
   no "a refused price-miss refresh keeps its stamp" "stamp kept" "stamp dropped"
@@ -481,7 +481,7 @@ commands_lab() {
   cp "$cc_keyed" "$installed"; chmod 755 "$installed"
   cp "$cc_keyed" "$pub/raw/weave-os/router/main/install/cc-statusline.sh"
   release_dir="$(rel_dir "$current_tag")"; mkdir -p "$release_dir/commands"
-  baseline="$c/cache/weave-router/commands$(printf '%s' "$(cd "$cmd_dir" && pwd -P)" | tr -c 'A-Za-z0-9._-' '_')"
+  baseline="$lab/cache/weave-router/commands$(printf '%s' "$(cd "$cmd_dir" && pwd -P)" | tr -c 'A-Za-z0-9._-' '_')"
   mkdir -p "$baseline"
   local name
   for name in fm rf; do
@@ -496,7 +496,7 @@ sign_commands() { # sign_commands [key]: sign a MANIFEST of the release dir's wr
   for f in "$release_dir/commands"/*.md; do manifest_row "install/commands/${f##*/}" "$f" >>"$release_dir/MANIFEST"; done
   sign "$release_dir/MANIFEST" "$keys/${1:-release}.key" "$release_dir/MANIFEST.sig.b64"
 }
-upstream_wrapper() { # upstream_wrapper <name> <description>
+upstream_wrapper() {
   printf '%s\n' '---' "description: $2" '---' '' "/$1 \$ARGUMENTS" >"$release_dir/commands/$1.md"
 }
 sync_settle() { # sync_settle <fragment>: bounded wait for the wrapper cycle to finish
@@ -529,7 +529,7 @@ printf '%s\n' 'MY OWN FM' >"$cmd_dir/fm.md"
 upstream_wrapper fm "release fm, take two."
 upstream_wrapper rf "release rf, take two."
 sign_commands
-rm -f "$c/cache/weave-router/"checked-at*.commands
+rm -f "$lab/cache/weave-router/"checked-at*.commands
 : >"$log"
 run_tool cc "$installed"
 if wait_for 20 grep -q 'take two' "$cmd_dir/rf.md"; then
@@ -637,7 +637,7 @@ check_contains "a host-root wrapper source fetches the root MANIFEST" "$(cat "$l
 
 # The scope selector recovered from the installed /router-off is unverified, so
 # only the shapes the installer writes are copied into verified wrappers.
-scope_lab() { # scope_lab <name> <router-off npx suffix>
+scope_lab() {
   commands_lab "$1"
   : >"$baseline/.manifest-seeded"
   local off_body on_body
@@ -694,8 +694,8 @@ echo "install.sh --uninstall"
 # records each run.
 uninstall_lab() {
   new_lab "$1"
-  mkdir -p "$c/bin-dir"
-  cp "$installer_keyed" "$c/bin-dir/install.sh"
+  mkdir -p "$lab/bin-dir"
+  cp "$installer_keyed" "$lab/bin-dir/install.sh"
   cp "$cc_keyed" "$pub/raw/weave-os/router/main/install/cc-statusline.sh"
   retag "$pub/raw/weave-os/router/main/install/cc-statusline.sh" "$next_tag"
   release_dir="$(rel_dir "$next_tag")"; mkdir -p "$release_dir"
@@ -708,7 +708,7 @@ uninstall_lab() {
 run_uninstall() { # run_uninstall [VAR=value...]: sets rc
   local env_cmd=()
   mapfile -t env_cmd < <(victim_env "$PATH")
-  "${env_cmd[@]}" "$@" bash "$c/bin-dir/install.sh" --uninstall </dev/null >"$c/stdout" 2>"$c/stderr"
+  "${env_cmd[@]}" "$@" bash "$lab/bin-dir/install.sh" --uninstall </dev/null >"$lab/stdout" 2>"$lab/stderr"
   rc=$?
 }
 
@@ -721,7 +721,7 @@ uninstall_lab un-tampered
 printf '%s\n' 'printf "tampered\n" >>"$HOME/canary.txt"' >>"$release_dir/uninstall.sh"
 run_uninstall
 check "a tampered uninstaller is refused" "$([ "$rc" -ne 0 ] && echo refused)" refused
-check_contains "the refusal names the manifest check" "$(cat "$c/stderr")" "Refusing to run uninstall.sh"
+check_contains "the refusal names the manifest check" "$(cat "$lab/stderr")" "Refusing to run uninstall.sh"
 if file_absent "$home/canary.txt" && file_absent "$home/uninstall-ran"; then
   ok "a tampered uninstaller never runs"
 else
