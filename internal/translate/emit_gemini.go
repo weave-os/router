@@ -252,7 +252,11 @@ func writeGeminiFromOpenAI(jw *jsonWriter, body []byte, opts EmitOptions) error 
 		case "system", "developer":
 			return true
 		case "user":
-			parts := openAIUserPartsGJSON(msg.Get("content"))
+			parts, partsErr := openAIUserPartsGJSON(msg.Get("content"))
+			if partsErr != nil {
+				walkErr = partsErr
+				return false
+			}
 			if len(parts) == 0 {
 				return true
 			}
@@ -296,52 +300,120 @@ func writeGeminiFromOpenAI(jw *jsonWriter, body []byte, opts EmitOptions) error 
 	return nil
 }
 
-func openAIUserPartsGJSON(content gjson.Result) []string {
+func openAIUserPartsGJSON(content gjson.Result) ([]string, error) {
 	switch content.Type {
 	case gjson.String:
 		s := content.String()
 		if s == "" {
-			return nil
+			return nil, nil
 		}
-		return []string{geminiTextPart(s)}
+		return []string{geminiTextPart(s)}, nil
 	case gjson.JSON:
 		var parts []string
+		var walkErr error
+		skippedType := ""
 		content.ForEach(func(_, p gjson.Result) bool {
-			switch p.Get("type").String() {
+			partType := p.Get("type").String()
+			switch partType {
 			case "text":
 				if s := p.Get("text").String(); s != "" {
 					parts = append(parts, geminiTextPart(s))
 				}
 			case "image_url":
-				urlStr := p.Get("image_url.url").String()
-				mime, data, ok := parseDataURL(urlStr)
-				if !ok {
-					return true
-				}
-				if _, err := base64.StdEncoding.DecodeString(data); err != nil {
+				mime, data, ok := parseDataURL(p.Get("image_url.url").String())
+				if !ok || !isValidBase64(data) {
+					if skippedType == "" {
+						skippedType = partType
+					}
 					return true
 				}
 				if mime == "" {
 					mime = "image/jpeg"
 				}
-				pw := newJSONWriter()
-				pw.Obj()
-				pw.Key("inlineData")
-				pw.Obj()
-				pw.Key("mimeType")
-				pw.Str(mime)
-				pw.Key("data")
-				pw.Str(data)
-				pw.EndObj()
-				pw.EndObj()
-				parts = append(parts, string(pw.Bytes()))
+				parts = append(parts, geminiInlineDataPart(mime, data))
+			case "file":
+				part, err := geminiInlineDataFromOpenAIFile(p.Get("file"))
+				if err != nil {
+					walkErr = err
+					return false
+				}
+				parts = append(parts, part)
+			case "input_audio":
+				part, err := geminiInlineDataFromOpenAIAudio(p.Get("input_audio"))
+				if err != nil {
+					walkErr = err
+					return false
+				}
+				parts = append(parts, part)
+			default:
+				if skippedType == "" {
+					skippedType = partType
+				}
 			}
 			return true
 		})
-		return parts
+		if walkErr != nil {
+			return nil, walkErr
+		}
+		if len(parts) == 0 && skippedType != "" {
+			return nil, newUnsupportedUserPart(FormatOpenAI, "gemini", skippedType, "no Gemini equivalent; the message would be sent with no content")
+		}
+		return parts, nil
 	default:
 	}
-	return nil
+	return nil, nil
+}
+
+func geminiInlineDataFromOpenAIFile(file gjson.Result) (string, error) {
+	mime, data, ok := parseDataURL(file.Get("file_data").String())
+	if !ok {
+		reason := "file part has no inline data URL file_data"
+		if file.Get("file_id").String() != "" {
+			reason = "only bare file_id without inline file_data; cross-provider file ids cannot be forwarded"
+		}
+		return "", newUnsupportedUserPart(FormatOpenAI, "gemini", "file", reason)
+	}
+	if !isValidBase64(data) {
+		return "", newUnsupportedUserPart(FormatOpenAI, "gemini", "file", "file_data is not valid base64")
+	}
+	if mime == "" {
+		mime = "application/pdf"
+	}
+	return geminiInlineDataPart(mime, data), nil
+}
+
+func geminiInlineDataFromOpenAIAudio(audio gjson.Result) (string, error) {
+	data := audio.Get("data").String()
+	if data == "" || !isValidBase64(data) {
+		return "", newUnsupportedUserPart(FormatOpenAI, "gemini", "input_audio", "input_audio.data is missing or not valid base64")
+	}
+	return geminiInlineDataPart(geminiAudioMIMEType(audio.Get("format").String()), data), nil
+}
+
+func geminiAudioMIMEType(format string) string {
+	if strings.EqualFold(format, "mp3") {
+		return "audio/mpeg"
+	}
+	return "audio/wav"
+}
+
+func isValidBase64(data string) bool {
+	_, err := base64.StdEncoding.DecodeString(data)
+	return err == nil
+}
+
+func geminiInlineDataPart(mime, data string) string {
+	pw := newJSONWriter()
+	pw.Obj()
+	pw.Key("inlineData")
+	pw.Obj()
+	pw.Key("mimeType")
+	pw.Str(mime)
+	pw.Key("data")
+	pw.Str(data)
+	pw.EndObj()
+	pw.EndObj()
+	return string(pw.Bytes())
 }
 
 func openAIAssistantPartsGJSON(msg gjson.Result) ([]string, error) {
