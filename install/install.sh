@@ -182,6 +182,10 @@ rotate_key="false"
 api_key_source=""
 # Set by verify_install; a return URL is opened only after both probes pass.
 install_verification_succeeded="false"
+# Exit status of a non-interactive install whose key the router refused. It is
+# its own status so `setup` can tell it from a failed write and still install
+# the next client, which may hold a different key.
+EXIT_KEY_REJECTED=3
 # Set by verify_install: valid | rejected | unverified (router unreachable),
 # or empty when there was no key to check.
 key_verdict=""
@@ -1904,6 +1908,7 @@ if [ "$mode" = "setup" ]; then
   # handoff file so the Codex run doesn't ask again. The key travels by file
   # and environment, never argv.
   setup_handoff=""
+  setup_status=0
   shared_key=""
   shared_email=""
   identity_resolved=""
@@ -1913,7 +1918,11 @@ if [ "$mode" = "setup" ]; then
   fi
   if [ "$setup_claude" = "true" ]; then
     WEAVE_SETUP_HANDOFF_FILE="$setup_handoff" bash "$0" "${setup_args[@]}" --claude \
-      || { setup_status=$?; [ -z "$setup_handoff" ] || rm -f "$setup_handoff"; exit "$setup_status"; }
+      || setup_status=$?
+    if [ "$setup_status" -ne 0 ] && [ "$setup_status" -ne "$EXIT_KEY_REJECTED" ]; then
+      [ -z "$setup_handoff" ] || rm -f "$setup_handoff"
+      exit "$setup_status"
+    fi
   fi
   if [ -n "$setup_handoff" ]; then
     if [ -s "$setup_handoff" ]; then
@@ -1925,9 +1934,9 @@ if [ "$mode" = "setup" ]; then
   if [ "$setup_codex" = "true" ]; then
     WEAVE_SETUP_SHARED_KEY="$shared_key" WEAVE_SETUP_SHARED_EMAIL="$shared_email" \
       WEAVE_SETUP_IDENTITY_RESOLVED="$identity_resolved" \
-      bash "$0" "${setup_args[@]}" --codex
+      bash "$0" "${setup_args[@]}" --codex || exit $?
   fi
-  exit 0
+  exit "$setup_status"
 fi
 
 if [ -n "$return_url" ] && [ "$mode" != "install" ]; then
@@ -5470,7 +5479,7 @@ announce_done() {
       # router proves nothing about the key and stays a success.
       if [ "$key_verdict" = "rejected" ] && [ "$non_interactive" = "true" ]; then
         print_uninstall_hint
-        exit 1
+        exit "$EXIT_KEY_REJECTED"
       fi
       ;;
     *)
