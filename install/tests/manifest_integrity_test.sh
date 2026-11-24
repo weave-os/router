@@ -640,7 +640,7 @@ check_contains "a host-root wrapper source fetches the root MANIFEST" "$(cat "$l
 
 # An older signed release served from a mutable wrapper source still verifies,
 # so the statusline its MANIFEST lists must carry this copy's release or newer.
-older_release_lab() { # older_release_lab <name> <statusline tag>: a signed release under selfhost/install
+older_release_lab() { # signed selfhost/install release whose cc-statusline.sh advertises <statusline tag>; the tag is what the refresh checks
   commands_lab "$1"
   : >"$baseline/.manifest-seeded"
   release_dir="$pub/selfhost/install"; mkdir -p "$release_dir/commands"
