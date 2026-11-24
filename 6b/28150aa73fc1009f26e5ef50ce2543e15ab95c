@@ -1,0 +1,29 @@
+internal/proxy/classifier_dispatch_internal_test.go
+  s_21dea1a19b16c4::t_0ed7c5c7c72fdc 165-204
+internal/proxy/classifier_turn.go
+  s_21dea1a19b16c4::t_073e400f9bf441 100-105,112
+internal/router/turntype/AGENTS.md
+  s_21dea1a19b16c4::t_93aa139f741a6c 17
+internal/router/turntype/CLAUDE.md
+  s_21dea1a19b16c4::t_9aa15cf039795b 17
+internal/router/turntype/detect.go
+  s_21dea1a19b16c4::t_61684973d0d4ea 57-61,188-191,196-204
+internal/router/turntype/detect_test.go
+  s_21dea1a19b16c4::t_a46b4aa6bf8377 321-340
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6b28150aa73fc1009f26e5ef50ce2543e15ab95c",
+  "prompts": {},
+  "sessions": {
+    "s_21dea1a19b16c4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dc507d76-4381-4bc4-9bb4-3fb9526ae3dd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

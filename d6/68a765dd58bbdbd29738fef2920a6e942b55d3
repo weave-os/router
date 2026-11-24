@@ -1,0 +1,59 @@
+internal/proxy/service.go
+  s_52728d657ce6a7::t_99ccf3a30ec22d 2853-2862,4131
+  s_52728d657ce6a7::t_0d3e65c26d7328 2176
+  s_52728d657ce6a7::t_7f4425abf3b904 4129,6329
+  s_52728d657ce6a7::t_0aabfb73e63d97 4130,6330
+  s_52728d657ce6a7::t_0b4671d6e5df71 5536-5545,6331
+  s_52728d657ce6a7::t_e8e332e5f5f16d 2579,2582,3441,3443-3444,3500-3504,3518,3556,3684
+  s_52728d657ce6a7::t_bf349b17a037da 2172-2175
+  s_52728d657ce6a7::t_798fbee341731a 3543,3915,3980
+internal/proxy/usage_bypass.go
+  s_52728d657ce6a7::t_ff109c595e9f90 351
+  s_52728d657ce6a7::t_ed6c32a3fe28e9 307-313,315,350,352
+internal/proxy/conformance_golden_test.go
+  s_52728d657ce6a7::t_beabe6f58d064c 123-128
+internal/server/server.go
+  s_52728d657ce6a7::t_d1edb93da7fb8f 84-102
+README.md
+  s_52728d657ce6a7::t_76f44946b6b007 250-256
+internal/proxy/gemini.go
+  s_52728d657ce6a7::t_b1b6835f12ffc9 66-75,271
+  s_52728d657ce6a7::t_c3ac5fc05eaf52 270
+  s_52728d657ce6a7::t_f32be5098f69ce 269
+internal/proxy/cost_response_test.go
+  s_52728d657ce6a7::t_0fe3a5fa630162 59-64,66
+  s_52728d657ce6a7::t_8daad0b8499708 1-4,6-8,10-27,34-43,51-52,57-58
+  s_52728d657ce6a7::t_1588a56eeee1f0 65
+  s_52728d657ce6a7::t_9d8d295514c973 5,28-30,32-33
+  s_52728d657ce6a7::t_ec9dd66fdb32b8 9
+  s_52728d657ce6a7::t_a736c7ead5680b 31
+  s_52728d657ce6a7::t_353424ba13d008 44-50,53-56
+internal/proxy/headers.go
+  s_52728d657ce6a7::t_1a9d461ed5d189 27-36
+internal/proxy/cost_response.go
+  s_52728d657ce6a7::t_93f9324ba0976c 115-116
+  s_52728d657ce6a7::t_a3c8a0080dbfd4 23,37,52
+  s_52728d657ce6a7::t_f6f21d5f99e0d7 112-114
+  s_52728d657ce6a7::t_b44c5aff57c317 1-22,24-36,38-51,53-66,72-84,98-101,107-111,117-197,199-201,222
+  s_52728d657ce6a7::t_383b69ebbd17fa 67-71,219,221
+  s_52728d657ce6a7::t_6c7a57f7e997fb 102-106
+  s_52728d657ce6a7::t_a2bab22ade3e44 85-97
+  s_52728d657ce6a7::t_32b8f86a9ce95e 198
+  s_52728d657ce6a7::t_580701489ddd71 202-218,220
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d668a765dd58bbdbd29738fef2920a6e942b55d3",
+  "prompts": {},
+  "sessions": {
+    "s_52728d657ce6a7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0607d-ae6b-7932-bc35-217cdd47cf08",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

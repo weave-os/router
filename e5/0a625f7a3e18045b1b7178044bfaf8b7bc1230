@@ -1,0 +1,46 @@
+internal/server/middleware/pinned_runtime.go
+  s_b9214c2cae82d1::t_d5a37f002bb85c 1-20
+cmd/router/local_serving_runtime.go
+  s_b9214c2cae82d1::t_2ff6aa24494846 33,49,59-73
+  s_b9214c2cae82d1::t_3735ec70404dae 13,53-56
+  s_b9214c2cae82d1::t_d5a37f002bb85c 1-12,14-30,34-48,58
+  s_b9214c2cae82d1::t_8d29f48cb4a97a 31-32,50-52,57
+cmd/router/local_runtime_dispatch_test.go
+  s_b9214c2cae82d1::t_32a0cc84440c50 1-81,87-100
+  s_b9214c2cae82d1::t_e61cebf3071af8 82-83,85-86
+  s_b9214c2cae82d1::t_2a7016887f1b12 84
+  s_b9214c2cae82d1::t_2ff6aa24494846 101-111
+docs/LOCAL_PINNED_RUNTIME.md
+  s_b9214c2cae82d1::t_4722b96af57554 1-21
+  s_b9214c2cae82d1::t_2cd5cbc2d1e263 22-32
+internal/server/server.go
+  s_b9214c2cae82d1::t_d5a37f002bb85c 133-135,167-172
+internal/policyregistry/pinned_runtime.go
+  s_b9214c2cae82d1::t_b6f7dd31075cc6 1-99
+cmd/router/main.go
+  s_b9214c2cae82d1::t_d5a37f002bb85c 1077,1090-1098,1105-1118,1651,1661-1663
+  s_b9214c2cae82d1::t_2ff6aa24494846 531-532,538-542
+  s_b9214c2cae82d1::t_40d3fe47edb171 1099-1104
+internal/policyregistry/pinned_runtime_test.go
+  s_b9214c2cae82d1::t_b6f7dd31075cc6 1-85
+internal/server/middleware/router_strategy_override.go
+  s_b9214c2cae82d1::t_d5a37f002bb85c 70-79
+internal/server/middleware/pinned_runtime_test.go
+  s_b9214c2cae82d1::t_81f83e21d5d617 1-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e50a625f7a3e18045b1b7178044bfaf8b7bc1230",
+  "prompts": {},
+  "sessions": {
+    "s_b9214c2cae82d1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19e45-021f-7f23-9e0f-a8359a4fc275",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

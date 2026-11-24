@@ -1,0 +1,21 @@
+internal/subscriptions/plan_resolver_test.go
+  s_49df7faaffb6d3::t_6f73537fecf11b 105-119
+internal/subscriptions/plan_resolver.go
+  s_49df7faaffb6d3::t_6f73537fecf11b 5,51-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1100786584194224871eb45f2a69c4b9c7dd66dc",
+  "prompts": {},
+  "sessions": {
+    "s_49df7faaffb6d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b46d-ba9e-7bb0-96d6-04aceeaa203b",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

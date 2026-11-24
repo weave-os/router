@@ -1,0 +1,23 @@
+install/tests/subscription_cli_test.sh
+  s_0e1de158f24bda::t_a3567b411dfe58 13-14
+internal/server/server.go
+  s_0e1de158f24bda::t_6db1a5ec706d9d 46-48,270
+internal/server/subscription_budget_test.go
+  s_0e1de158f24bda::t_c8a4a9c3154061 1-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a6500ca0676271220958f3d566876fd608b3d8e5",
+  "prompts": {},
+  "sessions": {
+    "s_0e1de158f24bda": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10f70-ce92-7123-bd9a-002ae9d5867f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

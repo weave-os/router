@@ -1,0 +1,21 @@
+.github/workflows/opencode_latest.yml
+  s_37f5c591d96d30::t_580351180eed95 19
+install/pi-router/test/opencode_conformance.py
+  s_37f5c591d96d30::t_de8cc936ec36d8 27-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "561ea7f20f82ad92b8091fb61e3d7b9bee721e3d",
+  "prompts": {},
+  "sessions": {
+    "s_37f5c591d96d30": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0385f878-a148-4b37-8eac-20fd4dc0db70",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
