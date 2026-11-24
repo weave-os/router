@@ -37,6 +37,13 @@ func TestBaselineFor(t *testing.T) {
 		assert.Equal(t, "claude-sonnet-5", s.baselineFor(claudeCode, "claude-sonnet-5"))
 	})
 
+	t.Run("weave-auto-efficient compares against its own default for every client", func(t *testing.T) {
+		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), routing: routingpolicy.New(nil).WithDefaultBaselineModel("claude-sonnet-4-5")}
+		claudeCode := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
+		assert.Equal(t, "claude-sonnet-5-5", s.baselineFor(claudeCode, "weave-auto-efficient"))
+		assert.Equal(t, "claude-sonnet-5-5", s.baselineFor(context.Background(), "weave-auto-efficient"))
+	})
+
 	t.Run("unknown model with no baseline returns empty", func(t *testing.T) {
 		s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
 		assert.Empty(t, s.baselineFor(context.Background(), "weave-router"))

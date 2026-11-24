@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
 
@@ -77,5 +79,20 @@ func TestListPriceSpendIgnoresLongContextTierForBucketSums(t *testing.T) {
 	// 1M fresh input tokens across 20 turns at the $0.10/MTok base rate, not the $0.50 long-context rate.
 	if len(points) != 1 || points[0].Value != 0.10 {
 		t.Fatalf("points = %+v, want 0.10", points)
+	}
+}
+
+func TestComparisonCostPricesAutoEfficientTurnsAtItsOwnModel(t *testing.T) {
+	automatic := turnrecord.TelemetryDashboardFact{DecisionModel: "claude-haiku-5-5", DecisionType: string(dashboardDecisionRouterPick), RequestCount: 1, InputTokens: 1_000_000, ActualCostUSD: 1}
+	efficient := automatic
+	efficient.ComparisonRoutingModel = string(router.ModelAutoEfficient)
+
+	opus, _ := catalogCost(policy.SavingsComparisonModel, automatic)
+	sonnet, _ := catalogCost("claude-sonnet-5-5", automatic)
+	if got := comparisonCost(automatic); got != opus {
+		t.Fatalf("weave-auto comparison = %v, want the deployment comparison model's %v", got, opus)
+	}
+	if got := comparisonCost(efficient); got != sonnet || sonnet >= opus {
+		t.Fatalf("weave-auto-efficient comparison = %v, want Sonnet's %v below Opus's %v", got, sonnet, opus)
 	}
 }

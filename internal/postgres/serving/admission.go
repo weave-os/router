@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/postgres/dbbudget"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/sqlc"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
@@ -99,37 +100,8 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 			projection.Target = policyregistry.TargetStaging
 		}
 		timing.target = projection.Target
-		var planProjected bool
-		if subject != nil {
-			projected, err := queries.GetActiveServingSubscriberPlan(ctx, uuid.MustParse(subject.ID))
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return err
-			}
-			if err == nil {
-				planProjection, err := subscriberPlanProjection(projected.Plan, projected.Version)
-				if err != nil {
-					return err
-				}
-				projection.ProfileKey = planProjection.ProfileKey
-				projection.ProfileName = planProjection.ProfileName
-				projection.Plan = planProjection.Plan
-				projection.EntitlementVersion = planProjection.EntitlementVersion
-				projection.AssignmentGeneration = planProjection.AssignmentGeneration
-				planProjected = true
-			}
-		}
-		if !planProjected {
-			assignment, err := queries.GetServingProfileAssignment(ctx, installationUUID)
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return err
-			}
-			if err == nil {
-				projection.ProfileKey = uuidString(assignment.ProfileKey)
-				if projection.ProfileKey == entitlement.LegacyBoostProfileKey {
-					projection.ProfileKey = ""
-				}
-				projection.AssignmentGeneration = assignment.AssignmentGeneration
-			}
+		if err := projectServingProfile(ctx, queries, installationUUID, subject, &projection); err != nil {
+			return err
 		}
 		digest, persistent := policyregistry.ServingConversationDigest(identity, clientSessionID)
 		scope = policyregistry.AdmissionScope{InstallationID: installationID, CredentialIdentity: identity, ConversationDigest: digest, Persistent: persistent}
@@ -209,7 +181,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 	timing.transaction = time.Since(transactionStart)
 	if err != nil {
 		logger := observability.FromContext(ctx)
-		if errors.Is(err, auth.ErrPersonalCredentialRequired) || errors.Is(err, auth.ErrInvalidKeyScope) || errors.Is(err, sql.ErrNoRows) || errors.Is(err, policyregistry.ErrStaleServingGeneration) {
+		if errors.Is(err, auth.ErrPersonalCredentialRequired) || errors.Is(err, auth.ErrInvalidKeyScope) || errors.Is(err, sql.ErrNoRows) || errors.Is(err, policyregistry.ErrStaleServingGeneration) || errors.Is(err, policyregistry.ErrRoutingModelNotAssigned) {
 			timing.outcome = admissionDenied
 			logger.Debug("Serving admission denied", "installation_id", installationID, "err", err)
 		} else {
@@ -257,4 +229,58 @@ func enrollmentProjection(lane sqlc.GetServingInstallationLaneEnrollmentRow, sub
 		}
 	}
 	return projection
+}
+
+func projectServingProfile(ctx context.Context, queries *sqlc.Queries, installationUUID uuid.UUID, subject *auth.CredentialSubject, projection *policyregistry.AdmissionProjection) error {
+	routingModel := policyregistry.AdmittedRoutingModel(ctx)
+	if subject != nil {
+		projected, err := queries.GetActiveServingSubscriberPlan(ctx, uuid.MustParse(subject.ID))
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err == nil {
+			planProjection, err := subscriberPlanProjection(projected.Plan, projected.Version)
+			if err != nil {
+				return err
+			}
+			projection.ProfileKey = planProjection.ProfileKey
+			projection.ProfileName = planProjection.ProfileName
+			projection.Plan = planProjection.Plan
+			projection.EntitlementVersion = planProjection.EntitlementVersion
+			projection.AssignmentGeneration = planProjection.AssignmentGeneration
+			return requireRoutingModelAssignment(routingModel, false)
+		}
+	}
+	if routingModel != router.ModelAutomatic {
+		assignment, err := queries.GetServingRoutingModelProfileAssignment(ctx, sqlc.GetServingRoutingModelProfileAssignmentParams{InstallationID: installationUUID, RoutingModel: string(routingModel)})
+		if errors.Is(err, sql.ErrNoRows) {
+			return requireRoutingModelAssignment(routingModel, false)
+		}
+		if err != nil {
+			return err
+		}
+		projection.ProfileKey = assignment.ProfileKey.String()
+		projection.AssignmentGeneration = assignment.AssignmentGeneration
+		return nil
+	}
+	assignment, err := queries.GetServingProfileAssignment(ctx, installationUUID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	projection.ProfileKey = uuidString(assignment.ProfileKey)
+	if projection.ProfileKey == entitlement.LegacyBoostProfileKey {
+		projection.ProfileKey = ""
+	}
+	projection.AssignmentGeneration = assignment.AssignmentGeneration
+	return nil
+}
+
+func requireRoutingModelAssignment(model router.RoutingModel, assigned bool) error {
+	if model != router.ModelAutomatic && !assigned {
+		return policyregistry.ErrRoutingModelNotAssigned
+	}
+	return nil
 }

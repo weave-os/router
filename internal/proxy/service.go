@@ -708,7 +708,7 @@ func clientRequestedModel(ctx context.Context, requested string) string {
 	if !router.IsRoutingModel(requested) {
 		return requested
 	}
-	if baseline := clientBaselineModel(ctx); baseline != "" {
+	if baseline := routingModelBaseline(ctx, requested); baseline != "" {
 		return baseline
 	}
 	return requested

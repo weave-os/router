@@ -65,12 +65,8 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		assertion, err := directAssertion(c.Request.Context(), cfg, installation.ID, key.ID, c.Request, body)
 		if err != nil {
 			observability.FromGin(c).Warn("Worker admission rejected", "err", err)
-			if errors.Is(err, policyregistry.ErrRoutingModelChanged) {
-				c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "start_new_thread_to_change_router"})
-				return
-			}
-			if errors.Is(err, policyregistry.ErrRoutingModelSessionRequired) {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "routing_model_requires_conversation_id", "message": err.Error()})
+			if status, body, rejected := routingModelAdmissionError(err); rejected {
+				c.AbortWithStatusJSON(status, body)
 				return
 			}
 			if isAuthFailure(err) {
@@ -131,4 +127,16 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
+}
+
+func routingModelAdmissionError(err error) (int, gin.H, bool) {
+	switch {
+	case errors.Is(err, policyregistry.ErrRoutingModelChanged):
+		return http.StatusConflict, gin.H{"error": "start_new_thread_to_change_router"}, true
+	case errors.Is(err, policyregistry.ErrRoutingModelNotAssigned):
+		return http.StatusForbidden, gin.H{"error": "routing_model_not_permitted"}, true
+	case errors.Is(err, policyregistry.ErrRoutingModelSessionRequired):
+		return http.StatusBadRequest, gin.H{"error": "routing_model_requires_conversation_id", "message": err.Error()}, true
+	}
+	return 0, nil, false
 }

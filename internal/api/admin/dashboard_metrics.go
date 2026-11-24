@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -243,13 +244,20 @@ func comparisonCost(fact turnrecord.TelemetryDashboardFact) float64 {
 	if fact.SubscriptionServed {
 		return 0
 	}
-	if dashboardDecisionType(fact.DecisionType) != dashboardDecisionRouterPick || fact.AutomaticAlias {
+	if dashboardDecisionType(fact.DecisionType) != dashboardDecisionRouterPick {
 		return fact.ActualCostUSD
 	}
-	if cost, ok := catalogCost(policy.SavingsComparisonModel, fact); ok {
+	if cost, ok := catalogCost(comparisonModelFor(fact), fact); ok {
 		return cost
 	}
 	return fact.ActualCostUSD
+}
+
+func comparisonModelFor(fact turnrecord.TelemetryDashboardFact) string {
+	if comparison, found := router.DefaultRoutingModelComparisonModels[router.RoutingModel(fact.ComparisonRoutingModel)]; found {
+		return comparison
+	}
+	return policy.SavingsComparisonModel
 }
 
 func listPriceCost(fact turnrecord.TelemetryDashboardFact) float64 {

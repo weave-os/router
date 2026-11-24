@@ -903,8 +903,7 @@ SELECT
         WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
         ELSE 'router_pick'
     END)::text AS decision_type,
-    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
-        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    (CASE WHEN lower(COALESCE(t.requested_model, '')) = 'weave-auto-efficient' THEN 'weave-auto-efficient' ELSE '' END)::text AS comparison_routing_model,
     MIN(t.timestamp)::timestamptz AS started_at,
     MAX(t.timestamp)::timestamptz AS finished_at,
     COUNT(*)::bigint AS request_count,
@@ -931,26 +930,26 @@ type GetTelemetryDashboardDrillDownParams struct {
 }
 
 type GetTelemetryDashboardDrillDownRow struct {
-	PersonID            string
-	Linked              bool
-	DisplayName         string
-	Email               string
-	SessionID           string
-	ClientApp           string
-	RequestedModel      string
-	DecisionModel       string
-	Providers           []string
-	SubscriptionServed  bool
-	DecisionType        string
-	AutomaticAlias      bool
-	StartedAt           pgtype.Timestamptz
-	FinishedAt          pgtype.Timestamptz
-	RequestCount        int64
-	InputTokens         int64
-	OutputTokens        int64
-	CacheCreationTokens int64
-	CacheReadTokens     int64
-	ActualCostUsd       int64
+	PersonID               string
+	Linked                 bool
+	DisplayName            string
+	Email                  string
+	SessionID              string
+	ClientApp              string
+	RequestedModel         string
+	DecisionModel          string
+	Providers              []string
+	SubscriptionServed     bool
+	DecisionType           string
+	ComparisonRoutingModel string
+	StartedAt              pgtype.Timestamptz
+	FinishedAt             pgtype.Timestamptz
+	RequestCount           int64
+	InputTokens            int64
+	OutputTokens           int64
+	CacheCreationTokens    int64
+	CacheReadTokens        int64
+	ActualCostUsd          int64
 }
 
 // One row per person, session and requested/decision model pair, for the
@@ -976,8 +975,7 @@ type GetTelemetryDashboardDrillDownRow struct {
 //	        WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
 //	        ELSE 'router_pick'
 //	    END)::text AS decision_type,
-//	    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
-//	        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+//	    (CASE WHEN lower(COALESCE(t.requested_model, '')) = 'weave-auto-efficient' THEN 'weave-auto-efficient' ELSE '' END)::text AS comparison_routing_model,
 //	    MIN(t.timestamp)::timestamptz AS started_at,
 //	    MAX(t.timestamp)::timestamptz AS finished_at,
 //	    COUNT(*)::bigint AS request_count,
@@ -1016,7 +1014,7 @@ func (q *Queries) GetTelemetryDashboardDrillDown(ctx context.Context, arg GetTel
 			&i.Providers,
 			&i.SubscriptionServed,
 			&i.DecisionType,
-			&i.AutomaticAlias,
+			&i.ComparisonRoutingModel,
 			&i.StartedAt,
 			&i.FinishedAt,
 			&i.RequestCount,
@@ -1050,8 +1048,7 @@ SELECT
         WHEN decision_reason LIKE '%\_hard\_pin' OR decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
         ELSE 'router_pick'
     END)::text AS decision_type,
-    (lower(COALESCE(requested_model, '')) IN ('weave', 'auto', 'weave-auto')
-        OR lower(COALESCE(requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    (CASE WHEN lower(COALESCE(requested_model, '')) = 'weave-auto-efficient' THEN 'weave-auto-efficient' ELSE '' END)::text AS comparison_routing_model,
     COUNT(*)::bigint AS request_count,
     COALESCE(SUM(input_tokens), 0)::bigint AS input_tokens,
     COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens,
@@ -1075,17 +1072,17 @@ type GetTelemetryDashboardFactsParams struct {
 }
 
 type GetTelemetryDashboardFactsRow struct {
-	Bucket              pgtype.Timestamptz
-	DecisionModel       string
-	SubscriptionServed  bool
-	DecisionType        string
-	AutomaticAlias      bool
-	RequestCount        int64
-	InputTokens         int64
-	OutputTokens        int64
-	CacheCreationTokens int64
-	CacheReadTokens     int64
-	ActualCostUsd       int64
+	Bucket                 pgtype.Timestamptz
+	DecisionModel          string
+	SubscriptionServed     bool
+	DecisionType           string
+	ComparisonRoutingModel string
+	RequestCount           int64
+	InputTokens            int64
+	OutputTokens           int64
+	CacheCreationTokens    int64
+	CacheReadTokens        int64
+	ActualCostUsd          int64
 }
 
 // Dashboard facts per bucket and dimension; the admin layer derives every
@@ -1105,8 +1102,7 @@ type GetTelemetryDashboardFactsRow struct {
 //	        WHEN decision_reason LIKE '%\_hard\_pin' OR decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
 //	        ELSE 'router_pick'
 //	    END)::text AS decision_type,
-//	    (lower(COALESCE(requested_model, '')) IN ('weave', 'auto', 'weave-auto')
-//	        OR lower(COALESCE(requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+//	    (CASE WHEN lower(COALESCE(requested_model, '')) = 'weave-auto-efficient' THEN 'weave-auto-efficient' ELSE '' END)::text AS comparison_routing_model,
 //	    COUNT(*)::bigint AS request_count,
 //	    COALESCE(SUM(input_tokens), 0)::bigint AS input_tokens,
 //	    COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens,
@@ -1139,7 +1135,7 @@ func (q *Queries) GetTelemetryDashboardFacts(ctx context.Context, arg GetTelemet
 			&i.DecisionModel,
 			&i.SubscriptionServed,
 			&i.DecisionType,
-			&i.AutomaticAlias,
+			&i.ComparisonRoutingModel,
 			&i.RequestCount,
 			&i.InputTokens,
 			&i.OutputTokens,
@@ -1175,8 +1171,7 @@ SELECT
         WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
         ELSE 'router_pick'
     END)::text AS decision_type,
-    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
-        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    (CASE WHEN lower(COALESCE(t.requested_model, '')) = 'weave-auto-efficient' THEN 'weave-auto-efficient' ELSE '' END)::text AS comparison_routing_model,
     COUNT(*)::bigint AS request_count,
     COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
     COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
@@ -1202,21 +1197,21 @@ type GetTelemetryDashboardIndividualFactsParams struct {
 }
 
 type GetTelemetryDashboardIndividualFactsRow struct {
-	PersonID            string
-	Linked              bool
-	DisplayName         string
-	Email               string
-	Bucket              pgtype.Timestamptz
-	DecisionModel       string
-	SubscriptionServed  bool
-	DecisionType        string
-	AutomaticAlias      bool
-	RequestCount        int64
-	InputTokens         int64
-	OutputTokens        int64
-	CacheCreationTokens int64
-	CacheReadTokens     int64
-	ActualCostUsd       int64
+	PersonID               string
+	Linked                 bool
+	DisplayName            string
+	Email                  string
+	Bucket                 pgtype.Timestamptz
+	DecisionModel          string
+	SubscriptionServed     bool
+	DecisionType           string
+	ComparisonRoutingModel string
+	RequestCount           int64
+	InputTokens            int64
+	OutputTokens           int64
+	CacheCreationTokens    int64
+	CacheReadTokens        int64
+	ActualCostUsd          int64
 }
 
 // Dashboard facts per person, bucket and dimension, for the Individuals page.
@@ -1239,8 +1234,7 @@ type GetTelemetryDashboardIndividualFactsRow struct {
 //	        WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
 //	        ELSE 'router_pick'
 //	    END)::text AS decision_type,
-//	    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
-//	        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+//	    (CASE WHEN lower(COALESCE(t.requested_model, '')) = 'weave-auto-efficient' THEN 'weave-auto-efficient' ELSE '' END)::text AS comparison_routing_model,
 //	    COUNT(*)::bigint AS request_count,
 //	    COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
 //	    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
@@ -1279,7 +1273,7 @@ func (q *Queries) GetTelemetryDashboardIndividualFacts(ctx context.Context, arg 
 			&i.DecisionModel,
 			&i.SubscriptionServed,
 			&i.DecisionType,
-			&i.AutomaticAlias,
+			&i.ComparisonRoutingModel,
 			&i.RequestCount,
 			&i.InputTokens,
 			&i.OutputTokens,

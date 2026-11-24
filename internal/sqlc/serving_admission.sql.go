@@ -178,6 +178,36 @@ func (q *Queries) GetServingProfileAssignment(ctx context.Context, installationI
 	return i, err
 }
 
+const getServingRoutingModelProfileAssignment = `-- name: GetServingRoutingModelProfileAssignment :one
+SELECT profile_key, assignment_generation
+FROM router.installation_routing_model_profile_assignments
+WHERE installation_id = $1::uuid
+  AND routing_model = $2::varchar
+`
+
+type GetServingRoutingModelProfileAssignmentParams struct {
+	InstallationID uuid.UUID
+	RoutingModel   string
+}
+
+type GetServingRoutingModelProfileAssignmentRow struct {
+	ProfileKey           uuid.UUID
+	AssignmentGeneration int64
+}
+
+// A missing row refuses the routing model; it never falls back to the weave-auto profile.
+//
+//	SELECT profile_key, assignment_generation
+//	FROM router.installation_routing_model_profile_assignments
+//	WHERE installation_id = $1::uuid
+//	  AND routing_model = $2::varchar
+func (q *Queries) GetServingRoutingModelProfileAssignment(ctx context.Context, arg GetServingRoutingModelProfileAssignmentParams) (GetServingRoutingModelProfileAssignmentRow, error) {
+	row := q.db.QueryRow(ctx, getServingRoutingModelProfileAssignment, arg.InstallationID, arg.RoutingModel)
+	var i GetServingRoutingModelProfileAssignmentRow
+	err := row.Scan(&i.ProfileKey, &i.AssignmentGeneration)
+	return i, err
+}
+
 const getServingSubjectForAdmission = `-- name: GetServingSubjectForAdmission :one
 SELECT subject.id, subject.projection_complete, subject.internal_enrolled, subject.enrollment_generation, subject.created_at, subject.revoked_at, access.access_enabled
 FROM router.credential_subjects subject

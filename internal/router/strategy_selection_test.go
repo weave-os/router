@@ -95,6 +95,7 @@ func TestSelectRoutingModel(t *testing.T) {
 		{name: "qwen not permitted outside internal", model: router.ModelQwen, servable: servable(), want: router.RoutingModelChoice{Outcome: router.RoutingModelNotPermitted}},
 		{name: "self-hosted named model served", model: router.ModelHMM, servable: servable(hmmPolicy.Strategy), want: router.RoutingModelChoice{Selection: router.StrategySelection{Strategy: hmmPolicy.Strategy, RoutingModel: router.ModelHMM}, PolicyStrategy: hmmPolicy.Strategy}},
 		{name: "internal named model served", model: router.ModelHMMBeta, scope: internal, servable: servable(betaPolicy.Strategy), want: router.RoutingModelChoice{Selection: router.StrategySelection{Strategy: betaPolicy.Strategy, RoutingModel: router.ModelHMMBeta}, PolicyStrategy: betaPolicy.Strategy}},
+		{name: "auto-efficient keeps strategy on a managed non-internal target", current: router.StrategySelection{Strategy: router.StrategyHMMEmbedding}, model: router.ModelAutoEfficient, scope: router.RoutingModelScope{Managed: true}, servable: servable(), want: router.RoutingModelChoice{Selection: router.StrategySelection{Strategy: router.StrategyHMMEmbedding, RoutingModel: router.ModelAutoEfficient}}},
 		{name: "unservable without fallback", model: router.ModelHMM, servable: servable(), want: router.RoutingModelChoice{Outcome: router.RoutingModelUnservable, PolicyStrategy: hmmPolicy.Strategy, UnavailableError: hmmPolicy.UnavailableError}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

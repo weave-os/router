@@ -5,6 +5,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/sqlc"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -71,4 +72,13 @@ func TestEnrollmentProjectionGenerationChangesWhenEitherEnrollmentFlips(t *testi
 	assert.NotEqual(t, before.EnrollmentGeneration, subjectFlipped.EnrollmentGeneration)
 	assert.Equal(t, policyregistry.TargetInternal, laneFlipped.Target)
 	assert.Equal(t, policyregistry.TargetInternal, subjectFlipped.Target)
+}
+
+func TestRoutingModelAssignmentIsRequiredOnlyBeyondTheAutomaticRouter(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, requireRoutingModelAssignment(router.ModelAutomatic, false), "weave-auto follows the lane default without a row")
+	require.NoError(t, requireRoutingModelAssignment(router.ModelAutoEfficient, true))
+	require.ErrorIs(t, requireRoutingModelAssignment(router.ModelAutoEfficient, false), policyregistry.ErrRoutingModelNotAssigned,
+		"weave-auto-efficient never falls back to the weave-auto profile")
 }
