@@ -1705,6 +1705,7 @@ done
 # resolved like uninstall.sh: the sibling file, else the canonical copy.
 for arg in "$@"; do
   if [ "$arg" = "--all" ]; then
+    ensure_jq
     script_path="${BASH_SOURCE[0]:-$0}"
     if [ -f "$script_path" ]; then
       sibling_dir="$(cd "$(dirname "$script_path")" 2>/dev/null && pwd)"
