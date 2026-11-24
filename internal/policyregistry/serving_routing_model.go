@@ -21,7 +21,7 @@ func withAdmittedRoutingModel(ctx context.Context, model router.RoutingModel) co
 }
 
 func AdmittedRoutingModel(ctx context.Context) router.RoutingModel {
-	if model, ok := ctx.Value(admittedRoutingModelKey{}).(router.RoutingModel); ok && model == router.ModelAutoEfficient {
+	if model, ok := ctx.Value(admittedRoutingModelKey{}).(router.RoutingModel); ok && router.UsesAssignedProfile(model) {
 		return model
 	}
 	return router.ModelAutomatic

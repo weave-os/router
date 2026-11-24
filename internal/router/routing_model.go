@@ -40,8 +40,17 @@ func CanonicalRoutingModel(model string) RoutingModel {
 	return RoutingModel(model)
 }
 
+var routingModelsServedByAssignedProfile = map[RoutingModel]struct{}{
+	ModelAutoEfficient: {},
+}
+
+func UsesAssignedProfile(model RoutingModel) bool {
+	_, found := routingModelsServedByAssignedProfile[model]
+	return found
+}
+
 func IsAutomaticRoutingModel(model RoutingModel) bool {
-	return model == ModelAutomatic || model == ModelAutoEfficient
+	return model == ModelAutomatic || UsesAssignedProfile(model)
 }
 
 func IsRoutingModel(model string) bool {
