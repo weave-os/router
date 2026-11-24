@@ -396,6 +396,69 @@ weave_sync_commands 2>/dev/null || true
 # than queueing — the in-flight one is at least as fresh as anything it would
 # fetch, so waiting only to overwrite it is the bug. The one path that is not
 # strictly exclusive is reclaiming a lock whose holder died; see below.
+# ---------- release channel ----------
+#
+# A session whose base URL is the beta host shows a BETA badge. Beta is a
+# per-session choice (claude-beta, or `npx @weave-os/router beta on`), so the
+# badge reflects this process's environment. WEAVE_ROUTER_BETA_URL overrides
+# the hosted beta host; the beta settings file sets it when it is not the
+# default.
+WEAVE_BETA_HOST_DEFAULT="beta.router.workweave.ai"
+# A router response may name the release and policy it served. The status line
+# shows the short form so a user can quote what they ran.
+WEAVE_RELEASE_HEADERS='x-weave-release-sha|x-weave-policy-sha'
+
+weave_url_host() {
+  local host="${1#*://}"
+  host="${host%%/*}"
+  printf '%s' "${host%%:*}" | tr '[:upper:]' '[:lower:]'
+}
+
+weave_beta_host() {
+  if [ -n "${WEAVE_ROUTER_BETA_URL:-}" ]; then
+    weave_url_host "$WEAVE_ROUTER_BETA_URL"
+  else
+    printf '%s' "$WEAVE_BETA_HOST_DEFAULT"
+  fi
+}
+
+weave_release_cache() {
+  local host
+  host="$(weave_url_host "$1" | tr -c 'A-Za-z0-9.-' '_')"
+  [ -n "$host" ] || return 1
+  printf '%s' "${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/release-$host"
+}
+
+# weave_store_release keeps the release named in a response's headers, per
+# router host, so a stable session never shows a beta release or the reverse.
+# A response without the header clears the cached value.
+weave_store_release() {
+  local headers="$1" base="$2" cache release
+  cache="$(weave_release_cache "$base")" || return 0
+  release="$(tr -d '\r' <"$headers" 2>/dev/null \
+    | awk -F ':' -v names="$WEAVE_RELEASE_HEADERS" '
+        BEGIN { n = split(names, want, "|") }
+        { name = tolower($1); sub(/^[^:]*:[[:space:]]*/, ""); value = $0
+          for (i = 1; i <= n; i++) if (name == want[i] && !(i in seen)) seen[i] = value }
+        END { for (i = 1; i <= n; i++) if (i in seen) { print seen[i]; exit } }')"
+  if [[ "$release" =~ ^[0-9a-fA-F]{7,64}$ ]]; then
+    printf '%s' "$release" | cut -c1-7 | tr '[:upper:]' '[:lower:]' >"$cache.$$" 2>/dev/null && mv -f "$cache.$$" "$cache"
+  else
+    rm -f "$cache" 2>/dev/null
+  fi
+}
+
+# weave_channel_clause prints " · BETA" (plus " <release>" when the router
+# named one) for a beta session, and nothing otherwise.
+weave_channel_clause() {
+  local base="${ANTHROPIC_BASE_URL:-}" cache release=""
+  [ -n "$base" ] || return 0
+  [ "$(weave_url_host "$base")" = "$(weave_beta_host)" ] || return 0
+  cache="$(weave_release_cache "$base")" && release="$(cat "$cache" 2>/dev/null)"
+  [[ "$release" =~ ^[0-9a-f]{7}$ ]] || release=""
+  printf ' · \033[1mBETA\033[0m%s' "${release:+ $release}"
+}
+
 weave_hidden_gate() {
   command -v curl >/dev/null 2>&1 || return 1
   command -v jq >/dev/null 2>&1 || return 1
@@ -521,11 +584,14 @@ weave_hidden_gate() {
     done
     printf '%s\n' "$custom_headers" | grep -E '^X-Weave-User-(Email|Name):[[:space:]]*[A-Za-z0-9@._+ -]+$' \
       | sed 's/^\(.*\)$/header = "\1"/' >>"$header_file" 2>/dev/null || true
-    if ! body="$(curl -fsS --max-time 5 -K "$header_file" "$url" 2>/dev/null)"; then
-      rm -f "$header_file"
+    response_headers="$cache.headers.$$"
+    if ! body="$(curl -fsS --max-time 5 -D "$response_headers" -K "$header_file" "$url" 2>/dev/null)"; then
+      rm -f "$header_file" "$response_headers"
       exit 0
     fi
     rm -f "$header_file"
+    weave_store_release "$response_headers" "$base_url"
+    rm -f "$response_headers"
     hidden="$(printf '%s' "$body" | jq -r '.hide_terminal_surfaces // false' 2>/dev/null)"
     tmp="$cache.tmp.$$"
     if [ "$hidden" = "true" ]; then
@@ -1253,5 +1319,5 @@ weave_cache_status_line() {
 }
 weave_cache_status_line 2>/dev/null || true
 
-printf '%s%s' "$brand" "$status_text"
+printf '%s%s%s' "$brand" "$(weave_channel_clause 2>/dev/null)" "$status_text"
 printf '%s' "$context_clause"

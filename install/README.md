@@ -743,6 +743,49 @@ alongside `/force-model` (alias `/fm`), `/unforce-model` (alias `/ufm`),
 `/router-feedback` (alias `/rf`), `/router-models` (alias `/models`), and
 `/list-models`.
 
+### Beta channel
+
+The hosted router also runs a beta channel at `beta.router.workweave.ai`.
+Requests sent there run the beta release with your normal model names
+(`weave-auto` and the rest). The router serves them only if your
+installation has beta access; without it you get a clear error, and writing
+these files grants nothing by itself. Claude Code reads its base URL once at
+launch, so the channel is chosen per session: one session never mixes stable
+and beta.
+
+A user-scope install sets up three ways in, all using the same router key:
+
+```bash
+claude-beta                         # one beta session; stable `claude` is untouched
+npx @weave-os/router beta on        # make every new Claude Code session beta
+npx @weave-os/router beta off       # back to stable
+npx @weave-os/router beta status    # which channel Claude Code starts on
+codex --profile weave-beta          # one beta Codex run
+```
+
+- `claude-beta` is a launcher in `~/.weave/bin` that runs
+  `claude --settings ~/.claude/weave-beta.json`. That file copies the router
+  env from `settings.json` with the base URL moved to the beta host. Your
+  status line, hooks, and model still come from `settings.json`. Add
+  `~/.weave/bin` to `PATH` or run the `claude --settings` command directly.
+  An existing file at that path that the installer did not write stays.
+- `beta on|off` rewrites the base URL in `~/.claude/settings.json`, the way
+  `on`/`off` do, and keeps the stable URL in `~/.claude/.weave-beta-switch.json`
+  so `beta off` restores it. Restart Claude Code after switching. `update`
+  keeps you on beta; a fresh install points back at the endpoint it was given.
+- Codex gets a `[model_providers.weave-beta]` provider and a
+  `[profiles.weave-beta]` profile inside the managed block of `config.toml`.
+- The status line shows `BETA` when a session's base URL is the beta host.
+  When the router names its release in an `X-Weave-Release-SHA` (or
+  `X-Weave-Policy-SHA`) response header, the short SHA follows the badge, so
+  you can quote what you ran in a report.
+
+Project installs skip all of this, since `settings.json` is shared with the
+team. Self-hosted installs skip it unless `WEAVE_ROUTER_BETA_URL` names a beta
+endpoint; set it at install time to use your own beta host, or to follow the
+hosted one if it moves. Org admins can push `weave-beta.json` through managed
+settings instead.
+
 ### Which directives each client gets
 
 The installer derives this table from `install/directives.tsv`, the single
@@ -922,7 +965,9 @@ npx @weave-os/router --uninstall --opencode --scope project
 ```
 
 Removes only the keys / block this installer added; everything else in
-`settings.json` / `config.toml` is left alone.
+`settings.json` / `config.toml` is left alone. The beta channel files
+(`weave-beta.json`, the `beta on` sidecar, the `claude-beta` launcher, and the
+Codex `weave-beta` provider and profile) go with them.
 
 
 ## Context indicators

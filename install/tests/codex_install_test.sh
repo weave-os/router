@@ -174,8 +174,13 @@ grep -qx 'model = "weave-auto"' "$config" \
 
 # A repeat install must refresh one managed block, not duplicate its auth rule.
 run_hosted_install
-[ "$(grep -cx 'requires_openai_auth = true' "$config")" -eq 1 ] \
+# The beta provider carries its own copy, so expect one per managed provider.
+[ "$(grep -cx 'requires_openai_auth = true' "$config")" -eq "$(grep -cE '^\[model_providers\.(weave|weave-beta)\]$' "$config")" ] \
   || fail "repeat install duplicated the OAuth requirement"
+[ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 1 ] \
+  || fail "repeat install duplicated the managed provider"
+[ "$(grep -c '^\[model_providers\.weave-beta\]$' "$config")" -le 1 ] \
+  || fail "repeat install duplicated the beta provider"
 
 run_uninstall
 [ ! -e "$skill" ] || fail "uninstall did not remove the Codex disable-routing skill"
