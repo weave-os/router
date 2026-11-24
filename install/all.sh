@@ -28,7 +28,7 @@ codex|Codex|codex|codex|~/.codex|codex|
 copilot|Copilot CLI|copilot|copilot|~/.copilot|copilot|
 opencode|opencode|opencode||~/.config/opencode|opencode|
 pi|pi|pi||~/.pi|pi|
-cursor|Cursor||cursor|~/.cursor|cursor|/Applications/Cursor.app
+cursor|Cursor||cursor|~/.cursor|cursor,cursor-agent|/Applications/Cursor.app
 grok_build|Grok Build||grok_build|~/.grok|grok|
 WEAVE_HARNESSES_EOF
 )

@@ -107,6 +107,12 @@ output="$(run_all "$home" --all --dry-run)"
 rm -f "$fake_bin/codex"
 check_contains "a binary on PATH counts as present" "$output" "Found: Codex"
 
+home="$(new_home detect_cursor_cli)"
+printf '#!/usr/bin/env bash\n' >"$fake_bin/cursor-agent"; chmod +x "$fake_bin/cursor-agent"
+output="$(run_all "$home" --all --dry-run)"
+rm -f "$fake_bin/cursor-agent"
+check_contains "the Cursor CLI binary counts as Cursor" "$output" "Found: Cursor"
+
 home="$(new_home empty)"
 output="$(run_all "$home" --all --token wenroll_t)"; status=$?
 check "no harness is an error" "$status" "1"
