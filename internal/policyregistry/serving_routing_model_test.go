@@ -161,3 +161,41 @@ func TestRoutingModelAdmissionBindsInternalBoostButNotMax(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, maxBinding.RoutingModel)
 }
+
+func TestAutoEfficientAdmissionPinsTheConversationAliasOnStable(t *testing.T) {
+	store := &routingAdmissionStore{projection: AdmissionProjection{Target: TargetStable}}
+	cache := routingAdmissionCache(t, store)
+	_, binding, err := cache.AdmitRoutingModel(context.Background(), "installation", "credential", "efficient", router.ModelAutoEfficient, routingReleaseDecision)
+	require.NoError(t, err)
+	assert.Equal(t, router.ModelAutoEfficient, binding.RoutingModel)
+
+	_, _, err = routingAdmissionCache(t, store).AdmitRoutingModel(context.Background(), "installation", "credential", "efficient", router.ModelAutomatic, routingReleaseDecision)
+	require.ErrorIs(t, err, ErrRoutingModelChanged)
+
+	_, automatic, err := cache.AdmitRoutingModel(context.Background(), "installation", "credential", "automatic", router.ModelAutomatic, routingReleaseDecision)
+	require.NoError(t, err)
+	assert.Empty(t, automatic.RoutingModel, "stable weave-auto bindings stay unchanged")
+	_, _, err = routingAdmissionCache(t, store).AdmitRoutingModel(context.Background(), "installation", "credential", "automatic", router.ModelAutoEfficient, routingReleaseDecision)
+	require.ErrorIs(t, err, ErrRoutingModelChanged)
+}
+
+func TestAdmitRoutingModelHandsTheRoutingModelToTheStore(t *testing.T) {
+	var seen []router.RoutingModel
+	store := admissionStoreFunc(func(ctx context.Context, _, _, _ string, decide AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error) {
+		seen = append(seen, AdmittedRoutingModel(ctx))
+		binding, err := decide(ctx, SerializedAdmission{Projection: AdmissionProjection{Target: TargetStable}})
+		return AdmissionScope{}, binding, err
+	})
+	cache := routingAdmissionCache(t, store)
+	_, _, err := cache.AdmitRoutingModel(context.Background(), "installation", "credential", "efficient", router.ModelAutoEfficient, routingReleaseDecision)
+	require.NoError(t, err)
+	_, _, err = cache.Admit(context.Background(), "installation", "credential", "automatic", routingReleaseDecision)
+	require.NoError(t, err)
+	assert.Equal(t, []router.RoutingModel{router.ModelAutoEfficient, router.ModelAutomatic}, seen)
+}
+
+type admissionStoreFunc func(context.Context, string, string, string, AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error)
+
+func (f admissionStoreFunc) Admit(ctx context.Context, installation, key, session string, decide AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error) {
+	return f(ctx, installation, key, session, decide)
+}

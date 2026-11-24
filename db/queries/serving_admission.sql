@@ -31,6 +31,13 @@ SELECT profile_key, assignment_generation
 FROM router.installation_profile_assignments
 WHERE installation_id = @installation_id::uuid;
 
+-- A missing row refuses the routing model; it never falls back to the weave-auto profile.
+-- name: GetServingRoutingModelProfileAssignment :one
+SELECT profile_key, assignment_generation
+FROM router.installation_routing_model_profile_assignments
+WHERE installation_id = @installation_id::uuid
+  AND routing_model = @routing_model::varchar;
+
 -- name: GetActiveServingSubscriberPlan :one
 -- Active individual plans override installation assignments before serving selection.
 SELECT version, plan

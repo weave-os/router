@@ -266,6 +266,15 @@ type RouterInstallationRoutingAssignment struct {
 	Revision       int64
 }
 
+// Serving profile key per installation for automatic routing models other than weave-auto; exact active revisions are owned by GCS selection sets
+type RouterInstallationRoutingModelProfileAssignment struct {
+	InstallationID       uuid.UUID
+	RoutingModel         string
+	ProfileKey           uuid.UUID
+	AssignmentGeneration int64
+	UpdatedAt            pgtype.Timestamptz
+}
+
 type RouterInstallationRoutingPolicy struct {
 	InstallationID uuid.UUID
 	Mode           string

@@ -254,17 +254,17 @@ type TelemetryBucket struct {
 }
 
 type TelemetryDashboardFact struct {
-	Bucket              time.Time
-	DecisionModel       string
-	SubscriptionServed  bool
-	DecisionType        string
-	AutomaticAlias      bool
-	RequestCount        int64
-	InputTokens         int64
-	OutputTokens        int64
-	CacheCreationTokens int64
-	CacheReadTokens     int64
-	ActualCostUSD       float64
+	Bucket                 time.Time
+	DecisionModel          string
+	SubscriptionServed     bool
+	DecisionType           string
+	ComparisonRoutingModel string
+	RequestCount           int64
+	InputTokens            int64
+	OutputTokens           int64
+	CacheCreationTokens    int64
+	CacheReadTokens        int64
+	ActualCostUSD          float64
 }
 
 type TelemetryDrillDownRow struct {

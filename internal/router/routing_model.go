@@ -3,11 +3,12 @@ package router
 type RoutingModel string
 
 const (
-	ModelAutomatic RoutingModel = "weave-auto"
-	ModelHMM       RoutingModel = "weave-hmm-20261019-0001v1"
-	ModelHMMBeta   RoutingModel = "weave-hmm-beta"
-	ModelQwen      RoutingModel = "weave-qwen-20261008-0001v2"
-	ModelDecision  RoutingModel = "weave-decision-model-20261019-0001v1"
+	ModelAutomatic     RoutingModel = "weave-auto"
+	ModelAutoEfficient RoutingModel = "weave-auto-efficient"
+	ModelHMM           RoutingModel = "weave-hmm-20261019-0001v1"
+	ModelHMMBeta       RoutingModel = "weave-hmm-beta"
+	ModelQwen          RoutingModel = "weave-qwen-20261008-0001v2"
+	ModelDecision      RoutingModel = "weave-decision-model-20261019-0001v1"
 )
 
 const ModelAutomaticDisplayName = "Weave Auto"
@@ -39,9 +40,13 @@ func CanonicalRoutingModel(model string) RoutingModel {
 	return RoutingModel(model)
 }
 
+func IsAutomaticRoutingModel(model RoutingModel) bool {
+	return model == ModelAutomatic || model == ModelAutoEfficient
+}
+
 func IsRoutingModel(model string) bool {
 	canonical := CanonicalRoutingModel(model)
-	if canonical == ModelAutomatic {
+	if IsAutomaticRoutingModel(canonical) {
 		return true
 	}
 	_, found := routingModelPolicies[canonical]
