@@ -94,7 +94,9 @@ release it belongs to, stamped by the release pipeline. A refresh:
    described above, and swaps the script in only if every check passes.
 4. Refuses a verified body whose own `WEAVE_RELEASE_TAG` is not `<tag>`. The
    signature covers file digests, not a release name, so without this check
-   an older signed release republished under a newer tag name would pass.
+   an older signed release republished under a newer tag name would pass. A
+   body fetched from an overridden URL must likewise carry a tag newer than
+   the installed copy's.
 
 Anyone who can write to `main` can change the advertised tag, but only to
 another tag that is newer than the installed one and that carries a
@@ -136,15 +138,16 @@ seeded under the manifest:
   verified body becomes the baseline, an installed wrapper that Router owns and
   that differs from it is replaced with it, and the sentinel is written. A
   wrapper counts as Router-owned when it carries the in-body ownership marker,
-  has a `<name>.md.weave-router` ownership sidecar, or still equals the old
-  baseline; a command with none of these is the user's and is never replaced.
+  has a `<name>.md.weave-router` ownership sidecar that still records its exact
+  body, or still equals the old baseline; a command with none of these is the
+  user's and is never replaced.
   A wrapper whose body could not be fetched or verified in that cycle has its
   old baseline removed.
 - **Present:** the baseline comparison gates the swap as before, so local edits
   are preserved.
 
-Users who edited a Router-owned wrapper before upgrading see it reset once, on the first
-post-upgrade refresh. A cycle that runs under
+A wrapper that carries the in-body marker and was edited before upgrading is
+reset once, on the first post-upgrade refresh. A cycle that runs under
 `WEAVE_STATUSLINE_TRUST_UNSIGNED=1` never re-seeds or writes the sentinel, so
 returning to a signed source still re-seeds once.
 

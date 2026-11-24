@@ -411,6 +411,26 @@ for tool in cc codex; do
   settle "$installed" "selfhost/install/MANIFEST"
   expect_refused "$tool: an overridden host without a signed MANIFEST is refused" "$before"
 
+  # A signed body from an overridden host must still be a newer release.
+  self_refresh_lab "$tool" "$tool-selfhost-signed"
+  cp "$good" "$pub/selfhost/install/$file"
+  cp "$release_dir/MANIFEST" "$release_dir/MANIFEST.sig.b64" "$pub/selfhost/install/"
+  run_tool "$tool" "$installed" "$url_var=https://selfhost.example.test/install/$file"
+  if wait_for 20 cmp -s "$installed" "$good"; then
+    ok "$tool: a signed newer release from an overridden host is swapped in"
+  else
+    no "$tool: a signed newer release from an overridden host is swapped in" "installed == signed body" "not swapped"
+  fi
+  self_refresh_lab "$tool" "$tool-selfhost-replayed"
+  cp "$(tool_keyed "$tool")" "$pub/selfhost/install/$file"
+  printf '# older signed release body\n' >>"$pub/selfhost/install/$file"
+  manifest_row "install/$file" "$pub/selfhost/install/$file" >"$pub/selfhost/install/MANIFEST"
+  sign "$pub/selfhost/install/MANIFEST" "$keys/release.key" "$pub/selfhost/install/MANIFEST.sig.b64"
+  before="$(sha "$installed")"
+  run_tool "$tool" "$installed" "$url_var=https://selfhost.example.test/install/$file"
+  settle "$installed" "selfhost/install/$file"
+  expect_refused "$tool: an older signed body from an overridden host is refused" "$before"
+
   # The opt-in is honored for an overridden non-default host, with a warning.
   self_refresh_lab "$tool" "$tool-optin-selfhost"
   cp "$good" "$pub/selfhost/install/$file"
@@ -491,8 +511,7 @@ sync_settle() { # sync_settle <fragment>: bounded wait for the wrapper cycle to 
 commands_lab cmd-seed
 upstream_wrapper fm "release fm."
 sign_commands
-printf '%s\n' 'EDITED BEFORE UPGRADE' >"$cmd_dir/rf.md"
-printf 'weave-router managed command: rf\n%s\n' "$(cat "$baseline/rf.md")" >"$cmd_dir/rf.md.weave-router"
+printf '%s\n' '<!-- weave-router managed command: rf -->' 'EDITED BEFORE UPGRADE' >"$cmd_dir/rf.md"
 if file_absent "$baseline/.manifest-seeded"; then ok "sentinel absent before the first verified cycle"; else no "sentinel absent before the first verified cycle" "absent" "present"; fi
 run_tool cc "$installed"
 if wait_for 20 test -f "$baseline/.manifest-seeded"; then
@@ -589,6 +608,18 @@ check "re-seed leaves a user-owned command untouched" "$(cat "$cmd_dir/fm.md")" 
 if file_absent "$cmd_dir/fm.md.weave-router"; then ok "re-seed claims no ownership of a user-owned command"; else no "re-seed claims no ownership of a user-owned command" "no sidecar" "sidecar written"; fi
 check "re-seed still records the verified baseline for a user-owned name" "$(sha "$baseline/fm.md")" "$(sha "$release_dir/commands/fm.md")"
 
+# A sidecar left behind after the user replaced the wrapper records the old
+# body, so it is no proof of ownership.
+commands_lab cmd-seed-stale-sidecar
+upstream_wrapper fm "release fm."
+sign_commands
+printf 'weave-router managed command: fm\n%s\n' "$(cat "$cmd_dir/fm.md")" >"$cmd_dir/fm.md.weave-router"
+printf '%s\n' 'MY OWN FM COMMAND' >"$cmd_dir/fm.md"
+run_tool cc "$installed"
+wait_for 20 test -f "$baseline/.manifest-seeded" || true
+sync_settle "commands/rf.md"
+check "re-seed leaves a user command with a stale sidecar untouched" "$(cat "$cmd_dir/fm.md")" "MY OWN FM COMMAND"
+
 # A host-root URL base has no parent to strip, so MANIFEST must come from the root itself.
 commands_lab cmd-host-root
 : >"$baseline/.manifest-seeded"
@@ -609,11 +640,12 @@ check_contains "a host-root wrapper source fetches the root MANIFEST" "$(cat "$l
 scope_lab() { # scope_lab <name> <router-off npx suffix>
   commands_lab "$1"
   : >"$baseline/.manifest-seeded"
-  local off_line="\`npx @weave-os/router off --claude$2\`"
-  sed "s|^\`npx @weave-os/router off --claude{{SCOPE}}\`\$|$off_line|" \
-    "$script_dir/../commands/router-off.md" >"$cmd_dir/router-off.md"
+  local off on
+  off="$(cat "$script_dir/../commands/router-off.md")"
+  on="$(cat "$script_dir/../commands/router-on.md")"
+  printf '%s\n' "${off//"{{SCOPE}}"/"$2"}" >"$cmd_dir/router-off.md"
   cp "$script_dir/../commands/router-on.md" "$baseline/router-on.md"
-  sed "s|{{SCOPE}}|$2|g" "$script_dir/../commands/router-on.md" >"$cmd_dir/router-on.md"
+  printf '%s\n' "${on//"{{SCOPE}}"/"$2"}" >"$cmd_dir/router-on.md"
   sed 's#^Turn#Now turn#' "$script_dir/../commands/router-on.md" >"$release_dir/commands/router-on.md"
   sign_commands
 }
@@ -627,14 +659,24 @@ fi
 sync_settle "commands/router-on.md"
 check_contains "a refreshed scoped wrapper keeps its scope selector" "$(cat "$cmd_dir/router-on.md")" "on --claude --scope project"
 
-scope_lab cmd-scope-dir-hash " --dir $(printf '%q' "/srv/team#2/repo")"
+mkdir -p "$work/cmd-scope-own-dir/home"
+dir_selector=" --dir $(printf '%q' "$(cd "$work/cmd-scope-own-dir/home" && pwd -P)")"
+scope_lab cmd-scope-own-dir "$dir_selector"
 run_tool cc "$installed"
 if wait_for 20 grep -q '^Now turn' "$cmd_dir/router-on.md"; then
-  ok "a --dir selector with a mid-word # still refreshes scoped wrappers"
+  ok "a --dir selector naming this install still refreshes scoped wrappers"
 else
-  no "a --dir selector with a mid-word # still refreshes scoped wrappers" "refreshed router-on" "$(cat "$cmd_dir/router-on.md")"
+  no "a --dir selector naming this install still refreshes scoped wrappers" "refreshed router-on" "$(cat "$cmd_dir/router-on.md")"
 fi
 sync_settle "commands/router-on.md"
+check_contains "a refreshed --dir wrapper keeps its selector" "$(cat "$cmd_dir/router-on.md")" "on --claude$dir_selector"
+
+scope_lab cmd-scope-escaped ' --dir x\;touch\ pwned'
+on_before="$(cat "$cmd_dir/router-on.md")"
+run_tool cc "$installed"
+sync_settle "commands/router-on.md"
+check "a --dir selector naming another directory refreshes no scoped wrapper" "$(cat "$cmd_dir/router-on.md")" "$on_before"
+
 
 scope_lab cmd-scope-injected " --scope project; touch pwned"
 on_before="$(cat "$cmd_dir/router-on.md")"

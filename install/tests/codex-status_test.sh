@@ -556,6 +556,7 @@ newer_helper="$work/newer-codex-status.sh"
   printf '%s\n' '#!/usr/bin/env bash'
   printf '%s\n' '# <!-- weave-router managed codex status -->'
   printf '%s\n' '# newer upstream copy'
+  printf '%s\n' 'WEAVE_RELEASE_TAG="router-v999.0.0"'
   # The updater rejects anything under 1 KiB, so pad past that floor.
   awk 'BEGIN { while (i++ < 40) print "# padding padding padding padding padding padding" }'
   printf '%s\n' 'exit 0'

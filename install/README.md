@@ -703,8 +703,9 @@ alone cannot change what runs on an installed machine.
 **First refresh after upgrading.** Wrapper baselines written before manifest
 verification existed are not trusted. The first verified refresh re-seeds them
 once from the signed bodies and writes a `.manifest-seeded` sentinel next to
-them in the cache. A wrapper you edited before upgrading is reset to the signed
-copy at that point; after that, local edits are preserved as before.
+them in the cache. Only wrappers Router owns are replaced at that point; a
+command you wrote or edited is left alone unless it still carries Router's
+in-body marker. After that, local edits are preserved as before.
 
 **Turning updates off.** `WEAVE_STATUSLINE_UPDATE=0` disables every
 background network path in the statusline, including both refreshes, and is

@@ -144,6 +144,11 @@ sha256_of() {
 # simulate an older on-disk copy.
 upstream="$work/upstream.sh"
 with_test_key "$statusline" "$upstream"
+# A refresh only admits a newer release, so upstream advertises one and every
+# installed copy is put back on the shipped tag.
+shipped_tag="$(sed -n 's/^WEAVE_RELEASE_TAG="\(.*\)"$/\1/p' "$upstream")"
+sed -i.bak 's/^WEAVE_RELEASE_TAG=".*"$/WEAVE_RELEASE_TAG="router-v999.0.0"/' "$upstream" && rm -f "$upstream.bak"
+as_shipped() { sed "s/^WEAVE_RELEASE_TAG=\"router-v999.0.0\"$/WEAVE_RELEASE_TAG=\"$shipped_tag\"/" "$@"; }
 
 # sign_upstream publishes $work/MANIFEST (+ .sig.b64), which both refreshes
 # read from the parent of their source: upstream.sh and every wrapper under
@@ -169,9 +174,9 @@ make_installed() { # make_installed <dest> [stale]
   local dest="$1"
   mkdir -p "$(dirname "$dest")"
   if [ "${2:-}" = "stale" ]; then
-    grep -v "\"$STALE_MODEL\":" "$upstream" > "$dest"
+    grep -v "\"$STALE_MODEL\":" "$upstream" | as_shipped > "$dest"
   else
-    cp "$upstream" "$dest"
+    as_shipped "$upstream" > "$dest"
   fi
   chmod +x "$dest"
 }
@@ -185,7 +190,7 @@ make_installed_bad_prices() { # make_installed_bad_prices <dest>
     /^# BEGIN_GENERATED_PRICES$/ { print; print "prices='"'"'{ not valid json'"'"'"; skip = 1; next }
     /^# END_GENERATED_PRICES$/   { skip = 0 }
     !skip { print }
-  ' "$upstream" > "$dest"
+  ' "$upstream" | as_shipped > "$dest"
   chmod +x "$dest"
 }
 
@@ -503,7 +508,7 @@ sign_upstream
 make_command_install() { # make_command_install <root> <cache_home> [scope_args]
   local root="$1" cache="$2" scope_args="${3:-}" name body
   mkdir -p "$root/.weave" "$root/.claude/commands"
-  cp "$upstream" "$root/.weave/cc-statusline.sh"
+  as_shipped "$upstream" > "$root/.weave/cc-statusline.sh"
   chmod +x "$root/.weave/cc-statusline.sh"
   local baseline
   baseline="$cache/weave-router/commands$(printf '%s' "$(cd "$root/.claude/commands" && pwd -P)" | tr -c 'A-Za-z0-9._-' '_')"

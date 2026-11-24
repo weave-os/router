@@ -258,7 +258,7 @@ weave_self_refresh() {
     # Detach stdin so curl can't accidentally consume it, and silence all
     # output so nothing leaks into the client's display.
     exec </dev/null
-    local base url outcome=fail unsigned=0 tag=""
+    local base url outcome=fail unsigned=0 tag="" body_tag=""
     if [ -n "${WEAVE_CODEX_STATUS_URL:-}" ]; then
       url="$WEAVE_CODEX_STATUS_URL"
       base="${url%/*}"
@@ -278,9 +278,9 @@ weave_self_refresh() {
     fi
     # Verify before anything touches $self: the MANIFEST signature under the
     # embedded key, then this body's SHA-256 against its MANIFEST row. The
-    # signature does not name a release, so a body fetched from a tag must also
-    # carry that tag; an older signed release replayed under a newer tag name
-    # is refused. The shape checks stay as a second line of defence, and are
+    # signature does not name a release, so the body's own WEAVE_RELEASE_TAG
+    # must be newer than this copy's and, when fetched from a tag, equal it; an
+    # older signed release replayed under a newer name or URL is refused. The shape checks stay as a second line of defence, and are
     # the only check for a source trusted unsigned. A body that downloaded but
     # failed a check is "rejected", not "fail": retrying it next turn would
     # fetch the same bytes again.
@@ -293,7 +293,9 @@ weave_self_refresh() {
       outcome=rejected
       if weave_verify_manifest "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" \
          && weave_verify_file "$tmp.MANIFEST" "install/codex-status.sh" "$tmp" \
-         && { [ -z "$tag" ] || [ "$(weave_release_advertised_tag "$tmp")" = "$tag" ]; }; then
+         && body_tag="$(weave_release_advertised_tag "$tmp")" \
+         && weave_release_tag_newer "$body_tag" "$WEAVE_RELEASE_TAG" \
+         && { [ -z "$tag" ] || [ "$body_tag" = "$tag" ]; }; then
         outcome=fetched
       fi
     fi

@@ -347,7 +347,7 @@ weave_self_refresh() {
     # Detach stdin so curl can't accidentally consume it, and silence all
     # output so nothing leaks into the client's display.
     exec </dev/null
-    local base url outcome=fail unsigned=0 tag=""
+    local base url outcome=fail unsigned=0 tag="" body_tag=""
     if [ -n "${WEAVE_STATUSLINE_URL:-}" ]; then
       url="$WEAVE_STATUSLINE_URL"
       base="${url%/*}"
@@ -367,9 +367,9 @@ weave_self_refresh() {
     fi
     # Verify before anything touches $self: the MANIFEST signature under the
     # embedded key, then this body's SHA-256 against its MANIFEST row. The
-    # signature does not name a release, so a body fetched from a tag must also
-    # carry that tag; an older signed release replayed under a newer tag name
-    # is refused. The shape checks stay as a second line of defence, and are
+    # signature does not name a release, so the body's own WEAVE_RELEASE_TAG
+    # must be newer than this copy's and, when fetched from a tag, equal it; an
+    # older signed release replayed under a newer name or URL is refused. The shape checks stay as a second line of defence, and are
     # the only check for a source trusted unsigned. A body that downloaded but
     # failed a check is "rejected", not "fail": retrying it next turn would
     # fetch the same bytes again.
@@ -382,7 +382,9 @@ weave_self_refresh() {
       outcome=rejected
       if weave_verify_manifest "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" \
          && weave_verify_file "$tmp.MANIFEST" "install/cc-statusline.sh" "$tmp" \
-         && { [ -z "$tag" ] || [ "$(weave_release_advertised_tag "$tmp")" = "$tag" ]; }; then
+         && body_tag="$(weave_release_advertised_tag "$tmp")" \
+         && weave_release_tag_newer "$body_tag" "$WEAVE_RELEASE_TAG" \
+         && { [ -z "$tag" ] || [ "$body_tag" = "$tag" ]; }; then
         outcome=fetched
       fi
     fi
@@ -450,13 +452,14 @@ weave_self_refresh 2>/dev/null || true
 # "what we shipped" reference. The sentinel $baseline_dir/.manifest-seeded
 # marks a cache seeded under the manifest. While it is absent, the first
 # refresh whose MANIFEST verifies re-seeds once: each verified body becomes
-# the baseline, an installed wrapper that differs from it is replaced with it
-# without consulting the old baseline, and the sentinel is written. A wrapper
+# the baseline, an installed wrapper Router owns (in-body marker, a sidecar
+# recording its exact body, or a body equal to the old baseline) that differs
+# from it is replaced with it, and the sentinel is written. A wrapper
 # whose body could not be fetched or verified in that cycle has its untrusted
 # baseline removed, so it can only be refreshed against a verified one later.
-# Users who edited a wrapper before upgrading to a manifest-aware statusline
-# therefore see it reset once on the first post-upgrade refresh; from then on
-# the baseline comparison preserves local edits as before.
+# A marker-carrying wrapper edited before upgrading is therefore reset once on
+# the first post-upgrade refresh; from then on the baseline comparison
+# preserves local edits as before.
 #
 # Never touch a wrapper git tracks either. A project-scope install writes the
 # wrappers into the repo's own .claude/commands/, and unlike cc-statusline.sh
@@ -570,13 +573,17 @@ weave_sync_commands() {
     # Backticks are literal Markdown delimiters.
     # shellcheck disable=SC2016
     scope_args="$(sed -En 's#^`npx @(workweave/router|weave-os/router) off --claude(.*)`$#\2#p' "$off" | head -n 1)"
-    # The installed copy is local and unverified, so it may only contribute a
-    # selector of the shape install_slash_commands writes; anything else (shell
-    # metacharacters, extra commands) would be copied into verified wrappers.
-    if ! printf '%s\n' "$scope_args" \
-         | grep -Eqx '( --scope project| --dir ([^][:space:][:cntrl:]|&;<>()$`"'"'"'\\*?{}!^]|\\[^[:cntrl:]])+)?'; then
-      scope_args="" scope_known="false"
-    fi
+    # The installed copy is local and unverified, so it may only name this
+    # install: a scope flag, or the --dir selector install_slash_commands
+    # writes for the directory holding .claude/commands. Any other text would
+    # be copied into verified wrappers.
+    local install_base="${self_dir%/*}" logical_base
+    logical_base="$(cd "$(dirname "$self")" 2>/dev/null && pwd)" || logical_base=""
+    logical_base="${logical_base%/*}"
+    case "$scope_args" in
+      "" | " --scope project" | " --dir $(printf '%q' "$install_base")" | " --dir $(printf '%q' "$logical_base")") ;;
+      *) scope_args="" scope_known="false" ;;
+    esac
   fi
 
   local url_base="${WEAVE_COMMANDS_URL_BASE:-$WEAVE_RELEASE_REPO_URL/$WEAVE_RELEASE_TAG/install/commands}"
@@ -641,13 +648,14 @@ weave_sync_commands() {
         owned="true"
         if [ "$seeding" = "true" ]; then
           # The re-seed may only replace a wrapper Router owns: one carrying the
-          # in-body marker, a matching ownership sidecar, or a body equal to the
-          # old baseline (a pre-marker install). A verified download proves
+          # in-body marker, a sidecar that still records its exact body, or a
+          # body equal to the old baseline (a pre-marker install). A verified download proves
           # where the replacement came from, not who owns the destination.
           ownership_file="$installed.weave-router"
           if grep -Fqx "<!-- weave-router managed command: $name -->" "$installed" 2>/dev/null \
              || { [ -f "$ownership_file" ] && [ ! -L "$ownership_file" ] \
-                  && [ "$(sed -n '1p' "$ownership_file" 2>/dev/null)" = "weave-router managed command: $name" ]; } \
+                  && [ "$(sed -n '1p' "$ownership_file" 2>/dev/null)" = "weave-router managed command: $name" ] \
+                  && [ "$(sed '1d' "$ownership_file" 2>/dev/null)" = "$(cat "$installed" 2>/dev/null)" ]; } \
              || { [ -f "$prev" ] && [ "$(weave_render_command "$prev" "$scope_args")" = "$installed_body" ]; }; then
             prev_body="$installed_body"
           else
