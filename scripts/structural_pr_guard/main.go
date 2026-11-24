@@ -18,6 +18,7 @@ var refactorTitle = regexp.MustCompile(`^refactor(\([^)]*\))?!?:`)
 var protectedPrefixes = []string{
 	"internal/proxy/testdata/golden/",
 	"internal/proxy/testdata/conformance/",
+	"internal/proxy/testdata/contracts/",
 }
 
 var protectedFiles = []string{
@@ -25,6 +26,7 @@ var protectedFiles = []string{
 	"internal/proxy/golden_test.go",
 	"internal/proxy/conformance_test.go",
 	"internal/proxy/paid_fallback_rules_internal_test.go",
+	"internal/proxy/weave_contract_test.go",
 }
 
 var protectedGlobs = []string{

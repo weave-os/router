@@ -45,13 +45,15 @@ func TestProtectedChanges(t *testing.T) {
 		"internal/proxy/testdata/golden/anthropic/basic.json",
 		"internal/proxy/testdata/conformance/anthropic/basic_text.golden",
 		"internal/proxy/testdata/paid_fallback_rules.golden",
+		"internal/proxy/testdata/contracts/x.json",
+		"internal/proxy/weave_contract_test.go",
 		"internal/proxy/service.go",
 		"internal/proxy/paid_fallback_binding_internal_test.go",
-		"internal/proxy/testdata/contracts/x.json",
+		"internal/proxy/weave_contract.go",
 		"internal/proxy/sub/golden_credentials_test.go",
 		"docs/golden.md",
 	}
-	assert.Equal(t, changed[:11], protectedChanges(changed))
+	assert.Equal(t, changed[:13], protectedChanges(changed))
 }
 
 func TestReportFailsOnlyForStructuralGoldenChanges(t *testing.T) {
