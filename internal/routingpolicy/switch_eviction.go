@@ -73,6 +73,9 @@ func rewriteProbability(model string, state sessionpin.ModelCacheState, known bo
 	if state.MessageCount > 0 && turn.messageCount > 0 {
 		appended = turn.messageCount - state.MessageCount
 	}
+	if turn.prefixBroken {
+		appended = max(appended, 0)
+	}
 	if !providers.UsesBreakpointCache(m.PrimaryProvider()) {
 		return prefixCacheRewriteProbability(turn.now.Sub(state.ServedAt), appended)
 	}

@@ -19,7 +19,7 @@ func FreshCacheView(input SwitchInput) SwitchCacheView {
 	if !ok {
 		return SwitchCacheView{}
 	}
-	if siblingThreadCache(state, input.MessageCount) {
+	if siblingThreadCache(state, input) {
 		return SwitchCacheView{OtherThread: true}
 	}
 	view := SwitchCacheView{Known: true, SinceServed: input.Now.Sub(state.ServedAt), TTL: time.Duration(state.WriteTTLSeconds) * time.Second}

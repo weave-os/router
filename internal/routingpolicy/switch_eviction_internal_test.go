@@ -81,3 +81,11 @@ func TestPrefixTrimRewritesOnlyBlockCaches(t *testing.T) {
 	assert.InDelta(t, evictionPrefixCacheRewriteRate[0], rewriteProbability("gpt-6.1-sol", state, true, turn), 1e-9)
 	assert.InDelta(t, 1.0, rewriteProbability("claude-sonnet-5-5", state, true, turn), 1e-9)
 }
+
+func TestHistoryTrimKeepsAPrefixCacheMatching(t *testing.T) {
+	now := time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC)
+	turn := evictionTurn{now: now, promptTokens: 200_000, messageCount: 250, turnsSince: 2, prefixBroken: true}
+	state := sessionpin.ModelCacheState{ServedAt: now.Add(-2 * time.Minute), PromptTokens: 290_000, MessageCount: 390}
+
+	assert.InDelta(t, evictionPrefixCacheRewriteRate[0], rewriteProbability("gpt-6.1-sol", state, true, turn), 1e-9)
+}

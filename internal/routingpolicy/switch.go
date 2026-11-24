@@ -129,7 +129,7 @@ func withoutSiblingThreadCaches(input SwitchInput) SwitchInput {
 	}
 	caches := make(sessionpin.ModelCaches, len(input.ModelCaches))
 	for model, state := range input.ModelCaches {
-		if siblingThreadCache(state, input.MessageCount) {
+		if siblingThreadCache(state, input) {
 			if model == input.Current {
 				input.PromptTokens = 0
 			}
@@ -144,8 +144,8 @@ func withoutSiblingThreadCaches(input SwitchInput) SwitchInput {
 	return input
 }
 
-func siblingThreadCache(state sessionpin.ModelCacheState, messageCount int) bool {
-	return state.MessageCount > 0 && messageCount > 0 && state.MessageCount > messageCount
+func siblingThreadCache(state sessionpin.ModelCacheState, input SwitchInput) bool {
+	return !input.PrefixBroken && state.MessageCount > 0 && input.MessageCount > 0 && state.MessageCount > input.MessageCount
 }
 
 func switchPricingTokens(input SwitchInput) int {

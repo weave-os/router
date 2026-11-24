@@ -191,3 +191,30 @@ func TestLogSwitchShadowKeepsAPrefixCacheWarmAcrossARouterTrim(t *testing.T) {
 	assert.InDelta(t, untrimmed["eviction_usd"], trimmed["eviction_usd"], 1e-9)
 	assert.Equal(t, untrimmed["would_reason"], trimmed["would_reason"])
 }
+
+func TestLogSwitchShadowKeepsThisThreadsCacheStateAcrossAHistoryTrim(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	var logs bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
+	shadow := switchShadowTurn{
+		StayPin: sessionpin.Pin{Model: "gpt-6-luna", Provider: providers.ProviderOpenAI, LastServedModel: "gpt-6-luna", LastTurnEndedAt: now.Add(-20 * time.Second), LastInputTokens: 300_000},
+		Gate: continuity.CostGateInput{
+			Fresh: router.Decision{Model: "gpt-6.1-sol"}, EstimatedInputTokens: 200_000, PrefixBroken: true,
+			HMMHistory: sessionpin.Pin{ModelCaches: sessionpin.ModelCaches{
+				"gpt-6-luna":  {ServedAt: now.Add(-20 * time.Second), PromptTokens: 300_000, MessageCount: 400},
+				"gpt-6.1-sol": {ServedAt: now.Add(-2 * time.Minute), PromptTokens: 290_000, MessageCount: 390},
+			}},
+		},
+		Served: continuity.CostGateServe{UpgradeConfidence: 0.9},
+		Now:    now,
+	}
+
+	logSwitchShadow(ctx, shadow, TurnRoute{Decision: router.Decision{Model: "gpt-6-luna"}, cacheShape: TurnCacheShape{MessageCount: 250}})
+
+	var line map[string]any
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &line))
+	assert.Equal(t, true, line["fresh_cache_known"])
+	assert.Equal(t, false, line["fresh_cache_other_thread"])
+	assert.Equal(t, false, line["cache_cold"])
+	assert.Less(t, line["eviction_usd"], 0.5)
+}
