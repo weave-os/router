@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
 )
@@ -30,7 +31,7 @@ func logSwitchShadow(ctx context.Context, shadow switchShadowTurn, res TurnRoute
 		Fresh:                gate.Fresh.Model,
 		EstimatedInputTokens: gate.EstimatedInputTokens,
 		PromptTokens:         PriorPromptTokens(stayPin),
-		CacheCold:            stayPin.Model != "" && PinCacheCold(stayPin, gate.PrefixBroken, now),
+		CacheCold:            stayPin.Model != "" && PinCacheCold(stayPin, gate.PrefixBroken && providers.UsesBreakpointCache(stayPin.Provider), now),
 		PrefixBroken:         gate.PrefixBroken,
 		SideRequest:          shape.SideRequest,
 		Now:                  now,

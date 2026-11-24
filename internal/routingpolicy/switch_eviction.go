@@ -66,14 +66,14 @@ func rewriteProbability(model string, state sessionpin.ModelCacheState, known bo
 	if !ok {
 		return 1
 	}
-	if turn.prefixBroken && providers.FamilyFor(m.PrimaryProvider()) == providers.FamilyAnthropic {
+	if turn.prefixBroken && providers.UsesBreakpointCache(m.PrimaryProvider()) {
 		return 1
 	}
 	appended := 2*turn.turnsSince - 1
 	if state.MessageCount > 0 && turn.messageCount > 0 {
 		appended = turn.messageCount - state.MessageCount
 	}
-	if providers.FamilyFor(m.PrimaryProvider()) != providers.FamilyAnthropic {
+	if !providers.UsesBreakpointCache(m.PrimaryProvider()) {
 		return prefixCacheRewriteProbability(turn.now.Sub(state.ServedAt), appended)
 	}
 	if turn.now.Sub(state.ServedAt) >= recordedCacheTTL(m, state) {
@@ -117,7 +117,7 @@ func prefixCacheRewriteProbability(gap time.Duration, appended int) float64 {
 }
 
 func rewriteInputMultiplier(m catalog.Model, price catalog.Pricing, writeTTL time.Duration) float64 {
-	if providers.FamilyFor(m.PrimaryProvider()) != providers.FamilyAnthropic {
+	if !providers.UsesBreakpointCache(m.PrimaryProvider()) {
 		return 1
 	}
 	if writeTTL >= time.Hour {
@@ -141,4 +141,9 @@ func expectedTurnUSD(model string, outlook CacheOutlook, tokens, outputTokens in
 	return outlook.ReadTokens*in*price.EffectiveCacheReadMultiplier() +
 		outlook.WriteTokens*in*writeMultiplier +
 		float64(outputTokens)*price.OutputUSDPer1M/1e6, true
+}
+
+func trimLosesCache(model string) bool {
+	m, ok := catalog.ByID(model)
+	return !ok || providers.UsesBreakpointCache(m.PrimaryProvider())
 }

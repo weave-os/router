@@ -108,7 +108,7 @@ func DecideSwitch(input SwitchInput) SwitchVerdict {
 		Downgrade:    downgrade,
 	}
 	verdict := stay(SwitchReasonUpgradePending)
-	pays := economics.MoveValueUSD > eviction || input.CacheCold || input.PrefixBroken
+	pays := economics.MoveValueUSD > eviction || input.CacheCold || (input.PrefixBroken && trimLosesCache(input.Current))
 	switch {
 	case !downgrade && input.UpgradeConfidenceLow:
 		verdict = stay(SwitchReasonUpgradeConfidenceLow)
