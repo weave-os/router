@@ -5465,6 +5465,13 @@ announce_done() {
       printf "%s✗%s %sWeave Router is configured for %s, but not working yet:%s %s.\n" \
         "$C_RED" "$C_RESET" "$C_BOLD" "$1" "$C_RESET" "$(key_problem)"
       printf "  Fix: %s\n" "$(key_fix_hint "--$target")"
+      # A script that asked for no prompts reads the exit status, not the
+      # output, so a key the router refused is a failed install. An unreachable
+      # router proves nothing about the key and stays a success.
+      if [ "$key_verdict" = "rejected" ] && [ "$non_interactive" = "true" ]; then
+        print_uninstall_hint
+        exit 1
+      fi
       ;;
     *)
       printf "%s✓%s %s%sWeave Router installed for %s.%s\n" \
