@@ -109,7 +109,7 @@ func recordGeminiUpstream(ctx context.Context, s *Service, t *geminiFinishedTurn
 	s.recordCallLog(ctx, geminiUpstreamBuilder.Build(), t.routeMs, t.proxyErr, t.body, respBody, respTrunc)
 	telemetry.Flush(ctx)
 
-	s.recordTurnUsage(ctx, t.routeRes, t.finalProvider, t.decision.ServedIdentity(), usage.in, usage.out, usage.cacheCreation, usage.cacheRead, t.extractor.OutputLimitReached())
+	s.recordTurnUsage(ctx, withServedCacheWriteTTL(t.routeRes, t.extractor), t.finalProvider, t.decision.ServedIdentity(), usage.in, usage.out, usage.cacheCreation, usage.cacheRead, t.extractor.OutputLimitReached())
 	clearRecoveredCooldown(ctx, s, t.routeRes, t.decision.Model, t.proxyErr)
 	return geminiObs
 }
@@ -212,16 +212,16 @@ func strikeGeminiArms(ctx context.Context, s *Service, t *geminiFinishedTurn) []
 	primaryFailureDemoted := ""
 	var primaryFailureDemotionReason sessionpin.DemotionReason
 	if !t.routeRes.CallerModelPassthrough {
-		s.maybeDisableProviderAfterOverload(ctx, t.stickyHit, t.proxyErr, t.finalProvider, t.decision.Reason, sessionTarget{strategy: t.strategy, installationID: t.facts.InstallationID, sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
-		armDemoted = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(t.preludeBuf), t.routeRes.HardPinned, t.proxyErr, t.decision.Model, t.decision.Reason, sessionTarget{strategy: t.strategy, installationID: t.facts.InstallationID, sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
+		s.maybeDisableProviderAfterOverload(ctx, t.stickyHit, t.proxyErr, t.finalProvider, t.decision.Reason, routingpolicy.SessionTarget{Strategy: t.strategy, InstallationID: t.facts.InstallationID, SessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
+		armDemoted = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(t.preludeBuf), t.routeRes.HardPinned, t.proxyErr, t.decision.Model, t.decision.Reason, routingpolicy.SessionTarget{Strategy: t.strategy, InstallationID: t.facts.InstallationID, SessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 		if armDemoted != "" {
 			armDemotionReason = sessionpin.DemotionReasonCommittedStreamFailure
 		}
 		if providers.IsResponseHeaderTimeout(t.primaryFailureErr) && (t.proxyErr != nil || t.decision.Model != t.primaryDecision.Model) {
-			primaryFailureDemoted, primaryFailureDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, false, t.routeRes.HardPinned, t.primaryFailureErr, t.primaryDecision, sessionTarget{strategy: t.strategy, installationID: t.facts.InstallationID, sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
+			primaryFailureDemoted, primaryFailureDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, false, t.routeRes.HardPinned, t.primaryFailureErr, t.primaryDecision, routingpolicy.SessionTarget{Strategy: t.strategy, InstallationID: t.facts.InstallationID, SessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 		}
 		if t.proxyErr != nil {
-			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, false, committed(t.preludeBuf), t.routeRes.HardPinned, t.primaryFailureErr, t.primaryDecision, sessionTarget{strategy: t.strategy, installationID: t.facts.InstallationID, sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
+			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, false, committed(t.preludeBuf), t.routeRes.HardPinned, t.primaryFailureErr, t.primaryDecision, routingpolicy.SessionTarget{Strategy: t.strategy, InstallationID: t.facts.InstallationID, SessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 			if unrescuedStallDemoted != "" {
 				armDemoted = unrescuedStallDemoted
 				armDemotionReason = sessionpin.DemotionReasonUnrescuedStall

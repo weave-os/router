@@ -23,6 +23,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/routingpolicy/overrides"
 )
 
 type utilityHardPinSetup struct {
@@ -66,7 +67,7 @@ func newUtilityHardPinSvc(setup utilityHardPinSetup, fr *fakeRouter) *proxy.Serv
 		fr, dispatch.NewClients(clients), nil, newFakePinStore(), true,
 		policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel,
 		nil), hmm.ServingPorts()).
-		WithByokOnly(setup.byokOnly).WithHardPinResolver(proxy.CatalogUtilityHardPin)
+		WithByokOnly(setup.byokOnly).WithHardPinResolver(overrides.CatalogUtilityHardPin)
 }
 
 // Explore sub-agent hard pins resolve from the catalog against each

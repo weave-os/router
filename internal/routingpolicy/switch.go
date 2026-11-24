@@ -1,5 +1,12 @@
 package routingpolicy
 
+import (
+	"math"
+	"time"
+
+	"weave-os/router/internal/router/sessionpin"
+)
+
 type SwitchReason string
 
 const (
@@ -8,14 +15,16 @@ const (
 	SwitchReasonCurrentUnavailable SwitchReason = "current_unavailable"
 	SwitchReasonPricingMissing     SwitchReason = "pricing_missing"
 	SwitchReasonDowngrade          SwitchReason = "downgrade"
-	SwitchReasonUpgradeFree        SwitchReason = "upgrade_free"
-	SwitchReasonUpgradeVotes       SwitchReason = "upgrade_votes"
-	SwitchReasonUpgradePending     SwitchReason = "upgrade_pending"
+	SwitchReasonUpgrade            SwitchReason = "upgrade"
+	SwitchReasonUpgradePending     SwitchReason = "upgrade_rewrite_exceeds_value"
+	SwitchReasonSideRequest        SwitchReason = "side_request"
+	SwitchReasonDowngradePending   SwitchReason = "downgrade_rewrite_exceeds_savings"
 )
 
 const (
-	switchUpgradeWindow = 3
-	switchUpgradeVotes  = 2
+	switchDowngradeHorizonTurns = 10
+	switchUpgradeHorizonTurns   = 25
+	switchDefaultOutputTokens   = 1_500
 )
 
 type SwitchInput struct {
@@ -23,14 +32,30 @@ type SwitchInput struct {
 	Fresh                string
 	PriorPicks           []string
 	EstimatedInputTokens int
+	PromptTokens         int
 	CacheCold            bool
 	PrefixBroken         bool
+	SideRequest          bool
+	Now                  time.Time
+	MessageCount         int
+	UserPrompt           bool
+	CacheWriteTTL        time.Duration
+	ModelCaches          sessionpin.ModelCaches
 }
 
 type SwitchVerdict struct {
-	Serve  string
-	Switch bool
-	Reason SwitchReason
+	Serve     string
+	Switch    bool
+	Reason    SwitchReason
+	Economics SwitchEconomics
+}
+
+type SwitchEconomics struct {
+	Priced       bool
+	EvictionUSD  float64
+	MoveValueUSD float64
+	HorizonTurns int
+	Downgrade    bool
 }
 
 func DecideSwitch(input SwitchInput) SwitchVerdict {
@@ -46,38 +71,81 @@ func DecideSwitch(input SwitchInput) SwitchVerdict {
 	if input.Fresh == input.Current {
 		return stay(SwitchReasonSameModel)
 	}
-	currentPrice, currentPriced := HMMEffectiveInputUSDPer1M(input.Current, input.EstimatedInputTokens)
+	if input.SideRequest {
+		return SwitchVerdict{Serve: input.Fresh, Reason: SwitchReasonSideRequest}
+	}
+	tokens := switchPricingTokens(input)
+	output := switchDefaultOutputTokens
+	currentWarm, currentPriced := switchWarmTurnUSD(input.Current, tokens, output)
 	if !currentPriced {
 		return move(SwitchReasonCurrentUnavailable)
 	}
-	freshPrice, freshPriced := HMMEffectiveInputUSDPer1M(input.Fresh, input.EstimatedInputTokens)
-	switch {
-	case !freshPriced:
+	freshWarm, freshPriced := switchWarmTurnUSD(input.Fresh, tokens, output)
+	if !freshPriced {
 		return stay(SwitchReasonPricingMissing)
-	case freshPrice == currentPrice:
+	}
+	if freshWarm == currentWarm {
 		return stay(SwitchReasonSameModel)
-	case freshPrice < currentPrice:
-		return move(SwitchReasonDowngrade)
-	case input.CacheCold || input.PrefixBroken:
-		return move(SwitchReasonUpgradeFree)
-	case switchUpgradeVoteCount(input, currentPrice) >= switchUpgradeVotes:
-		return move(SwitchReasonUpgradeVotes)
-	default:
-		return stay(SwitchReasonUpgradePending)
+	}
+	currentTurn, _ := expectedTurnUSD(input.Current, predictCacheOutlook(input.Current, switchCurrentCache(input), true, switchTurn(input, tokens, 1)), tokens, output, input.CacheWriteTTL)
+	freshState, freshKnown := input.ModelCaches[input.Fresh]
+	freshTurn, _ := expectedTurnUSD(input.Fresh, predictCacheOutlook(input.Fresh, freshState, freshKnown, switchTurn(input, tokens, 0)), tokens, output, input.CacheWriteTTL)
+	eviction := (freshTurn - freshWarm) - (currentTurn - currentWarm)
+	downgrade := freshWarm < currentWarm
+	horizon := switchUpgradeHorizonTurns
+	if downgrade {
+		horizon = switchDowngradeHorizonTurns
+	}
+	economics := SwitchEconomics{
+		Priced:       true,
+		EvictionUSD:  eviction,
+		MoveValueUSD: float64(horizon) * math.Abs(currentWarm-freshWarm),
+		HorizonTurns: horizon,
+		Downgrade:    downgrade,
+	}
+	verdict := stay(SwitchReasonUpgradePending)
+	pays := economics.MoveValueUSD > eviction || input.CacheCold || input.PrefixBroken
+	switch {
+	case downgrade && pays:
+		verdict = move(SwitchReasonDowngrade)
+	case downgrade:
+		verdict = stay(SwitchReasonDowngradePending)
+	case pays:
+		verdict = move(SwitchReasonUpgrade)
+	}
+	verdict.Economics = economics
+	return verdict
+}
+
+func switchPricingTokens(input SwitchInput) int {
+	return max(input.PromptTokens, input.EstimatedInputTokens)
+}
+
+func switchTurn(input SwitchInput, tokens, turnsSince int) evictionTurn {
+	return evictionTurn{
+		now:          input.Now,
+		promptTokens: tokens,
+		messageCount: input.MessageCount,
+		turnsSince:   turnsSince,
+		userPrompt:   input.UserPrompt,
+		prefixBroken: input.PrefixBroken,
 	}
 }
 
-func switchUpgradeVoteCount(input SwitchInput, currentPrice float64) int {
-	votes := 1
-	prior := input.PriorPicks
-	if len(prior) > switchUpgradeWindow-1 {
-		prior = prior[len(prior)-(switchUpgradeWindow-1):]
+func switchCurrentCache(input SwitchInput) sessionpin.ModelCacheState {
+	if state, ok := input.ModelCaches[input.Current]; ok && !input.CacheCold {
+		return state
 	}
-	for _, pick := range prior {
-		price, priced := HMMEffectiveInputUSDPer1M(pick, input.EstimatedInputTokens)
-		if priced && price > currentPrice {
-			votes++
-		}
+	if input.CacheCold {
+		return sessionpin.ModelCacheState{}
 	}
-	return votes
+	prior := input.PromptTokens
+	if prior <= 0 {
+		prior = switchPricingTokens(input)
+	}
+	return sessionpin.ModelCacheState{ServedAt: input.Now, PromptTokens: prior}
+}
+
+func switchWarmTurnUSD(model string, tokens, outputTokens int) (float64, bool) {
+	return expectedTurnUSD(model, CacheOutlook{ReadTokens: float64(tokens)}, tokens, outputTokens, 0)
 }

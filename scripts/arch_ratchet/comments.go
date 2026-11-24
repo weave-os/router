@@ -71,7 +71,7 @@ func productionComments(sources map[string][]byte) ([]locatedComment, error) {
 	return found, nil
 }
 
-func compareCommentBudgets(ctx context.Context, r repo, baseRev string) ([]violation, error) {
+func compareCommentBudgets(ctx context.Context, r repo, baseRev string, allowed exceptionSet) ([]violation, error) {
 	baseRaw, err := r.readAt(ctx, baseRev, []string{commentban.AllowlistPath})
 	if err != nil {
 		return nil, err
@@ -98,7 +98,7 @@ func compareCommentBudgets(ctx context.Context, r repo, baseRev string) ([]viola
 	baseBudgets := base.Budgets()
 	var violations []violation
 	for _, debt := range head.Packages {
-		if before := baseBudgets[debt.Package]; debt.BannedLines > before {
+		if before := baseBudgets[debt.Package]; debt.BannedLines > before && !allowed.permits(debt.Package, metricCommentBudget, debt.BannedLines) {
 			violations = append(violations, violation{subject: debt.Package, metric: metricCommentBudget, before: before, after: debt.BannedLines, limit: -1})
 		}
 	}

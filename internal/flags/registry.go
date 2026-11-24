@@ -128,7 +128,7 @@ var Registry = []Definition{
 	{
 		Key:            KeySwitchDecideShadow,
 		Kind:           KindBool,
-		Description:    "Experiment, expires 2026-12-02. Log what the unified switch rule (routingpolicy.DecideSwitch) would serve on HMM cost-gate turns. Observation only; never changes what is served.",
+		Description:    "Experiment, expires 2026-12-21. Log what the eviction-cost switch rule (routingpolicy.DecideSwitch, downgrade horizon 10 turns, upgrade 25) would serve on HMM cost-gate turns, with its predicted rewrite cost. Observation only; never changes what is served.",
 		OrgOverridable: true,
 	},
 	{

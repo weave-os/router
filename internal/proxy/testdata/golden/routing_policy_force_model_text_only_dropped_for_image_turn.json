@@ -147,7 +147,9 @@
           "role": "default_mid_force_hist",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "z-ai/glm-5.1",
             "ServedProvider": "fireworks",
             "Strategy": "hmm_embedding"
@@ -416,8 +418,10 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "PriorServedModel": "z-ai/glm-5.1",
+            "PromptTokens": 12,
             "ServedModel": "claude-opus-4-7",
             "ServedProvider": "anthropic",
             "Strategy": "hmm_embedding"

@@ -154,7 +154,7 @@ func recordChatUpstream(ctx context.Context, s *Service, t *chatFinishedTurn, us
 		emitCallLog()
 	}
 
-	s.recordTurnUsage(ctx, t.routeRes, t.finalProvider, t.decision.ServedIdentity(), usage.in, usage.out, usage.cacheCreation, usage.cacheRead, t.extractor.OutputLimitReached())
+	s.recordTurnUsage(ctx, withServedCacheWriteTTL(t.routeRes, t.extractor), t.finalProvider, t.decision.ServedIdentity(), usage.in, usage.out, usage.cacheCreation, usage.cacheRead, t.extractor.OutputLimitReached())
 	clearRecoveredCooldown(ctx, s, t.routeRes, t.decision.Model, t.proxyErr)
 	return openaiObs
 }
@@ -165,27 +165,27 @@ func strikeChatArms(ctx context.Context, s *Service, t *chatFinishedTurn) []any 
 	rescuedArmDemotedOAI := ""
 	var rescuedArmDemotionReasonOAI sessionpin.DemotionReason
 	if !t.routeRes.CallerModelPassthrough {
-		s.maybeEvictPinAfterUpstreamErr(ctx, t.stickyHit, t.proxyErr, t.decision.Reason, sessionTarget{strategy: t.strategy, installationID: requestcontext.InstallationIDFromContext(ctx), sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes))
-		armDemotedOAI = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(t.preludeBuf) || committed(t.responsesPreludeBuf), t.routeRes.HardPinned, t.proxyErr, t.decision.Model, t.decision.Reason, sessionTarget{strategy: t.strategy, installationID: requestcontext.InstallationIDFromContext(ctx), sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
+		s.maybeEvictPinAfterUpstreamErr(ctx, t.stickyHit, t.proxyErr, t.decision.Reason, routingpolicy.SessionTarget{Strategy: t.strategy, InstallationID: requestcontext.InstallationIDFromContext(ctx), SessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes))
+		armDemotedOAI = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(t.preludeBuf) || committed(t.responsesPreludeBuf), t.routeRes.HardPinned, t.proxyErr, t.decision.Model, t.decision.Reason, routingpolicy.SessionTarget{Strategy: t.strategy, InstallationID: requestcontext.InstallationIDFromContext(ctx), SessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 		if armDemotedOAI != "" {
 			armDemotionReasonOAI = sessionpin.DemotionReasonCommittedStreamFailure
 		}
 		primaryModelRescueRan := t.rescue.SiblingRescueRan || t.decision.Model != t.rescue.PrimaryModel
 		if providers.IsResponseHeaderTimeout(t.rescue.PrimaryFailureErr) && (primaryModelRescueRan || t.proxyErr != nil) {
-			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, primaryModelRescueRan, t.routeRes.HardPinned, t.rescue.PrimaryFailureErr, t.rescue.PrimaryDecision, sessionTarget{strategy: t.strategy, installationID: requestcontext.InstallationIDFromContext(ctx), sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
+			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, primaryModelRescueRan, t.routeRes.HardPinned, t.rescue.PrimaryFailureErr, t.rescue.PrimaryDecision, routingpolicy.SessionTarget{Strategy: t.strategy, InstallationID: requestcontext.InstallationIDFromContext(ctx), SessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 		} else {
-			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, t.rescue.SiblingRescueRan, t.routeRes.HardPinned, t.rescue.RescuedPrimaryErr, t.rescue.RescuedPrimary, sessionTarget{strategy: t.strategy, installationID: requestcontext.InstallationIDFromContext(ctx), sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
+			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, t.rescue.SiblingRescueRan, t.routeRes.HardPinned, t.rescue.RescuedPrimaryErr, t.rescue.RescuedPrimary, routingpolicy.SessionTarget{Strategy: t.strategy, InstallationID: requestcontext.InstallationIDFromContext(ctx), SessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 		}
 		s.strikeRescuedModelsForTurn(ctx, t.proxyErr, t.decision, t.routeRes.HardPinned, t.routeRes.SessionKey, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 		if t.proxyErr != nil {
-			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, t.rescue.SiblingRescueRan, committed(t.preludeBuf) || committed(t.responsesPreludeBuf), t.routeRes.HardPinned, t.rescue.PrimarySubscriptionArmFailure, t.rescue.PrimaryDecision, sessionTarget{strategy: t.strategy, installationID: requestcontext.InstallationIDFromContext(ctx), sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
+			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, t.rescue.SiblingRescueRan, committed(t.preludeBuf) || committed(t.responsesPreludeBuf), t.routeRes.HardPinned, t.rescue.PrimarySubscriptionArmFailure, t.rescue.PrimaryDecision, routingpolicy.SessionTarget{Strategy: t.strategy, InstallationID: requestcontext.InstallationIDFromContext(ctx), SessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 			if armDemotedOAI == "" && unrescuedStallDemoted != "" {
 				armDemotedOAI = unrescuedStallDemoted
 				armDemotionReasonOAI = sessionpin.DemotionReasonUnrescuedStall
 			}
 		}
 		s.maybeExpireSubscriptionArmPin(ctx, t.strategy, t.rescue.PrimarySubscriptionArmFailure, t.decision.Reason, requestcontext.InstallationIDFromContext(ctx), t.routeRes.SessionKey, stickyStateRole(t.routeRes))
-		s.maybeDisableProviderAfterOverload(ctx, t.stickyHit, t.proxyErr, t.finalProvider, t.decision.Reason, sessionTarget{strategy: t.strategy, installationID: requestcontext.InstallationIDFromContext(ctx), sessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
+		s.maybeDisableProviderAfterOverload(ctx, t.stickyHit, t.proxyErr, t.finalProvider, t.decision.Reason, routingpolicy.SessionTarget{Strategy: t.strategy, InstallationID: requestcontext.InstallationIDFromContext(ctx), SessionKey: t.routeRes.SessionKey}, stickyStateRole(t.routeRes), t.routeRes.PinRole)
 	}
 	return armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI)
 }

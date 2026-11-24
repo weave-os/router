@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -22,14 +23,14 @@ func (s *Service) maybeDisableProviderAfterOverload(
 	proxyErr error,
 	finalProvider string,
 	decisionReason string,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	role string,
 	pinRole string,
 ) {
-	if !stickyHit || s.pinStore == nil || target.installationID == uuid.Nil {
+	if !stickyHit || s.pinStore == nil || target.InstallationID == uuid.Nil {
 		return
 	}
-	if target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+	if target.SessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return
 	}
 	if strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
@@ -39,7 +40,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 	log := observability.FromContext(ctx)
 
 	if proxyErr == nil {
-		if err := s.pinStore.ResetOverloadErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy); err != nil {
+		if err := s.pinStore.ResetOverloadErrors(context.WithoutCancel(ctx), target.SessionKey, role, target.Strategy); err != nil {
 			log.Error("pin overload-counter reset failed", "err", err, "role", role)
 		}
 		return
@@ -49,7 +50,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 		return
 	}
 
-	count, err := s.pinStore.IncrementOverloadErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy)
+	count, err := s.pinStore.IncrementOverloadErrors(context.WithoutCancel(ctx), target.SessionKey, role, target.Strategy)
 	if err != nil {
 		log.Error("pin overload-counter increment failed", "err", err, "role", role, "provider", finalProvider)
 		return
@@ -64,14 +65,14 @@ func (s *Service) maybeDisableProviderAfterOverload(
 		return
 	}
 
-	if err := s.pinStore.DisableProvider(context.WithoutCancel(ctx), target.sessionKey, role, finalProvider, target.strategy); err != nil {
+	if err := s.pinStore.DisableProvider(context.WithoutCancel(ctx), target.SessionKey, role, finalProvider, target.Strategy); err != nil {
 		log.Error("pin provider-disable upsert failed", "err", err, "role", role, "provider", finalProvider)
 		return
 	}
 	if pinRole == "" {
 		pinRole = sessionpin.DefaultRole
 	}
-	if err := s.expireSessionPinAndSwitchHistory(ctx, target.strategy, target.installationID, target.sessionKey, pinRole, "provider_overloaded"); err != nil {
+	if err := s.expireSessionPinAndSwitchHistory(ctx, target.Strategy, target.InstallationID, target.SessionKey, pinRole, "provider_overloaded"); err != nil {
 		log.Error("pin eviction after provider overload failed", "err", err, "role", role, "pin_role", pinRole, "provider", finalProvider)
 		return
 	}

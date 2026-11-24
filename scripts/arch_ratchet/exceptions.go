@@ -44,6 +44,7 @@ func loadExceptions(filePath string) (exceptionSet, error) {
 var knownMetrics = []metric{
 	metricCognitive, metricLines, metricParams, metricNesting, metricFileLines,
 	metricNolint, metricModelMatching, metricServiceFields, metricServiceMethods, metricContextKeys,
+	metricCommentBudget, metricBaselineGrowth,
 }
 
 func (set exceptionSet) permits(subject string, m metric, value int) bool {

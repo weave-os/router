@@ -43,7 +43,7 @@ func resolveForceModel(model string) (canonicalID, provider string, known bool) 
 }
 
 func resolveForceModelWithEffort(model string) (canonicalID, provider string, known bool, effort string) {
-	effortLevel, stripped := stripEffortSuffix(model)
+	effortLevel, stripped := routingpolicy.StripEffortSuffix(model)
 	model = stripped
 	model = strings.ToLower(strings.TrimSpace(model))
 	effort = effortLevel
@@ -184,7 +184,7 @@ var forceModelSuggestions = func() map[string]forceModelSuggestion {
 }()
 
 func suggestForceModel(input string) string {
-	effort, model := stripEffortSuffix(input)
+	effort, model := routingpolicy.StripEffortSuffix(input)
 	model, _ = translate.CanonicalModel(strings.ToLower(strings.TrimSpace(model)))
 	key := routingpolicy.FoldModelSpelling(model)
 	if len(key) < 3 {
@@ -309,10 +309,10 @@ func (s *Service) clearLegacyForceModelPins(
 		if err != nil {
 			return fmt.Errorf("load legacy force-model pin for role %q: %w", role, err)
 		}
-		if !found || !isUserForcedReason(pin.Reason) {
+		if !found || !routingpolicy.IsUserForcedReason(pin.Reason) {
 			continue
 		}
-		if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, userUnforcedReason); err != nil {
+		if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, routingpolicy.ReasonUserUnforced); err != nil {
 			return err
 		}
 	}
@@ -390,11 +390,11 @@ func (f forceModelCommands) handle(
 	w http.ResponseWriter,
 	env *translate.RequestEnvelope,
 	cmd translate.ForceModelResult,
-	target sessionTarget,
+	target routingpolicy.SessionTarget,
 	forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
-	_, ack, err := f.apply(ctx, target.strategy, cmd, target.installationID, target.sessionKey, forceModelSessionKey)
+	_, ack, err := f.apply(ctx, target.Strategy, cmd, target.InstallationID, target.SessionKey, forceModelSessionKey)
 	if err != nil {
 		return err
 	}

@@ -91,6 +91,10 @@ func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin
 	if endedAt.IsZero() {
 		endedAt = time.Now()
 	}
+	cacheModel, cache, err := usageModelCache(usage, endedAt)
+	if err != nil {
+		return err
+	}
 	q := dbbudget.Queries(r.tx)
 	return q.UpdateSessionPinUsage(ctx, sqlc.UpdateSessionPinUsageParams{
 		SessionKey:              sessionKey[:],
@@ -106,7 +110,29 @@ func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin
 		PriorServedModel:        usage.PriorServedModel,
 		SessionEverSwitched:     usage.SessionEverSwitched,
 		ExpectedRoutingStrategy: string(usage.Strategy),
+		ModelCacheModel:         cacheModel,
+		ModelCache:              cache,
 	})
+}
+
+func usageModelCache(usage sessionpin.Usage, endedAt time.Time) (string, []byte, error) {
+	model, state, ok := usage.ModelCache(endedAt)
+	if !ok {
+		return "", nil, nil
+	}
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return "", nil, fmt.Errorf("encode model cache state: %w", err)
+	}
+	return model, raw, nil
+}
+
+func modelCaches(raw []byte) sessionpin.ModelCaches {
+	var caches sessionpin.ModelCaches
+	if len(raw) == 0 || json.Unmarshal(raw, &caches) != nil {
+		return nil
+	}
+	return caches
 }
 
 func (r *SessionPinRepo) IncrementUpstreamErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (int, error) {
@@ -307,6 +333,7 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		DemotionCooldowns:         demotionCooldowns(row.DemotionCooldowns),
 		TurnStrikes:               row.TurnStrikes,
 		TokenizerCalibration:      tokenizerCalibration(row.TokenizerCalibration),
+		ModelCaches:               modelCaches(row.ModelCaches),
 	}
 	copy(pin.SessionKey[:], row.SessionKey)
 	return pin

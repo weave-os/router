@@ -128,7 +128,9 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "claude-opus-4-7",
             "ServedProvider": "anthropic",
             "Strategy": "decision_model"
@@ -318,6 +320,12 @@
             "LastOutputTokens": 7,
             "LastServedModel": "claude-opus-4-7",
             "Model": "claude-haiku-4-5",
+            "ModelCaches": {
+              "claude-opus-4-7": {
+                "MessageCount": 1,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "anthropic",
             "Reason": "golden_route",
             "Role": "default_mid",
@@ -330,8 +338,10 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "PriorServedModel": "claude-opus-4-7",
+            "PromptTokens": 12,
             "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "anthropic",
             "Strategy": "decision_model"

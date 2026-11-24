@@ -171,7 +171,7 @@ func TestBoostServingKeepsLegacyForceModelPinActive(t *testing.T) {
 		Model:       "claude-opus-5",
 		Provider:    providers.ProviderAnthropic,
 		Reason:      translate.ReasonUserForceModel,
-		PinnedUntil: pinNeverExpires,
+		PinnedUntil: routingpolicy.PinNeverExpires,
 	}
 	svc := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), pinStore: store}
 

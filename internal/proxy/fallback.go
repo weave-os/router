@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/translate"
 )
@@ -49,7 +50,7 @@ func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision route
 	req := dispatch.BindingRequest{
 		Decision:   decision,
 		ImageCount: requestcontext.RequestImageCountFromContext(ctx),
-		UserForced: isUserForcedReason(decision.Reason),
+		UserForced: routingpolicy.IsUserForcedReason(decision.Reason),
 		ForceModel: decision.UserForcedModel(),
 	}
 	if s.shouldFailover(ctx) && s.credentials.KeyedProviders != nil {

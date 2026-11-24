@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -13,14 +14,14 @@ type turnCommands struct {
 	s                    *Service
 	w                    http.ResponseWriter
 	env                  *translate.RequestEnvelope
-	target               sessionTarget
+	target               routingpolicy.SessionTarget
 	forceModelSessionKey [sessionpin.SessionKeyLen]byte
 	inputTokens          int
 	requestedModel       string
 }
 
 func (c turnCommands) ApplyForceModel(ctx context.Context, cmd translate.ForceModelResult) (string, error) {
-	agentForceModel, _, err := (forceModelCommands{c.s}).apply(ctx, c.target.strategy, cmd, c.target.installationID, c.target.sessionKey, c.forceModelSessionKey)
+	agentForceModel, _, err := (forceModelCommands{c.s}).apply(ctx, c.target.Strategy, cmd, c.target.InstallationID, c.target.SessionKey, c.forceModelSessionKey)
 	return agentForceModel, err
 }
 
@@ -45,7 +46,7 @@ func (c turnCommands) ListModels(ctx context.Context) error {
 }
 
 func (c turnCommands) GrantContinuation(ctx context.Context) {
-	postCommandContinuation(c.s, c.target.strategy).Grant(ctx, c.target.installationID, c.target.sessionKey, roleForTier(catalog.TierFor(c.requestedModel)))
+	postCommandContinuation(c.s, c.target.Strategy).Grant(ctx, c.target.InstallationID, c.target.SessionKey, roleForTier(catalog.TierFor(c.requestedModel)))
 }
 
 type chatCommandSource struct {
