@@ -640,12 +640,12 @@ check_contains "a host-root wrapper source fetches the root MANIFEST" "$(cat "$l
 scope_lab() { # scope_lab <name> <router-off npx suffix>
   commands_lab "$1"
   : >"$baseline/.manifest-seeded"
-  local off on
-  off="$(cat "$script_dir/../commands/router-off.md")"
-  on="$(cat "$script_dir/../commands/router-on.md")"
-  printf '%s\n' "${off//"{{SCOPE}}"/"$2"}" >"$cmd_dir/router-off.md"
+  local off_body on_body
+  off_body="$(cat "$script_dir/../commands/router-off.md")"
+  on_body="$(cat "$script_dir/../commands/router-on.md")"
+  printf '%s\n' "${off_body//"{{SCOPE}}"/"$2"}" >"$cmd_dir/router-off.md"
   cp "$script_dir/../commands/router-on.md" "$baseline/router-on.md"
-  printf '%s\n' "${on//"{{SCOPE}}"/"$2"}" >"$cmd_dir/router-on.md"
+  printf '%s\n' "${on_body//"{{SCOPE}}"/"$2"}" >"$cmd_dir/router-on.md"
   sed 's#^Turn#Now turn#' "$script_dir/../commands/router-on.md" >"$release_dir/commands/router-on.md"
   sign_commands
 }
