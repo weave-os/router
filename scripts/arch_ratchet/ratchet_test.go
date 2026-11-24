@@ -488,3 +488,166 @@ func TestCompareFuncsCoversNestedLiteralsOfAClosureMovedToAFunction(t *testing.T
 	require.NoError(t, err)
 	assert.Empty(t, compareFuncs(map[string]fileMetrics{"internal/x/move.go": base}, map[string]fileMetrics{"internal/x/move.go": head}, exceptionSet{}))
 }
+
+func TestRunFlagsGrowingArchitectureBaselines(t *testing.T) {
+	root, git := newTempGitRepo(t)
+	write := func(path, content string) {
+		full := filepath.Join(root, path)
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
+		require.NoError(t, os.WriteFile(full, []byte(content), 0o600))
+	}
+	atomization := func(ratchets string) {
+		write("internal/architecture/atomization_ratchet_baseline.json", `{"schema_version":"atomization_ratchet_v1","ratchets":{`+ratchets+`}}`)
+	}
+	inference := func(kinds ...string) {
+		var entries []string
+		for _, kind := range kinds {
+			entries = append(entries, `{"kind":"`+kind+`"}`)
+		}
+		write("internal/architecture/inference_boundary_baseline.json", `{"exceptions":[`+strings.Join(entries, ",")+`]}`)
+	}
+	allowlists := func(env, proxy, sites string) {
+		write("internal/architecture/env_ownership_test.go", "package architecture_test\n\nvar envReadAllowlist = map[string]int{"+env+"}\n")
+		write("internal/architecture/proxy_import_ratchet_test.go", "package architecture_test\n\nvar proxyImportAllowlist = map[string]bool{"+proxy+"}\n")
+		write("internal/architecture/strategy_from_context_sites_test.go", "package architecture_test\n\nvar strategyFromContextSites = []string{"+sites+"}\n")
+	}
+	git("init", "-q", "-b", "main")
+	atomization(`"names":{"internal/proxy":3}`)
+	inference("target_construction", "target_construction")
+	allowlists(`"internal/a": 2`, `"scripts/x -> internal/proxy": true`, `"internal/proxy.Route"`)
+	git("add", ".")
+	git("commit", "-q", "-m", "base")
+
+	atomization(`"names":{"internal/proxy":2},"brand_new":{"internal/proxy":9}`)
+	inference("target_construction")
+	allowlists(`"internal/a": 1`, ``, `"internal/proxy.Route"`)
+	result, err := run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	assert.Empty(t, result.violations, "lowering counts or adding a whole new ratchet is not growth")
+
+	atomization(`"names":{"internal/proxy":4,"internal/server":1}`)
+	inference("target_construction", "target_construction", "fixed_model")
+	allowlists(`"internal/a": 3`, `"scripts/x -> internal/proxy": true, "scripts/y -> internal/proxy": true`, `"internal/proxy.Route", "internal/proxy.Route"`)
+	result, err = run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	growth := func(subject string, before, after int) violation {
+		return violation{subject: subject, metric: metricBaselineGrowth, before: before, after: after, limit: -1}
+	}
+	assert.ElementsMatch(t, []violation{
+		growth("internal/architecture/atomization_ratchet_baseline.json#names/internal/proxy", 3, 4),
+		growth("internal/architecture/atomization_ratchet_baseline.json#names/internal/server", 0, 1),
+		growth("internal/architecture#envReadAllowlist/internal/a", 2, 3),
+		growth("internal/architecture/inference_boundary_baseline.json#kind/fixed_model", 0, 1),
+		growth("internal/architecture#proxyImportAllowlist/scripts/y -> internal/proxy", 0, 1),
+		growth("internal/architecture#strategyFromContextSites/internal/proxy.Route", 1, 2),
+	}, result.violations)
+
+	write(exceptionsPath, `{"exceptions":[
+		{"subject":"internal/architecture/atomization_ratchet_baseline.json#names/internal/proxy","metric":"baseline_growth","max":4,"reason":"reviewed"},
+		{"subject":"internal/architecture#envReadAllowlist/internal/a","metric":"baseline_growth","max":2,"reason":"max below the new count"}
+	]}`)
+	result, err = run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	subjects := make([]string, 0, len(result.violations))
+	for _, v := range result.violations {
+		subjects = append(subjects, v.subject)
+	}
+	assert.NotContains(t, subjects, "internal/architecture/atomization_ratchet_baseline.json#names/internal/proxy")
+	assert.Contains(t, subjects, "internal/architecture#envReadAllowlist/internal/a")
+	assert.Len(t, result.violations, 5)
+}
+
+func TestRunAllowsCommentBanBudgetGrowthWithReviewedException(t *testing.T) {
+	root, git := newTempGitRepo(t)
+	write := func(path, content string) {
+		full := filepath.Join(root, path)
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
+		require.NoError(t, os.WriteFile(full, []byte(content), 0o600))
+	}
+	git("init", "-q", "-b", "main")
+	write("internal/architecture/comment_ban_allowlist.json", `{"schema_version":"comment_ban_allowlist_v1","packages":[{"package":"internal/a","banned_lines":5}]}`)
+	git("add", ".")
+	git("commit", "-q", "-m", "base")
+
+	write("internal/architecture/comment_ban_allowlist.json", `{"schema_version":"comment_ban_allowlist_v1","packages":[{"package":"internal/a","banned_lines":6}]}`)
+	write(exceptionsPath, `{"exceptions":[{"subject":"internal/a","metric":"comment ban budget","max":6,"reason":"reviewed"}]}`)
+	result, err := run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	assert.Empty(t, result.violations)
+}
+
+func TestLoadExceptionsAcceptsBaselineGrowth(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "exceptions.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"exceptions":[{"subject":"f.json#g/k","metric":"baseline_growth","max":2,"reason":"reviewed"}]}`), 0o600))
+	set, err := loadExceptions(path)
+	require.NoError(t, err)
+	assert.True(t, set.permits("f.json#g/k", metricBaselineGrowth, 2))
+	assert.False(t, set.permits("f.json#g/k", metricBaselineGrowth, 3))
+}
+
+func TestRunKeepsCheckingAllowlistsThatMoveOrChangeSpelling(t *testing.T) {
+	root, git := newTempGitRepo(t)
+	write := func(path, content string) {
+		full := filepath.Join(root, path)
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
+		require.NoError(t, os.WriteFile(full, []byte(content), 0o600))
+	}
+	git("init", "-q", "-b", "main")
+	write("internal/architecture/env_ownership_test.go", "package architecture_test\n\nvar envReadAllowlist = map[string]int{\"internal/a\": 1}\n")
+	git("add", ".")
+	git("commit", "-q", "-m", "base")
+
+	require.NoError(t, os.Remove(filepath.Join(root, "internal/architecture/env_ownership_test.go")))
+	write("internal/architecture/env_reads_test.go", "package architecture_test\n\nvar envReadAllowlist = map[string]int{\"internal/\" + \"a\": 1}\n")
+	result, err := run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	assert.Empty(t, result.violations, "moving the list or splitting a key literal is not growth")
+
+	write("internal/architecture/env_paths_test.go", "package architecture_test\n\nconst (\n\tinternalRoot = \"internal\"\n\tpackageA     = internalRoot + \"/a\"\n)\n")
+	write("internal/architecture/env_reads_test.go", "package architecture_test\n\nvar envReadAllowlist = map[string]int{packageA: 1}\n")
+	result, err = run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	assert.Empty(t, result.violations, "spelling a key with a package constant from another file is not growth")
+
+	write("internal/architecture/env_shadow.go", "package architecture\n\ntype pathName string\n\nconst packageA pathName = \"internal/b\"\n")
+	write("internal/architecture/env_paths_test.go", "package architecture_test\n\ntype pathName string\n\nconst (\n\tinternalRoot pathName = \"internal\"\n\tpackageA              = internalRoot + \"/a\"\n)\n")
+	result, err = run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	assert.Empty(t, result.violations, "a key resolves in its own package, through local types")
+
+	write("internal/architecture/env_reads_test.go", "package architecture_test\n\nvar envReadAllowlist = map[string]int{\"internal/\" + \"a\": 1 + 1}\n")
+	write(exceptionsPath, `{"exceptions":[{"subject":"internal/architecture#envReadAllowlist/internal/a","metric":"baseline_growth","max":1,"reason":"cap below the new count"}]}`)
+	result, err = run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	require.Len(t, result.violations, 1)
+	assert.Equal(t, "internal/architecture#envReadAllowlist/internal/a", result.violations[0].subject)
+	assert.Equal(t, 2, result.violations[0].after)
+}
+
+func TestRunRejectsAllowlistsItCannotCount(t *testing.T) {
+	for name, literal := range map[string]string{
+		"parenthesized literal":  `(map[string]int{"internal/a": 1})`,
+		"named constant key":     `map[string]int{someKey: 1}`,
+		"named constant count":   `map[string]int{"internal/a": someCount}`,
+		"unresolved typed count": `map[string]int{"internal/a": int(someCount)}`,
+		"non-literal value":      `buildAllowlist()`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			root, git := newTempGitRepo(t)
+			path := filepath.Join(root, "internal/architecture/env_ownership_test.go")
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+			require.NoError(t, os.WriteFile(path, []byte("package architecture_test\n\nvar envReadAllowlist = map[string]int{\"internal/a\": 1}\n"), 0o600))
+			git("init", "-q", "-b", "main")
+			git("add", ".")
+			git("commit", "-q", "-m", "base")
+
+			require.NoError(t, os.WriteFile(path, []byte("package architecture_test\n\nvar envReadAllowlist = "+literal+"\n"), 0o600))
+			_, err := run(t.Context(), repo{root: root}, "main")
+			if name == "parenthesized literal" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorContains(t, err, "envReadAllowlist")
+		})
+	}
+}
