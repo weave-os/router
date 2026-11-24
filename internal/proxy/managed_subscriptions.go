@@ -335,6 +335,9 @@ func (s *Service) subscriptionQuotaExhaustion(pool subscriptions.Provider, lease
 		if resetAt, exhausted := credentials.CodexQuotaExhaustion(attemptErr); exhausted {
 			if resetAt.IsZero() {
 				resetAt = now.Add(time.Duration(credentials.CodexQuotaWindowMinutes) * time.Minute)
+				if snapshot, observed := s.managedSubscriptionUsageSnapshot(lease.AccountID, lease.AccessToken); observed && snapshot.ExhaustedAsOf(now) {
+					resetAt = linkedSubscriptionResetAt(snapshot, now)
+				}
 			}
 			return resetAt, resetAt.After(now)
 		}
