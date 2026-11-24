@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 
 	"weave-os/router/internal/telemetry"
@@ -37,7 +38,7 @@ func (f TelemetryFlags) resolveNativeOpenAIResponseSignals(ctx context.Context) 
 
 func (t turnTelemetry) newUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
 	if t.emitter == nil {
-		return newFallbackUsageExtractor(inner, provider)
+		return dispatch.NewFallbackUsageExtractor(inner, provider)
 	}
 	return t.emitter.NewUsageExtractor(inner, provider)
 }

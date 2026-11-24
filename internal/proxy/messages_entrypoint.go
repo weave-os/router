@@ -126,7 +126,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode {
 		outcome, err := conversation.CommandDispatch{
 			Source:                  env,
-			Handlers:                turnCommands{s: s, w: w, env: env, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
+			Handlers:                turnCommands{s: s, w: w, env: env, target: routingpolicy.SessionTarget{Strategy: strategy, InstallationID: facts.InstallationID, SessionKey: sessionKey}, forceModelSessionKey: forceModelSessionKey, inputTokens: feats.Tokens, requestedModel: feats.Model},
 			Protocol:                "ProxyMessages",
 			ForceModelEnabled:       s.pinStore != nil,
 			ForceModelContinuesTurn: func(cmd translate.ForceModelResult) bool { return cmd.FromToolResult },
@@ -177,7 +177,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
 	ctx = withPickedModelFunding(ctx, routeRes.CallerModelPassthrough, routeRes.Decision.Provider)
-	ctx = s.withTurnOverloadProbe(ctx, routeRes)
+	ctx = withTurnOverloadProbe(ctx, s.throttling.Overload, routeRes)
 	if conversation.PreparingHandoff(ctx) {
 		return s.finishHandoffPreparation(ctx, strategy, w, env, req, routeRes)
 	}

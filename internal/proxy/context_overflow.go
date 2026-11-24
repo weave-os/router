@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/turntype"
@@ -55,7 +56,7 @@ func pastRequestedWindow(requestedModel, servedModel string, estimate, outputRes
 	if _, known := catalog.ByID(requested); !known || requested == servedModel || estimate <= 0 {
 		return false
 	}
-	return estimate+outputReserve > contextWindowForRequest(requested)
+	return estimate+outputReserve > candidates.ContextWindow(requested)
 }
 
 func asRequestedWindowOverflow(err error, pastWindow, committed bool) error {

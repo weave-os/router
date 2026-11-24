@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -86,7 +87,7 @@ func TestTurnLoop_KeepsForcedPinOnDisabledModel(t *testing.T) {
 		Provider:    providers.ProviderAnthropic,
 		Model:       "claude-opus-5",
 		Reason:      translate.ReasonUserForceModel,
-		PinnedUntil: pinNeverExpires,
+		PinnedUntil: routingpolicy.PinNeverExpires,
 	}, found: true}
 	svc := withHMMPorts(NewService(fakeRouter, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).

@@ -47,7 +47,7 @@ func TestGatewayModelKey_OnlyGateways(t *testing.T) {
 
 func TestGatewayUnservedModelsForRequest_EmptyWithoutGatewayKeys(t *testing.T) {
 	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}
-	s.rememberGatewayLacksModel(context.Background(), providers.ProviderOpenAIGateway, "grok-4.6")
+	rememberGatewayLacksModel(context.Background(), s.engine, providers.ProviderOpenAIGateway, "grok-4.6")
 
 	assert.Nil(t, s.gatewayUnservedModelsForRequest(context.Background()))
 	assert.Nil(t, s.gatewayUnservedModelsForRequest(ctxWithKeys(
@@ -108,11 +108,11 @@ func TestRememberGatewayLacksModel_MemoizesPerEndpointAndModel(t *testing.T) {
 	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{},
 		&requestcontext.Credentials{APIKey: []byte("k"), BaseURL: endpoint})
 
-	s.rememberGatewayLacksModel(ctx, providers.ProviderOpenAIGateway, "grok-4.6")
+	rememberGatewayLacksModel(ctx, s.engine, providers.ProviderOpenAIGateway, "grok-4.6")
 
-	assert.True(t, s.gatewayLacksModel(gatewayModelKey(endpoint, providers.ProviderOpenAIGateway, "grok-4.6")))
-	assert.False(t, s.gatewayLacksModel(gatewayModelKey(endpoint, providers.ProviderOpenAIGateway, "claude-haiku-4-5")))
-	assert.False(t, s.gatewayLacksModel(gatewayModelKey("https://other.example.com", providers.ProviderOpenAIGateway, "grok-4.6")))
+	assert.True(t, s.engine.GatewayLacksModel(gatewayModelKey(endpoint, providers.ProviderOpenAIGateway, "grok-4.6")))
+	assert.False(t, s.engine.GatewayLacksModel(gatewayModelKey(endpoint, providers.ProviderOpenAIGateway, "claude-haiku-4-5")))
+	assert.False(t, s.engine.GatewayLacksModel(gatewayModelKey("https://other.example.com", providers.ProviderOpenAIGateway, "grok-4.6")))
 }
 
 // An unknown alias key never reaches routing, so it must not be reported.

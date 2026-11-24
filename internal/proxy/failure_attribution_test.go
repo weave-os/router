@@ -45,7 +45,7 @@ func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
 	in.DeferFlushOnExhaustion = true
-	_, err := s.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(s).Dispatch(ctx, in)
 	require.Error(t, err)
 
 	require.Len(t, sink.events, 1)
@@ -74,7 +74,7 @@ func TestDispatchPlanned_TranslatedRejectionOfAnUnchangedClientFieldIsClientOwne
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
 	in.DeferFlushOnExhaustion = true
-	_, err := s.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(s).Dispatch(ctx, in)
 	require.Error(t, err)
 
 	require.Len(t, sink.events, 1)
@@ -94,7 +94,7 @@ func TestDispatchPlanned_UntranslatedRejectionIsProviderOwned(t *testing.T) {
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body)
 	in.DeferFlushOnExhaustion = true
-	_, err := s.dispatchWithFallback(ctx, in)
+	_, err := fallbackFor(s).Dispatch(ctx, in)
 	require.Error(t, err)
 
 	require.Len(t, sink.events, 1)
@@ -114,7 +114,7 @@ func TestDispatchPlanned_FailoverRecordsOwnerPerAttemptAndBadgeDetail(t *testing
 	ctx := withAttemptTrace(context.Background(), []byte(`{"model":"claude","messages":[]}`), http.Header{})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	_, err := s.dispatchWithFallback(ctx, plannedInputs(t.Context(), rec, buf,
+	_, err := fallbackFor(s).Dispatch(ctx, plannedInputs(t.Context(), rec, buf,
 		[]catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body))
 	require.NoError(t, err)
 
@@ -158,7 +158,7 @@ func TestDispatchPlanned_ExhaustionNamesOwnerInTerminalMessage(t *testing.T) {
 			buf := newPreludeBuffer(rec)
 			in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, body)
 			in.DeferFlushOnExhaustion = true
-			_, err := s.dispatchWithFallback(ctx, in)
+			_, err := fallbackFor(s).Dispatch(ctx, in)
 			require.Error(t, err)
 
 			assert.Equal(t, tc.message, TerminalErrorMessage(err))
@@ -293,7 +293,7 @@ func TestDispatchPlanned_CredentialRefusalIsNotBlamedOnTranslation(t *testing.T)
 	rec := httptest.NewRecorder()
 	plannedIn := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
 	plannedIn.DeferFlushOnExhaustion = true
-	_, err := s.dispatchWithFallback(ctx, plannedIn)
+	_, err := fallbackFor(s).Dispatch(ctx, plannedIn)
 	require.Error(t, err)
 
 	assert.Equal(t, string(turnrecord.FailureOwnerRouter), sink.events[0].Diagnosis.FailureOwner)

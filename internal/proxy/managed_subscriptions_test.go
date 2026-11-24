@@ -122,7 +122,7 @@ func TestDispatchWithFallbackUsesOnlyMatchingManagedProviderFamily(t *testing.T)
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil)
 	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
 
-	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 		Writer: recorder, Prelude: buffer,
 		InitialDecision: router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
 		Purpose:         inference.PurposeAnthropicMessages,
@@ -444,7 +444,7 @@ func TestDispatchWithFallbackRotatesManagedAccountBeforeCommit(t *testing.T) {
 
 	var output bytes.Buffer
 	ctx := observability.WithLogger(managedSubscriptionTestContext(), slog.New(slog.NewJSONHandler(&output, nil)))
-	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 		Writer: recorder, Prelude: buffer,
 		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		Purpose:         inference.PurposeAnthropicMessages,
@@ -500,7 +500,7 @@ func TestDispatchWithFallbackDoesNotMarkFailedManagedAttemptServed(t *testing.T)
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
 	ctx := managedSubscriptionTestContext()
 
-	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 		Writer:          httptest.NewRecorder(),
 		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		Purpose:         inference.PurposeAnthropicMessages,
@@ -528,7 +528,7 @@ func TestDispatchWithFallbackRefusesPaidRecoveryAfterManagedModelDenial(t *testi
 	for requestIndex := range 2 {
 		recorder := httptest.NewRecorder()
 		buffer := newPreludeBuffer(recorder)
-		_, err := svc.dispatchWithFallback(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), dispatch.FailoverInputs{
+		_, err := fallbackFor(svc).Dispatch(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), dispatch.FailoverInputs{
 			Writer:          recorder,
 			Prelude:         buffer,
 			InitialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
@@ -565,7 +565,7 @@ func TestDispatchWithFallbackRotatesManagedModelDenialToEligibleAccount(t *testi
 	buffer := newPreludeBuffer(recorder)
 	ctx := managedSubscriptionTestContext()
 
-	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 		Writer:          recorder,
 		Prelude:         buffer,
 		InitialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
@@ -594,7 +594,7 @@ func TestDispatchWithFallbackKeepsManagedModelDenialModelSpecific(t *testing.T) 
 	recorder := httptest.NewRecorder()
 	buffer := newPreludeBuffer(recorder)
 
-	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(managedSubscriptionTestContext(), dispatch.FailoverInputs{
 		Writer:          recorder,
 		Prelude:         buffer,
 		InitialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
@@ -636,7 +636,7 @@ func TestDispatchWithFallbackSlowInferenceDoesNotConsumeLeaseBudget(t *testing.T
 		return startedAt.Add(11 * time.Second)
 	}
 
-	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(managedSubscriptionTestContext(), dispatch.FailoverInputs{
 		Writer:          httptest.NewRecorder(),
 		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		Purpose:         inference.PurposeAnthropicMessages,
@@ -665,7 +665,7 @@ func TestDispatchWithFallbackDisablesRejectedManagedAccountBeforeRotation(t *tes
 	buffer := newPreludeBuffer(recorder)
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(managedSubscriptionTestContext(), dispatch.FailoverInputs{
 		Writer: recorder, Prelude: buffer,
 		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		Purpose:         inference.PurposeAnthropicMessages,
@@ -695,7 +695,7 @@ func TestDispatchWithFallbackStrikesRejectedManagedAccountInsteadOfDisabling(t *
 	buffer := newPreludeBuffer(recorder)
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(managedSubscriptionTestContext(), dispatch.FailoverInputs{
 		Writer: recorder, Prelude: buffer,
 		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		Purpose:         inference.PurposeAnthropicMessages,
@@ -725,7 +725,7 @@ func TestDispatchWithFallbackDoesNotReplayCommittedManagedStream(t *testing.T) {
 	buffer := newPreludeBuffer(recorder)
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
-	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(managedSubscriptionTestContext(), dispatch.FailoverInputs{
 		Writer: recorder, Prelude: buffer,
 		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		Purpose:         inference.PurposeAnthropicMessages,
@@ -752,7 +752,7 @@ func TestDispatchWithFallbackNeverUsesPaidBindingAfterManagedExhaustion(t *testi
 	recorder := httptest.NewRecorder()
 	buffer := newPreludeBuffer(recorder)
 
-	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(managedSubscriptionTestContext(), dispatch.FailoverInputs{
 		Writer: recorder, Prelude: buffer,
 		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		Purpose:         inference.PurposeAnthropicMessages,
@@ -786,7 +786,7 @@ func TestDispatchWithFallbackRotatesManagedTransientErrorOnSameBinding(t *testin
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	ctx := managedSubscriptionTestContext()
-	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+	_, err := fallbackFor(svc).Dispatch(ctx, dispatch.FailoverInputs{
 		Writer: recorder, Prelude: buffer,
 		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		Purpose:         inference.PurposeAnthropicMessages,

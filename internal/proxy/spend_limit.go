@@ -2,15 +2,12 @@ package proxy
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
-	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
-	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
@@ -32,31 +29,7 @@ func (s *Service) checkUserMonthlySpendLimit(ctx context.Context, headers http.H
 	if orgID == "" {
 		return ctx, nil
 	}
-	result, err := s.billing.CheckUserMonthlySpend(ctx, orgID, userID)
-	if err != nil {
-		observability.FromContext(ctx).Error("User monthly spend-limit check failed; refusing request",
-			"err", err, "organization_id", orgID, "router_user_id", userID)
-		return ctx, fmt.Errorf("%w: %v", billing.ErrSpendLimitCheckUnavailable, err)
-	}
-	if result.LimitReached() {
-		laneCtx, lane := s.billing.TripSubscriptionLane(ctx, subscriptionlane.UserSpendLimitGate.Tripped(
-			credentials.RequestPresentsCoveringSubscription(ctx, headers, routePath)))
-		if _, refused := lane.Refusal(); !refused {
-			observability.FromContext(ctx).Info("Engineer monthly cap reached but subscription covers the route: serving subscription-only",
-				"organization_id", orgID,
-				"router_user_id", userID,
-				"spent_usd_micros", result.SpentMicros,
-				"monthly_limit_usd_micros", *result.LimitMicros,
-			)
-			return laneCtx, nil
-		}
-		observability.FromContext(ctx).Info("Request rejected: engineer monthly spend limit reached",
-			"organization_id", orgID,
-			"router_user_id", userID,
-			"spent_usd_micros", result.SpentMicros,
-			"monthly_limit_usd_micros", *result.LimitMicros,
-		)
-		return ctx, fmt.Errorf("%w: spent %d of %d usd micros", billing.ErrUserMonthlySpendLimitReached, result.SpentMicros, *result.LimitMicros)
-	}
-	return ctx, nil
+	return billing.CheckUserMonthlySpendLimit(ctx, s.billing, orgID, userID, func() bool {
+		return credentials.RequestPresentsCoveringSubscription(ctx, headers, routePath)
+	})
 }

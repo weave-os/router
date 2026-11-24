@@ -52,7 +52,7 @@ var atomizationRatchetFixes = map[string]string{
 	ratchetStrategyAdapterImports: "strategy packages (internal/router/hmm, rl, decisionmodel, policy) must not import serving-layer adapters; declare a port in the strategy package and implement it in the serving layer",
 	ratchetServingStrategyImports: "serving-layer packages may reach a strategy only through router.Router, router.Request and router.Decision; wire the concrete strategy in cmd/router instead of importing its package",
 	ratchetProxyEscalation:        "internal/proxy must not drive escalation scoring, judging or state (escalation.Store/Observer, llmescalation.Judge, internal/escalationjudge); call the helper in internal/router/escalation/floor and pass it turn facts",
-	ratchetServingStrategyNames:   "serving-layer packages must not branch on named strategies (router.StrategyHMM*, StrategyLLMClassifier, ...); move the strategy-specific behavior into the strategy package or behind a router capability and pass the serving layer a strategy-neutral fact",
+	ratchetServingStrategyNames:   "serving-layer packages must not branch on named strategies (router.StrategyHMM*, StrategyLLMClassifier, router.Strategy(\"...\") conversions, or string literals compared with, assigned to or switched on as a router.Strategy); move the strategy-specific behavior into the strategy package or behind a router capability and pass the serving layer a strategy-neutral fact",
 	ratchetProxyRouterLayerCalls:  "internal/proxy must not sequence router-layer helpers (continuity/planner/escalation-floor functions, the UpgradeJudge and CostGate decision ports, escalation floor Begin/Apply/Settle); call them from the strategy in internal/router/hmm or the session turn in internal/routingpolicy and hand proxy the result",
 	ratchetHMMHistoryNames:        "internal/proxy and internal/routingpolicy must not name HMM switch history (LoadHMMHistory, HMMTurnRecord, hmmHistory, \"_hmm_history\" roles); reach it through continuity.StrategyPorts.History, implemented in internal/router/hmm",
 	ratchetHMMPinFields:           "HMM-only session pin fields (sessionpin.Pin.PolicyGroup, ConsecutiveDowngradeVotes, ConsecutiveUpgradeVotes) are read and written only by the accessor in internal/router/hmm",
@@ -114,12 +114,18 @@ func TestAtomizationRatchetsDetectSyntheticViolations(t *testing.T) {
 			ratchetStrategyFromContext:    {"internal/architecture/testdata/atomization/proxy_hmm": 1},
 			ratchetProxyReasonComparisons: {"internal/architecture/testdata/atomization/proxy_hmm": 3},
 		}},
+		{fixture: "strategy_from_context_value", want: atomizationCounts{
+			ratchetStrategyFromContext: {"internal/architecture/testdata/atomization/strategy_from_context_value": 2},
+		}},
 		{fixture: "strategy_adapter", want: atomizationCounts{
 			ratchetStrategyAdapterImports: {"internal/architecture/testdata/atomization/strategy_adapter -> internal/billing": 1},
 		}},
 		{fixture: "serving_strategy", want: atomizationCounts{
 			ratchetServingStrategyImports: {"internal/architecture/testdata/atomization/serving_strategy -> internal/router/decisionmodel": 1},
-			ratchetServingStrategyNames:   {"internal/architecture/testdata/atomization/serving_strategy": 1},
+			ratchetServingStrategyNames:   {"internal/architecture/testdata/atomization/serving_strategy": 2},
+		}},
+		{fixture: "serving_strategy_names", want: atomizationCounts{
+			ratchetServingStrategyNames: {"internal/architecture/testdata/atomization/serving_strategy_names": 8},
 		}},
 		{fixture: "proxy_escalation", want: atomizationCounts{
 			ratchetProxyEscalation: {"internal/architecture/testdata/atomization/proxy_escalation": 3},
@@ -264,11 +270,11 @@ func namesHMMHistory(info *types.Info, self *types.Package, node ast.Node) bool 
 
 func nodeViolations(info *types.Info, node ast.Node, scope atomizationScope) []string {
 	var found []string
+	if expression, ok := node.(ast.Expr); ok && scope.serving && namesRouterStrategy(info, expression) {
+		found = append(found, ratchetServingStrategyNames)
+	}
 	switch n := node.(type) {
 	case *ast.SelectorExpr:
-		if scope.serving && isRouterStrategyConstant(info, n) {
-			found = append(found, ratchetServingStrategyNames)
-		}
 		if scope.proxy && isHMMMetadataField(info, n) {
 			found = append(found, ratchetProxyHMMMetadata)
 		}
@@ -281,11 +287,12 @@ func nodeViolations(info *types.Info, node ast.Node, scope atomizationScope) []s
 				found = append(found, ratchetHMMPinFields)
 			}
 		}
-	case *ast.CallExpr:
-		object := calledObject(info, n.Fun)
-		if isRouterFunc(object, "StrategyFromContext") {
+	case *ast.Ident:
+		if isRouterFunc(info.Uses[n], "StrategyFromContext") {
 			found = append(found, ratchetStrategyFromContext)
 		}
+	case *ast.CallExpr:
+		object := calledObject(info, n.Fun)
 		if scope.proxy {
 			found = append(found, proxyCallViolations(info, n, object)...)
 		}
@@ -306,9 +313,25 @@ func isHMMMetadataField(info *types.Info, selector *ast.SelectorExpr) bool {
 	return slices.Contains(hmmOnlyMetadataFields, name) || slices.ContainsFunc(hmmOnlyMetadataPrefixes, func(prefix string) bool { return strings.HasPrefix(name, prefix) })
 }
 
-func isRouterStrategyConstant(info *types.Info, selector *ast.SelectorExpr) bool {
-	object, ok := info.Uses[selector.Sel].(*types.Const)
-	return ok && object.Pkg() != nil && object.Pkg().Path() == routerPackagePath && isNamedType(object.Type(), routerPackagePath, "Strategy")
+// namesRouterStrategy reports a leaf expression that spells a named strategy:
+// a router.Strategy* constant, or a non-empty string constant typed as
+// router.Strategy by a conversion, comparison, assignment or switch case. The
+// zero value "" is an absence check, not a strategy name.
+func namesRouterStrategy(info *types.Info, expression ast.Expr) bool {
+	switch expression := expression.(type) {
+	case *ast.BasicLit, *ast.Ident, *ast.SelectorExpr:
+	case *ast.CallExpr:
+		if len(expression.Args) != 1 || namesRouterStrategy(info, expression.Args[0]) {
+			return false
+		}
+	default:
+		return false
+	}
+	typed, ok := info.Types[expression]
+	if !ok || typed.Value == nil || typed.Value.Kind() != constant.String || !isNamedType(typed.Type, routerPackagePath, "Strategy") {
+		return false
+	}
+	return constant.StringVal(typed.Value) != ""
 }
 
 func isHMMPinField(info *types.Info, selector *ast.SelectorExpr) bool {

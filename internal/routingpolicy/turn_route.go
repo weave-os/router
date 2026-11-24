@@ -25,6 +25,7 @@ type TurnRoute struct {
 	EscalationScope        [32]byte
 	EscalationOrdinal      int64
 	escalation             *floor.Turn
+	cacheShape             TurnCacheShape
 
 	Decision                    router.Decision
 	SessionKey                  [sessionpin.SessionKeyLen]byte
@@ -156,6 +157,10 @@ func (r *TurnRoute) ServeForceModelPin(forceModelPin sessionpin.Pin) {
 func (r TurnRoute) Escalation() *floor.Turn { return r.escalation }
 
 func (r *TurnRoute) SetEscalation(turn *floor.Turn) { r.escalation = turn }
+
+func (r TurnRoute) CacheShape() TurnCacheShape { return r.cacheShape }
+
+func (r *TurnRoute) SetCacheShape(shape TurnCacheShape) { r.cacheShape = shape }
 
 func (r TurnRoute) IsAuthoritativeHMMDecision(ports continuity.StrategyPorts) bool {
 	return r.AuthoritativePerTurn && ports.Ownership.IsDecision(r.Fresh) && !r.HardPinned && !r.ForcedPinDropped && !r.PolicyFallback && !r.CallerModelPassthrough && !r.UsageBypass && !floor.RoutingApplied(r.Fresh)

@@ -46,7 +46,7 @@ func TestSubscriptionRecoverySlowFailureUsesSecondSeat(t *testing.T) {
 			buf.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buf, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		}
-		_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), in)
+		_, err := fallbackFor(svc).Dispatch(managedSubscriptionTestContext(), in)
 		require.NoError(t, err)
 		require.Equal(t, []string{"seat-a", "seat-b"}, seats)
 		require.Equal(t, "included answer", rec.Body.String())
@@ -62,7 +62,7 @@ func TestSubscriptionRecoveryUnavailablePoolNeverBuysAPI(t *testing.T) {
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
-	_, err := svc.dispatchWithFallback(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), in)
+	_, err := fallbackFor(svc).Dispatch(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), in)
 	require.Error(t, err)
 	require.Zero(t, provider.calls)
 	require.NotContains(t, rec.Body.String(), "paid answer")

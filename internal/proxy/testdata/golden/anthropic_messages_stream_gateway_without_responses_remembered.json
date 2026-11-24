@@ -272,7 +272,9 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "gpt-5.4-mini",
             "ServedProvider": "openai_gateway",
             "Strategy": "hmm_embedding"
@@ -527,6 +529,12 @@
             "LastOutputTokens": 7,
             "LastServedModel": "gpt-5.4-mini",
             "Model": "gpt-5.4-mini",
+            "ModelCaches": {
+              "gpt-5.4-mini": {
+                "MessageCount": 1,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "openai_gateway",
             "Reason": "golden_route",
             "Role": "default_mid",
@@ -539,8 +547,10 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "PriorServedModel": "gpt-5.4-mini",
+            "PromptTokens": 12,
             "ServedModel": "gpt-5.4-mini",
             "ServedProvider": "openai_gateway",
             "Strategy": "hmm_embedding"
@@ -571,6 +581,12 @@
             "LastInputTokens": 12,
             "LastOutputTokens": 7,
             "LastServedModel": "gpt-5.4-mini",
+            "ModelCaches": {
+              "gpt-5.4-mini": {
+                "MessageCount": 1,
+                "PromptTokens": 12
+              }
+            },
             "Reason": "degenerate_response",
             "Role": "default_mid",
             "Strategy": "hmm_embedding",

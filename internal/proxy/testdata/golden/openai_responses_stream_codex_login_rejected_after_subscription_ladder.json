@@ -820,7 +820,9 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "gpt-5.6-sol",
             "ServedProvider": "openai",
             "Strategy": "hmm_embedding"
@@ -1445,6 +1447,12 @@
             "LastOutputTokens": 7,
             "LastServedModel": "gpt-5.6-sol",
             "Model": "gpt-5.6-sol",
+            "ModelCaches": {
+              "gpt-5.6-sol": {
+                "MessageCount": 1,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "openai",
             "Reason": "golden_route",
             "Role": "default_high",
@@ -1457,8 +1465,10 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "PriorServedModel": "gpt-5.6-sol",
+            "PromptTokens": 12,
             "ServedModel": "gpt-5.6-sol",
             "ServedProvider": "openai",
             "Strategy": "hmm_embedding"

@@ -35,11 +35,15 @@ func run(ctx context.Context, r repo, base string) (runResult, error) {
 	if err != nil {
 		return runResult{}, err
 	}
-	budgetViolations, err := compareCommentBudgets(ctx, r, baseRev)
+	allowed, err := loadExceptions(filepath.Join(r.root, exceptionsPath))
 	if err != nil {
 		return runResult{}, err
 	}
-	allowed, err := loadExceptions(filepath.Join(r.root, exceptionsPath))
+	budgetViolations, err := compareCommentBudgets(ctx, r, baseRev, allowed)
+	if err != nil {
+		return runResult{}, err
+	}
+	baselineViolations, err := compareBaselines(ctx, r, baseRev, allowed)
 	if err != nil {
 		return runResult{}, err
 	}
@@ -48,6 +52,7 @@ func run(ctx context.Context, r repo, base string) (runResult, error) {
 	violations = append(violations, compareTotals(baseFiles, headFiles, allowed)...)
 	violations = append(violations, commentViolations...)
 	violations = append(violations, budgetViolations...)
+	violations = append(violations, baselineViolations...)
 	if slices.ContainsFunc(changed, func(p string) bool { return path.Dir(p) == proxyDir }) {
 		surfaceViolations, err := compareProxySurface(ctx, r, baseRev, allowed)
 		if err != nil {

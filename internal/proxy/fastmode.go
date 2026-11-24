@@ -26,7 +26,7 @@ type anthropicTierAttempt struct {
 	sink          http.ResponseWriter
 	preludeBuf    *preludeBuffer
 	preludeState  *requestNoticeStream
-	streamCut     *streamCutObserver
+	streamCut     *dispatch.StreamCutObserver
 	notice        translate.RouterNotice
 	setExtractor  func(*telemetry.UsageExtractor)
 	setStreamCost func(router.Decision, bool, func() bool)

@@ -345,7 +345,9 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
+            "PromptTokens": 12,
             "ServedModel": "deepseek/deepseek-v4-pro",
             "ServedProvider": "fireworks",
             "Strategy": "hmm_embedding"
@@ -630,6 +632,12 @@
             "LastOutputTokens": 7,
             "LastServedModel": "deepseek/deepseek-v4-pro",
             "Model": "deepseek/deepseek-v4-pro",
+            "ModelCaches": {
+              "deepseek/deepseek-v4-pro": {
+                "MessageCount": 1,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "fireworks",
             "Reason": "golden_route",
             "Role": "default_mid",
@@ -642,8 +650,10 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "PriorServedModel": "deepseek/deepseek-v4-pro",
+            "PromptTokens": 12,
             "ServedModel": "deepseek/deepseek-v4-pro",
             "ServedProvider": "fireworks",
             "Strategy": "hmm_embedding"
@@ -883,6 +893,12 @@
             "LastOutputTokens": 7,
             "LastServedModel": "deepseek/deepseek-v4-pro",
             "Model": "deepseek/deepseek-v4-pro",
+            "ModelCaches": {
+              "deepseek/deepseek-v4-pro": {
+                "MessageCount": 1,
+                "PromptTokens": 12
+              }
+            },
             "Provider": "fireworks",
             "Reason": "golden_route",
             "Role": "default_mid",
@@ -895,8 +911,10 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "PriorServedModel": "deepseek/deepseek-v4-pro",
+            "PromptTokens": 12,
             "ServedModel": "deepseek/deepseek-v4-pro",
             "ServedProvider": "fireworks",
             "Strategy": "hmm_embedding"
@@ -930,6 +948,12 @@
             "LastInputTokens": 12,
             "LastOutputTokens": 7,
             "LastServedModel": "deepseek/deepseek-v4-pro",
+            "ModelCaches": {
+              "deepseek/deepseek-v4-pro": {
+                "MessageCount": 1,
+                "PromptTokens": 12
+              }
+            },
             "Reason": "degenerate_response",
             "Role": "default_mid",
             "Strategy": "hmm_embedding",
