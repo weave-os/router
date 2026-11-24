@@ -34,16 +34,13 @@ type UpstreamGatewayIssuer struct {
 	MaxLifetime      time.Duration
 	SessionIssuerKID string
 	SessionHeaders   []string
-	UserEmailHeaders []string
-	UserNameHeaders  []string
 }
 
 type UpstreamGatewayPrincipal struct {
-	IssuerURL        string
-	Subject          string
-	SessionHeaders   []string
-	UserEmailHeaders []string
-	UserNameHeaders  []string
+	IssuerURL      string
+	Subject        string
+	SessionID      string
+	SessionHeaders []string
 }
 
 type OIDCKeySet interface {
@@ -58,8 +55,6 @@ type upstreamGatewayIssuerJSON struct {
 	MaxLifetime      string   `json:"max_lifetime"`
 	SessionIssuerKID string   `json:"session_issuer_kid"`
 	SessionHeaders   []string `json:"session_headers"`
-	UserEmailHeaders []string `json:"user_email_headers"`
-	UserNameHeaders  []string `json:"user_name_headers"`
 }
 
 func ParseUpstreamGatewayIssuers(raw string) ([]UpstreamGatewayIssuer, error) {
@@ -67,7 +62,9 @@ func ParseUpstreamGatewayIssuers(raw string) ([]UpstreamGatewayIssuer, error) {
 		return nil, nil
 	}
 	var entries []upstreamGatewayIssuerJSON
-	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&entries); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidUpstreamGatewayIssuer, err)
 	}
 	issuers := make([]UpstreamGatewayIssuer, 0, len(entries))
@@ -112,11 +109,9 @@ func (e upstreamGatewayIssuerJSON) validate() (UpstreamGatewayIssuer, error) {
 			return invalid("issuer %q algorithm %q is not an allowed asymmetric algorithm", e.IssuerURL, alg)
 		}
 	}
-	for kind, names := range map[string][]string{"session": e.SessionHeaders, "user email": e.UserEmailHeaders, "user name": e.UserNameHeaders} {
-		for _, name := range names {
-			if !validHeaderName(name) {
-				return invalid("issuer %q %s header %q is not a valid header name", e.IssuerURL, kind, name)
-			}
+	for _, name := range e.SessionHeaders {
+		if !validHeaderName(name) {
+			return invalid("issuer %q session header %q is not a valid header name", e.IssuerURL, name)
 		}
 	}
 	maxLifetime := DefaultUpstreamGatewayMaxLifetime
@@ -134,8 +129,6 @@ func (e upstreamGatewayIssuerJSON) validate() (UpstreamGatewayIssuer, error) {
 		MaxLifetime:      maxLifetime,
 		SessionIssuerKID: e.SessionIssuerKID,
 		SessionHeaders:   slices.Clone(e.SessionHeaders),
-		UserEmailHeaders: slices.Clone(e.UserEmailHeaders),
-		UserNameHeaders:  slices.Clone(e.UserNameHeaders),
 	}, nil
 }
 
@@ -197,11 +190,9 @@ func (s *Service) VerifyUpstreamGatewayToken(ctx context.Context, rawToken strin
 		return nil, nil, nil, nil, nil, err
 	}
 	principal := &UpstreamGatewayPrincipal{
-		IssuerURL:        issuer.IssuerURL,
-		Subject:          claims.Subject,
-		SessionHeaders:   issuer.SessionHeaders,
-		UserEmailHeaders: issuer.UserEmailHeaders,
-		UserNameHeaders:  issuer.UserNameHeaders,
+		IssuerURL:      issuer.IssuerURL,
+		Subject:        claims.Subject,
+		SessionHeaders: issuer.SessionHeaders,
 	}
 	s.fireMarkUsed(ctx, bound.APIKey, bound.Installation)
 	s.fireMarkFirstRequestServed(ctx, bound.APIKey.InstallationID)
@@ -237,4 +228,16 @@ func (s *Service) verifyUpstreamGatewayClaims(ctx context.Context, rawToken stri
 		return nil, ErrInvalidToken
 	}
 	return claims, nil
+}
+
+func (s *Service) UpstreamGatewayForSessionToken(issuerKey *APIKey, session *DelegatedSession) *UpstreamGatewayPrincipal {
+	if issuerKey == nil || session == nil {
+		return nil
+	}
+	for _, issuer := range s.upstreamGateway.issuers {
+		if issuerKey.KeyHash == SessionIssuerKeyHash(issuer.SessionIssuerKID) {
+			return &UpstreamGatewayPrincipal{IssuerURL: issuer.IssuerURL, Subject: session.SessionID, SessionID: session.SessionID}
+		}
+	}
+	return nil
 }

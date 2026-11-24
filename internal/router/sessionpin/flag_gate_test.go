@@ -71,9 +71,9 @@ func TestGatedByFlag_DefaultAndEnabledRequestsUseTheStore(t *testing.T) {
 }
 
 func TestEnabled_UpstreamGatewayWithoutSessionIsUnpinned(t *testing.T) {
-	headerless := requestcontext.WithUpstreamGateway(context.Background(), requestcontext.UpstreamGatewayHeaders{}, http.Header{})
+	headerless := requestcontext.WithUpstreamGateway(context.Background(), requestcontext.UpstreamGatewaySession{}, http.Header{})
 	assert.False(t, sessionpin.Enabled(headerless), "a gateway turn without a session header must not read or write pins")
 
-	withSession := requestcontext.WithUpstreamGateway(context.Background(), requestcontext.UpstreamGatewayHeaders{}, http.Header{requestcontext.ClaudeCodeSessionHeader: {"gateway-session"}})
+	withSession := requestcontext.WithUpstreamGateway(context.Background(), requestcontext.UpstreamGatewaySession{}, http.Header{requestcontext.ClaudeCodeSessionHeader: {"gateway-session"}})
 	assert.True(t, sessionpin.Enabled(withSession))
 }

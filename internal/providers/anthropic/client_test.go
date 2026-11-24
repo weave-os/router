@@ -756,3 +756,47 @@ func TestProxy_ObservesUnifiedLimitHeadersOnRateLimitedResponse(t *testing.T) {
 	assert.Equal(t, "rejected", observed.Get("anthropic-ratelimit-unified-status"))
 	assert.Equal(t, "1794770000", observed.Get("anthropic-ratelimit-unified-reset"))
 }
+
+func TestProxy_UpstreamGatewayInnerCallCarriesNoEmail(t *testing.T) {
+	var gotHeaders http.Header
+	var gotBody []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeaders = r.Header.Clone()
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
+	}))
+	defer upstream.Close()
+
+	inbound := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
+	inbound.Header.Set("traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+	inbound.Header.Set("X-Gateway-Baggage", "team=infra")
+	inbound.Header.Set("X-Weave-User-Email", "engineer@example.com")
+	ctx := context.WithValue(t.Context(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey:                 []byte("gateway-token"),
+		IdentityHeader:         "X-Caller-Identity",
+		IdentityHeaderFormat:   auth.IdentityFormatEmail,
+		BaggageHeader:          "X-Gateway-Baggage",
+		ForwardedClientHeaders: []string{"traceparent"},
+	})
+	ctx = requestcontext.WithUpstreamGateway(ctx, requestcontext.UpstreamGatewaySession{Asserted: "signed-session"}, inbound.Header)
+	ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{Email: "engineer@example.com", DisplayName: "Engineer"})
+
+	prep := providers.PreparedRequest{
+		Body:    []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hi"}]}`),
+		Headers: make(http.Header),
+	}
+	err := anthropic.NewClient("test-key", upstream.URL).Proxy(ctx, router.Decision{Model: "claude-fable-5"}, prep, httptest.NewRecorder(), inbound)
+
+	require.NoError(t, err)
+	for name, values := range gotHeaders {
+		for _, v := range values {
+			assert.NotContains(t, strings.ToLower(v), "engineer@example.com", "inner-call header %s must not carry the end user", name)
+		}
+	}
+	assert.NotContains(t, string(gotBody), "engineer@example.com")
+	assert.Empty(t, gotHeaders.Get("X-Caller-Identity"))
+	assert.Empty(t, gotHeaders.Get("X-Gateway-Baggage"), "nothing is merged into baggage in gateway mode")
+	assert.Equal(t, inbound.Header.Get("traceparent"), gotHeaders.Get("traceparent"), "correlation still crosses the hop")
+	assert.Equal(t, "1", gotHeaders.Get(requestcontext.UpstreamGatewayHopHeader))
+}

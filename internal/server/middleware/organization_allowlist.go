@@ -65,6 +65,9 @@ func verifyCredential(ctx context.Context, svc *auth.Service, token string, test
 	switch {
 	case auth.IsSessionToken(token):
 		installation, apiKey, externalKeys, clusterModelLists, verified.delegatedSession, err = svc.VerifySessionToken(ctx, token, testPlan == nil)
+		if err == nil {
+			verified.upstreamGateway = svc.UpstreamGatewayForSessionToken(apiKey, verified.delegatedSession)
+		}
 	case testPlan != nil:
 		installation, apiKey, clusterModelLists, err = svc.VerifyPlatformAPIKey(ctx, token)
 	case auth.IsUpstreamGatewayToken(token):

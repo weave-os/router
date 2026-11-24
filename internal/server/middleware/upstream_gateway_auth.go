@@ -12,10 +12,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const upstreamGatewayRoute = "/v1/messages"
+var upstreamGatewayRoutes = map[string]struct{}{"/v1/messages": {}, "/v1/messages/count_tokens": {}}
 
 func upstreamGatewayRefusal(c *gin.Context) (refusal.Kind, bool) {
-	if c.FullPath() != upstreamGatewayRoute {
+	if _, allowed := upstreamGatewayRoutes[c.FullPath()]; !allowed {
 		return refusal.UpstreamGatewaySurfaceRejected, true
 	}
 	if c.Request.Header.Get(requestcontext.UpstreamGatewayHopHeader) != "" {
@@ -28,6 +28,8 @@ func stripInboundCredentials(headers http.Header) {
 	headers.Del("Authorization")
 	headers.Del("x-api-key")
 	headers.Del(auth.RouterKeyHeader)
+	headers.Del("X-Weave-User-Email")
+	headers.Del("X-Weave-User-Name")
 }
 
 func refuseUpstreamGateway(c *gin.Context, principal *auth.UpstreamGatewayPrincipal, authSpan trace.Span) bool {
@@ -47,9 +49,8 @@ func withUpstreamGatewayMode(ctx context.Context, principal *auth.UpstreamGatewa
 	if principal == nil {
 		return ctx
 	}
-	return requestcontext.WithUpstreamGateway(ctx, requestcontext.UpstreamGatewayHeaders{
-		Session:   principal.SessionHeaders,
-		UserEmail: principal.UserEmailHeaders,
-		UserName:  principal.UserNameHeaders,
+	return requestcontext.WithUpstreamGateway(ctx, requestcontext.UpstreamGatewaySession{
+		Asserted: principal.SessionID,
+		Headers:  principal.SessionHeaders,
 	}, inbound)
 }

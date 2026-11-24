@@ -637,3 +637,45 @@ func TestMessagesHandler_UnservableCompactionTellsClientNotToRetry(t *testing.T)
 }
 
 var errorVocabulary = ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage}
+
+type capturingMessagesProxy struct {
+	body []byte
+	ctx  context.Context
+}
+
+func (p *capturingMessagesProxy) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, _ *http.Request) error {
+	p.body, p.ctx = body, ctx
+	w.WriteHeader(http.StatusOK)
+	return nil
+}
+
+func TestMessagesHandler_UpstreamGatewayDropsClaudeCodeUserMetadata(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"weave-auto","max_tokens":4096,"messages":[{"role":"user","content":"hi"}],"metadata":{"user_id":"{\"device_id\":\"d1\",\"account_uuid\":\"a1\",\"session_id\":\"s1\",\"email\":\"engineer@example.com\"}"}}`)
+	for name, gateway := range map[string]bool{"gateway": true, "direct": false} {
+		t.Run(name, func(t *testing.T) {
+			proxySvc := &capturingMessagesProxy{}
+			engine := gin.New()
+			engine.POST("/v1/messages", anthropicapi.MessagesHandler(proxySvc, nil, errorVocabulary))
+			ctx := t.Context()
+			if gateway {
+				ctx = requestcontext.WithUpstreamGateway(ctx, requestcontext.UpstreamGatewaySession{Asserted: "signed-session"}, http.Header{})
+			}
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", bytes.NewReader(body))
+			req.Header.Set("X-Weave-User-Email", "engineer@example.com")
+			rec := httptest.NewRecorder()
+			engine.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			id := requestcontext.ClientIdentityFrom(proxySvc.ctx)
+			if !gateway {
+				assert.Equal(t, "engineer@example.com", id.Email, "direct callers keep their Claude Code identity")
+				return
+			}
+			assert.NotContains(t, string(proxySvc.body), "engineer@example.com", "the inner call body must not carry the end user")
+			assert.Empty(t, id.Email)
+			assert.Empty(t, id.AccountID)
+			assert.Equal(t, "signed-session", id.SessionID)
+		})
+	}
+}

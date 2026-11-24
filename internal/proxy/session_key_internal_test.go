@@ -210,7 +210,7 @@ func TestClientSessionIDForRequest_UpstreamGatewayIgnoresBodySession(t *testing.
 	}`))
 	require.NoError(t, err)
 
-	ctx := requestcontext.WithUpstreamGateway(context.Background(), requestcontext.UpstreamGatewayHeaders{}, http.Header{})
+	ctx := requestcontext.WithUpstreamGateway(context.Background(), requestcontext.UpstreamGatewaySession{}, http.Header{})
 	ctx = requestcontext.WithClientIdentity(ctx, ClientIdentity{})
 	assert.Empty(t, clientSessionIDForRequest(ctx, env), "a gateway turn without a session header is served unpinned")
 }

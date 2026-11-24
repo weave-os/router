@@ -570,9 +570,7 @@ the mode, and an invalid entry aborts boot:
   "algorithms": ["RS256"],
   "max_lifetime": "1h",
   "session_issuer_kid": "<kid returned by POST /internal/v1/session-issuers>",
-  "session_headers": ["X-Gateway-Session-Id"],
-  "user_email_headers": ["X-Gateway-User-Email"],
-  "user_name_headers": ["X-Gateway-User-Name"]
+  "session_headers": ["X-Gateway-Session-Id"]
 }]
 ```
 
@@ -583,18 +581,21 @@ the mode, and an invalid entry aborts boot:
 | `subjects` | *(required)* | Allowed `sub` claims. |
 | `algorithms` | `RS256`, `ES256` | Allowed asymmetric signing algorithms. `HS*` and `none` are rejected. |
 | `max_lifetime` | `1h` | Longest accepted `exp - iat`. |
-| `session_issuer_kid` | *(required)* | A registered session issuer. It binds the gateway to one installation, and that installation's routing policy, allowed models, provider keys and billing apply. Revoking the issuer disables the gateway. |
-| `session_headers` | *(none)* | Inbound headers to read the session ID from, in order. Falls back to `X-Claude-Code-Session-Id`. A request without one is served unpinned. |
-| `user_email_headers` | *(none)* | Inbound headers the gateway sets to the end user's email, in order. The first valid email identifies the user for analytics and dashboards. Without one the turn is unidentified. |
-| `user_name_headers` | *(none)* | Inbound headers for the end user's display name, in order. |
+| `session_issuer_kid` | *(required)* | A registered session issuer. It binds the gateway to one installation, and that installation's routing policy, allowed models, provider keys and billing apply. Revoking the issuer disables the gateway. `rs_` session tokens signed by this issuer also run in gateway mode. |
+| `session_headers` | *(none)* | For OIDC tokens, inbound headers to read the session ID from, in order. Falls back to `X-Claude-Code-Session-Id`. A request without one is served unpinned. An `rs_` token's `sub` is always the session. |
+
+Unknown fields are rejected, so a stale `user_email_headers` entry aborts boot.
 
 In this mode the router:
 
-- accepts the token only on `/v1/messages`, and removes it from the request
-  once it is verified, so it is never forwarded upstream;
-- records the end user only from `user_email_headers` / `user_name_headers`,
-  ignores client-supplied identity, and sends no baggage or identity header
-  upstream;
+- applies to the gateway's OIDC token and to `rs_` session tokens signed by
+  the bound session issuer alike;
+- accepts the credential only on `/v1/messages` and
+  `/v1/messages/count_tokens`, and removes it from the request once it is
+  verified, so it is never forwarded upstream;
+- stores and forwards no end-user email: `X-Weave-User-Email`,
+  `X-Weave-User-Name` and Claude Code's `metadata.user_id` are dropped, and no
+  baggage or identity header is sent upstream;
 - copies the provider key's `forwarded_client_headers` (for example
   `traceparent` or a request ID) from the inbound request. An echoed
   `traceparent` wins over the one the router's tracing would inject;

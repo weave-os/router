@@ -412,7 +412,7 @@ func TestDirectConversationIDUsesUpstreamGatewaySession(t *testing.T) {
 	body := []byte(`{"model":"weave-auto","messages":[{"role":"user","content":"same opener"}]}`)
 	conversation := func(session string) string {
 		headers := http.Header{"X-Gateway-Session": {session}}
-		ctx := requestcontext.WithUpstreamGateway(t.Context(), requestcontext.UpstreamGatewayHeaders{Session: []string{"X-Gateway-Session"}}, headers)
+		ctx := requestcontext.WithUpstreamGateway(t.Context(), requestcontext.UpstreamGatewaySession{Headers: []string{"X-Gateway-Session"}}, headers)
 		request := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil)
 		request.Header = headers
 		return directConversationID(request, body)

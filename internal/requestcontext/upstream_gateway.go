@@ -8,28 +8,22 @@ import (
 const UpstreamGatewayHopHeader = "X-Weave-Router-Hop"
 
 type UpstreamGateway struct {
-	SessionID   string
-	Email       string
-	DisplayName string
+	SessionID string
 }
 
-type UpstreamGatewayHeaders struct {
-	Session   []string
-	UserEmail []string
-	UserName  []string
+type UpstreamGatewaySession struct {
+	Asserted string
+	Headers  []string
 }
 
 type upstreamGatewayContextKey struct{}
 
-func WithUpstreamGateway(ctx context.Context, headers UpstreamGatewayHeaders, inbound http.Header) context.Context {
-	upstreamGateway := UpstreamGateway{
-		SessionID: gatewaySessionID(headers.Session, inbound),
-		Email:     firstHeader(headers.UserEmail, inbound, NormalizeEmail),
+func WithUpstreamGateway(ctx context.Context, session UpstreamGatewaySession, inbound http.Header) context.Context {
+	sessionID := NormalizeClientIdentifier(session.Asserted)
+	if sessionID == "" {
+		sessionID = gatewaySessionID(session.Headers, inbound)
 	}
-	if upstreamGateway.Email != "" {
-		upstreamGateway.DisplayName = firstHeader(headers.UserName, inbound, NormalizeDisplayName)
-	}
-	return context.WithValue(ctx, upstreamGatewayContextKey{}, upstreamGateway)
+	return context.WithValue(ctx, upstreamGatewayContextKey{}, UpstreamGateway{SessionID: sessionID})
 }
 
 func UpstreamGatewayFrom(ctx context.Context) (UpstreamGateway, bool) {
@@ -44,13 +38,4 @@ func gatewaySessionID(sessionHeaders []string, inbound http.Header) string {
 		}
 	}
 	return NormalizeClientIdentifier(inbound.Get(ClaudeCodeSessionHeader))
-}
-
-func firstHeader(names []string, inbound http.Header, normalize func(string) string) string {
-	for _, name := range names {
-		if value := normalize(inbound.Get(name)); value != "" {
-			return value
-		}
-	}
-	return ""
 }

@@ -12,10 +12,10 @@ import (
 	"weave-os/router/internal/requestcontext"
 )
 
-func gatewayCtx(t *testing.T, creds *requestcontext.Credentials, headers requestcontext.UpstreamGatewayHeaders, inbound http.Header) context.Context {
+func gatewayCtx(t *testing.T, creds *requestcontext.Credentials, session requestcontext.UpstreamGatewaySession, inbound http.Header) context.Context {
 	t.Helper()
 	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, creds)
-	ctx = requestcontext.WithUpstreamGateway(ctx, headers, inbound)
+	ctx = requestcontext.WithUpstreamGateway(ctx, session, inbound)
 	return requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{
 		Email:       "engineer@example.com",
 		DisplayName: "Engineer",
@@ -31,17 +31,17 @@ func TestUpstreamGatewaySessionID(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-Gateway-Session", "gw-1")
 		h.Set(requestcontext.ClaudeCodeSessionHeader, "cc-1")
-		ctx := gatewayCtx(t, &requestcontext.Credentials{}, requestcontext.UpstreamGatewayHeaders{Session: []string{"X-Missing", "X-Gateway-Session"}}, h)
+		ctx := gatewayCtx(t, &requestcontext.Credentials{}, requestcontext.UpstreamGatewaySession{Headers: []string{"X-Missing", "X-Gateway-Session"}}, h)
 		assert.Equal(t, "gw-1", requestcontext.ClientIdentityFrom(ctx).SessionID)
 	})
 	t.Run("falls back to the Claude Code session header", func(t *testing.T) {
 		h := http.Header{}
 		h.Set(requestcontext.ClaudeCodeSessionHeader, "cc-1")
-		ctx := gatewayCtx(t, &requestcontext.Credentials{}, requestcontext.UpstreamGatewayHeaders{Session: []string{"X-Gateway-Session"}}, h)
+		ctx := gatewayCtx(t, &requestcontext.Credentials{}, requestcontext.UpstreamGatewaySession{Headers: []string{"X-Gateway-Session"}}, h)
 		assert.Equal(t, "cc-1", requestcontext.ClientIdentityFrom(ctx).SessionID)
 	})
 	t.Run("missing session serves unpinned", func(t *testing.T) {
-		ctx := gatewayCtx(t, &requestcontext.Credentials{}, requestcontext.UpstreamGatewayHeaders{}, http.Header{})
+		ctx := gatewayCtx(t, &requestcontext.Credentials{}, requestcontext.UpstreamGatewaySession{}, http.Header{})
 		assert.Empty(t, requestcontext.ClientIdentityFrom(ctx).SessionID,
 			"a body metadata session must not stand in for the gateway session")
 	})
@@ -49,14 +49,14 @@ func TestUpstreamGatewaySessionID(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-Gateway-Session", strings.Repeat("s", requestcontext.MaxClientIdentifierLen+1))
 		h.Set(requestcontext.ClaudeCodeSessionHeader, "cc-1")
-		ctx := gatewayCtx(t, &requestcontext.Credentials{}, requestcontext.UpstreamGatewayHeaders{Session: []string{"X-Gateway-Session"}}, h)
+		ctx := gatewayCtx(t, &requestcontext.Credentials{}, requestcontext.UpstreamGatewaySession{Headers: []string{"X-Gateway-Session"}}, h)
 		assert.Equal(t, "cc-1", requestcontext.ClientIdentityFrom(ctx).SessionID,
 			"gateway session IDs get the same length cap as every other client session source")
 	})
 }
 
 func TestUpstreamGatewayStripsEndUserIdentity(t *testing.T) {
-	ctx := gatewayCtx(t, &requestcontext.Credentials{}, requestcontext.UpstreamGatewayHeaders{}, http.Header{})
+	ctx := gatewayCtx(t, &requestcontext.Credentials{}, requestcontext.UpstreamGatewaySession{}, http.Header{})
 	id := requestcontext.ClientIdentityFrom(ctx)
 	assert.Empty(t, id.Email)
 	assert.Empty(t, id.DisplayName)
@@ -65,53 +65,40 @@ func TestUpstreamGatewayStripsEndUserIdentity(t *testing.T) {
 	assert.Equal(t, "claude-code", id.ClientApp)
 }
 
-func TestUpstreamGatewayUserFromConfiguredHeaders(t *testing.T) {
-	headers := requestcontext.UpstreamGatewayHeaders{
-		UserEmail: []string{"X-Missing", "X-Gateway-User-Email"},
-		UserName:  []string{"X-Gateway-User-Name"},
-	}
+func TestUpstreamGatewayAssertedSessionWins(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Gateway-Session", "gw-1")
+	h.Set(requestcontext.ClaudeCodeSessionHeader, "cc-1")
+	ctx := gatewayCtx(t, &requestcontext.Credentials{}, requestcontext.UpstreamGatewaySession{Asserted: "signed-session", Headers: []string{"X-Gateway-Session"}}, h)
+	assert.Equal(t, "signed-session", requestcontext.ClientIdentityFrom(ctx).SessionID, "a session signed into the credential beats any inbound header")
+}
+
+func TestUpstreamGatewayStoresAndForwardsNoEmail(t *testing.T) {
 	inbound := http.Header{}
-	inbound.Set("X-Gateway-User-Email", " Gateway.User@Example.com ")
-	inbound.Set("X-Gateway-User-Name", "Gateway User")
+	inbound.Set("X-Weave-User-Email", "engineer@example.com")
+	inbound.Set("X-Weave-User-Name", "Engineer")
+	inbound.Set("X-Gateway-Baggage", "team=infra")
 	creds := &requestcontext.Credentials{
 		ForwardedClientHeaders: []string{"traceparent"},
 		BaggageHeader:          "X-Gateway-Baggage",
 		IdentityHeader:         "X-Gateway-Identity",
 	}
-	ctx := gatewayCtx(t, creds, headers, inbound)
+	ctx := gatewayCtx(t, creds, requestcontext.UpstreamGatewaySession{}, inbound)
 
 	id := requestcontext.ClientIdentityFrom(ctx)
-	assert.Equal(t, "gateway.user@example.com", id.Email, "the gateway-asserted user replaces the client-supplied one")
-	assert.Equal(t, "Gateway User", id.DisplayName)
-	assert.Empty(t, id.AccountID)
-	assert.Empty(t, id.DeviceID)
-	assert.Equal(t, "gateway.user@example.com", requestcontext.CallerFrom(ctx).Email, "dashboards attribute the turn to the gateway user")
+	assert.Empty(t, id.Email, "client-supplied email is ignored in gateway mode")
+	assert.Empty(t, id.DisplayName)
+	assert.Empty(t, requestcontext.CallerFrom(ctx).Email, "no email reaches router-user storage")
 
 	upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	requestcontext.ApplyIdentityHeader(ctx, upstream)
 	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, inbound)
 	for name, values := range upstream.Header {
 		for _, v := range values {
-			assert.NotContains(t, strings.ToLower(v), "gateway.user@example.com", "header %s must not carry the user upstream", name)
+			assert.NotContains(t, strings.ToLower(v), "engineer@example.com", "header %s must not carry the user upstream", name)
 		}
 	}
-}
-
-func TestUpstreamGatewayUserHeaderMissingOrInvalidIsUnidentified(t *testing.T) {
-	headers := requestcontext.UpstreamGatewayHeaders{UserEmail: []string{"X-Gateway-User-Email"}, UserName: []string{"X-Gateway-User-Name"}}
-	for name, value := range map[string]string{"missing": "", "not an email": "gateway-user", "oversized": strings.Repeat("a", requestcontext.MaxEmailLen) + "@example.com"} {
-		t.Run(name, func(t *testing.T) {
-			inbound := http.Header{}
-			if value != "" {
-				inbound.Set("X-Gateway-User-Email", value)
-			}
-			inbound.Set("X-Gateway-User-Name", "Gateway User")
-			inbound.Set("X-Weave-User-Email", "spoofed@example.com")
-			id := requestcontext.ClientIdentityFrom(gatewayCtx(t, &requestcontext.Credentials{}, headers, inbound))
-			assert.Empty(t, id.Email, "only the configured gateway header can identify the user")
-			assert.Empty(t, id.DisplayName, "a name without a gateway email must not rename the shared unidentified user")
-		})
-	}
+	assert.Empty(t, upstream.Header.Get("X-Gateway-Baggage"), "nothing is merged into baggage")
 }
 
 func TestUpstreamGatewayInnerCallHeaders(t *testing.T) {
@@ -125,7 +112,7 @@ func TestUpstreamGatewayInnerCallHeaders(t *testing.T) {
 	inbound.Set("X-Gateway-Request-Id", "req-1")
 	inbound.Set("X-Gateway-Baggage", "user=engineer@example.com")
 	inbound.Set("Authorization", "Bearer inbound-gateway-token")
-	ctx := gatewayCtx(t, creds, requestcontext.UpstreamGatewayHeaders{}, inbound)
+	ctx := gatewayCtx(t, creds, requestcontext.UpstreamGatewaySession{}, inbound)
 
 	upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	requestcontext.ApplyIdentityHeader(ctx, upstream)

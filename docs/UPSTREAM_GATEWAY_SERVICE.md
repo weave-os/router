@@ -35,26 +35,30 @@ discovery document naming another issuer fail closed.
 The issuer entry names an existing session issuer (`session_issuer_kid`). That
 binds the gateway to one installation: its routing policy, allowed models,
 provider keys, spend caps and billing apply, and revoking the issuer turns the
-gateway off. Ordinary router keys (`rk_`) and delegated session tokens (`rs_`)
-are unaffected and never enter this mode.
+gateway off.
+
+Gateway mode follows the bound issuer, not the token format. A delegated
+session token (`rs_`) signed by a session issuer that a configured gateway is
+bound to gets every protection below, and its `sub` is the session. `rs_`
+tokens from other issuers and ordinary router keys (`rk_`) never enter this
+mode.
 
 ## Request handling
 
-- **Surface.** The token is accepted only on `POST /v1/messages`; anything else
-  returns `upstream_gateway_surface_rejected`.
+- **Surface.** The credential is accepted only on `POST /v1/messages` and
+  `POST /v1/messages/count_tokens` (Claude Code counts tokens before a turn);
+  anything else returns `upstream_gateway_surface_rejected`.
 - **Credential isolation.** After verification the router removes
   `Authorization`, `x-api-key` and the router-key header from the request, so
   the inbound token can never be copied onto an upstream call.
-- **Session.** The session ID comes from the configured `session_headers`, then
-  `X-Claude-Code-Session-Id`. A request without one is served unpinned. Session
-  pins and blind experiments work as they do for other clients.
-- **Identity.** The end user comes only from the configured
-  `user_email_headers` and `user_name_headers`, which the authenticated gateway
-  sets. That user is recorded for analytics and dashboards like any other
-  router user. Client-supplied identity (`X-Weave-User-Email`, Claude Code
-  account, device and body metadata) is ignored. A request without a valid
-  gateway email is served as unidentified. No identity header and no baggage
-  are sent upstream, so the user never leaves the router.
+- **Session.** An `rs_` token's signed `sub` is the session and keys pins.
+  For an OIDC token the session ID comes from the configured `session_headers`,
+  then `X-Claude-Code-Session-Id`. A request without one is served unpinned.
+  Session pins and blind experiments work as they do for other clients.
+- **Identity.** No end-user email is stored or forwarded. Client-supplied
+  identity (`X-Weave-User-Email`, `X-Weave-User-Name`, Claude Code account,
+  device and email in `metadata.user_id`) is dropped, and the turn is
+  unidentified. No identity header and no baggage are sent upstream.
 - **Correlation.** The provider key's `forwarded_client_headers` are copied from
   the inbound request. An echoed `traceparent` is kept; the router's own tracing
   injects one only when none is present.

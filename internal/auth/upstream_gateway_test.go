@@ -52,8 +52,6 @@ func newGatewayFixture(t *testing.T) gatewayFixture {
 			Algorithms:       []string{"RS256"},
 			SessionIssuerKID: issuer.kid,
 			SessionHeaders:   []string{"X-Gateway-Session"},
-			UserEmailHeaders: []string{"X-Gateway-User-Email"},
-			UserNameHeaders:  []string{"X-Gateway-User-Name"},
 		},
 	}
 }
@@ -101,8 +99,22 @@ func TestVerifyUpstreamGatewayToken_AuthenticatesAsTheBoundIssuer(t *testing.T) 
 	assert.Equal(t, gatewayIssuerURL, principal.IssuerURL)
 	assert.Equal(t, gatewaySubject, principal.Subject)
 	assert.Equal(t, []string{"X-Gateway-Session"}, principal.SessionHeaders)
-	assert.Equal(t, []string{"X-Gateway-User-Email"}, principal.UserEmailHeaders)
-	assert.Equal(t, []string{"X-Gateway-User-Name"}, principal.UserNameHeaders)
+	assert.Empty(t, principal.SessionID, "an OIDC gateway token names a workload, not a session")
+}
+
+func TestUpstreamGatewayForSessionToken_FollowsTheBoundIssuer(t *testing.T) {
+	f := newGatewayFixture(t)
+	svc := f.service(t)
+	_, key, _, _, session, err := svc.VerifySessionToken(context.Background(), f.issuer.sign(t, f.issuer.claims(), nil), true)
+	require.NoError(t, err)
+
+	principal := svc.UpstreamGatewayForSessionToken(key, session)
+	require.NotNil(t, principal, "an rs_ token from a gateway-bound issuer runs in gateway mode")
+	assert.Equal(t, gatewayIssuerURL, principal.IssuerURL)
+	assert.Equal(t, "session-1", principal.SessionID, "the signed sub is the gateway session")
+
+	unbound, _ := f.issuer.service(t)
+	assert.Nil(t, unbound.UpstreamGatewayForSessionToken(key, session), "an issuer no gateway is bound to stays on the plain session path")
 }
 
 func TestVerifyUpstreamGatewayToken_RejectsInvalidTokens(t *testing.T) {
@@ -175,12 +187,11 @@ func TestIsUpstreamGatewayToken_LeavesRouterCredentialsAlone(t *testing.T) {
 }
 
 func TestParseUpstreamGatewayIssuers(t *testing.T) {
-	valid := `[{"issuer_url":"https://issuer.gateway.example","audience":"router-inference","subjects":["gateway-workload"],"session_issuer_kid":"kid-1","session_headers":["X-Gateway-Session"],"user_email_headers":["X-Gateway-User-Email"],"user_name_headers":["X-Gateway-User-Name"]}]`
+	valid := `[{"issuer_url":"https://issuer.gateway.example","audience":"router-inference","subjects":["gateway-workload"],"session_issuer_kid":"kid-1","session_headers":["X-Gateway-Session"]}]`
 	issuers, err := auth.ParseUpstreamGatewayIssuers(valid)
 	require.NoError(t, err)
 	require.Len(t, issuers, 1)
-	assert.Equal(t, []string{"X-Gateway-User-Email"}, issuers[0].UserEmailHeaders)
-	assert.Equal(t, []string{"X-Gateway-User-Name"}, issuers[0].UserNameHeaders)
+	assert.Equal(t, []string{"X-Gateway-Session"}, issuers[0].SessionHeaders)
 	assert.Equal(t, auth.DefaultUpstreamGatewayAlgorithms, issuers[0].Algorithms)
 	assert.Equal(t, auth.DefaultUpstreamGatewayMaxLifetime, issuers[0].MaxLifetime)
 
@@ -189,18 +200,17 @@ func TestParseUpstreamGatewayIssuers(t *testing.T) {
 	assert.Empty(t, empty)
 
 	for name, raw := range map[string]string{
-		"not json":              `{`,
-		"plain http issuer":     `[{"issuer_url":"http://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k"}]`,
-		"missing audience":      `[{"issuer_url":"https://issuer.example","subjects":["s"],"session_issuer_kid":"k"}]`,
-		"missing subjects":      `[{"issuer_url":"https://issuer.example","audience":"a","session_issuer_kid":"k"}]`,
-		"missing issuer kid":    `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"]}]`,
-		"symmetric algorithm":   `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k","algorithms":["HS256"]}]`,
-		"none algorithm":        `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k","algorithms":["none"]}]`,
-		"bad session header":    `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k","session_headers":["bad header"]}]`,
-		"bad user email header": `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k","user_email_headers":["bad header"]}]`,
-		"bad user name header":  `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k","user_name_headers":["bad header"]}]`,
-		"duplicate issuer":      `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k"},{"issuer_url":"https://issuer.example","audience":"b","subjects":["s"],"session_issuer_kid":"k"}]`,
-		"bad max lifetime":      `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k","max_lifetime":"forever"}]`,
+		"not json":            `{`,
+		"plain http issuer":   `[{"issuer_url":"http://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k"}]`,
+		"missing audience":    `[{"issuer_url":"https://issuer.example","subjects":["s"],"session_issuer_kid":"k"}]`,
+		"missing subjects":    `[{"issuer_url":"https://issuer.example","audience":"a","session_issuer_kid":"k"}]`,
+		"missing issuer kid":  `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"]}]`,
+		"symmetric algorithm": `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k","algorithms":["HS256"]}]`,
+		"none algorithm":      `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k","algorithms":["none"]}]`,
+		"bad session header":  `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k","session_headers":["bad header"]}]`,
+		"user email header":   `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k","user_email_headers":["X-Gateway-User-Email"]}]`,
+		"duplicate issuer":    `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k"},{"issuer_url":"https://issuer.example","audience":"b","subjects":["s"],"session_issuer_kid":"k"}]`,
+		"bad max lifetime":    `[{"issuer_url":"https://issuer.example","audience":"a","subjects":["s"],"session_issuer_kid":"k","max_lifetime":"forever"}]`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := auth.ParseUpstreamGatewayIssuers(raw)
