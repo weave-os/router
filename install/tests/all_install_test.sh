@@ -58,6 +58,7 @@ for tool in bash cat tr cut od mkdir chmod head mktemp rm dirname jq printf; do
 done
 cat >"$fake_bin/curl" <<'FAKE'
 #!/usr/bin/env bash
+case " $* " in *" -o "*) exit 22 ;; esac
 cat >"$RECORD_DIR/curl_stdin"
 printf '%s\n' "$@" >"$RECORD_DIR/curl_args"
 previous=""
@@ -157,6 +158,26 @@ output="$(WEAVE_ROUTER_URL=https://router.other.example run_all "$home" --all --
 check "a hosted key is not sent to another router" "$(cat "$home/record/router_url")" "unset"
 output="$(WEAVE_ROUTER_URL=http://localhost:8080 run_all "$home" --all --token wenroll_t --app-url http://localhost:8001)"
 check "a non-hosted app keeps the chosen router" "$(cat "$home/record/router_url")" "http://localhost:8080"
+
+for hosted_spelling in https://app.weaveos.com:443 https://App.WeaveOS.com/ https://app.weaveos.com.; do
+  output="$(WEAVE_ROUTER_URL=https://router.other.example run_all "$home" --all --token wenroll_t --app-url "$hosted_spelling")"
+  check "hosted app spelled $hosted_spelling still keeps its key off another router" "$(cat "$home/record/router_url")" "unset"
+done
+
+home="$(new_home dropped_plugin .cursor .grok)"
+EXCHANGE_RESPONSE='{"plugins":[{"kind":"cursor","install_command":""}],"unsupported":[],"failed":[]}'
+output="$(run_all "$home" --all --token wenroll_t)"; status=$?
+check "a plugin the response drops fails the run" "$status" "1"
+check_contains "reports a dropped plugin and an empty command" "$output" "Failed: cursor plugin, grok_build plugin"
+
+home="$(new_home no_installer .claude .cursor)"
+EXCHANGE_RESPONSE='{"router_key":"rk_test_key","plugins":[{"kind":"claude_code","install_command":"true"},{"kind":"cursor","install_command":"true"}],"unsupported":[],"failed":[]}'
+mv "$stage/install.sh" "$stage/install.sh.away"
+output="$(run_all "$home" --all --token wenroll_t)"; status=$?
+mv "$stage/install.sh.away" "$stage/install.sh"
+check "a missing installer fails the run" "$status" "1"
+check_contains "plugins still install without the router installer" "$output" "Installed: claude_code plugin, cursor plugin"
+check_contains "reports the router target as failed" "$output" "Failed: router for claude"
 
 echo "refusals"
 home="$(new_home refused .claude)"

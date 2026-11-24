@@ -189,7 +189,12 @@ case "$token" in
   "") err "An enrollment token is required: pass --token, or set WEAVE_INSTALL_TOKEN. Get one from the Weave setup page."; exit 2 ;;
   *[!A-Za-z0-9_-]*) err "The enrollment token has characters a token never contains. Copy the command again from the Weave setup page."; exit 2 ;;
 esac
+# Lowercased and stripped of the default port and root dot, so every spelling
+# of the hosted app compares equal to DEFAULT_APP_URL below.
+app_url="$(printf '%s' "$app_url" | tr '[:upper:]' '[:lower:]')"
 app_url="${app_url%/}"
+case "$app_url" in https://*) app_url="${app_url%:443}" ;; esac
+app_url="${app_url%.}"
 case "$app_url" in
   https://*|http://localhost|http://localhost:*|http://127.0.0.1|http://127.0.0.1:*) ;;
   *) err "--app-url must be https (http is allowed only for localhost)."; exit 2 ;;
@@ -230,9 +235,10 @@ router_key="$(jq -r '.router_key // empty' <<<"$exchange_body")"
 # this shell points WEAVE_ROUTER_URL at another deployment.
 [ "$app_url" != "$DEFAULT_APP_URL" ] || unset WEAVE_ROUTER_URL
 if [ "${#router_targets[@]}" -gt 0 ]; then
-  installer="$(resolve_installer)"
+  # A missing installer fails the router targets only; plugins still install.
+  installer="$(resolve_installer)" || installer=""
   for target in "${router_targets[@]}"; do
-    if [ -n "$router_key" ] && WEAVE_ROUTER_KEY="$router_key" bash "$installer" "--$target" --non-interactive; then
+    if [ -n "$installer" ] && [ -n "$router_key" ] && WEAVE_ROUTER_KEY="$router_key" bash "$installer" "--$target" --non-interactive; then
       installed+=("router for $target")
     else
       failed+=("router for $target")
@@ -240,21 +246,21 @@ if [ "${#router_targets[@]}" -gt 0 ]; then
   done
 fi
 
-while IFS= read -r kind; do
-  [ -n "$kind" ] || continue
-  install_command="$(jq -r --arg kind "$kind" '.plugins[] | select(.kind == $kind) | .install_command' <<<"$exchange_body")"
+# Walks what was requested, not what came back, so a plugin the response leaves
+# out is reported as failed instead of silently dropped.
+for kind in "${plugin_kinds[@]+"${plugin_kinds[@]}"}"; do
+  if jq -e --arg kind "$kind" '[.unsupported[]?] | index($kind) != null' <<<"$exchange_body" >/dev/null; then
+    continue
+  fi
+  install_command="$(jq -r --arg kind "$kind" '[.plugins[]? | select(.kind == $kind) | .install_command // empty][0] // empty' <<<"$exchange_body")"
   # The command comes from the Weave app the user chose to enroll with and
   # carries this member's plugin key, so it is run but never printed.
-  if bash -c "$install_command"; then
+  if [ -n "$install_command" ] && bash -c "$install_command"; then
     installed+=("$kind plugin")
   else
     failed+=("$kind plugin")
   fi
-done < <(jq -r '.plugins[]?.kind' <<<"$exchange_body")
-
-while IFS= read -r kind; do
-  [ -z "$kind" ] || failed+=("$kind plugin")
-done < <(jq -r '.failed[]?' <<<"$exchange_body")
+done
 skipped="$(jq -r '[.unsupported[]?] | join(", ")' <<<"$exchange_body")"
 
 info ""
