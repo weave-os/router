@@ -39,7 +39,7 @@ func TestLogSwitchShadowRecordsTheEvictionEconomicsWithoutChangingTheServedTurn(
 		cacheShape: TurnCacheShape{MessageCount: 302, UserPrompt: true},
 	}
 
-	logSwitchShadow(ctx, stayPin, gate, now, res)
+	logSwitchShadow(ctx, switchShadowTurn{StayPin: stayPin, Gate: gate, Now: now}, res)
 
 	var line map[string]any
 	require.NoError(t, json.Unmarshal(logs.Bytes(), &line))
@@ -82,7 +82,7 @@ func TestLogSwitchShadowPricesTheRewriteAtTheRequestedWriteTTL(t *testing.T) {
 			LastInputTokens: 1_000, LastCachedReadTokens: 299_000,
 		}
 		gate := continuity.CostGateInput{Fresh: router.Decision{Model: "claude-opus-4-8"}, EstimatedInputTokens: 300_000}
-		logSwitchShadow(ctx, stayPin, gate, now, TurnRoute{cacheShape: TurnCacheShape{MessageCount: 120, CacheWriteTTL: ttl}})
+		logSwitchShadow(ctx, switchShadowTurn{StayPin: stayPin, Gate: gate, Now: now}, TurnRoute{cacheShape: TurnCacheShape{MessageCount: 120, CacheWriteTTL: ttl}})
 		var line map[string]any
 		require.NoError(t, json.Unmarshal(logs.Bytes(), &line))
 		eviction, ok := line["eviction_usd"].(float64)
@@ -91,4 +91,72 @@ func TestLogSwitchShadowPricesTheRewriteAtTheRequestedWriteTTL(t *testing.T) {
 	}
 
 	assert.Less(t, evictionAt(5*time.Minute), evictionAt(time.Hour))
+}
+
+func TestLogSwitchShadowHoldsTheUpgradeTheHMMGateWasNotConfidentIn(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	var logs bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
+	stayPin := sessionpin.Pin{Model: "claude-haiku-5-5", Provider: providers.ProviderAnthropic, LastServedModel: "claude-haiku-5-5", LastTurnEndedAt: now.Add(-20 * time.Second)}
+	shadow := switchShadowTurn{
+		StayPin: stayPin,
+		Gate:    continuity.CostGateInput{Fresh: router.Decision{Model: "claude-opus-5-5"}, EstimatedInputTokens: 10_000},
+		Served:  continuity.CostGateServe{UpgradeConfidence: 0.3, UpgradeConfidenceLow: true},
+		Now:     now,
+	}
+
+	logSwitchShadow(ctx, shadow, TurnRoute{Decision: router.Decision{Model: "claude-haiku-5-5"}})
+
+	var line map[string]any
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &line))
+	assert.Equal(t, "claude-haiku-5-5", line["would_serve"])
+	assert.Equal(t, string(SwitchReasonUpgradeConfidenceLow), line["would_reason"])
+	assert.Equal(t, false, line["would_diverge"])
+	assert.InDelta(t, 0.3, line["upgrade_confidence"], 1e-6)
+	assert.Equal(t, true, line["upgrade_confidence_low"])
+}
+
+func TestLogSwitchShadowLogsTheCurrentModelDecideSwitchUsed(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	var logs bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
+	shadow := switchShadowTurn{
+		Gate: continuity.CostGateInput{
+			ActivePin: sessionpin.Pin{Model: "claude-sonnet-5-5"},
+			Fresh:     router.Decision{Model: "claude-opus-5-5"}, EstimatedInputTokens: 10_000,
+		},
+		Now: now,
+	}
+
+	logSwitchShadow(ctx, shadow, TurnRoute{Decision: router.Decision{Model: "claude-opus-5-5"}, PriorServedModel: "claude-sonnet-5-5", PinTier: "hmm_fresh_unpinned"})
+
+	var line map[string]any
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &line))
+	assert.Equal(t, string(SwitchReasonFirstTurn), line["would_reason"])
+	assert.Empty(t, line["current_model"])
+}
+
+func TestLogSwitchShadowMarksCacheStateFromASiblingThread(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	var logs bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
+	shadow := switchShadowTurn{
+		StayPin: sessionpin.Pin{Model: "gpt-6-luna", Provider: providers.ProviderOpenAI, LastServedModel: "gpt-6-luna", LastTurnEndedAt: now.Add(-20 * time.Second)},
+		Gate: continuity.CostGateInput{
+			Fresh: router.Decision{Model: "gpt-6.1-sol"}, EstimatedInputTokens: 40_000,
+			HMMHistory: sessionpin.Pin{ModelCaches: sessionpin.ModelCaches{
+				"gpt-6.1-sol": {ServedAt: now.Add(-time.Minute), PromptTokens: 790_000, MessageCount: 590},
+			}},
+		},
+		Served: continuity.CostGateServe{UpgradeConfidence: 0.9},
+		Now:    now,
+	}
+
+	logSwitchShadow(ctx, shadow, TurnRoute{Decision: router.Decision{Model: "gpt-6.1-sol"}, cacheShape: TurnCacheShape{MessageCount: 40}})
+
+	var line map[string]any
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &line))
+	assert.Equal(t, false, line["fresh_cache_known"])
+	assert.Equal(t, true, line["fresh_cache_other_thread"])
+	assert.InDelta(t, 0, line["fresh_messages_since_served"], 0)
 }
