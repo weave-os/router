@@ -647,6 +647,22 @@ func TestUnversionedAliasesFollowNewestFamilyRelease(t *testing.T) {
 	assert.Equal(t, "gpt-6-astra", routingpolicy.ForceModelAliases["gpt-6"], "versioned aliases stay exact")
 }
 
+func TestResolveForceModel_Gemini4Aliases(t *testing.T) {
+	for alias, want := range map[string]string{
+		"argon":             "gemini-4-argon",
+		"carbon":            "gemini-4-carbon",
+		"hydrogen":          "gemini-4-hydrogen",
+		"neon":              "gemini-4-neon",
+		"gemini-4-carbon":   "gemini-4-carbon",
+		"gemini-4-hydrogen": "gemini-4-hydrogen",
+	} {
+		gotID, gotProvider, gotKnown := resolveForceModel(alias)
+		assert.Equal(t, want, gotID, alias)
+		assert.Equal(t, providers.ProviderGoogle, gotProvider, alias)
+		assert.True(t, gotKnown, alias)
+	}
+}
+
 func TestResolveForceModel_NeonAlias(t *testing.T) {
 	gotID, gotProvider, gotKnown := resolveForceModel("neon")
 	assert.Equal(t, "gemini-4-neon", gotID)

@@ -20,8 +20,10 @@ const (
 )
 
 const (
-	ModelGemini4Argon = "gemini-4-argon"
-	ModelGemini4Neon  = "gemini-4-neon"
+	ModelGemini4Argon    = "gemini-4-argon"
+	ModelGemini4Carbon   = "gemini-4-carbon"
+	ModelGemini4Hydrogen = "gemini-4-hydrogen"
+	ModelGemini4Neon     = "gemini-4-neon"
 )
 
 type ModelSpec struct {
@@ -177,15 +179,17 @@ var registry = map[string]ModelSpec{
 	"claude-sonnet-4-5": NewSpec(CapAssistantPrefill),
 	"claude-sonnet-4-0": NewSpec(CapAssistantPrefill),
 
-	"gpt-6-astra":     openaiAstra,
-	"gpt-6-sol":       openai6,
-	"gpt-6.1-sol":     openai61,
-	"gpt-6.1-terra":   openai61,
-	"gpt-6.2-sol":     openai61,
-	"gpt-6.2-astra":   openaiAstra,
-	"gpt-6-luna":      openai6,
-	ModelGemini4Argon: google3Base,
-	ModelGemini4Neon:  google4Xhigh,
+	"gpt-6-astra":        openaiAstra,
+	"gpt-6-sol":          openai6,
+	"gpt-6.1-sol":        openai61,
+	"gpt-6.1-terra":      openai61,
+	"gpt-6.2-sol":        openai61,
+	"gpt-6.2-astra":      openaiAstra,
+	"gpt-6-luna":         openai6,
+	ModelGemini4Argon:    google3Base,
+	ModelGemini4Carbon:   google3Base,
+	ModelGemini4Hydrogen: google4Xhigh,
+	ModelGemini4Neon:     google4Xhigh,
 
 	"gpt-5.6-sol":      openai56,
 	"gpt-5.6-sol-pro":  openai56,
