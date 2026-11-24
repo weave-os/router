@@ -47,6 +47,7 @@ cp "$all_installer" "$stage/all.sh"
 cat >"$stage/install.sh" <<'FAKE'
 #!/usr/bin/env bash
 printf '%s key=%s\n' "$*" "$WEAVE_ROUTER_KEY" >>"$RECORD_DIR/router_installs"
+printf '%s\n' "${WEAVE_ROUTER_URL:-unset}" >"$RECORD_DIR/router_url"
 case " $* " in *" --$FAIL_ROUTER_TARGET "*) exit 1 ;; esac
 FAKE
 
@@ -150,6 +151,12 @@ output="$(FAIL_ROUTER_TARGET=codex run_all "$home" --all --token wenroll_t)"; st
 check "a failed router target fails the run" "$status" "1"
 check_contains "the other router target still installs" "$output" "Installed: router for claude"
 check_contains "reports the failed router target" "$output" "Failed: router for codex"
+
+home="$(new_home other_router .claude)"
+output="$(WEAVE_ROUTER_URL=https://router.other.example run_all "$home" --all --token wenroll_t)"
+check "a hosted key is not sent to another router" "$(cat "$home/record/router_url")" "unset"
+output="$(WEAVE_ROUTER_URL=http://localhost:8080 run_all "$home" --all --token wenroll_t --app-url http://localhost:8001)"
+check "a non-hosted app keeps the chosen router" "$(cat "$home/record/router_url")" "http://localhost:8080"
 
 echo "refusals"
 home="$(new_home refused .claude)"

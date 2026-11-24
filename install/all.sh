@@ -226,6 +226,9 @@ installed=()
 failed=()
 
 router_key="$(jq -r '.router_key // empty' <<<"$exchange_body")"
+# A key the hosted app issued is only ever sent to the hosted router, even when
+# this shell points WEAVE_ROUTER_URL at another deployment.
+[ "$app_url" != "$DEFAULT_APP_URL" ] || unset WEAVE_ROUTER_URL
 if [ "${#router_targets[@]}" -gt 0 ]; then
   installer="$(resolve_installer)"
   for target in "${router_targets[@]}"; do
