@@ -46,7 +46,8 @@ mode.
 ## Request handling
 
 - **Surface.** The credential is accepted only on `POST /v1/messages` and
-  `POST /v1/messages/count_tokens` (Claude Code counts tokens before a turn);
+  `POST /v1/messages/count_tokens` (Claude Code counts tokens before a turn;
+  the router answers it with a local estimate and never calls upstream);
   anything else returns `upstream_gateway_surface_rejected`.
 - **Credential isolation.** After verification the router removes
   `Authorization`, `x-api-key` and the router-key header from the request, so

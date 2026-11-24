@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
 
@@ -20,7 +21,7 @@ import (
 const countTokensUpstreamBudget = 5 * time.Second
 
 func (s *Service) countTokens(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
-	if router.IsRoutingModel(gjson.GetBytes(body, "model").String()) {
+	if _, gateway := requestcontext.UpstreamGatewayFrom(ctx); gateway || router.IsRoutingModel(gjson.GetBytes(body, "model").String()) {
 		return writeLocalCountTokens(w, body)
 	}
 	if !s.credentials.AnthropicCredentialReachable(ctx, r.Header, s.engine.Clients().Has) {
