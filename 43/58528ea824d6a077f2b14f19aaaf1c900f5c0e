@@ -1,0 +1,19 @@
+cmd/router/local_policy_parity_test.go
+  s_8e5cb81a307766::t_d51c2483e9b76c 132,137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4358528ea824d6a077f2b14f19aaaf1c900f5c0e",
+  "prompts": {},
+  "sessions": {
+    "s_8e5cb81a307766": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f350-587f-7920-bdb8-646b9ea2d8bd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

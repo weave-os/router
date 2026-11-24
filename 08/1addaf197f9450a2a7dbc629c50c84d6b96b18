@@ -1,0 +1,19 @@
+internal/billing/service.go
+  s_c7e25d8bc46482::t_a3c504b5660b4c 205-206
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "081addaf197f9450a2a7dbc629c50c84d6b96b18",
+  "prompts": {},
+  "sessions": {
+    "s_c7e25d8bc46482": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f7d534e7-28b1-46eb-a3d4-724bd5fb515d",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

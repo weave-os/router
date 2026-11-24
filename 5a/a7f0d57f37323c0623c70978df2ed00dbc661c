@@ -1,0 +1,39 @@
+internal/router/planner/policy.go
+  s_c83b9791b31b4c::t_843039baff1cd4 54-59,88-91,186-188,206-232
+  s_c83b9791b31b4c::t_41983ead9a7b4d 92
+  s_c83b9791b31b4c::t_69b5477872ec6e 233-234
+internal/router/planner/policy_test.go
+  s_c83b9791b31b4c::t_41983ead9a7b4d 148-150,152
+  s_c83b9791b31b4c::t_bf3af40cc838e7 160-163
+  s_c83b9791b31b4c::t_843039baff1cd4 144-147,151,153-159,164-169
+internal/proxy/turnloop.go
+  s_c83b9791b31b4c::t_41983ead9a7b4d 1055-1057,1059,1180-1182,1184-1186
+  s_c83b9791b31b4c::t_843039baff1cd4 1058,1183
+internal/proxy/service.go
+  s_c83b9791b31b4c::t_843039baff1cd4 3387-3390,3411-3415
+  s_9e57dc1a300e0e::t_2e3fdd010ba9a1 3416-3417
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "5aa7f0d57f37323c0623c70978df2ed00dbc661c",
+  "prompts": {},
+  "sessions": {
+    "s_9e57dc1a300e0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a015f8-3b03-7170-bb3e-bc665ecc6168",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_c83b9791b31b4c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01636-0d3f-72b1-8dd9-19a20eba3771",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

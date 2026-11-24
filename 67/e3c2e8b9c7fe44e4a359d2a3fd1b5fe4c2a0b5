@@ -1,0 +1,21 @@
+.github/scripts/notify-downstream.mjs
+  s_5aba7f1635b317::t_8a470ff7a45ccb 33
+.github/tests/notify-downstream.test.mjs
+  s_5aba7f1635b317::t_cf556419e3bcc8 113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "67e3c2e8b9c7fe44e4a359d2a3fd1b5fe4c2a0b5",
+  "prompts": {},
+  "sessions": {
+    "s_5aba7f1635b317": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1124c-710d-7153-8e53-af71bb17a043",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

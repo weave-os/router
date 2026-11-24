@@ -1,0 +1,26 @@
+install/README.md
+  s_d3d78e624b1f05::t_8108c2dfcc7f65 548,563-564
+install/cc-statusline.sh
+  s_d3d78e624b1f05::t_0affec556e32ca 380,382,386-388,392-394,401-406,1165,1175-1176
+install/install.sh
+  s_d3d78e624b1f05::t_876e48feda6c38 7252,7254,7258-7260,7264-7266,7273-7278,8037,8047-8048
+install/tests/cc-statusline_test.sh
+  s_d3d78e624b1f05::t_83c34bee0baf26 703-709,764
+  s_d3d78e624b1f05::t_0affec556e32ca 751
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b875b6226646ac1079b01197164fbb969c144cb5",
+  "prompts": {},
+  "sessions": {
+    "s_d3d78e624b1f05": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b40a-800d-7ed0-b670-64eddd2dbd0d",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

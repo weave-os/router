@@ -1,0 +1,19 @@
+internal/proxy/cc_task_tools_crossvendor_test.go
+  s_cdb849fc599ed0::t_67e64645ded910 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c17d4dbf87e4a0cfcdea08cd237229d41df8103a",
+  "prompts": {},
+  "sessions": {
+    "s_cdb849fc599ed0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b16d-ba8c-7d42-8a74-acda4d8d2237",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

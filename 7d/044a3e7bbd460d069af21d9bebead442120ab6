@@ -1,0 +1,28 @@
+install/install.sh
+  s_5d9f26d1d38d88::t_80bd91689b73cb 3139,3144,3146-3148
+  s_5d9f26d1d38d88::t_14aa5f878ed4c4 3140,3143,3145,3149-3151,3638-3641,3735-3736
+install/tests/subscription_cli_test.sh
+  s_5d9f26d1d38d88::t_18b7b0158d6e44 54-55,58-62,81-90,92-131
+  s_5d9f26d1d38d88::t_e04d882ef6b13a 91
+install/tests/opencode_install_test.sh
+  s_5d9f26d1d38d88::t_80bd91689b73cb 16-26,124
+install/tests/codex_install_test.sh
+  s_5d9f26d1d38d88::t_9eee9bd46a34ce 456
+  s_5d9f26d1d38d88::t_80bd91689b73cb 453,457
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7d044a3e7bbd460d069af21d9bebead442120ab6",
+  "prompts": {},
+  "sessions": {
+    "s_5d9f26d1d38d88": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15611-cfbe-77c3-9080-c28eb02d6a08",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

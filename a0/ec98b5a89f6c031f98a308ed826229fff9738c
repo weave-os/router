@@ -1,0 +1,23 @@
+internal/server/server.go
+  s_cf418399adffae::t_a30a75a44ab326 30
+cmd/router/main.go
+  s_cf418399adffae::t_a4bb6692c11c76 95-101
+internal/server/middleware/auth.go
+  s_cf418399adffae::t_a28e49056cfb2c 233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "a0ec98b5a89f6c031f98a308ed826229fff9738c",
+  "prompts": {},
+  "sessions": {
+    "s_cf418399adffae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "917838df-4804-4164-a17b-8e9e783dd86d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+internal/proxy/service_test.go
+  s_4929a19987da15::t_f735a61fd6b2f0 322-338
+internal/proxy/service.go
+  s_4929a19987da15::t_f0f7c53376a16a 7908-7913
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "34bed326c5a480387bafd54c0268104d73604b81",
+  "prompts": {},
+  "sessions": {
+    "s_4929a19987da15": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ee5bbe6-934f-4e88-a9dc-23044b71e681",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
