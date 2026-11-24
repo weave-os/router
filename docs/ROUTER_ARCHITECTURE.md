@@ -15,7 +15,7 @@ The serving layer owns hard constraints that apply to every strategy: ingress, c
 
 The router layer owns the choice among eligible models: classifier calls and calibration, session pin reuse, stickiness, the EV planner, the cost gate, hysteresis, the sliding threshold and escalation.
 
-The serving layer reaches the router layer only through the `router.Router` port, with candidates already filtered, and checks every `router.Decision` it gets back. Inside each layer the inward-only import rules in [`CLAUDE.md`](../CLAUDE.md) still hold, and only `cmd/router` wires concrete adapters.
+The serving layer invokes a strategy only through the `router.Router` port, with candidates already filtered, and checks every `router.Decision` it gets back. Inside each layer the inward-only import rules in [`CLAUDE.md`](../CLAUDE.md) still hold, and only `cmd/router` wires concrete adapters.
 
 ```mermaid
 flowchart LR
@@ -70,12 +70,14 @@ type StrategySpec struct {
 }
 ```
 
-- **Input.** `router.Request` carries filtered `Candidates`, a read-only `Session` view and an optional `Escalation` constraint. A strategy never sees credentials, billing or provider clients.
+- **Input.** `router.Request` carries filtered `Candidates`, a read-only `Session` view and an optional `Escalation` constraint. A strategy doesn't import serving-layer adapters (auth, billing, subscriptions, credentials, dispatch, postgres).
 - **Output.** `router.Decision` names the model to serve.
 - **Check.** The serving layer runs every decision through `candidates.EnforceMembership` after `credentials.ProductEligibilityRefusal`. A pick outside the offered candidates is replaced by the best eligible fallback, or the turn fails closed.
 - **Helpers are opt-in.** A strategy calls the continuity, planner and escalation-floor helpers in the order it needs. A strategy that never calls the planner can't be overridden by it.
-- **HMM-only facts stay in HMM.** Classifier confidence, margin, policy group, arm scores and the upgrade-confidence threshold are read only inside `internal/router/hmm`. The serving layer receives strategy-neutral facts and capability flags from `policy.Capabilities`.
-- **Strategy identity.** The serving layer reads the strategy once, at its entry, and passes the typed `router.Strategy` down. It never branches on a named strategy.
+- **HMM-only facts stay in HMM.** `internal/proxy` doesn't read HMM-only routing metadata such as classifier confidence, margin, policy group or arm scores; it gets capability flags from `policy.Capabilities`.
+- **The upgrade-confidence threshold belongs to `internal/router/hmm`.** Ratcheted: remaining sites outside it are counted in `upgrade_confidence_threshold_references`, and new ones fail CI.
+- **Strategy identity.** The serving layer reads the strategy only at its entry points and passes the typed `router.Strategy` down.
+- **The serving layer doesn't branch on a named strategy.** Ratcheted: remaining sites are counted in `serving_strategy_constant_references`, and new ones fail CI.
 - **Out-of-process strategies** use the HTTP policy harness in `internal/router/policy` ([contract](POLICY_ROUTER_HARNESS.md)). Sidecars return classifier facts; candidate filtering, pins, fallbacks and dispatch stay in Go.
 
 ## Enforcement
@@ -83,17 +85,22 @@ type StrategySpec struct {
 | Rule | Check |
 |---|---|
 | Imports flow inward; adapters never import each other | depguard in `.golangci.yml`, `internal/architecture` import tests |
-| Serving layer depends on ports, not `internal/proxy` | `TestServingLayerDependsOnPortsNotProxy`, `TestOnlyServingLayerImportsProxy` |
-| Serving layer reaches strategies only through `router.Router`, `router.Request`, `router.Decision` | atomization ratchet `serving_strategy_internal_imports` |
+| Serving-layer packages depend on ports, not on `*proxy.Service` | `TestServingLayerDependsOnPortsNotProxy` |
+| Only `internal/proxy`, `internal/api`, `internal/server` and `cmd/` import `internal/proxy`. Ratcheted: remaining importers are listed in `proxyImportAllowlist`, and new ones fail CI | `TestOnlyServingLayerImportsProxy` |
+| Serving layer doesn't import strategy internals (`internal/router/hmm`, `internal/router/decisionmodel`) | atomization ratchet `serving_strategy_internal_imports` |
+| Serving layer calls `Route` only on the checked path, which runs every decision through `candidates.EnforceMembership` | `TestServingLayerChecksStrategyDecisionsAgainstCandidates` |
+| Every package that implements `router.Router` or registers a `policy.StrategySpec` is a listed strategy root or a reviewed wrapper | `TestStrategyPackageRootsCoverEveryStrategy` |
 | Strategies don't import serving-layer adapters | atomization ratchet `strategy_serving_adapter_imports` |
-| Serving layer doesn't branch on named strategies | atomization ratchet `serving_strategy_constant_references` |
-| Strategy is read once at the serving entry | atomization ratchet `strategy_from_context_callers`, `TestStrategyFromContextOnlyAtServingEntries` |
+| Serving layer doesn't branch on named strategies. Ratcheted: remaining sites are counted in `serving_strategy_constant_references`, and new ones fail CI | atomization ratchet `serving_strategy_constant_references` |
+| The upgrade-confidence threshold belongs to `internal/router/hmm`. Ratcheted: remaining sites are counted in `upgrade_confidence_threshold_references`, and new ones fail CI | atomization ratchet `upgrade_confidence_threshold_references` |
+| Strategy is read only at the listed serving entries | atomization ratchet `strategy_from_context_callers`, `TestStrategyFromContextOnlyAtServingEntries` |
 | `internal/proxy` doesn't read HMM-only metadata or branch on reason text | atomization ratchets `proxy_hmm_metadata_references`, `proxy_reason_string_comparisons` |
 | `internal/proxy` doesn't sequence router-layer helpers or drive escalation | atomization ratchets `proxy_router_layer_helper_calls`, `proxy_escalation_internal_references` |
 | HMM-only pin fields and switch history stay behind the HMM accessor | atomization ratchets `hmm_pin_field_references`, `hmm_history_identifier_references` |
 | Environment is read only by entrypoints and `internal/config` | `TestEnvironmentIsReadOnlyByEntrypointsAndConfig` |
 | Inference purposes go through the policy boundary | `make inference-boundary` ([inference boundary](INFERENCE_BOUNDARY.md)) |
 | Function size and complexity, `Service` fields and methods, context keys, model-name matching and comments never grow | `make arch-ratchet` |
+| Architecture baselines and allowlists never grow without a reviewed exception | `make arch-ratchet` (baseline growth guard, `ratchet_exceptions.json`) |
 | Routing, credential and accounting decisions are byte-identical across refactors | golden scenarios in `internal/proxy` |
 | Semantic leaks no AST test can see | `.weave-checks/router-*.md` LLM checks |
 
