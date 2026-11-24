@@ -9,6 +9,8 @@ const { emitKeypressEvents } = require("node:readline");
 const readline = require("node:readline/promises");
 const { stdin, stdout } = require("node:process");
 const TOML = require("smol-toml");
+// Same status install.sh uses for a key the router refused.
+const EXIT_KEY_REJECTED = 3;
 const git = require("isomorphic-git");
 
 const defaultBaseUrl = process.env.WEAVE_ROUTER_URL || "https://router.weaveos.com";
@@ -70,8 +72,11 @@ async function main() {
   if (!key) throw new Error("No key provided.");
 
   const routerIsHealthy = await probe(`${baseUrl}/health`, {});
-  const keyIsValid = await probe(`${baseUrl}/validate`, { "X-Weave-Router-Key": key });
-  if (!keyIsValid) console.warn("Warning: could not validate the key. Check the router URL and key if requests fail.");
+  const keyStatus = await probeStatus(`${baseUrl}/validate`, { "X-Weave-Router-Key": key });
+  const keyIsValid = keyStatus >= 200 && keyStatus < 300;
+  const keyIsRejected = keyStatus === 401 || keyStatus === 403;
+  if (keyIsRejected) console.error("The router did not recognize this key. Copy the full key from the dashboard and re-run.");
+  else if (!keyIsValid) console.warn("Warning: could not validate the key. Check the router URL and key if requests fail.");
 
   const email = options.email || process.env.WEAVE_USER_EMAIL || "";
   if (/[\x00-\x1f\x7f]/.test(email)) throw new Error("Email must not contain control characters.");
@@ -81,6 +86,10 @@ async function main() {
   else if (target === "copilot") installCopilot(paths, baseUrl, key, email, options.wire);
   else installPi(paths, baseUrl, key, email);
   console.log(`Weave Router configured for ${target} at ${paths.config}.`);
+  if (keyIsRejected && options.nonInteractive) {
+    process.exitCode = EXIT_KEY_REJECTED;
+    return;
+  }
   if (!options.returnUrl) return;
   if (!routerIsHealthy || !keyIsValid) {
     console.warn("Skipping return URL because router verification did not complete successfully.");
@@ -106,7 +115,12 @@ function safeUrlProtocol(value) {
 }
 
 function probe(url, headers) {
-  return fetch(url, { headers, signal: AbortSignal.timeout(5000) }).then((response) => response.ok).catch(() => false);
+  return probeStatus(url, headers).then((status) => status >= 200 && status < 300);
+}
+
+// Resolves to the HTTP status, or 0 when the router could not be reached.
+function probeStatus(url, headers) {
+  return fetch(url, { headers, signal: AbortSignal.timeout(5000) }).then((response) => response.status).catch(() => 0);
 }
 
 // explorer.exe can exit without opening anything, and `cmd /c start` would parse the URL's '&' query separators as shell syntax.
