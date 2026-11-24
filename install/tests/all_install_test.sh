@@ -163,6 +163,8 @@ for hosted_spelling in https://app.weaveos.com:443 https://App.WeaveOS.com/ http
   output="$(WEAVE_ROUTER_URL=https://router.other.example run_all "$home" --all --token wenroll_t --app-url "$hosted_spelling")"
   check "hosted app spelled $hosted_spelling still keeps its key off another router" "$(cat "$home/record/router_url")" "unset"
 done
+output="$(run_all "$home" --all --token wenroll_t --app-url https://weave.example/Team.A/)"
+check_contains "a custom app path is posted as given" "$(cat "$home/record/curl_args")" "https://weave.example/Team.A/api/install/exchange"
 
 home="$(new_home dropped_plugin .cursor .grok)"
 EXCHANGE_RESPONSE='{"plugins":[{"kind":"cursor","install_command":""}],"unsupported":[],"failed":[]}'

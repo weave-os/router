@@ -189,12 +189,7 @@ case "$token" in
   "") err "An enrollment token is required: pass --token, or set WEAVE_INSTALL_TOKEN. Get one from the Weave setup page."; exit 2 ;;
   *[!A-Za-z0-9_-]*) err "The enrollment token has characters a token never contains. Copy the command again from the Weave setup page."; exit 2 ;;
 esac
-# Lowercased and stripped of the default port and root dot, so every spelling
-# of the hosted app compares equal to DEFAULT_APP_URL below.
-app_url="$(printf '%s' "$app_url" | tr '[:upper:]' '[:lower:]')"
 app_url="${app_url%/}"
-case "$app_url" in https://*) app_url="${app_url%:443}" ;; esac
-app_url="${app_url%.}"
 case "$app_url" in
   https://*|http://localhost|http://localhost:*|http://127.0.0.1|http://127.0.0.1:*) ;;
   *) err "--app-url must be https (http is allowed only for localhost)."; exit 2 ;;
@@ -233,7 +228,11 @@ failed=()
 router_key="$(jq -r '.router_key // empty' <<<"$exchange_body")"
 # A key the hosted app issued is only ever sent to the hosted router, even when
 # this shell points WEAVE_ROUTER_URL at another deployment.
-[ "$app_url" != "$DEFAULT_APP_URL" ] || unset WEAVE_ROUTER_URL
+# The comparison ignores case, the default port and the root dot, so every
+# spelling of the hosted app counts; the URL that was called is left as given.
+app_spelling="$(printf '%s' "$app_url" | tr '[:upper:]' '[:lower:]')"
+app_spelling="${app_spelling%:443}"
+[ "${app_spelling%.}" != "$DEFAULT_APP_URL" ] || unset WEAVE_ROUTER_URL
 if [ "${#router_targets[@]}" -gt 0 ]; then
   # A missing installer fails the router targets only; plugins still install.
   installer="$(resolve_installer)" || installer=""
