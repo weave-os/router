@@ -4,9 +4,7 @@ import (
 	"context"
 	"time"
 
-	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
@@ -18,7 +16,6 @@ type PostRouteChecks struct {
 	Env             *translate.RequestEnvelope
 	Features        translate.RoutingFeatures
 	PromptText      string
-	ToolCallCount   int
 	ToolBearing     bool
 	ClientBudget    router.ClientBudget
 	Scope           router.Request
@@ -31,15 +28,11 @@ type PostRouteChecks struct {
 	RecoverClientCompaction bool
 	SummaryMaxTokens        int
 	ClientDefaultWindow     int
-
-	HandoverEligible      bool
-	RunCompactionHandover func(context.Context) handover.Outcome
 }
 
 type PostRouteOutcome struct {
-	LoopStopped        bool
-	LoopStopMessage    string
-	CompactionHandover handover.Outcome
+	LoopStopped     bool
+	LoopStopMessage string
 }
 
 func (c PostRouteChecks) Run(ctx context.Context) (PostRouteOutcome, error) {
@@ -65,16 +58,5 @@ func (c PostRouteChecks) Run(ctx context.Context) (PostRouteOutcome, error) {
 			return PostRouteOutcome{}, recoveryErr
 		}
 	}
-
-	var outcome PostRouteOutcome
-	if c.HandoverEligible && !route.AuthoritativePerTurn && !route.HardPinned && !route.Handover.Invoked && route.PrefixTrimmed {
-		observability.FromContext(ctx).Info("Context trimming detected on non-Anthropic route; rewriting context with handover summary",
-			"message_count", feats.MessageCount,
-			"tool_call_count", c.ToolCallCount,
-			"decision_model", route.Decision.Model,
-			"decision_provider", route.Decision.Provider,
-		)
-		outcome.CompactionHandover = c.RunCompactionHandover(ctx)
-	}
-	return outcome, nil
+	return PostRouteOutcome{}, nil
 }

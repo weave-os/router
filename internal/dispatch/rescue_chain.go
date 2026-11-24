@@ -97,7 +97,7 @@ func (c *RescueChain) HoldPrimary() {
 	c.PickedMarker = c.Marker
 }
 
-func (c *RescueChain) DispatchPrimaryAttempt(ctx context.Context, deferFlush bool, onPaidTarget func(router.Decision)) {
+func (c *RescueChain) DispatchPrimaryAttempt(ctx context.Context, deferFlush bool) {
 	r := c.HTTPRequest
 	routeRes := c.RouteRes
 	c.WinnerIdx, c.ProxyErr = c.Dispatch(ctx, FailoverInputs{
@@ -132,9 +132,6 @@ func (c *RescueChain) DispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 		},
 		OnSubscriptionStatePaidTarget: func(target router.Decision, _ []catalog.ProviderBinding) {
 			c.SubscriptionStatePaidTargetAttempted = true
-			if onPaidTarget != nil {
-				onPaidTarget(target)
-			}
 		},
 		Bindings:               c.Bindings,
 		Attempt:                c.Attempt,

@@ -26,8 +26,6 @@ type RescueTurn struct {
 	FreshMetadata               *router.RoutingMetadata
 	PriorServedModel            string
 	SessionEverSwitched         bool
-	HandoverInvoked             bool
-	PrefixTrimmed               bool
 	EscalateEffort              bool
 	TranslationEnabledProviders map[string]struct{}
 }

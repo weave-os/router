@@ -671,7 +671,6 @@ func main() {
 	handoverProviderName := config.GetOr("ROUTER_HANDOVER_PROVIDER", providers.ProviderAnthropic)
 	handoverModel := config.GetOr("ROUTER_HANDOVER_MODEL", policy.HandoverSummaryDefaultModel)
 	handoverTimeout := parseEnvDurationMs("ROUTER_HANDOVER_TIMEOUT_MS", proxy.DefaultHandoverTimeout)
-	compactionTimeout := parseEnvDurationMs("ROUTER_COMPACTION_TIMEOUT_MS", proxy.DefaultCompactionTimeout)
 	compactionModel, err := resolveCompactionModel(handoverProviderName)
 	if err != nil {
 		logger.Error("Invalid compaction model configuration; refusing to boot", "err", err)
@@ -691,7 +690,6 @@ func main() {
 	deploymentTargets := []policy.PurposeTargetOverride{
 		{Purpose: policy.PurposeHandoverSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: handoverModel, Provider: handoverProviderName}},
 		{Purpose: policy.PurposePrecompactionSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: compactionModel, Provider: handoverProviderName}},
-		{Purpose: policy.PurposeCompactionHandoverSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: compactionModel, Provider: handoverProviderName}},
 		{Purpose: policy.PurposeTitleGeneration, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
 		{Purpose: policy.PurposeClassifier, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
 		{Purpose: policy.PurposeProbe, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
@@ -744,14 +742,9 @@ func main() {
 		panic(fmt.Sprintf("inference plan resolver: %v", err))
 	}
 	var summarizer handover.Summarizer
-	var compactionHandoverSz handover.Summarizer
 	if _, ok := providerMap[handoverProviderName]; ok {
-		ps := proxy.NewProviderSummarizer(inferencePlans, inferenceExecutor, handoverProviderName, handoverModel, handoverTimeout).
-			WithCompactionModel(compactionModel).
-			WithCompactionTimeout(compactionTimeout)
-		summarizer = ps
-		compactionHandoverSz = ps.CompactionHandover()
-		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds(), "compaction_timeout_ms", compactionTimeout.Milliseconds())
+		summarizer = proxy.NewProviderSummarizer(inferencePlans, inferenceExecutor, handoverProviderName, handoverModel, handoverTimeout)
+		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds())
 	} else {
 		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
 	}
@@ -1010,7 +1003,7 @@ func main() {
 	proxySvc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(providerMap), telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry), hmm.ServingPorts()), proxy.Deps{
 		Telemetry: proxy.TelemetryDeps{Clock: time.Now, SessionTurnClock: sessionTurnClock, ContentCapture: captureMode, ContentCaptureMaxBytes: captureMaxBytes, Billing: billingSvc, Flags: &proxy.TelemetryFlags{
 			TurnSignalCapture: turnSignalCaptureEnabled, NativeAnthropicResponseSignals: nativeAnthropicResponseSignals, NativeOpenAIResponseSignals: nativeOpenAIResponseSignals}},
-		Conversation: conversation.Config{Summarizer: summarizer, CompactionHandoverSummarizer: compactionHandoverSz, RouterFeedbackStore: repo.Telemetry, SessionStrategies: sessionStrategyStore,
+		Conversation: conversation.Config{Summarizer: summarizer, RouterFeedbackStore: repo.Telemetry, SessionStrategies: sessionStrategyStore,
 			FeedbackLinks: feedbackLinks, PiHandoffSecret: config.GetOr("ROUTER_PI_HANDOFF_SECRET", ""), TextRepetitionBreak: &textRepetitionBreakEnabled},
 		Routing: &proxy.RoutingDeps{PrefixTrimFreeSwitch: &prefixTrimFreeSwitch, EffortEscalation: effortEscalation, AvailableModels: servedModels, DefaultBaselineModel: resolveDefaultBaselineModel(), ExcludedModels: excludedModels,
 			HardPinResolver: hardPinResolver, ExplicitUtilityHardPin: hardPinOverrideConfigured, SubAgentProvider: subAgentProvider, SubAgentModel: subAgentModel,

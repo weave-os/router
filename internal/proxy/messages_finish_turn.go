@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 	"weave-os/router/internal/credentials"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry/respobserve"
 
@@ -29,58 +28,57 @@ import (
 )
 
 type messagesFinishedTurn struct {
-	w                         http.ResponseWriter
-	body                      []byte
-	facts                     requestcontext.RequestFacts
-	requestStart              time.Time
-	rateLimit                 *dispatch.ThrottleLedger
-	log                       *slog.Logger
-	env                       *translate.RequestEnvelope
-	responseBuffer            *responseCostBuffer
-	agentShadowMode           bool
-	sessionKey                [16]byte
-	feats                     translate.RoutingFeatures
-	promptText                string
-	embedInput                string
-	strategy                  router.Strategy
-	taskArm                   taskArmTurn
-	inboundSpiralSignals      conversation.SpiralSignals
-	inboundSpiralReasons      []conversation.SpiralReason
-	inboundSpiralComputed     bool
-	inboundLastUser           translate.LastUserMessageInfo
-	inboundUserPrompt         bool
-	inboundLatestToolCalls    []byte
-	overflowEstimate          int
-	req                       router.Request
-	routeRes                  routingpolicy.TurnRoute
-	decision                  router.Decision
-	tt                        turntype.TurnType
-	stickyHit                 bool
-	pinAgeSec                 int64
-	routeMs                   int64
-	compactionHandoverOutcome handover.Outcome
-	reqPricing                catalog.Pricing
-	actPricing                catalog.Pricing
-	opts                      translate.EmitOptions
-	effortServed              dispatch.EffortResolution
-	contentCap                *capture.Writer
-	policyOutcomeCap          *capture.Writer
-	preludeBuf                *preludeBuffer
-	refusalObs                *respobserve.RefusalObserver
-	toolUseObs                *respobserve.ToolUseObserver
-	streamCut                 *dispatch.StreamCutObserver
-	proxyStart                time.Time
-	proxyErr                  error
-	crossFormat               bool
-	extractor                 *telemetry.UsageExtractor
-	respSummary               translate.ResponseSummary
-	reqStats                  providers.RequestMutationStats
-	marker                    string
-	fastServed                bool
-	rescue                    *dispatch.MessagesRescue
-	winnerIdx                 int
-	finalProvider             string
-	proxyMs                   int64
+	w                      http.ResponseWriter
+	body                   []byte
+	facts                  requestcontext.RequestFacts
+	requestStart           time.Time
+	rateLimit              *dispatch.ThrottleLedger
+	log                    *slog.Logger
+	env                    *translate.RequestEnvelope
+	responseBuffer         *responseCostBuffer
+	agentShadowMode        bool
+	sessionKey             [16]byte
+	feats                  translate.RoutingFeatures
+	promptText             string
+	embedInput             string
+	strategy               router.Strategy
+	taskArm                taskArmTurn
+	inboundSpiralSignals   conversation.SpiralSignals
+	inboundSpiralReasons   []conversation.SpiralReason
+	inboundSpiralComputed  bool
+	inboundLastUser        translate.LastUserMessageInfo
+	inboundUserPrompt      bool
+	inboundLatestToolCalls []byte
+	overflowEstimate       int
+	req                    router.Request
+	routeRes               routingpolicy.TurnRoute
+	decision               router.Decision
+	tt                     turntype.TurnType
+	stickyHit              bool
+	pinAgeSec              int64
+	routeMs                int64
+	reqPricing             catalog.Pricing
+	actPricing             catalog.Pricing
+	opts                   translate.EmitOptions
+	effortServed           dispatch.EffortResolution
+	contentCap             *capture.Writer
+	policyOutcomeCap       *capture.Writer
+	preludeBuf             *preludeBuffer
+	refusalObs             *respobserve.RefusalObserver
+	toolUseObs             *respobserve.ToolUseObserver
+	streamCut              *dispatch.StreamCutObserver
+	proxyStart             time.Time
+	proxyErr               error
+	crossFormat            bool
+	extractor              *telemetry.UsageExtractor
+	respSummary            translate.ResponseSummary
+	reqStats               providers.RequestMutationStats
+	marker                 string
+	fastServed             bool
+	rescue                 *dispatch.MessagesRescue
+	winnerIdx              int
+	finalProvider          string
+	proxyMs                int64
 }
 
 type messagesTurnUsage struct {
@@ -309,9 +307,6 @@ func settleMessagesTurn(ctx context.Context, s *Service, t *messagesFinishedTurn
 	var subscriberSettlement subscriberSettlementState
 	if turnUsageBillable(ctx, t.proxyErr, usage.in, usage.out, usage.cacheCreation, usage.cacheRead) && !t.agentShadowMode {
 		subscriberSettlement = s.emitBilling(ctx, t.facts.RequestID, t.facts.ExternalID, t.feats.Model, t.decision, t.actPricing, t.routeRes, usage.in, usage.out, usage.cacheCreation, usage.cacheRead, usage.usageMods)
-		if t.compactionHandoverOutcome.Invoked && !t.compactionHandoverOutcome.FallbackToFullHistory {
-			s.billAuxiliaryInference(ctx, t.facts.RequestID, auxSuffixCompactionHandoverSummry, t.facts.ExternalID, t.compactionHandoverOutcome.SummaryUsage)
-		}
 	}
 	if subscriberTelemetry != nil {
 		applyTelemetrySettlement(subscriberTelemetry, turnUsageBillable(ctx, t.proxyErr, usage.in, usage.out, usage.cacheCreation, usage.cacheRead), subscriberSettlement)

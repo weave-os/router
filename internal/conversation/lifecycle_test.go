@@ -41,7 +41,6 @@ type configStrategies struct{ sessionstrategy.Store }
 
 func TestConfigureSetsConversationDependencies(t *testing.T) {
 	summarizer := &configSummarizer{}
-	compactionSummarizer := &configSummarizer{}
 	feedbackStore := &configFeedbackStore{}
 	strategies := &configStrategies{}
 	links := feedback.NewLinks(nil, nil, "https://feedback.example", nil, nil)
@@ -50,17 +49,15 @@ func TestConfigureSetsConversationDependencies(t *testing.T) {
 
 	lifecycle := conversation.NewLifecycle()
 	lifecycle.Configure(conversation.Config{
-		Summarizer:                   summarizer,
-		CompactionHandoverSummarizer: compactionSummarizer,
-		RouterFeedbackStore:          feedbackStore,
-		SessionStrategies:            strategies,
-		FeedbackLinks:                links,
-		PiHandoffSecret:              secret,
-		TextRepetitionBreak:          &off,
+		Summarizer:          summarizer,
+		RouterFeedbackStore: feedbackStore,
+		SessionStrategies:   strategies,
+		FeedbackLinks:       links,
+		PiHandoffSecret:     secret,
+		TextRepetitionBreak: &off,
 	})
 
 	assert.Same(t, summarizer, lifecycle.Summarizer())
-	assert.Same(t, compactionSummarizer, lifecycle.CompactionHandoverSummarizer())
 	assert.Same(t, feedbackStore, lifecycle.RouterFeedbackStore())
 	assert.Same(t, strategies, lifecycle.SessionStrategies())
 	assert.Same(t, links, lifecycle.FeedbackLinks())

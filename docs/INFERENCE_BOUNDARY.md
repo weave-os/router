@@ -18,7 +18,6 @@ Router PRs [#884](https://github.com/weave-os/router/pull/884) and [#792](https:
 | Gemini Generate Content | `gemini_generate_content` | main inference | `proxy.Service.ProxyGeminiGenerateContent` | Phase 8 |
 | Switch handover summary | `handover_summary` | auxiliary inference | `proxy.ProviderSummarizer` | Phase 6 |
 | Proactive compaction summary | `precompaction_summary` | auxiliary inference | not invoked (router compaction removed); its reviewed catalog set gates the Claude Code compaction-turn pin | Phase 7 |
-| Post-trim compaction handover | `compaction_handover_summary` | auxiliary inference | `proxy.Service.runCompactionHandover` | Phase 7 |
 | Title generation | ingress purpose by default; `title_generation` for explicit hard pin | auxiliary inference | request-aware scorer without conversation state, or explicit deployment override | Phase 7 |
 | Classifier turn | `classifier` | main inference (scored, no session pin) | ingress surface purpose; `aux-classifier` policy retained but no longer dispatched | Phase 7 |
 | Probe turn | ingress purpose for auto/empty/`weave-*` routing models; `probe` for concrete requested target or explicit override | auxiliary inference | independent scorer without conversation state, concrete requested target, or explicit override | Phase 7 |
@@ -37,7 +36,7 @@ The generated static registry in [`POLICY_INFERENCE.md`](POLICY_INFERENCE.md) is
 
 ## Direct Provider Calls
 
-No production `providers.Client.Proxy`/`Passthrough` call site remains outside `internal/dispatch` and the provider adapters, and none may be added. Named-provider passthrough and the usage-bypass path send through `dispatch.Upstream` from `dispatch.Clients.Upstream`. Handover, compaction-handover, and precompaction summaries run through `dispatch.Buffered` since Phases 6–7; `ProviderSummarizer` no longer holds a provider client.
+No production `providers.Client.Proxy`/`Passthrough` call site remains outside `internal/dispatch` and the provider adapters, and none may be added. Named-provider passthrough and the usage-bypass path send through `dispatch.Upstream` from `dispatch.Clients.Upstream`. Handover and precompaction summaries run through `dispatch.Buffered` since Phases 6–7; `ProviderSummarizer` no longer holds a provider client.
 
 Executor attempts do not hold a provider client: `dispatchPlanned` hands each attempt closure a `dispatch.Upstream` wrapping the client the executor selected and guarded for the planned target, and the closure sends through it.
 

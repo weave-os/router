@@ -66,10 +66,9 @@ targets are unavailable, the router selects a request-compatible model from the
 exhausted set, subject to the same funding authorization. The installation allowlist and request safety constraints still
 apply to both lanes. An empty exhausted set refuses paid fallback. Disabling the sets retains
 ordinary routing; Max continues to ignore linked subscriptions and these sets.
-Paid switch and compaction handover summaries respect the exhausted set instead
-of silently buying an active-only model. If a switch summary is rejected, the
-original history is preserved; if a compaction summary is rejected, the already
-compacted body remains unchanged. Committed streams are never replayed, and
+Paid switch handover summaries respect the exhausted set instead of silently
+buying an active-only model. If a switch summary is rejected, the original
+history is preserved. Committed streams are never replayed, and
 terminal upstream failures are accounted as errors.
 
 A model the user picked in the client (sent with `X-Weave-Model-Passthrough: 1`

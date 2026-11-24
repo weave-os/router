@@ -11,7 +11,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
@@ -28,8 +27,6 @@ type MessagesRescue struct {
 	Extractor            **telemetry.UsageExtractor
 	FastServed           *bool
 	CrossFormat          *bool
-
-	CompactionHandoverOutcome handover.Outcome
 
 	BaselineModel             string
 	BaselineViable            bool
@@ -105,9 +102,6 @@ func (m *MessagesRescue) ArmEarlyStop(ctx context.Context) {
 }
 
 func (m *MessagesRescue) DispatchPrimary(ctx context.Context) {
-	r := m.HTTPRequest
-	log := m.Log
-	env := m.Env
 	routeRes := m.RouteRes
 	feats := m.Feats
 	m.RequestedWindowPassed = routeRes.TurnType != turntype.Compaction &&
@@ -115,12 +109,7 @@ func (m *MessagesRescue) DispatchPrimary(ctx context.Context) {
 	if m.AttemptBuildErr != nil {
 		m.WinnerIdx, m.ProxyErr = -1, m.AttemptBuildErr
 	} else {
-		m.DispatchPrimaryAttempt(ctx, m.BaselineViable || m.SubscriptionRetryEligible || m.RescueArmed, func(target router.Decision) {
-			if !m.AgentShadowMode && !routeRes.AuthoritativePerTurn && target.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.HandoverInvoked && routeRes.PrefixTrimmed {
-				log.Info("Context trimming detected on selected exhausted-state route; rewriting context with handover summary", "decision_model", target.Model)
-				m.CompactionHandoverOutcome = m.Overflow.RunCompactionHandover(ctx, env, r.Header, target.Model, *m.Request)
-			}
-		})
+		m.DispatchPrimaryAttempt(ctx, m.BaselineViable || m.SubscriptionRetryEligible || m.RescueArmed)
 	}
 	if m.SubscriptionStatePaidTargetAttempted {
 		m.SubscriptionRetryEligible = false

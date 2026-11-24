@@ -275,25 +275,6 @@ func TestProviderSummarizer_AttemptEventsCarryRequestID(t *testing.T) {
 	assert.Equal(t, "req-handover-1", events[0].RequestID)
 }
 
-// newTestCompactionSummarizer deploys every model in models so the compaction
-// cascade's candidates are all resolvable bindings.
-func newTestCompactionSummarizer(t *testing.T, fake providers.Client, compactionModel string, models ...string) *ProviderSummarizer {
-	t.Helper()
-	available := map[string]struct{}{providers.ProviderAnthropic: {}}
-	deployed := map[string]struct{}{policy.HandoverSummaryDefaultModel: {}}
-	for _, m := range models {
-		deployed[m] = struct{}{}
-	}
-	plans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
-		deployed, available, func(m catalog.Model) string { return m.ID }, policy.ProviderPolicy{}))
-	require.NoError(t, err)
-	executor, err := dispatch.NewExecutor(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: fake}))
-	require.NoError(t, err)
-	return NewProviderSummarizer(plans, executor, providers.ProviderAnthropic, "", 200*time.Millisecond).
-		WithCompactionModel(compactionModel).
-		WithCompactionTimeout(200 * time.Millisecond)
-}
-
 func TestProviderSummarizer_RequestScopeExcludesSummaryModelBeforeIO(t *testing.T) {
 	t.Parallel()
 
@@ -325,21 +306,4 @@ func TestProviderSummarizer_RequestScopeExcludesSummaryModelBeforeIO(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, "Refactor in progress: step 1 done, step 2 pending.", got)
 	assert.Equal(t, 1, fake.calls)
-}
-
-func TestProviderSummarizer_CompactionHandoverUsesCompactionPolicy(t *testing.T) {
-	t.Parallel()
-
-	env, err := translate.ParseAnthropic([]byte(sampleConversation))
-	require.NoError(t, err)
-
-	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
-	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel)
-
-	got, usage, err := s.CompactionHandover().Summarize(context.Background(), env, router.Request{})
-	require.NoError(t, err)
-	assert.NotEmpty(t, got)
-	assert.Equal(t, []string{policy.PrecompactionDefaultModel}, fake.wireModels)
-	assert.Equal(t, policy.PrecompactionDefaultModel, usage.Model)
-	assert.Equal(t, int64(DefaultHandoverMaxTokens), fake.maxTokens[0])
 }

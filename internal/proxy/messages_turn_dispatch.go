@@ -14,7 +14,6 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
@@ -31,46 +30,45 @@ import (
 )
 
 type messagesTurnDispatch struct {
-	s                         *Service
-	w                         http.ResponseWriter
-	r                         *http.Request
-	body                      []byte
-	requestStart              time.Time
-	facts                     requestcontext.RequestFacts
-	rateLimit                 *dispatch.ThrottleLedger
-	log                       *slog.Logger
-	env                       *translate.RequestEnvelope
-	sessionKey                [sessionpin.SessionKeyLen]byte
-	feats                     translate.RoutingFeatures
-	promptText                string
-	embedInput                string
-	strategy                  router.Strategy
-	taskArm                   taskArmTurn
-	inboundLastUser           translate.LastUserMessageInfo
-	inboundUserPrompt         bool
-	inboundLatestToolCalls    []byte
-	inboundSpiralSignals      conversation.SpiralSignals
-	inboundSpiralReasons      []conversation.SpiralReason
-	inboundSpiralComputed     bool
-	req                       router.Request
-	routeRes                  routingpolicy.TurnRoute
-	routeMs                   int64
-	decision                  router.Decision
-	tt                        turntype.TurnType
-	stickyHit                 bool
-	pinAgeSec                 int64
-	reqPricing                catalog.Pricing
-	actPricing                catalog.Pricing
-	effortServed              dispatch.EffortResolution
-	opts                      translate.EmitOptions
-	replayedModel             string
-	footerEchoed              bool
-	agentShadowMode           bool
-	responseBuffer            *responseCostBuffer
-	overflowEstimate          int
-	outputReserve             int
-	compactionHandoverOutcome handover.Outcome
-	escalationCapture         **capture.Writer
+	s                      *Service
+	w                      http.ResponseWriter
+	r                      *http.Request
+	body                   []byte
+	requestStart           time.Time
+	facts                  requestcontext.RequestFacts
+	rateLimit              *dispatch.ThrottleLedger
+	log                    *slog.Logger
+	env                    *translate.RequestEnvelope
+	sessionKey             [sessionpin.SessionKeyLen]byte
+	feats                  translate.RoutingFeatures
+	promptText             string
+	embedInput             string
+	strategy               router.Strategy
+	taskArm                taskArmTurn
+	inboundLastUser        translate.LastUserMessageInfo
+	inboundUserPrompt      bool
+	inboundLatestToolCalls []byte
+	inboundSpiralSignals   conversation.SpiralSignals
+	inboundSpiralReasons   []conversation.SpiralReason
+	inboundSpiralComputed  bool
+	req                    router.Request
+	routeRes               routingpolicy.TurnRoute
+	routeMs                int64
+	decision               router.Decision
+	tt                     turntype.TurnType
+	stickyHit              bool
+	pinAgeSec              int64
+	reqPricing             catalog.Pricing
+	actPricing             catalog.Pricing
+	effortServed           dispatch.EffortResolution
+	opts                   translate.EmitOptions
+	replayedModel          string
+	footerEchoed           bool
+	agentShadowMode        bool
+	responseBuffer         *responseCostBuffer
+	overflowEstimate       int
+	outputReserve          int
+	escalationCapture      **capture.Writer
 
 	bindings                []catalog.ProviderBinding
 	streamCost              *streamCostWriter
@@ -282,14 +280,13 @@ func (t *messagesTurnDispatch) dispatchAttempts(ctx, fundingCtx context.Context)
 		Feats:           t.feats,
 		AgentShadowMode: t.agentShadowMode,
 
-		EarlyStop:                 t.earlyStop,
-		NoteStreamCut:             t.streamCut.NoteCut,
-		AttemptBuildErr:           attemptBuildErr,
-		AnthropicTierAttempt:      boundTierAttempt(t.anthropicTierAttemptFor, t.recordFastServed),
-		Extractor:                 &t.extractor,
-		FastServed:                &t.fastServed,
-		CrossFormat:               &t.crossFormat,
-		CompactionHandoverOutcome: t.compactionHandoverOutcome,
+		EarlyStop:            t.earlyStop,
+		NoteStreamCut:        t.streamCut.NoteCut,
+		AttemptBuildErr:      attemptBuildErr,
+		AnthropicTierAttempt: boundTierAttempt(t.anthropicTierAttemptFor, t.recordFastServed),
+		Extractor:            &t.extractor,
+		FastServed:           &t.fastServed,
+		CrossFormat:          &t.crossFormat,
 	}
 	t.rescue.FlushErr = t.rescue.FlushErrAsAnthropic
 	t.rescue.ArmBaseline(ctx)
@@ -306,7 +303,6 @@ func (t *messagesTurnDispatch) dispatchAttempts(ctx, fundingCtx context.Context)
 	t.rescue.SiblingRescue(ctx)
 	t.rescue.Finish(ctx)
 	t.decision, t.marker, t.proxyErr, t.effortServed = t.rescue.Decision, t.rescue.Marker, t.rescue.ProxyErr, t.rescue.EffortServed
-	t.compactionHandoverOutcome = t.rescue.CompactionHandoverOutcome
 	t.winnerIdx, t.finalProvider = t.rescue.WinnerIdx, t.rescue.FinalProvider
 	return ctx, nil
 }
@@ -336,7 +332,7 @@ func (t *messagesTurnDispatch) finishTurn(ctx context.Context) error {
 		env: t.env, responseBuffer: t.responseBuffer, agentShadowMode: t.agentShadowMode, sessionKey: t.sessionKey, feats: t.feats, promptText: t.promptText,
 		embedInput: t.embedInput, strategy: t.strategy, taskArm: t.taskArm, inboundSpiralSignals: t.inboundSpiralSignals, inboundSpiralReasons: t.inboundSpiralReasons, inboundSpiralComputed: t.inboundSpiralComputed,
 		inboundLastUser: t.inboundLastUser, inboundUserPrompt: t.inboundUserPrompt, inboundLatestToolCalls: t.inboundLatestToolCalls, overflowEstimate: t.overflowEstimate, req: t.req, routeRes: t.routeRes,
-		decision: t.decision, tt: t.tt, stickyHit: t.stickyHit, pinAgeSec: t.pinAgeSec, routeMs: t.routeMs, compactionHandoverOutcome: t.compactionHandoverOutcome,
+		decision: t.decision, tt: t.tt, stickyHit: t.stickyHit, pinAgeSec: t.pinAgeSec, routeMs: t.routeMs,
 		reqPricing: t.reqPricing, actPricing: t.actPricing, opts: t.opts, effortServed: t.effortServed, contentCap: t.contentCap, policyOutcomeCap: t.policyOutcomeCap,
 		preludeBuf: t.preludeBuf, refusalObs: t.refusalObs, toolUseObs: t.toolUseObs, streamCut: t.streamCut, proxyStart: t.proxyStart, proxyErr: t.proxyErr,
 		crossFormat: t.crossFormat, extractor: t.extractor, respSummary: t.respSummary, reqStats: t.reqStats, marker: t.marker, fastServed: t.fastServed,

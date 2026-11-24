@@ -11,30 +11,27 @@ import (
 )
 
 type Lifecycle struct {
-	noProgress                   *NoProgressTracker
-	compaction                   *CompactionTracker
-	textRepetitionBreak          bool
-	summarizer                   handover.Summarizer
-	compactionHandoverSummarizer handover.Summarizer
-	routerFeedback               feedback.RouterFeedbackStore
-	sessionStrategies            sessionstrategy.Store
-	piHandoffSecret              []byte
-	feedbackLinks                *feedback.Links
+	noProgress          *NoProgressTracker
+	compaction          *CompactionTracker
+	textRepetitionBreak bool
+	summarizer          handover.Summarizer
+	routerFeedback      feedback.RouterFeedbackStore
+	sessionStrategies   sessionstrategy.Store
+	piHandoffSecret     []byte
+	feedbackLinks       *feedback.Links
 }
 
 type Config struct {
-	Summarizer                   handover.Summarizer
-	CompactionHandoverSummarizer handover.Summarizer
-	RouterFeedbackStore          feedback.RouterFeedbackStore
-	SessionStrategies            sessionstrategy.Store
-	FeedbackLinks                *feedback.Links
-	PiHandoffSecret              string
-	TextRepetitionBreak          *bool
+	Summarizer          handover.Summarizer
+	RouterFeedbackStore feedback.RouterFeedbackStore
+	SessionStrategies   sessionstrategy.Store
+	FeedbackLinks       *feedback.Links
+	PiHandoffSecret     string
+	TextRepetitionBreak *bool
 }
 
 func (l *Lifecycle) Configure(cfg Config) {
 	l.summarizer = cfg.Summarizer
-	l.compactionHandoverSummarizer = cfg.CompactionHandoverSummarizer
 	l.routerFeedback = cfg.RouterFeedbackStore
 	l.sessionStrategies = cfg.SessionStrategies
 	l.feedbackLinks = cfg.FeedbackLinks
@@ -85,17 +82,6 @@ func (l *Lifecycle) Summarizer() handover.Summarizer {
 
 func (l *Lifecycle) SetSummarizer(summarizer handover.Summarizer) {
 	l.summarizer = summarizer
-}
-
-func (l *Lifecycle) CompactionHandoverSummarizer() handover.Summarizer {
-	if l == nil {
-		return nil
-	}
-	return l.compactionHandoverSummarizer
-}
-
-func (l *Lifecycle) SetCompactionHandoverSummarizer(summarizer handover.Summarizer) {
-	l.compactionHandoverSummarizer = summarizer
 }
 
 func (l *Lifecycle) RouterFeedbackStore() feedback.RouterFeedbackStore {

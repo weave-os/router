@@ -5,30 +5,29 @@ import "weave-os/router/internal/inference"
 type Purpose = inference.Purpose
 
 const (
-	PurposeAnthropicMessages         = inference.PurposeAnthropicMessages
-	PurposeOpenAIChatCompletions     = inference.PurposeOpenAIChatCompletions
-	PurposeOpenAIResponses           = inference.PurposeOpenAIResponses
-	PurposeGeminiGenerateContent     = inference.PurposeGeminiGenerateContent
-	PurposeEscalationJudge           = inference.PurposeEscalationJudge
-	PurposeHandoverSummary           = inference.PurposeHandoverSummary
-	PurposePrecompactionSummary      = inference.PurposePrecompactionSummary
-	PurposeCompactionHandoverSummary = inference.PurposeCompactionHandoverSummary
-	PurposeTitleGeneration           = inference.PurposeTitleGeneration
-	PurposeClassifier                = inference.PurposeClassifier
-	PurposeProbe                     = inference.PurposeProbe
-	PurposeSubAgentDispatch          = inference.PurposeSubAgentDispatch
-	PurposeClientCompaction          = inference.PurposeClientCompaction
-	PurposeAgentShadowEvaluation     = inference.PurposeAgentShadowEvaluation
-	PurposeCountTokens               = inference.PurposeCountTokens
-	PurposeUpstreamModelListing      = inference.PurposeUpstreamModelListing
-	PurposePolicySidecarDecision     = inference.PurposePolicySidecarDecision
-	PurposePolicySidecarPreview      = inference.PurposePolicySidecarPreview
-	PurposePolicySidecarOutcome      = inference.PurposePolicySidecarOutcome
-	PurposePolicySidecarFeedback     = inference.PurposePolicySidecarFeedback
-	PurposeTaskDomainClassification  = inference.PurposeTaskDomainClassification
-	PurposeClusterEmbedding          = inference.PurposeClusterEmbedding
-	PurposeSemanticCacheEmbedding    = inference.PurposeSemanticCacheEmbedding
-	PurposeNativeWebSearch           = inference.PurposeNativeWebSearch
+	PurposeAnthropicMessages        = inference.PurposeAnthropicMessages
+	PurposeOpenAIChatCompletions    = inference.PurposeOpenAIChatCompletions
+	PurposeOpenAIResponses          = inference.PurposeOpenAIResponses
+	PurposeGeminiGenerateContent    = inference.PurposeGeminiGenerateContent
+	PurposeEscalationJudge          = inference.PurposeEscalationJudge
+	PurposeHandoverSummary          = inference.PurposeHandoverSummary
+	PurposePrecompactionSummary     = inference.PurposePrecompactionSummary
+	PurposeTitleGeneration          = inference.PurposeTitleGeneration
+	PurposeClassifier               = inference.PurposeClassifier
+	PurposeProbe                    = inference.PurposeProbe
+	PurposeSubAgentDispatch         = inference.PurposeSubAgentDispatch
+	PurposeClientCompaction         = inference.PurposeClientCompaction
+	PurposeAgentShadowEvaluation    = inference.PurposeAgentShadowEvaluation
+	PurposeCountTokens              = inference.PurposeCountTokens
+	PurposeUpstreamModelListing     = inference.PurposeUpstreamModelListing
+	PurposePolicySidecarDecision    = inference.PurposePolicySidecarDecision
+	PurposePolicySidecarPreview     = inference.PurposePolicySidecarPreview
+	PurposePolicySidecarOutcome     = inference.PurposePolicySidecarOutcome
+	PurposePolicySidecarFeedback    = inference.PurposePolicySidecarFeedback
+	PurposeTaskDomainClassification = inference.PurposeTaskDomainClassification
+	PurposeClusterEmbedding         = inference.PurposeClusterEmbedding
+	PurposeSemanticCacheEmbedding   = inference.PurposeSemanticCacheEmbedding
+	PurposeNativeWebSearch          = inference.PurposeNativeWebSearch
 )
 
 var knownPurposes = []Purpose{
@@ -39,7 +38,6 @@ var knownPurposes = []Purpose{
 	PurposeEscalationJudge,
 	PurposeHandoverSummary,
 	PurposePrecompactionSummary,
-	PurposeCompactionHandoverSummary,
 	PurposeTitleGeneration,
 	PurposeClassifier,
 	PurposeProbe,

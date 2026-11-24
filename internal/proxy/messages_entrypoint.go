@@ -16,7 +16,6 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
@@ -219,15 +218,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	logPlannerOutcome(ctx, s.strategyPorts, routeRes)
 
 	postOutcome, err := conversation.PostRouteChecks{
-		AgentShadowMode: agentShadowMode, Route: routeRes, Env: env, Features: feats, PromptText: promptText, ToolCallCount: inboundToolCallCount,
+		AgentShadowMode: agentShadowMode, Route: routeRes, Env: env, Features: feats, PromptText: promptText,
 		ToolBearing: inboundToolCallCount > 0 || inboundLastUser.HasToolResult, ClientBudget: clientBudget, Scope: req,
 		LoopBreak:  newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, roleForTier(catalog.TierFor(feats.Model)), decision),
 		NoProgress: s.lifecycle.NoProgress(), Now: s.clock.Now, TextRepetitionEnabled: s.lifecycle.TextRepetitionBreakEnabled(ctx),
 		RecoverClientCompaction: !callerModelPassthroughActive(ctx), SummaryMaxTokens: DefaultCompactionMaxTokens, ClientDefaultWindow: claudeCodeDefaultWindow,
-		HandoverEligible: !subscriptionStateModelsEnabled(ctx) && decision.Provider != providers.ProviderAnthropic,
-		RunCompactionHandover: func(ctx context.Context) handover.Outcome {
-			return s.runCompactionHandover(ctx, env, r.Header, decision.Model, req)
-		},
 	}.Run(ctx)
 	if err != nil {
 		return err
@@ -235,7 +230,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if postOutcome.LoopStopped {
 		return writeLoopStop(ctx, w, env, postOutcome.LoopStopMessage, feats.Tokens)
 	}
-	compactionHandoverOutcome := postOutcome.CompactionHandover
 
 	credentialCtx := credentials.ResolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
@@ -292,7 +286,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		inboundSpiralReasons: inboundSpiralReasons, inboundSpiralComputed: inboundSpiralComputed, req: req, routeRes: routeRes, routeMs: routeMs,
 		decision: decision, tt: tt, stickyHit: stickyHit, pinAgeSec: pinAgeSec, reqPricing: reqPricing, actPricing: actPricing, effortServed: effortServed,
 		opts: opts, replayedModel: replayedModel, footerEchoed: footerEchoed, agentShadowMode: agentShadowMode, responseBuffer: responseBuffer,
-		overflowEstimate: overflowEstimate, outputReserve: outputReserve, compactionHandoverOutcome: compactionHandoverOutcome,
+		overflowEstimate: overflowEstimate, outputReserve: outputReserve,
 		escalationCapture: &escalationCapture,
 	})
 	return err

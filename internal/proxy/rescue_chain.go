@@ -22,8 +22,6 @@ func rescueTurnOf(res routingpolicy.TurnRoute) dispatch.RescueTurn {
 		FreshMetadata:               res.Fresh.Metadata,
 		PriorServedModel:            res.PriorServedModel,
 		SessionEverSwitched:         res.SessionEverSwitched,
-		HandoverInvoked:             res.Handover.Invoked,
-		PrefixTrimmed:               res.PrefixTrimmed,
 		EscalateEffort:              res.EscalateEffort,
 		TranslationEnabledProviders: res.TranslationEnabledProviders,
 	}

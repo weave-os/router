@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"time"
 
-	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -38,17 +37,13 @@ const handoverInstruction = "Summarize the conversation so far in <= 800 tokens.
 
 const DefaultCompactionMaxTokens = 4000
 
-const DefaultCompactionTimeout = 90 * time.Second
-
 type ProviderSummarizer struct {
-	plans             *policy.PlanResolver
-	executor          *dispatch.Executor
-	provider          string
-	model             string
-	timeout           time.Duration
-	maxTokens         int
-	compactionTimeout time.Duration
-	compactionModel   string
+	plans     *policy.PlanResolver
+	executor  *dispatch.Executor
+	provider  string
+	model     string
+	timeout   time.Duration
+	maxTokens int
 }
 
 func NewProviderSummarizer(plans *policy.PlanResolver, executor *dispatch.Executor, provider, model string, timeout time.Duration) *ProviderSummarizer {
@@ -62,26 +57,13 @@ func NewProviderSummarizer(plans *policy.PlanResolver, executor *dispatch.Execut
 		timeout = DefaultHandoverTimeout
 	}
 	return &ProviderSummarizer{
-		plans:             plans,
-		executor:          executor,
-		provider:          provider,
-		model:             model,
-		timeout:           timeout,
-		maxTokens:         DefaultHandoverMaxTokens,
-		compactionTimeout: DefaultCompactionTimeout,
+		plans:     plans,
+		executor:  executor,
+		provider:  provider,
+		model:     model,
+		timeout:   timeout,
+		maxTokens: DefaultHandoverMaxTokens,
 	}
-}
-
-func (s *ProviderSummarizer) WithCompactionTimeout(d time.Duration) *ProviderSummarizer {
-	if d > 0 {
-		s.compactionTimeout = d
-	}
-	return s
-}
-
-func (s *ProviderSummarizer) WithCompactionModel(model string) *ProviderSummarizer {
-	s.compactionModel = model
-	return s
 }
 
 func (s *ProviderSummarizer) WithMaxTokens(n int) *ProviderSummarizer {
@@ -107,27 +89,6 @@ func (s *ProviderSummarizer) Summarize(ctx context.Context, env *translate.Reque
 		return "", handover.Usage{}, err
 	}
 	return s.run(ctx, env, plan, handoverInstruction, s.maxTokens, s.timeout)
-}
-
-func (s *ProviderSummarizer) CompactionHandover() handover.Summarizer {
-	return compactionHandoverSummarizer{s}
-}
-
-type compactionHandoverSummarizer struct{ *ProviderSummarizer }
-
-func (c compactionHandoverSummarizer) Summarize(ctx context.Context, env *translate.RequestEnvelope, scope router.Request) (string, handover.Usage, error) {
-	request := policy.ResolutionRequest{
-		Purpose:       policy.PurposeCompactionHandoverSummary,
-		RouterRequest: summarizerRequest(scope, env),
-	}
-	if c.compactionModel != "" {
-		request.Overrides = []policy.TargetOverride{{Source: policy.OverrideSourceDeployment, CatalogID: c.compactionModel, Provider: c.provider}}
-	}
-	plan, err := c.resolve(ctx, request)
-	if err != nil {
-		return "", handover.Usage{}, err
-	}
-	return c.run(ctx, env, plan, handoverInstruction, c.maxTokens, c.compactionTimeout)
 }
 
 func summarizerRequest(scope router.Request, env *translate.RequestEnvelope) router.Request {
@@ -325,15 +286,3 @@ func extractAnthropicAssistantText(body []byte) string {
 }
 
 var _ handover.Summarizer = (*ProviderSummarizer)(nil)
-
-func (s *Service) runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) handover.Outcome {
-	summarizer := s.lifecycle.Summarizer()
-	if compactionSummarizer := s.lifecycle.CompactionHandoverSummarizer(); compactionSummarizer != nil {
-		summarizer = compactionSummarizer
-	}
-	return conversation.CompactionHandover{
-		Summarizer: summarizer,
-		Access:     summarizerAccess{s: s, headers: reqHeaders},
-		Now:        s.clock.Now,
-	}.Run(ctx, env, decisionModel, scope)
-}
