@@ -1,9 +1,6 @@
 package catalog
 
-import (
-	"weave-os/router/internal/providers"
-	"weave-os/router/internal/router"
-)
+import "weave-os/router/internal/providers"
 
 const ModelGPT6Luna = "gpt-6-luna"
 
@@ -115,10 +112,6 @@ const (
 type ModelID string
 
 const (
-	ModelIDGemini4Argon       ModelID = router.ModelGemini4Argon
-	ModelIDGemini4Neon        ModelID = router.ModelGemini4Neon
-	ModelIDGemini4Carbon      ModelID = router.ModelGemini4Carbon
-	ModelIDGemini4Hydrogen    ModelID = router.ModelGemini4Hydrogen
 	ModelIDClaudeHaiku45      ModelID = "claude-haiku-4-5"
 	ModelIDClaudeHaiku55      ModelID = "claude-haiku-5-5"
 	ModelIDGPT41Nano          ModelID = "gpt-4.1-nano"

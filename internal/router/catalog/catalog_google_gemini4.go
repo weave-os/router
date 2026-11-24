@@ -1,6 +1,16 @@
 package catalog
 
-import "weave-os/router/internal/providers"
+import (
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+)
+
+const (
+	ModelIDGemini4Argon    ModelID = router.ModelGemini4Argon
+	ModelIDGemini4Carbon   ModelID = router.ModelGemini4Carbon
+	ModelIDGemini4Hydrogen ModelID = router.ModelGemini4Hydrogen
+	ModelIDGemini4Neon     ModelID = router.ModelGemini4Neon
+)
 
 var googleGemini4Models = []Model{
 	{ID: ModelIDGemini4Carbon.String(), Source: SourceClosedSource, RequiresSignedToolHistory: true, ContextWindow: 1_048_576, Providers: []ProviderBinding{
