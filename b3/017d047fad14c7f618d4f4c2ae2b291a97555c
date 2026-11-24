@@ -1,0 +1,99 @@
+internal/postgres/dbbudget/budget.go
+  s_94b2e4e59b0016::t_bb691c176c2890 1-150
+internal/postgres/subscriber_allowance_repo.go
+  s_94b2e4e59b0016::t_227c0d9f7b67fc 13,34-35,107
+scripts/database_budget_check/main.go
+  s_94b2e4e59b0016::t_1d55774ffa4932 23,25,109,162-165,167-168
+  s_94b2e4e59b0016::t_e2b3130d8a367a 2,132,149,169-172
+  s_94b2e4e59b0016::t_413d524c4d81c8 127
+  s_94b2e4e59b0016::t_c1cf54453743e6 24,110,182-183
+  s_94b2e4e59b0016::t_7f4275c0086b6e 1,16
+  s_94b2e4e59b0016::t_74e415ebdee305 3-15,17-20,26-58,60-64,75-108,111-114,128,130,133-134,136-147,150-161,166,176-181,184-185
+  s_94b2e4e59b0016::t_03dc96718a0637 21-22,59,65-74,115-126,129,131,135,148,173-175
+internal/postgres/classifier_session_repo.go
+  s_94b2e4e59b0016::t_227c0d9f7b67fc 16,36,59-60
+internal/postgres/poolconfig/timeouts_test.go
+  s_94b2e4e59b0016::t_afad9b0204e78b 1-20
+cmd/router/main.go
+  s_94b2e4e59b0016::t_0cdb56f5e64d6e 106
+  s_94b2e4e59b0016::t_91f3e129898e0f 37
+internal/postgres/poolconfig/timeouts.go
+  s_94b2e4e59b0016::t_afad9b0204e78b 1-17
+internal/postgres/llm_escalation_repo.go
+  s_94b2e4e59b0016::t_227c0d9f7b67fc 15,43-44,84-85,171-172,207-208,254-255,339,345,363,380,413,438,456,471,492
+internal/postgres/credential_subject_repo.go
+  s_94b2e4e59b0016::t_227c0d9f7b67fc 13,36-37,83-84,153-154
+internal/postgres/escalation_repo.go
+  s_94b2e4e59b0016::t_227c0d9f7b67fc 11,41-42,85,117-118,140,158-159,183,197,212,228
+.github/workflows/test.yml
+  s_94b2e4e59b0016::t_e2b3130d8a367a 211-215
+internal/postgres/subscriber_credit_repo.go
+  s_94b2e4e59b0016::t_227c0d9f7b67fc 9,32-33,101,170,249
+cmd/router-gateway/main.go
+  s_94b2e4e59b0016::t_4149d9f819eadb 22,24,77,84
+  s_94b2e4e59b0016::t_0cdb56f5e64d6e 50
+internal/postgres/analytics_repo.go
+  s_94b2e4e59b0016::t_424620d5a6dbe1 8,44
+internal/postgres/billing_repo.go
+  s_94b2e4e59b0016::t_da62b1a7d699bc 8,32,46,58,98,118,136,152,182
+internal/postgres/blind_experiment_repo.go
+  s_94b2e4e59b0016::t_c951663a7dea9c 9,31
+internal/postgres/cluster_model_list_repo.go
+  s_94b2e4e59b0016::t_649f7c7012b2d6 7,27
+internal/postgres/escalation_check_fixture.go
+  s_94b2e4e59b0016::t_13cb7eaf2b4d50 10,28
+internal/postgres/escalation_dashboard.go
+  s_94b2e4e59b0016::t_d6658476e33163 13,30,56
+internal/postgres/external_api_key_repo.go
+  s_94b2e4e59b0016::t_2221926aa591e8 11,39,75,106,126,150,162
+internal/postgres/feedback.go
+  s_94b2e4e59b0016::t_8e870a465c6828 7,39,61
+internal/postgres/flag_definitions.go
+  s_94b2e4e59b0016::t_015e95066377dd 8,33
+internal/postgres/global_automatic_exclusions_repo.go
+  s_94b2e4e59b0016::t_939207d87d801c 6,27
+internal/postgres/llm_escalation_check_fixture.go
+  s_94b2e4e59b0016::t_a9fe08d78154fe 7,23
+internal/postgres/llm_escalation_config.go
+  s_94b2e4e59b0016::t_18e15e739e1aaf 13,26,68
+internal/postgres/repository.go
+  s_94b2e4e59b0016::t_872ee92e83822d 12,70,87,99,116,128,140,163,186,209,229,249,270,290,310,330,354,378,396,409,426,442
+internal/postgres/request_identity_repo.go
+  s_94b2e4e59b0016::t_a802e943eb3d24 7,27
+internal/postgres/routing_policy_repo.go
+  s_94b2e4e59b0016::t_72a69f65c589f9 7,23,39
+internal/postgres/serving/admission.go
+  s_94b2e4e59b0016::t_b509a19c71c4f9 21,74
+internal/postgres/serving/attribution.go
+  s_94b2e4e59b0016::t_6e112547d1249d 10,19
+internal/postgres/session_pin_repo.go
+  s_94b2e4e59b0016::t_dfb603d22da8bb 10,32,48,64,93,115,133,144,162,174,187,200,214
+internal/postgres/session_strategy_repo.go
+  s_94b2e4e59b0016::t_8406df76ff7dea 8,30,53,63
+internal/postgres/subscriber_entitlement_repo.go
+  s_94b2e4e59b0016::t_0fca428fc6461f 13,25
+internal/postgres/subscription_repo.go
+  s_94b2e4e59b0016::t_a114c6ff0fb6af 10,48,66,96,114,140,165,187,208,233,259,278,293,333,389,414
+internal/postgres/telemetry.go
+  s_94b2e4e59b0016::t_ec9d18dcd1db5a 9,59,91,278,326,343,357,383,406,421,437,450,473,516,535,580,624,759,775,795,1000
+internal/postgres/user_cluster_model_list_repo.go
+  s_94b2e4e59b0016::t_38c0188b1659fb 7,27
+internal/postgres/user_repo.go
+  s_94b2e4e59b0016::t_2d824f2e67aed8 7,28,61,78,91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b3017d047fad14c7f618d4f4c2ae2b291a97555c",
+  "prompts": {},
+  "sessions": {
+    "s_94b2e4e59b0016": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e9a8-459f-7de1-8b25-c642f955c9d7",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

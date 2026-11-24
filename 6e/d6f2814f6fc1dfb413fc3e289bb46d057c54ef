@@ -1,0 +1,19 @@
+install/vscode/src/extension.ts
+  s_1ce6a53dd78954::t_af4346bd50d285 17-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6ed6f2814f6fc1dfb413fc3e289bb46d057c54ef",
+  "prompts": {},
+  "sessions": {
+    "s_1ce6a53dd78954": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f62c-544b-7f61-8096-d1dae027f4c6",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Shi Hao Hong <shihao.workweave.ai>"
+    }
+  }
+}

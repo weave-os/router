@@ -1,0 +1,20 @@
+install/install.sh
+  h_16c9377d4ebc00 1437-1455
+install/registry.sh
+  h_16c9377d4ebc00 56-74
+install/tests/registry_test.sh
+  h_16c9377d4ebc00 323-350
+install/uninstall.sh
+  h_16c9377d4ebc00 104-122,559-560,562-573,575-589,591
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "85d5e42c05533a14c3e0645558c02cac2c9e95f6",
+  "prompts": {},
+  "humans": {
+    "h_16c9377d4ebc00": {
+      "author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

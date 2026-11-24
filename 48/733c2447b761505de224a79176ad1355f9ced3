@@ -1,0 +1,32 @@
+install/install.sh
+  s_b1931d2e578d24::t_f4cd41e34044a7 6214,6278
+  s_b1931d2e578d24::t_7a3a9d3cafbaf3 6216-6227,6229-6236,6238,6306,6310
+  s_b1931d2e578d24::t_6396e8e8e5e4e5 6215,6228,6237,6259,6276,6281-6285,6293-6305
+  s_b1931d2e578d24::t_9910bf61387f22 6239-6242,6248-6250,6257-6258,6307-6309,6311-6331,6393
+install/uninstall.sh
+  s_b1931d2e578d24::t_488df10fa7593d 1151-1157,1190-1193,1195,1206-1210,1225,1234,1236
+  s_b1931d2e578d24::t_fefd773f14fc2e 1235,1237-1238
+install/tests/organization_policy_hook_test.sh
+  s_b1931d2e578d24::t_d433990446c7c6 1-6,8-75,77-81,91-92
+  s_b1931d2e578d24::t_259f9aca2cdfc9 76
+  s_b1931d2e578d24::t_4ec1acbcc4ad9d 7,82-90
+  s_b1931d2e578d24::t_efa8d2b8acb6fa 93-107
+Makefile
+  s_b1931d2e578d24::t_d30bf283decb75 82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "48733c2447b761505de224a79176ad1355f9ced3",
+  "prompts": {},
+  "sessions": {
+    "s_b1931d2e578d24": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e2e-131f-7810-9724-179c8c8de9f4",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}

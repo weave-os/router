@@ -1,0 +1,76 @@
+install/install.sh
+  s_799f504049b9af::t_d2494a4acf470e 3379-3381,3395
+install/pi-router/test/force-model.test.ts
+  s_799f504049b9af::t_2914a57bf83558 82,86-98,103-104
+  s_799f504049b9af::t_fd0ff725ef1859 99-102
+internal/translate/force_model.go
+  s_799f504049b9af::t_067e76fdceb223 203-211,224-249
+  s_799f504049b9af::t_fc5f6a9f3f281d 250,256
+  s_799f504049b9af::t_a3e0ac6da940d4 22,26-28,31-35,39-44,47
+  s_799f504049b9af::t_280cb034fb9a2e 138-148,152,168-171,176-179,201-202,212-223,251-255
+internal/proxy/force_model.go
+  s_799f504049b9af::t_2bc1055d3c3206 200-207,227-231,237,241-277,280,282-283,296-316
+  s_799f504049b9af::t_3761b7dd52a481 232-236,238-240
+  s_799f504049b9af::t_a6bcfc3c7dd947 278-279,281,284-295
+  s_799f504049b9af::t_00bf90d0fefab4 477-485,504-505,511
+  s_799f504049b9af::t_bd6ec92406a0e7 156-164
+  s_799f504049b9af::t_a1fbe75a696a8a 317
+install/cc-statusline.sh
+  s_799f504049b9af::t_d2494a4acf470e 586-588,602
+install/pi-router/src/force-model.ts
+  s_799f504049b9af::t_bebc3b11e34486 108-111
+  s_799f504049b9af::t_63350609376c16 47-49
+  s_799f504049b9af::t_b21ba3989acf05 59-61
+docs/CONFIGURATION.md
+  s_799f504049b9af::t_9914b86220aa9b 346-360
+  s_799f504049b9af::t_2cb1dab6fb5e12 367
+install/commands/fm.md
+  s_799f504049b9af::t_cd876f41e4a1a6 3
+internal/translate/force_model_test.go
+  s_799f504049b9af::t_ebdc45dc3ab6df 208,248,266,289,316,343,356
+  s_799f504049b9af::t_566b9270722358 13-26
+  s_799f504049b9af::t_528f54af4f5422 223-241
+  s_799f504049b9af::t_a201715b87d29f 128-152
+  s_799f504049b9af::t_30654e11c9e2a2 86-100,103-127
+  s_799f504049b9af::t_9e8844dfc72c26 153-154
+install/commands/force-model.md
+  s_799f504049b9af::t_ed49a43a441ee1 3
+internal/proxy/service.go
+  s_799f504049b9af::t_8711761945f1d2 2405
+  s_799f504049b9af::t_8f5eac3403f8e0 4836
+internal/proxy/force_model_listing.go
+  s_799f504049b9af::t_0f43c76e5b2728 221-225,239-241,243-244,249-251,281-285
+  s_799f504049b9af::t_1b056c5074d407 242,245-248,254-258,260-262,266-268
+  s_799f504049b9af::t_85ec9aed7dc0aa 55,70-83
+  s_799f504049b9af::t_8f45aad4f163cd 297-304
+  s_799f504049b9af::t_965690f6ded088 90
+  s_799f504049b9af::t_c3935c733a3b7f 137
+  s_799f504049b9af::t_9d98119db853e4 232-234
+  s_799f504049b9af::t_d924f19141e92f 1-54,56-69,84-89,91-136,138-192
+  s_799f504049b9af::t_46a28dcabad74a 193-220,226-231,235-238,252-253,259,263-265,269-280,286-296
+internal/proxy/force_model_listing_internal_test.go
+  s_799f504049b9af::t_26d185783cb140 1-4,7-13,15-19,22-30,36-196,203-204
+  s_799f504049b9af::t_dc6da23ae95f49 5-6,14
+  s_799f504049b9af::t_1f78248f2ed7e3 20-21,31-35
+  s_799f504049b9af::t_4ff41ad45d140f 205-306
+  s_799f504049b9af::t_fbec3b53be3810 197-202
+internal/proxy/force_model_internal_test.go
+  s_799f504049b9af::t_108cb5d58d86aa 166-168,176-233
+  s_799f504049b9af::t_fc5f6a9f3f281d 234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "dd07a91245511c403edcf5697ff2afccac0f51c7",
+  "prompts": {},
+  "sessions": {
+    "s_799f504049b9af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5842e58e-0d13-4901-addd-8afb5b31965d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

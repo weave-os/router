@@ -1,0 +1,21 @@
+internal/proxy/authoritative_upgrade_internal_test.go
+  s_4764c2cdecafe6::t_371ff6ec26111a 435-461
+internal/proxy/turnloop.go
+  s_4764c2cdecafe6::t_2bbdeef7be141f 1673-1676,1701
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e8ad49af537f629c8876107b8489fc7884a60402",
+  "prompts": {},
+  "sessions": {
+    "s_4764c2cdecafe6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a69d-2dd4-7003-8967-c579e5cbe60d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

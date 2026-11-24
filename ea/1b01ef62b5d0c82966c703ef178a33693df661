@@ -1,0 +1,26 @@
+install/vscode/src/extension.ts
+  s_1ce6a53dd78954::t_5c778ebcecb8c8 8,45,64-71,178
+install/vscode/package.json
+  s_1ce6a53dd78954::t_5c778ebcecb8c8 5,21-22
+install/vscode/README.md
+  s_1ce6a53dd78954::t_5c778ebcecb8c8 8,13
+  s_1ce6a53dd78954::t_275b47b6bf7cea 14
+install/vscode/package-lock.json
+  s_1ce6a53dd78954::t_5488fbacaa841c 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ea1b01ef62b5d0c82966c703ef178a33693df661",
+  "prompts": {},
+  "sessions": {
+    "s_1ce6a53dd78954": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f62c-544b-7f61-8096-d1dae027f4c6",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Shi Hao Hong <shihao.workweave.ai>"
+    }
+  }
+}

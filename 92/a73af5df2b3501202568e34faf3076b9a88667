@@ -1,0 +1,27 @@
+docs/HMM_GO_SELECTION.md
+  s_eef74eff975806::t_6bbf8a1d5d82cb 32-66
+  s_eef74eff975806::t_695c7b50efa2ff 69,113-114
+cmd/policyctl/preview.go
+  s_eef74eff975806::t_5906ad0060c195 1-299
+cmd/policyctl/commands.go
+  s_eef74eff975806::t_d771b5d9deeeff 25,56,63-64
+cmd/policyctl/preview_test.go
+  s_eef74eff975806::t_80614552f42ea3 1-30,32-118
+  s_eef74eff975806::t_d93001818ae6d5 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "92a73af5df2b3501202568e34faf3076b9a88667",
+  "prompts": {},
+  "sessions": {
+    "s_eef74eff975806": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0eea5-47b7-7733-b668-22e3b98f688b",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

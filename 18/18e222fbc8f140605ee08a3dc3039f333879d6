@@ -1,0 +1,37 @@
+install/tests/context_window_test.sh
+  s_a352c888620a6b::t_90b4c213c67740 154-162
+  s_a352c888620a6b::t_026d5036b1622f 152
+install/README.md
+  s_a352c888620a6b::t_760d3dfc75314e 50-71
+install/tests/codex_install_test.sh
+  s_a352c888620a6b::t_026d5036b1622f 980-993
+install/install.sh
+  s_a352c888620a6b::t_8fea66d8ddded6 4170,4175
+  s_a352c888620a6b::t_fa2d982cd66490 4238-4242
+  s_a352c888620a6b::t_dac32eaa10cdcc 2190-2194
+  s_a352c888620a6b::t_152842a8e8ee32 6917,6923-6924,6926,6932-6933
+  s_a352c888620a6b::t_cd42ec71dc83aa 23-26,127-131,1547-1557
+  s_a352c888620a6b::t_27fa8fad01c29b 907,912-915,1112,1671-1672,2752,2762,2767,2772,2776-2780
+  s_a352c888620a6b::t_8dc340a0f6edd0 2207,2214
+  s_a352c888620a6b::t_e82695315ea180 1558,4063-4072,4081-4169,4171-4174,4176-4210,4212-4237,4243-4256
+  s_a352c888620a6b::t_8641533abfbcb4 4073-4080
+  s_a352c888620a6b::t_776334b6411eb5 4211
+install/npm/windows.js
+  s_a352c888620a6b::t_39fa861bc1c69c 126-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1818e222fbc8f140605ee08a3dc3039f333879d6",
+  "prompts": {},
+  "sessions": {
+    "s_a352c888620a6b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a164e3-7bd5-7f22-9070-c5b6ce663f45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
