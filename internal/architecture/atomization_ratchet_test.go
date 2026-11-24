@@ -140,7 +140,7 @@ func TestAtomizationRatchetsDetectSyntheticViolations(t *testing.T) {
 			ratchetHMMHistoryNames: {"internal/architecture/testdata/atomization/proxy_hmm_history": 8},
 		}},
 		{fixture: "upgrade_confidence", want: atomizationCounts{
-			ratchetUpgradeConfidence:      {"internal/architecture/testdata/atomization/upgrade_confidence": 6},
+			ratchetUpgradeConfidence:      {"internal/architecture/testdata/atomization/upgrade_confidence": 7},
 			ratchetServingStrategyImports: {"internal/architecture/testdata/atomization/upgrade_confidence -> internal/router/hmm": 1},
 		}},
 		{fixture: "pin_fields", want: atomizationCounts{
@@ -318,21 +318,17 @@ func identViolations(info *types.Info, node ast.Node, scope atomizationScope) []
 		return nil
 	}
 	var found []string
-	if scope.upgradeConfidence && namesUpgradeConfidenceOutsideHMM(info, ident) {
+	if scope.upgradeConfidence && namesUpgradeConfidenceThreshold(info, ident) {
 		found = append(found, ratchetUpgradeConfidence)
 	}
 	return found
 }
 
-// namesUpgradeConfidenceOutsideHMM reports a declaration or use of an
-// upgrade-confidence threshold owned outside internal/router/hmm; reading
-// hmm's own config from another package does not count.
-func namesUpgradeConfidenceOutsideHMM(info *types.Info, ident *ast.Ident) bool {
-	if !strings.Contains(ident.Name, upgradeConfidenceName) {
-		return false
-	}
-	object := info.ObjectOf(ident)
-	return object != nil && object.Pkg() != nil && !hasPathPrefix(object.Pkg().Path(), hmmPackagePath)
+// namesUpgradeConfidenceThreshold reports a declaration or use of an
+// upgrade-confidence threshold. The scope already excludes internal/router/hmm,
+// so it counts by the referencing package, wherever the object is declared.
+func namesUpgradeConfidenceThreshold(info *types.Info, ident *ast.Ident) bool {
+	return strings.Contains(ident.Name, upgradeConfidenceName) && info.ObjectOf(ident) != nil
 }
 
 func isHMMMetadataField(info *types.Info, selector *ast.SelectorExpr) bool {

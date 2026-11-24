@@ -16,7 +16,7 @@ const localUpgradeConfidenceThreshold = 0.7
 func allow(confidence float64) bool {
 	// Counted: the field key, the continuity default, the field read and the local constant.
 	g := gate{UpgradeConfidenceThreshold: continuity.DefaultUpgradeConfidenceThreshold}
-	// Not counted: a threshold declared in internal/router/hmm.
+	// Counted: a threshold declared in internal/router/hmm, read from outside it.
 	if confidence >= hmm.DefaultUpgradeConfidenceThreshold {
 		return true
 	}
