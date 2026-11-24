@@ -130,15 +130,15 @@ func TestDecideSwitchIgnoresCacheStateRecordedByALongerSiblingThread(t *testing.
 	assert.Zero(t, view.MessagesSinceServed)
 }
 
-func TestDecideSwitchPricesATrimmedTurnAtItsTrimmedSize(t *testing.T) {
+func TestDecideSwitchPricesATrimmedTurnAtItsPriorPromptSize(t *testing.T) {
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	trimmed := routingpolicy.SwitchInput{
 		Current: "gpt-6.1-sol", Fresh: "gpt-6-luna", EstimatedInputTokens: 100_000, PromptTokens: 300_000,
 		PrefixBroken: true, Now: now, MessageCount: 250,
 		ModelCaches: sessionpin.ModelCaches{"gpt-6.1-sol": {ServedAt: now.Add(-20 * time.Second), PromptTokens: 300_000, MessageCount: 400}},
 	}
-	atTrimmedSize := trimmed
-	atTrimmedSize.PromptTokens = trimmed.EstimatedInputTokens
+	atPriorSize := trimmed
+	atPriorSize.EstimatedInputTokens = trimmed.PromptTokens
 
-	assert.Equal(t, routingpolicy.DecideSwitch(atTrimmedSize).Economics, routingpolicy.DecideSwitch(trimmed).Economics)
+	assert.Equal(t, routingpolicy.DecideSwitch(atPriorSize).Economics, routingpolicy.DecideSwitch(trimmed).Economics)
 }

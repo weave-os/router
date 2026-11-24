@@ -149,9 +149,6 @@ func siblingThreadCache(state sessionpin.ModelCacheState, input SwitchInput) boo
 }
 
 func switchPricingTokens(input SwitchInput) int {
-	if input.PrefixBroken {
-		return input.EstimatedInputTokens
-	}
 	return max(input.PromptTokens, input.EstimatedInputTokens)
 }
 
