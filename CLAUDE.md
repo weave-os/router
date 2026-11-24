@@ -4,6 +4,8 @@
 
 Rules live in checks: `golangci-lint`, `make arch-ratchet`, `make inference-boundary`, `go test ./internal/architecture/...` and the golden scenarios in `internal/proxy`. Their failure messages name the fix. This guide keeps only the incident entrypoint and the safety rules no check can enforce.
 
+The approved router architecture (serving and router layers, atom owners, strategy contract, enforcing checks) is [docs/ROUTER_ARCHITECTURE.md](docs/ROUTER_ARCHITECTURE.md).
+
 ## Production incident entrypoint
 
 For a router repair, establish a synthetic failing regression before changing behavior
