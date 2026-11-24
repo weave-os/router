@@ -7583,6 +7583,8 @@ E56DB1TSwErC9jp6jTWqKgdcdgMBTykjN58gD/7AIDbUhcgdIx9+tF6yoezyjuoE
 jQIDAQAB
 -----END PUBLIC KEY-----
 WEAVE_RELEASE_PUBKEY_EOF
+# The placeholder's first line. Stamping the real key stops it matching.
+WEAVE_RELEASE_PLACEHOLDER_KEY_LINE="MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqGz9B3LhWVSNpBZ1cck6"
 
 # ---------- release manifest verification ----------
 #
@@ -7898,7 +7900,15 @@ weave_self_refresh() {
       weave_trust_unsigned "$url" && unsigned=1
     else
       base=""
-      if curl -fsSL --max-time 15 "$WEAVE_RELEASE_REPO_URL/main/install/cc-statusline.sh" -o "$tmp.channel" 2>/dev/null; then
+      if ! curl -fsSL --max-time 15 "$WEAVE_RELEASE_REPO_URL/main/install/cc-statusline.sh" -o "$tmp.channel" 2>/dev/null; then
+        :
+      elif [[ "$WEAVE_RELEASE_PUBKEY_PEM" == *"$WEAVE_RELEASE_PLACEHOLDER_KEY_LINE"* ]]; then
+        # Nothing verifies under the placeholder, so a copy carrying it keeps
+        # the pre-manifest refresh (shape checks on the main channel) rather
+        # than strand itself; it adopts the first copy stamped with the real
+        # key, and every refresh after that is verified.
+        mv "$tmp.channel" "$tmp" && outcome=fetched
+      else
         tag="$(weave_release_advertised_tag "$tmp.channel")" || tag=""
         if weave_release_tag_newer "$tag" "$WEAVE_RELEASE_TAG"; then
           base="$WEAVE_RELEASE_REPO_URL/$tag/install"
