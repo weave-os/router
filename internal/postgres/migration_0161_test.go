@@ -13,7 +13,7 @@ import (
 func TestMigration0161RetiresTextRepetitionBreakOverride(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
-	migration, err := os.ReadFile("../../db/migrations/0161_retire-text-repetition-break-override.up.sql")
+	migrationSQL, err := os.ReadFile("../../db/migrations/0161_retire-text-repetition-break-override.up.sql")
 	require.NoError(t, err)
 
 	installationID := uuid.New()
@@ -27,7 +27,7 @@ func TestMigration0161RetiresTextRepetitionBreakOverride(t *testing.T) {
 	})
 
 	for range 2 {
-		_, err = pool.Exec(ctx, string(migration))
+		_, err = pool.Exec(ctx, string(migrationSQL))
 		require.NoError(t, err)
 	}
 

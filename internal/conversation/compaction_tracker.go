@@ -17,7 +17,7 @@ const (
 )
 
 type compactionState struct {
-	msgCount      int
+	messageCount  int
 	toolCallCount int
 }
 
@@ -35,7 +35,7 @@ func NewCompactionTracker() *CompactionTracker {
 }
 
 func (t *CompactionTracker) CheckAndRecord(sessionKey [sessionpin.SessionKeyLen]byte, installationID uuid.UUID, role string, messageCount, toolCallCount int) bool {
-	if t == nil || t.cache == nil {
+	if t == nil {
 		return false
 	}
 	key, ok := compactionBucketKey(sessionKey, installationID, role)
@@ -44,14 +44,14 @@ func (t *CompactionTracker) CheckAndRecord(sessionKey [sessionpin.SessionKeyLen]
 	}
 	t.mu.Lock()
 	last, found := t.cache.Get(key)
-	t.cache.Add(key, compactionState{msgCount: messageCount, toolCallCount: toolCallCount})
+	t.cache.Add(key, compactionState{messageCount: messageCount, toolCallCount: toolCallCount})
 	t.mu.Unlock()
 
 	if !found {
 		return false
 	}
 
-	if messageCount < last.msgCount && last.msgCount >= compactionMinHistoryMessages {
+	if messageCount < last.messageCount && last.messageCount >= compactionMinHistoryMessages {
 		return true
 	}
 
@@ -62,7 +62,7 @@ func (t *CompactionTracker) CheckAndRecord(sessionKey [sessionpin.SessionKeyLen]
 }
 
 func (t *CompactionTracker) Tracks(sessionKey [sessionpin.SessionKeyLen]byte, installationID uuid.UUID, role string) bool {
-	if t == nil || t.cache == nil {
+	if t == nil {
 		return false
 	}
 	key, ok := compactionBucketKey(sessionKey, installationID, role)
