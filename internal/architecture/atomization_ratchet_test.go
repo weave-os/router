@@ -43,6 +43,7 @@ const (
 	ratchetServingStrategyNames   = "serving_strategy_constant_references"
 	ratchetProxyRouterLayerCalls  = "proxy_router_layer_helper_calls"
 	ratchetHMMHistoryNames        = "hmm_history_identifier_references"
+	ratchetUpgradeConfidence      = "upgrade_confidence_threshold_references"
 )
 
 var atomizationRatchetFixes = map[string]string{
@@ -55,6 +56,7 @@ var atomizationRatchetFixes = map[string]string{
 	ratchetServingStrategyNames:   "serving-layer packages must not branch on named strategies (router.StrategyHMM*, StrategyLLMClassifier, router.Strategy(\"...\") conversions, or string literals compared with, assigned to or switched on as a router.Strategy); move the strategy-specific behavior into the strategy package or behind a router capability and pass the serving layer a strategy-neutral fact",
 	ratchetProxyRouterLayerCalls:  "internal/proxy must not sequence router-layer helpers (continuity/planner/escalation-floor functions, the UpgradeJudge and CostGate decision ports, escalation floor Begin/Apply/Settle); call them from the strategy in internal/router/hmm or the session turn in internal/routingpolicy and hand proxy the result",
 	ratchetHMMHistoryNames:        "internal/proxy and internal/routingpolicy must not name HMM switch history (LoadHMMHistory, HMMTurnRecord, hmmHistory, \"_hmm_history\" roles); reach it through continuity.StrategyPorts.History, implemented in internal/router/hmm",
+	ratchetUpgradeConfidence:      "upgrade-confidence thresholds (continuity.DefaultUpgradeConfidenceThreshold, the UpgradeConfidenceThreshold config fields) belong to the HMM strategy; declare and read them in internal/router/hmm and hand callers a decided fact instead of a threshold",
 	ratchetHMMPinFields:           "HMM-only session pin fields (sessionpin.Pin.PolicyGroup, ConsecutiveDowngradeVotes, ConsecutiveUpgradeVotes) are read and written only by the accessor in internal/router/hmm",
 }
 
@@ -76,6 +78,7 @@ var (
 	}
 	hmmHistoryNamePattern = regexp.MustCompile(`(?i)hmm_?(turn_?)?history|hmm_?turn_?record|record_?hmm_?turn`)
 	hmmHistoryBannedRoots = []string{proxyPackagePath, modulePath + "/internal/routingpolicy"}
+	upgradeConfidenceName = "UpgradeConfidenceThreshold"
 )
 
 type atomizationBaseline struct {
@@ -136,6 +139,10 @@ func TestAtomizationRatchetsDetectSyntheticViolations(t *testing.T) {
 		{fixture: "proxy_hmm_history", want: atomizationCounts{
 			ratchetHMMHistoryNames: {"internal/architecture/testdata/atomization/proxy_hmm_history": 8},
 		}},
+		{fixture: "upgrade_confidence", want: atomizationCounts{
+			ratchetUpgradeConfidence:      {"internal/architecture/testdata/atomization/upgrade_confidence": 7},
+			ratchetServingStrategyImports: {"internal/architecture/testdata/atomization/upgrade_confidence -> internal/router/hmm": 1},
+		}},
 		{fixture: "pin_fields", want: atomizationCounts{
 			ratchetHMMPinFields: {"internal/architecture/testdata/atomization/pin_fields": 4},
 		}},
@@ -185,11 +192,12 @@ func measureAtomization(t *testing.T, root string, patterns ...string) atomizati
 	for _, pkg := range loadTypedPackages(t, root, patterns...) {
 		path := pkg.PkgPath
 		measurePackage(counts, pkg, atomizationScope{
-			proxy:      hasPathPrefix(path, proxyPackagePath),
-			strategy:   isStrategyPackage(path),
-			serving:    isServingLayerPackage(path),
-			pinAllowed: hasPathPrefix(path, hmmPackagePath),
-			hmmHistory: slices.ContainsFunc(hmmHistoryBannedRoots, func(root string) bool { return hasPathPrefix(path, root) }),
+			proxy:             hasPathPrefix(path, proxyPackagePath),
+			strategy:          isStrategyPackage(path),
+			serving:           isServingLayerPackage(path),
+			pinAllowed:        hasPathPrefix(path, hmmPackagePath),
+			hmmHistory:        slices.ContainsFunc(hmmHistoryBannedRoots, func(root string) bool { return hasPathPrefix(path, root) }),
+			upgradeConfidence: hasPathPrefix(path, modulePath+"/internal") && !hasPathPrefix(path, hmmPackagePath),
 		})
 	}
 	return counts
@@ -199,13 +207,13 @@ func measureAtomizationFixture(t *testing.T, root, pattern string) atomizationCo
 	t.Helper()
 	counts := atomizationCounts{}
 	for _, pkg := range loadTypedPackages(t, root, pattern) {
-		measurePackage(counts, pkg, atomizationScope{proxy: true, strategy: true, serving: true, hmmHistory: true})
+		measurePackage(counts, pkg, atomizationScope{proxy: true, strategy: true, serving: true, hmmHistory: true, upgradeConfidence: true})
 	}
 	return counts
 }
 
 type atomizationScope struct {
-	proxy, strategy, serving, pinAllowed, hmmHistory bool
+	proxy, strategy, serving, pinAllowed, hmmHistory, upgradeConfidence bool
 }
 
 func loadTypedPackages(t *testing.T, root string, patterns ...string) []*packages.Package {
@@ -269,7 +277,7 @@ func namesHMMHistory(info *types.Info, self *types.Package, node ast.Node) bool 
 }
 
 func nodeViolations(info *types.Info, node ast.Node, scope atomizationScope) []string {
-	var found []string
+	found := identViolations(info, node, scope)
 	if expression, ok := node.(ast.Expr); ok && scope.serving && namesRouterStrategy(info, expression) {
 		found = append(found, ratchetServingStrategyNames)
 	}
@@ -302,6 +310,25 @@ func nodeViolations(info *types.Info, node ast.Node, scope atomizationScope) []s
 		}
 	}
 	return found
+}
+
+func identViolations(info *types.Info, node ast.Node, scope atomizationScope) []string {
+	ident, ok := node.(*ast.Ident)
+	if !ok {
+		return nil
+	}
+	var found []string
+	if scope.upgradeConfidence && namesUpgradeConfidenceThreshold(info, ident) {
+		found = append(found, ratchetUpgradeConfidence)
+	}
+	return found
+}
+
+// namesUpgradeConfidenceThreshold reports a declaration or use of an
+// upgrade-confidence threshold. The scope already excludes internal/router/hmm,
+// so it counts by the referencing package, wherever the object is declared.
+func namesUpgradeConfidenceThreshold(info *types.Info, ident *ast.Ident) bool {
+	return strings.Contains(ident.Name, upgradeConfidenceName) && info.ObjectOf(ident) != nil
 }
 
 func isHMMMetadataField(info *types.Info, selector *ast.SelectorExpr) bool {
