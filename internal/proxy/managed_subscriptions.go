@@ -194,7 +194,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue
 		}
-		if observed && snapshot.ExhaustedAsOf(s.clock.Now()) && !allowClaudeOverage && (poolProvider != subscriptions.ProviderCodex || !s.codexExtraCreditsAllowed()) {
+		if observed && snapshot.ExhaustedAsOf(s.clock.Now()) && !allowClaudeOverage && poolProvider != subscriptions.ProviderCodex {
 			diagnostics.skip(lease, subscriptionSkipQuotaExhausted)
 			resetAt := linkedSubscriptionResetAt(snapshot, s.clock.Now())
 			credentials.RecordManagedQuotaProof(ctx, lease.AccountID, resetAt)
