@@ -1,0 +1,26 @@
+internal/subscriptions/refresh_generation_test.go
+  s_cf030de1c35ef8::t_7c8356b6039de1 21,23,72-75
+internal/api/admin/internal_subscription_accounts.go
+  s_cf030de1c35ef8::t_7c8356b6039de1 123-124,128
+internal/api/admin/internal_subscription_refresh_test.go
+  s_cf030de1c35ef8::t_15d900c3bdfe07 96-98
+  s_cf030de1c35ef8::t_0058a569451375 9,75-95
+internal/api/admin/internal_subscription_refresh.go
+  s_cf030de1c35ef8::t_7c8356b6039de1 29-30,34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a69ea058f8ab2cd9aa8c17050431ce9b362348f5",
+  "prompts": {},
+  "sessions": {
+    "s_cf030de1c35ef8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1db6f-b08e-7e82-b7c6-b03ed10b6515",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

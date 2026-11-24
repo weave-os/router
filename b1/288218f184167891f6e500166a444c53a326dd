@@ -1,0 +1,19 @@
+db/migrations/0144_telemetry-subscription-account-index.up.sql
+  s_6abf776e1fb281::t_926ffd3de406f4 11-12,15,19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b1288218f184167891f6e500166a444c53a326dd",
+  "prompts": {},
+  "sessions": {
+    "s_6abf776e1fb281": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "789338df-203a-40ba-85e4-4b4be1ef34ec",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

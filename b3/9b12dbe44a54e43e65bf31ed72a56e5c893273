@@ -1,0 +1,37 @@
+internal/proxy/codex_pinned_overload_rescue_internal_test.go
+  s_cf030de1c35ef8::t_32ed90420507e6 125,130
+internal/proxy/failure_owner_internal_test.go
+  s_cf030de1c35ef8::t_32ed90420507e6 176,184
+internal/proxy/AGENTS.md
+  s_cf030de1c35ef8::t_5d45c4b9f9c6cd 405
+internal/proxy/CLAUDE.md
+  s_cf030de1c35ef8::t_5d45c4b9f9c6cd 405
+internal/proxy/response_protocol_switch_internal_test.go
+  s_cf030de1c35ef8::t_c57d95e53ac9c7 1-21,23-44,46-53
+  s_cf030de1c35ef8::t_5d45c4b9f9c6cd 22,45
+internal/proxy/response_protocol_switch.go
+  s_cf030de1c35ef8::t_c57d95e53ac9c7 1-14,17-33,44-58,60-78
+  s_cf030de1c35ef8::t_32ed90420507e6 15-16,34-43
+  s_cf030de1c35ef8::t_5d45c4b9f9c6cd 59
+internal/proxy/service.go
+  s_cf030de1c35ef8::t_32ed90420507e6 7801
+  s_cf030de1c35ef8::t_5d45c4b9f9c6cd 7791,8216,8621-8623
+  s_cf030de1c35ef8::t_546f088cc5a92a 7727-7729,7731-7732,7735,7738,8068
+  s_cf030de1c35ef8::t_7ba719abc2a422 8624
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b39b12dbe44a54e43e65bf31ed72a56e5c893273",
+  "prompts": {},
+  "sessions": {
+    "s_cf030de1c35ef8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1db6f-b08e-7e82-b7c6-b03ed10b6515",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

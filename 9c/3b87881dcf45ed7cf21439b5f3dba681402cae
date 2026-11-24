@@ -1,0 +1,14 @@
+internal/translate/client_response_text_test.go
+  h_16c9377d4ebc00 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "9c3b87881dcf45ed7cf21439b5f3dba681402cae",
+  "prompts": {},
+  "humans": {
+    "h_16c9377d4ebc00": {
+      "author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

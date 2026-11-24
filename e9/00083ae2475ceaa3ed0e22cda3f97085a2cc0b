@@ -1,0 +1,45 @@
+internal/router/catalog/lookup.go
+  s_33e88be294b634::t_27d8cc60d44780 35-49,51-53
+  s_33e88be294b634::t_b11b44227f28ec 50
+internal/router/catalog/catalog_test.go
+  s_33e88be294b634::t_8133d3c3b256f1 54-64
+  s_33e88be294b634::t_b11b44227f28ec 104-118
+internal/router/catalog/AGENTS.md
+  s_33e88be294b634::t_688bb0bc8e99a6 5
+  s_33e88be294b634::t_4bbd54343963e2 9,20
+internal/proxy/service.go
+  s_33e88be294b634::t_302b0a55eb7b07 6061
+  s_33e88be294b634::t_702d20d0343d86 2930,6062
+internal/proxy/hmm_user_boundary_internal_test.go
+  s_33e88be294b634::t_fc365fc379a14c 14,78-107
+  s_33e88be294b634::t_d7eb57bfceaf3e 108-109
+internal/router/catalog/catalog.go
+  s_33e88be294b634::t_27d8cc60d44780 200-203,417,436,445,474,483,492
+internal/router/catalog/CLAUDE.md
+  s_33e88be294b634::t_b52b75d56c87e0 5
+  s_33e88be294b634::t_bcd4423a292e45 9,20
+internal/router/router.go
+  s_33e88be294b634::t_702d20d0343d86 139-142
+internal/router/policy/sidecar_router.go
+  s_33e88be294b634::t_702d20d0343d86 353-355
+internal/requestcontext/credentials.go
+  s_33e88be294b634::t_27d8cc60d44780 251,258
+internal/proxy/enabled_providers_internal_test.go
+  s_33e88be294b634::t_1362693df3e183 282-296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e900083ae2475ceaa3ed0e22cda3f97085a2cc0b",
+  "prompts": {},
+  "sessions": {
+    "s_33e88be294b634": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fa81-ab9a-7621-807d-5262a9e2e18a",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

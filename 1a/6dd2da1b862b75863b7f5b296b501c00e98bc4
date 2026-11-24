@@ -1,0 +1,19 @@
+internal/policyclient/client_test.go
+  s_c5edd0ad29d1e4::t_378931fc02b7ee 646-647,742-743
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "1a6dd2da1b862b75863b7f5b296b501c00e98bc4",
+  "prompts": {},
+  "sessions": {
+    "s_c5edd0ad29d1e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b54a388a-4ca8-4006-b9b3-cb77b570f4b1",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

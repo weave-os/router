@@ -1,0 +1,78 @@
+internal/providers/provider_retry_test.go
+  s_1e9d601d5f0f63::t_f023cef6762066 28-36
+internal/translate/responses_to_openai_chat_writer.go
+  s_1e9d601d5f0f63::t_440f08767d0bed 345
+  s_1e9d601d5f0f63::t_36504b3f98cbe7 637
+  s_1e9d601d5f0f63::t_b2fa9bafcd6b60 340
+  s_1e9d601d5f0f63::t_3452f8d499adf1 348
+  s_1e9d601d5f0f63::t_eeb4b42f0b8f95 509,512-514,527,530,545,547,549
+  s_1e9d601d5f0f63::t_722d659e69d20e 510-511,516
+  s_1e9d601d5f0f63::t_137c5229017928 341-344,502-508,515,517-526,528-529,531-544,546,548,550,638,841
+  s_1e9d601d5f0f63::t_cd8c7c22b17271 346-347,594-598,630-636,835-840
+  s_1e9d601d5f0f63::t_8902b2b3d149c0 551
+  s_1e9d601d5f0f63::t_a5392566626b4d 639
+  s_1e9d601d5f0f63::t_a7b70807342b49 842
+internal/translate/responses.go
+  s_1e9d601d5f0f63::t_7d9b227e8b8526 684,1088,1090,1901,2064
+  s_1e9d601d5f0f63::t_cbda702ef18b0e 1089,1126,1929
+  s_1e9d601d5f0f63::t_b954194e693533 1924-1928
+  s_1e9d601d5f0f63::t_15724ebc83d07f 2063
+  s_1e9d601d5f0f63::t_36504b3f98cbe7 1125
+  s_1e9d601d5f0f63::t_3452f8d499adf1 1923,1930
+  s_1e9d601d5f0f63::t_c05df794cee811 1127
+  s_1e9d601d5f0f63::t_48347597c67ca5 2065
+internal/dispatch/executor_test.go
+  s_1e9d601d5f0f63::t_09050d14134074 226-241
+internal/proxy/opencode_agent_turns_test.go
+  s_1e9d601d5f0f63::t_1c5bd02b2fa3d1 34,39-43,47-48
+internal/providers/provider.go
+  s_1e9d601d5f0f63::t_7d9b227e8b8526 321-323,330-331,355-359,386
+internal/translate/responses_test.go
+  s_1e9d601d5f0f63::t_342e3f4471e5ff 1032
+  s_1e9d601d5f0f63::t_d88c7a672b5592 13,1031,1041,1047-1049,1051,1053
+internal/translate/empty_completion.go
+  s_1e9d601d5f0f63::t_eeb4b42f0b8f95 63-84
+  s_1e9d601d5f0f63::t_7d9b227e8b8526 1-62
+internal/translate/responses_to_anthropic_writer.go
+  s_1e9d601d5f0f63::t_cd8c7c22b17271 389-390,752-756,808-814,1168-1173
+  s_1e9d601d5f0f63::t_440f08767d0bed 388
+  s_1e9d601d5f0f63::t_722d659e69d20e 692-693,697-699
+  s_1e9d601d5f0f63::t_11054b11358f91 383
+  s_1e9d601d5f0f63::t_36504b3f98cbe7 815
+  s_1e9d601d5f0f63::t_137c5229017928 384-387,531-533,554-556,572-574,684-691,694-696,700-703,816,1174
+  s_1e9d601d5f0f63::t_3452f8d499adf1 391
+  s_1e9d601d5f0f63::t_135cd9dad34e25 704
+  s_1e9d601d5f0f63::t_7f7e114b0dd86d 817
+  s_1e9d601d5f0f63::t_6f215a9f4480a8 1175
+internal/translate/envelope.go
+  s_1e9d601d5f0f63::t_5433ca050ea0f2 1421,1503-1517
+  s_1e9d601d5f0f63::t_3519d0d27a0725 1518
+internal/translate/responses_output_progress_test.go
+  s_1e9d601d5f0f63::t_4fdf00ec38fd90 8,149-155
+internal/translate/responses_to_anthropic_writer_stream_test.go
+  s_1e9d601d5f0f63::t_f518d2f9f8b9ca 479
+  s_1e9d601d5f0f63::t_4fdf00ec38fd90 484-485
+  s_1e9d601d5f0f63::t_a48faece54f548 460
+internal/translate/default_max_tokens_test.go
+  s_1e9d601d5f0f63::t_d88c7a672b5592 16,25
+  s_1e9d601d5f0f63::t_f023cef6762066 42
+  s_1e9d601d5f0f63::t_bb185a5165c931 38-41,43-57
+internal/translate/empty_completion_test.go
+  s_1e9d601d5f0f63::t_bb185a5165c931 1-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c34197c3236a3c5f69373189b14e3e494638d8fc",
+  "prompts": {},
+  "sessions": {
+    "s_1e9d601d5f0f63": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b0e2-7306-73b3-b54c-814d408fce77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

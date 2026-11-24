@@ -1,0 +1,21 @@
+internal/proxy/quota_verification_safety_internal_test.go
+  s_a99d205152f882::t_e0ec45902c29d4 123-127,129,131-135,197,199,218
+internal/proxy/subscription_funding.go
+  s_a99d205152f882::t_fa54e4f1297f83 176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7929196f4798c1fc913c2af2844a788daf191dc6",
+  "prompts": {},
+  "sessions": {
+    "s_a99d205152f882": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17a00-e308-7661-b48a-78bf0cd22690",
+        "model": "weave-hmm-20261019-0001v1"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

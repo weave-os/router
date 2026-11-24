@@ -1,0 +1,42 @@
+install/npm/package.json
+  s_c3dc05fcd2e066::t_c95e528d5e8a4d 20,93
+install/tests/packaging_test.sh
+  s_c3dc05fcd2e066::t_225824ebb1ac60 137-141
+  s_c3dc05fcd2e066::t_c95e528d5e8a4d 35,46
+.github/workflows/test.yml
+  s_c3dc05fcd2e066::t_c95e528d5e8a4d 456
+install/npm/bin.js
+  s_c3dc05fcd2e066::t_3640846fc7a5c1 32,34
+  s_c3dc05fcd2e066::t_c95e528d5e8a4d 27-31,33,35-36
+install/npm/README.md
+  s_c3dc05fcd2e066::t_3640846fc7a5c1 3
+  s_c3dc05fcd2e066::t_c95e528d5e8a4d 20-21,30-34
+  s_c3dc05fcd2e066::t_5b5aa2315b6718 35
+install/install.sh
+  s_c3dc05fcd2e066::t_c95e528d5e8a4d 387
+install/README.md
+  s_c3dc05fcd2e066::t_3640846fc7a5c1 345
+  s_c3dc05fcd2e066::t_c95e528d5e8a4d 19,327-344
+  s_c3dc05fcd2e066::t_225824ebb1ac60 346-348
+  s_c3dc05fcd2e066::t_97a5c8fa78ee6f 349
+install/npm/vscode.js
+  s_c3dc05fcd2e066::t_a71fadc86a577a 1-176
+install/npm/vscode.test.js
+  s_c3dc05fcd2e066::t_3e1693b76d0e2d 1-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "76c2b2c66bc95bb817515bb2bd7da20d5923f395",
+  "prompts": {},
+  "sessions": {
+    "s_c3dc05fcd2e066": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f6f4-63f7-7dc0-88e4-9ec0b535d130",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Shi Hao Hong <shihao.workweave.ai>"
+    }
+  }
+}

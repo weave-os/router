@@ -1,0 +1,23 @@
+internal/proxy/classifier_turn.go
+  s_395fcfacea68ca::t_19d2df6dbab706 78
+docs/LLM_CLASSIFIER_CONTEXT.md
+  s_395fcfacea68ca::t_bce24b6fb50c3b 54-56
+internal/proxy/classifier_dispatch_internal_test.go
+  s_395fcfacea68ca::t_19d2df6dbab706 187
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "32bfc01334b691316d22db8c7c96668a4c44b683",
+  "prompts": {},
+  "sessions": {
+    "s_395fcfacea68ca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bd20-5294-7431-af5a-fda13c268f77",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
