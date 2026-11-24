@@ -3,13 +3,18 @@ package proxy
 import (
 	"context"
 	"sync"
+	"time"
 
-	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
 	lru "github.com/hashicorp/golang-lru/v2/expirable"
+)
+
+const (
+	searchUseCacheSize = 4096
+	searchUseCacheTTL  = 5 * time.Minute
 )
 
 type searchUseTracker struct {
@@ -19,7 +24,7 @@ type searchUseTracker struct {
 
 func newSearchUseTracker() *searchUseTracker {
 	return &searchUseTracker{
-		cache: lru.NewLRU[string, int](conversation.NoProgressCacheSize, nil, conversation.NoProgressCacheTTL),
+		cache: lru.NewLRU[string, int](searchUseCacheSize, nil, searchUseCacheTTL),
 	}
 }
 

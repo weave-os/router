@@ -1,6 +1,6 @@
 ---
 name: test-claude-locally
-description: Run the Weave router locally in docker compose and drive it with `claude -p` to reproduce and verify routing/translation behavior for a specific upstream model (e.g. GLM-5.1, DeepSeek, Qwen). Use when verifying a router fix end-to-end, reproducing a prod routing bug, confirming a model's streaming behavior (nudges, tool-call suppression, loop/no-progress breaks), or testing a `/force-model` route — without touching the user's global Claude Code config.
+description: Run the Weave router locally in docker compose and drive it with `claude -p` to reproduce and verify routing/translation behavior for a specific upstream model (e.g. GLM-5.1, DeepSeek, Qwen). Use when verifying a router fix end-to-end, reproducing a prod routing bug, confirming a model's streaming behavior (tool-call suppression, stop-reason demotion), or testing a `/force-model` route — without touching the user's global Claude Code config.
 ---
 
 ---
@@ -106,7 +106,7 @@ docker compose logs server --since=3m 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' \
   | grep 'ProxyMessages complete' | grep 'decision_model=z-ai/glm-5.1'
 ```
 
-Useful fields: `decision_model`, `decision_provider`, `upstream_finish_reason`, `suppressed_tool_calls`, `text_only_turn_nudged`, `tool_use_blocks`, `resp_stop_reason`, `stop_reason_demoted`. Also grep for `recovery nudge`, `tool-call loop`, `no-progress`.
+Useful fields: `decision_model`, `decision_provider`, `upstream_finish_reason`, `suppressed_tool_calls`, `tool_use_blocks`, `resp_stop_reason`, `stop_reason_demoted`. Also grep for `tool-call loop`.
 
 **Confirm the model was actually served** before drawing conclusions:
 ```bash

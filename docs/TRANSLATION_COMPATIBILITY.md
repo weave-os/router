@@ -70,9 +70,8 @@ rules; each is pinned by a translate unit test that fails when it is broken.
   terminal finish, never on role-only, null or usage-only keepalives.
 - A turn with a `tool_use` block always ends with `stop_reason: tool_use`; a
   `tool_calls` finish with no surviving tool block is demoted to `end_turn`.
-- The text-only-turn recovery nudge fires only for tool-bearing requests whose
-  turn opens with leaked tool-call markup, never after a truncated
-  (`length`) turn, a suppressed tool call or on Gemini 3.x.
+- The router never synthesizes a `tool_use` block: a turn with no surviving
+  tool call reaches the client as the upstream produced it.
 - Anthropic thinking reaches Chat clients as `reasoning_content`, streamed as
   `delta.reasoning_content`. The thinking signature and `redacted_thinking`
   have no Chat field and are dropped.

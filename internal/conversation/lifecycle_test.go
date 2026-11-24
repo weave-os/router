@@ -28,8 +28,6 @@ func TestLifecycleOwnsCompactionTracker(t *testing.T) {
 func TestZeroLifecycleHasNoTrackers(t *testing.T) {
 	var nilLifecycle *conversation.Lifecycle
 	assert.Nil(t, nilLifecycle.Compaction())
-	assert.Nil(t, nilLifecycle.NoProgress())
-	assert.False(t, nilLifecycle.TextRepetitionBreak())
 	assert.Nil(t, (&conversation.Lifecycle{}).Compaction())
 }
 
@@ -45,7 +43,6 @@ func TestConfigureSetsConversationDependencies(t *testing.T) {
 	strategies := &configStrategies{}
 	links := feedback.NewLinks(nil, nil, "https://feedback.example", nil, nil)
 	secret := strings.Repeat("s", 32)
-	off := false
 
 	lifecycle := conversation.NewLifecycle()
 	lifecycle.Configure(conversation.Config{
@@ -54,7 +51,6 @@ func TestConfigureSetsConversationDependencies(t *testing.T) {
 		SessionStrategies:   strategies,
 		FeedbackLinks:       links,
 		PiHandoffSecret:     secret,
-		TextRepetitionBreak: &off,
 	})
 
 	assert.Same(t, summarizer, lifecycle.Summarizer())
@@ -62,13 +58,6 @@ func TestConfigureSetsConversationDependencies(t *testing.T) {
 	assert.Same(t, strategies, lifecycle.SessionStrategies())
 	assert.Same(t, links, lifecycle.FeedbackLinks())
 	assert.Equal(t, []byte(secret), lifecycle.PiHandoff(time.Now).Secret)
-	assert.False(t, lifecycle.TextRepetitionBreak())
-}
-
-func TestConfigureKeepsTextRepetitionBreakDefaultWhenUnset(t *testing.T) {
-	lifecycle := conversation.NewLifecycle()
-	lifecycle.Configure(conversation.Config{})
-	assert.True(t, lifecycle.TextRepetitionBreak())
 }
 
 func TestConfigureIgnoresPiHandoffSecretUnder32Bytes(t *testing.T) {

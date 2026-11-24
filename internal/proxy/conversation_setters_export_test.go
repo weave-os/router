@@ -47,18 +47,6 @@ func (s *Service) WithSummarizer(sz handover.Summarizer) *Service {
 	return s
 }
 
-func (s *Service) WithTextRepetitionBreak(enabled bool) *Service {
-	if s.lifecycle == nil {
-		s.lifecycle = &conversation.Lifecycle{}
-	}
-	s.lifecycle.SetTextRepetitionBreak(enabled)
-	return s
-}
-
-func (s *Service) ResolveTextRepetitionBreakEnabled(ctx context.Context) bool {
-	return s.lifecycle.TextRepetitionBreakEnabled(ctx)
-}
-
 func (s *Service) WithFeedback(links *feedback.Links) *Service {
 	if s.lifecycle == nil {
 		s.lifecycle = &conversation.Lifecycle{}

@@ -40,10 +40,7 @@ func TestAnthropicSSETranslator_DemotesToolCallsFinishWithNamelessCall(t *testin
 }
 
 func TestAnthropicSSETranslator_SuppressedToolCallFinishDoesNotNudge(t *testing.T) {
-	// Prod loop (session 081e0a3d, glm-5.1/DeepInfra): nameless call dropped,
-	// but request HAD tools. Without the suppressed-call guard,
-	// synthesizeTextOnlyTurnNudge fires and staples a synthetic Bash call onto
-	// every turn, looping to the turn ceiling since the shape recurs each turn.
+	// A dropped nameless call must not leave a synthetic tool_use behind.
 	body, summary := driveAnthropicSSEWithTools(t, "z-ai/glm-5.1", true, []string{
 		`data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_x","type":"function","function":{"name":"","arguments":"{}"}}]},"finish_reason":null}]}` + "\n\n",
@@ -51,8 +48,6 @@ func TestAnthropicSSETranslator_SuppressedToolCallFinishDoesNotNudge(t *testing.
 		"data: [DONE]\n\n",
 	})
 
-	assert.False(t, summary.TextOnlyTurnNudged,
-		"a suppressed (nameless) tool_call must not trigger the text-only nudge")
 	assert.Equal(t, 0, summary.ToolUseBlocks, "no synthetic tool_use block is emitted")
 	assert.NotContains(t, body, "toolu_router_nudge_", "no synthetic nudge block reaches the client")
 	assert.Equal(t, 1, summary.SuppressedToolCalls)

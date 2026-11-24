@@ -63,7 +63,6 @@ func driveSeedAnthropic(t *testing.T, thinkTags bool, events ...string) (string,
 	t.Helper()
 	rec := httptest.NewRecorder()
 	translator := NewAnthropicSSETranslator(rec, "xiaomi/mimo-v2.5-pro", nil).
-		WithRequestHadTools(true).
 		WithThinkTagReasoning(thinkTags).
 		WithSeedToolCallMarkup(seedDeclared)
 	translator.Header().Set("Content-Type", "text/event-stream")
@@ -103,15 +102,14 @@ func TestAnthropicSSETranslator_SeedToolCallAfterThinkTag(t *testing.T) {
 	assert.Contains(t, body, `"stop_reason":"tool_use"`)
 	assert.Equal(t, 1, summary.SeedToolCallsRecovered)
 	assert.Equal(t, 1, summary.ToolUseBlocks)
-	assert.False(t, summary.TextOnlyTurnNudged)
 }
 
-func TestAnthropicSSETranslator_SeedToolCallUnparseableFallsBackToNudge(t *testing.T) {
+func TestAnthropicSSETranslator_SeedToolCallUnparseableForwardedAsText(t *testing.T) {
 	markup := `<seed:tool_call><function_name>Bash</function_name><argument>{"command": </argument></seed:tool_call>`
 	body, summary := driveSeedAnthropic(t, false, seedChunk(markup), seedStopChunk)
 	assert.Contains(t, body, strings.ReplaceAll(markup, `"`, `\"`), "unparseable markup is forwarded as text")
 	assert.Zero(t, summary.SeedToolCallsRecovered)
-	assert.True(t, summary.TextOnlyTurnNudged, "the leaked markup still gets the recovery nudge")
+	assert.Zero(t, summary.ToolUseBlocks, "no synthetic tool_use is added")
 }
 
 func TestOpenAIToAnthropicResponse_SeedToolCallMarkup(t *testing.T) {

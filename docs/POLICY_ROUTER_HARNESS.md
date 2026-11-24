@@ -95,9 +95,7 @@ tool-result `/route` selection is model-authoritative for that turn. Go still
 owns hard eligibility, explicit force-model/operator pins, credentials, and
 same-model provider retries. It disables automatic session reuse, EV planner
 overrides, model-changing baseline failover, and
-router-generated summarizer calls for those turns. Post-selection synthetic
-loop breakers are also bypassed so one accepted policy action maps to one
-selected model dispatch attempt.
+router-generated summarizer calls for those turns.
 
 An optional `interaction_state_package_sha256s` list names the loaded
 classifier packages that were trained on interaction-state inputs. A v4

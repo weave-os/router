@@ -322,5 +322,5 @@
       ]
     }
   ],
-  "scenario": "anthropic_messages_conversation_text_repetition_break_disabled"
+  "scenario": "anthropic_messages_conversation_repeated_narration_is_served"
 }

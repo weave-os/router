@@ -8,7 +8,6 @@ const (
 	CommandRouterModels   CommandKind = "router_models"
 	CommandListModels     CommandKind = "list_models"
 	CommandRouterFeedback CommandKind = "router_feedback"
-	CommandLoopStop       CommandKind = "loop_stop"
 )
 
 type CommandDisposition string

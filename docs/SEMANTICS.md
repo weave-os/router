@@ -84,7 +84,7 @@ policy, persistence and acknowledgment rendering; protocol encoders serialize th
 already decided outcome. Each outcome has a version, unique ID, typed command and
 disposition, and an explicit pin transition (`unchanged`, `applied`, `cleared`).
 Only a successfully persisted explicit force or clear changes the acknowledged
-pin. Session, models, feedback, rejections and automatic loop stops leave it
+pin. Session, models, feedback and rejections leave it
 unchanged. Header and tool-result commands keep their existing continuation
 behavior and do not manufacture historical acknowledgments. Outcomes do not use
 provider retry/progress accounting or `NoticeDelivery`.

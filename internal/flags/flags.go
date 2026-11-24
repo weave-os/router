@@ -65,7 +65,6 @@ const (
 	KeyEscalationXGBoostShadowMarkerEnabled Key = "escalation_xgb_shadow_marker_enabled"
 	KeyEscalationXGBoostEpoch               Key = "escalation_xgb_epoch"
 	KeyTurnSignalCapture                    Key = "turn_signal_capture_enabled"
-	KeyTextRepetitionBreak                  Key = "text_repetition_break_enabled"
 	KeyPlannerEnabled                       Key = "planner_enabled"
 	KeyScoreToolResultTurns                 Key = "score_tool_result_turns"
 	KeyHMMToolResultHold                    Key = "hmm_tool_result_hold"

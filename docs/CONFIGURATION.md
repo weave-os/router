@@ -724,7 +724,6 @@ and keeps the default.
 | `ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS` | `true` | The same extraction for the OpenAI-native chat/completions and `/v1/responses` passthrough surfaces. |
 | `ROUTER_BAND_SWAP` | `false` | Per-turn large-vs-small action-classifier swap; enabling loads the compiled-in head. |
 | `ROUTER_TURN_SIGNAL_CAPTURE_ENABLED` | `true` | Per-turn signal snapshot on telemetry rows. Always skipped for opted-out installations. |
-| `ROUTER_TEXT_REPETITION_BREAK_ENABLED` | `true` | Enforcing text-repetition break; turn off if it false-positives on legitimately repeated narration. |
 | `ROUTER_HMM_DOWNGRADE_GATE` | `false` | Confidence floor for authoritative HMM picks that are cheaper than the pin (mirror of the upgrade gate). |
 | `ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS` | `hmm.DefaultDowngradeHysteresisTurns`, 0 allowed | Consecutive cheaper-than-pin authoritative HMM votes required before a downgrade is served. Set to `0` to switch on the first vote. |
 | `ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS` | `2`, 0 allowed | Telemetry threshold for served authoritative HMM downgrades. Set to `0` to disable this shadow. |
