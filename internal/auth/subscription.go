@@ -418,6 +418,16 @@ func (s *Service) UpdateSubscriptionAccountHealth(ctx context.Context, owner Sub
 	return false, s.subscriptionAccounts.UpdateSubscriptionAccountState(ctx, accountID, owner, enabled, cooldownUntil)
 }
 
+func (s *Service) ReactivateSubscriptionAccountQuota(ctx context.Context, owner SubscriptionOwner, accountID string) (bool, error) {
+	repository, ok := s.subscriptionAccounts.(interface {
+		ReactivateSubscriptionAccountQuota(context.Context, string, SubscriptionOwner) (bool, error)
+	})
+	if !ok {
+		return false, errors.New("subscription quota reactivation is not configured")
+	}
+	return repository.ReactivateSubscriptionAccountQuota(ctx, accountID, owner)
+}
+
 func (s *Service) DeleteSubscriptionAccount(ctx context.Context, owner SubscriptionOwner, accountID string) error {
 	if s.subscriptionAccounts == nil {
 		return errors.New("subscription accounts are not configured")

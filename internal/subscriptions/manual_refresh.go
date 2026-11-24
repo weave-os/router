@@ -15,6 +15,7 @@ type AccountRefreshResult struct {
 	TokenRefreshVersion  int64      `json:"token_refresh_version"`
 	AccessTokenExpiresAt *time.Time `json:"access_token_expires_at,omitempty"`
 	NextRefreshAt        time.Time  `json:"next_refresh_at"`
+	QuotaReactivated     bool       `json:"quota_reactivated,omitempty"`
 }
 
 type AccountRefresher interface {
@@ -52,7 +53,8 @@ func (r *Runtime) refreshOwnedAccount(ctx context.Context, owner auth.Subscripti
 	}
 	return AccountRefreshResult{AccountID: account.ID, Provider: account.Provider,
 		TokenRefreshVersion: after.TokenRefreshVersion, AccessTokenExpiresAt: after.AccessTokenExpiresAt,
-		TokenRefreshedAt: after.TokenRefreshedAt, NextRefreshAt: r.cachedCredentials(account, after).AccessTokenExpiresAt}, nil
+		TokenRefreshedAt: after.TokenRefreshedAt, NextRefreshAt: r.cachedCredentials(account, after).AccessTokenExpiresAt,
+		QuotaReactivated: r.reactivateRestoredQuota(ctx, owner, account, after)}, nil
 }
 
 func (r *Runtime) manualRefreshError(ctx context.Context, op refreshOperation, holder refreshHolder, refreshErr error) (Account, error) {

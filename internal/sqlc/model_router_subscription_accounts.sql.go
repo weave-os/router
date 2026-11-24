@@ -1001,6 +1001,43 @@ func (q *Queries) ReleaseModelRouterSubscriptionRefreshLease(ctx context.Context
 	return result.RowsAffected(), nil
 }
 
+const resetModelRouterSubscriptionAccountQuota = `-- name: ResetModelRouterSubscriptionAccountQuota :execrows
+UPDATE router.model_router_subscription_accounts
+SET health_state = 'active',
+    cooldown_until = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1::uuid
+  AND (subscriber_id = $2::uuid
+       OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
+  AND enabled = TRUE
+  AND health_state = 'exhausted'
+`
+
+type ResetModelRouterSubscriptionAccountQuotaParams struct {
+	ID           uuid.UUID
+	SubscriberID pgtype.UUID
+	APIKeyID     pgtype.UUID
+}
+
+// Clears a quota exhaustion the provider has confirmed is over before the recorded reset time.
+//
+//	UPDATE router.model_router_subscription_accounts
+//	SET health_state = 'active',
+//	    cooldown_until = NULL,
+//	    updated_at = CURRENT_TIMESTAMP
+//	WHERE id = $1::uuid
+//	  AND (subscriber_id = $2::uuid
+//	       OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
+//	  AND enabled = TRUE
+//	  AND health_state = 'exhausted'
+func (q *Queries) ResetModelRouterSubscriptionAccountQuota(ctx context.Context, arg ResetModelRouterSubscriptionAccountQuotaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, resetModelRouterSubscriptionAccountQuota, arg.ID, arg.SubscriberID, arg.APIKeyID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const tryAcquireModelRouterSubscriptionRefreshLease = `-- name: TryAcquireModelRouterSubscriptionRefreshLease :one
 WITH prior AS (
   SELECT token_refresh_lease_id IS NOT NULL AS took_over

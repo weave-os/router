@@ -88,6 +88,7 @@ type Runtime struct {
 	explorationBudgets *expirable.LRU[string, *explorationBudget]
 	selectionSequence  uint64
 	earlyRefresh       EarlyRefreshPolicy
+	quotaProber        QuotaProber
 }
 
 type CandidateSignal struct {

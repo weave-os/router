@@ -15,6 +15,9 @@ import (
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/config"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/providers"
+	openaiProvider "weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -92,7 +95,27 @@ func runSubscriptionKeepWarm(ctx context.Context, runtime *subscriptions.Runtime
 	}
 }
 
-func buildSubscriptionRuntime(enabled bool, authSvc *auth.Service, accounts auth.SubscriptionAccountRepository, logger *slog.Logger) (*subscriptions.Runtime, admin.SubscriptionLoginFlow) {
+type codexQuotaProber struct{ client *openaiProvider.Client }
+
+func (p codexQuotaProber) ProbeQuota(ctx context.Context, _ subscriptions.Provider, accessToken, accountID string) (subscriptions.QuotaProbe, error) {
+	err := p.client.ProbeCodexQuota(ctx, accessToken, accountID)
+	if err == nil {
+		return subscriptions.QuotaProbe{Available: true}, nil
+	}
+	if resetAt, exhausted := credentials.CodexQuotaExhaustion(err); exhausted {
+		return subscriptions.QuotaProbe{ResetAt: resetAt}, nil
+	}
+	return subscriptions.QuotaProbe{}, err
+}
+
+func subscriptionQuotaProber(client providers.Client) subscriptions.QuotaProber {
+	if openaiClient, ok := client.(*openaiProvider.Client); ok {
+		return codexQuotaProber{client: openaiClient}
+	}
+	return nil
+}
+
+func buildSubscriptionRuntime(enabled bool, authSvc *auth.Service, accounts auth.SubscriptionAccountRepository, prober subscriptions.QuotaProber, logger *slog.Logger) (*subscriptions.Runtime, admin.SubscriptionLoginFlow) {
 	if !enabled {
 		logger.Info("Server-side subscription account pools disabled")
 		return nil, nil
@@ -109,7 +132,7 @@ func buildSubscriptionRuntime(enabled bool, authSvc *auth.Service, accounts auth
 	if err != nil {
 		panic(err)
 	}
-	runtime := subscriptions.NewRuntime(authSvc, oauth, time.Now).WithEarlyRefreshPolicy(policy)
+	runtime := subscriptions.NewRuntime(authSvc, oauth, time.Now).WithEarlyRefreshPolicy(policy).WithQuotaProber(prober)
 	logger.Info("Server-side subscription account pools enabled")
 	return runtime, oauth
 }

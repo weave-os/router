@@ -150,6 +150,12 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 	return nil
 }
 
+func (c *Client) ProbeCodexQuota(ctx context.Context, accessToken, accountID string) error {
+	return c.checkCodexIncludedQuota(requestcontext.WithCredentials(ctx, &requestcontext.Credentials{
+		APIKey: []byte(accessToken), AccountID: []byte(accountID), OAuth: true,
+	}), "")
+}
+
 var codexReachedTypes = map[string]bool{
 	"rate_limit_reached":                   true,
 	"workspace_owner_credits_depleted":     true,

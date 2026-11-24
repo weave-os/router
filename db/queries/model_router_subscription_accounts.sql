@@ -162,6 +162,18 @@ WHERE account.id = @id::uuid
        OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
   AND enabled = TRUE;
 
+-- Clears a quota exhaustion the provider has confirmed is over before the recorded reset time.
+-- name: ResetModelRouterSubscriptionAccountQuota :execrows
+UPDATE router.model_router_subscription_accounts
+SET health_state = 'active',
+    cooldown_until = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = @id::uuid
+  AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
+       OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
+  AND enabled = TRUE
+  AND health_state = 'exhausted';
+
 -- Updates the internal credential-free routing health for one linked account.
 -- enabled = enabled AND @enabled never re-enables an operator-disabled row
 -- (Activate/Exhaust) while still allowing ReconnectRequired to disable it.

@@ -529,7 +529,7 @@ func main() {
 		WithFlagOverridesDisabled(flagOverridesDisabled).
 		WithSessionSpendCaps(billingSvc != nil)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
-	subscriptionRuntime, subscriptionLogins := buildSubscriptionRuntime(subscriptionPoolsEnabled, authSvc, repo.SubscriptionAccounts, logger)
+	subscriptionRuntime, subscriptionLogins := buildSubscriptionRuntime(subscriptionPoolsEnabled, authSvc, repo.SubscriptionAccounts, subscriptionQuotaProber(providerMap[providers.ProviderOpenAI]), logger)
 
 	subCtx, subCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	subscriptionName, deleteSubscription, err := routerpubsub.CreateReplicaSubscription(
