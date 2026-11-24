@@ -106,6 +106,15 @@ overrides the source, the advertised tag is not read: the script is fetched
 from that URL, `MANIFEST` and `MANIFEST.sig.b64` from the same directory, and
 the same verification applies.
 
+The wrapper refresh in `cc-statusline.sh` reads `MANIFEST`, `MANIFEST.sig.b64`
+and the `commands/*.md` bodies from the installed copy's own tag, or from the
+parent of `WEAVE_COMMANDS_URL_BASE` when that overrides the source. After the
+signature verifies it also downloads the `cc-statusline.sh` next to that
+`MANIFEST`, checks it against its row and requires its `WEAVE_RELEASE_TAG` to
+be the installed copy's or newer. Without this, an older signed release served
+from a mutable source would verify and roll the wrappers back. Every release
+must therefore publish `install/cc-statusline.sh` and list it in `MANIFEST`.
+
 Release operations must keep these invariants:
 
 - **The main-branch copies stay manifest-aware, indefinitely.** Copies

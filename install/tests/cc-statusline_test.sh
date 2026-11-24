@@ -152,9 +152,11 @@ as_shipped() { sed "s/^WEAVE_RELEASE_TAG=\"router-v999.0.0\"$/WEAVE_RELEASE_TAG=
 
 # sign_upstream publishes $work/MANIFEST (+ .sig.b64), which both refreshes
 # read from the parent of their source: upstream.sh and every wrapper under
-# $work/commands-upstream. Re-run after mutating either.
+# $work/commands-upstream. The wrapper refresh also reads the release tag of the
+# cc-statusline.sh beside MANIFEST. Re-run after mutating either.
 sign_upstream() {
   local f
+  cp "$upstream" "$work/cc-statusline.sh"
   {
     printf '%s  %s\n' "$(sha256_of "$upstream")" install/cc-statusline.sh
     for f in "$work/commands-upstream"/*.md; do

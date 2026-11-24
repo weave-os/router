@@ -7986,9 +7986,10 @@ weave_self_refresh 2>/dev/null || true
 #
 # Every downloaded body must match its row in a MANIFEST whose signature
 # verifies under the embedded release key (see "release manifest verification"
-# above). MANIFEST and MANIFEST.sig.b64 are fetched once per refresh cycle; if
-# either fails to download or verify, the cycle touches neither the baseline
-# cache nor any wrapper. A body that does not match its row is skipped and its
+# above). MANIFEST and MANIFEST.sig.b64 are fetched once per refresh cycle,
+# along with the cc-statusline.sh beside them, whose WEAVE_RELEASE_TAG must be
+# this copy's or newer. If any of these fails to download or verify, the cycle
+# touches neither the baseline cache nor any wrapper. A body that does not match its row is skipped and its
 # baseline is left as it is.
 #
 # A baseline written before this check existed (by install.sh, or by an older
@@ -8140,7 +8141,7 @@ weave_sync_commands() {
   esac
   local sentinel="$baseline_dir/.manifest-seeded"
   local name installed raw prev tmp new_body prev_body installed_body owned
-  local manifest="$baseline_dir/.MANIFEST.tmp.$$" seeding="false" unsigned="false"
+  local manifest="$baseline_dir/.MANIFEST.tmp.$$" seeding="false" unsigned="false" listed_tag=""
   if [ -n "${WEAVE_COMMANDS_URL_BASE:-}" ] && weave_trust_unsigned "$url_base"; then
     unsigned="true"
   fi
@@ -8149,11 +8150,21 @@ weave_sync_commands() {
     # Detach stdin (CC pipes JSON to us) so curl can't consume it, and silence
     # everything so no output leaks into the statusline.
     exec </dev/null
-    trap 'rm -f "$manifest" "$manifest.sig.b64"' EXIT
+    trap 'rm -f "$manifest" "$manifest.sig.b64" "$manifest.release"' EXIT
     if [ "$unsigned" != "true" ]; then
       curl -fsSL --max-time 15 "$manifest_base/MANIFEST" -o "$manifest" 2>/dev/null || exit 0
       curl -fsSL --max-time 15 "$manifest_base/MANIFEST.sig.b64" -o "$manifest.sig.b64" 2>/dev/null || exit 0
       weave_verify_manifest "$manifest" "$manifest.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" || exit 0
+      # The signature covers digests, not a release name, so bind the MANIFEST
+      # to a release through the statusline it lists: that body's own
+      # WEAVE_RELEASE_TAG must be this copy's or newer, or an older signed
+      # release served from a mutable source would roll the wrappers back.
+      curl -fsSL --max-time 15 "$manifest_base/cc-statusline.sh" -o "$manifest.release" 2>/dev/null || exit 0
+      weave_verify_file "$manifest" "install/cc-statusline.sh" "$manifest.release" || exit 0
+      listed_tag="$(weave_release_advertised_tag "$manifest.release")" || listed_tag=""
+      [ -n "$listed_tag" ] || exit 0
+      [ "$listed_tag" = "$WEAVE_RELEASE_TAG" ] \
+        || weave_release_tag_newer "$listed_tag" "$WEAVE_RELEASE_TAG" || exit 0
     fi
     while IFS= read -r name; do
       installed="$cmd_dir/$name.md"

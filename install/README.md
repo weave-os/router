@@ -696,7 +696,9 @@ from the mutable `main` branch. Each installed script carries
 `WEAVE_RELEASE_TAG`, the release it belongs to. A refresh reads the tag that the
 copy on `main` advertises, ignores it unless it is strictly newer than its own,
 then fetches `MANIFEST`, `MANIFEST.sig.b64` and the script from that tag. The
-wrappers are fetched from the installed copy's own tag. The tag only chooses
+wrappers are fetched from the installed copy's own tag, and their `MANIFEST` is
+accepted only when the `cc-statusline.sh` it lists carries that release or a
+newer one, so an older signed release cannot roll them back. The tag only chooses
 where to download from; the signature is the trust boundary, so a push to `main`
 alone cannot change what runs on an installed machine.
 

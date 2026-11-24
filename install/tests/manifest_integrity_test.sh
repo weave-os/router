@@ -120,6 +120,8 @@ current_tag="$(sed -n 's/^WEAVE_RELEASE_TAG="\(router-v[0-9.]*\)"$/\1/p' "$cc_sr
 [[ "$current_tag" =~ ^router-v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] \
   || { echo "FATAL: cannot read WEAVE_RELEASE_TAG from cc-statusline.sh" >&2; exit 1; }
 next_tag="router-v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$(( BASH_REMATCH[3] + 1 ))"
+(( BASH_REMATCH[3] > 0 )) || { echo "FATAL: the test needs a release tag with a nonzero patch number" >&2; exit 1; }
+prev_tag="router-v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$(( BASH_REMATCH[3] - 1 ))"
 
 # retag <file> <tag>: rewrite the WEAVE_RELEASE_TAG assignment in place.
 retag() { sed -i.bak "s/^WEAVE_RELEASE_TAG=\".*\"$/WEAVE_RELEASE_TAG=\"$2\"/" "$1" && rm -f "$1.bak"; }
@@ -481,6 +483,7 @@ commands_lab() {
   cp "$cc_keyed" "$installed"; chmod 755 "$installed"
   cp "$cc_keyed" "$pub/raw/weave-os/router/main/install/cc-statusline.sh"
   release_dir="$(rel_dir "$current_tag")"; mkdir -p "$release_dir/commands"
+  cp "$cc_keyed" "$release_dir/cc-statusline.sh"
   baseline="$lab/cache/weave-router/commands$(printf '%s' "$(cd "$cmd_dir" && pwd -P)" | tr -c 'A-Za-z0-9._-' '_')"
   mkdir -p "$baseline"
   local name
@@ -490,9 +493,9 @@ commands_lab() {
     cp "$script_dir/../commands/$name.md" "$release_dir/commands/$name.md"
   done
 }
-sign_commands() { # sign_commands [key]: sign a MANIFEST of the release dir's wrappers
+sign_commands() { # sign_commands [key]: sign a MANIFEST of the release dir's statusline and wrappers
   local f
-  : >"$release_dir/MANIFEST"
+  manifest_row "install/cc-statusline.sh" "$release_dir/cc-statusline.sh" >"$release_dir/MANIFEST"
   for f in "$release_dir/commands"/*.md; do manifest_row "install/commands/${f##*/}" "$f" >>"$release_dir/MANIFEST"; done
   sign "$release_dir/MANIFEST" "$keys/${1:-release}.key" "$release_dir/MANIFEST.sig.b64"
 }
@@ -625,7 +628,7 @@ commands_lab cmd-host-root
 : >"$baseline/.manifest-seeded"
 upstream_wrapper fm "host-root fm."
 sign_commands
-cp "$release_dir/commands/fm.md" "$release_dir/MANIFEST" "$release_dir/MANIFEST.sig.b64" "$pub/selfhost/"
+cp "$release_dir/commands/fm.md" "$release_dir/cc-statusline.sh" "$release_dir/MANIFEST" "$release_dir/MANIFEST.sig.b64" "$pub/selfhost/"
 run_tool cc "$installed" "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/"
 if wait_for 20 grep -q 'host-root fm.' "$cmd_dir/fm.md"; then
   ok "a host-root wrapper source verifies MANIFEST at the root"
@@ -634,6 +637,35 @@ else
 fi
 sync_settle "selfhost/rf.md"
 check_contains "a host-root wrapper source fetches the root MANIFEST" "$(cat "$log")" "selfhost/MANIFEST"
+
+# An older signed release served from a mutable wrapper source still verifies,
+# so the statusline its MANIFEST lists must carry this copy's release or newer.
+older_release_lab() { # older_release_lab <name> <statusline tag>: a signed release under selfhost/install
+  commands_lab "$1"
+  : >"$baseline/.manifest-seeded"
+  release_dir="$pub/selfhost/install"; mkdir -p "$release_dir/commands"
+  cp "$cc_keyed" "$release_dir/cc-statusline.sh"; retag "$release_dir/cc-statusline.sh" "$2"
+  cp "$script_dir/../commands/rf.md" "$release_dir/commands/rf.md"
+  upstream_wrapper fm "release $2 fm."
+  sign_commands
+}
+older_release_lab cmd-older-release "$prev_tag"
+fm_before="$(cat "$cmd_dir/fm.md")"
+run_tool cc "$installed" "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/install/commands"
+wait_for 20 log_has "$log" "selfhost/install/cc-statusline.sh"
+wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*"
+sleep 0.5
+check "an older signed release does not roll a wrapper back" "$(cat "$cmd_dir/fm.md")" "$fm_before"
+check_not_contains "an older signed release fetches no wrapper body" "$(cat "$log")" "commands/fm.md"
+
+older_release_lab cmd-newer-release "$next_tag"
+run_tool cc "$installed" "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/install/commands"
+if wait_for 20 grep -q "release $next_tag fm." "$cmd_dir/fm.md"; then
+  ok "a newer signed release from an overridden wrapper source is installed"
+else
+  no "a newer signed release from an overridden wrapper source is installed" "refreshed fm" "$(cat "$cmd_dir/fm.md")"
+fi
+sync_settle "install/commands/rf.md"
 
 # The scope selector recovered from the installed /router-off is unverified, so
 # only the shapes the installer writes are copied into verified wrappers.
