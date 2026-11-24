@@ -111,8 +111,10 @@ and the `commands/*.md` bodies from the installed copy's own tag, or from the
 parent of `WEAVE_COMMANDS_URL_BASE` when that overrides the source. After the
 signature verifies it also downloads the `cc-statusline.sh` next to that
 `MANIFEST`, checks it against its row and requires its `WEAVE_RELEASE_TAG` to
-be the installed copy's or newer. Without this, an older signed release served
-from a mutable source would verify and roll the wrappers back. Every release
+be no older than the installed copy's or the release recorded in
+`.manifest-tag` in the baseline cache, which each verified cycle rewrites with
+the release it accepted. Without this, an older signed release served from a
+mutable source would verify and roll the wrappers back. Every release
 must therefore publish `install/cc-statusline.sh` and list it in `MANIFEST`.
 
 Release operations must keep these invariants:

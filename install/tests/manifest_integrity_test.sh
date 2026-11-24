@@ -667,6 +667,21 @@ else
 fi
 sync_settle "install/commands/rf.md"
 
+# The newer release is now the floor: replaying this copy's own signed release
+# from the same source must not roll the wrapper back to its older body.
+next_fm="$(cat "$cmd_dir/fm.md")"
+retag "$release_dir/cc-statusline.sh" "$current_tag"
+upstream_wrapper fm "release $current_tag fm."
+sign_commands
+rm -f "$lab/cache/weave-router/"checked-at*.commands
+: >"$log"
+run_tool cc "$installed" "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/install/commands"
+wait_for 20 log_has "$log" "selfhost/install/cc-statusline.sh"
+wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*"
+sleep 0.5
+check "a release older than the installed wrappers does not roll them back" "$(cat "$cmd_dir/fm.md")" "$next_fm"
+check_not_contains "a release older than the installed wrappers fetches no wrapper body" "$(cat "$log")" "commands/fm.md"
+
 # The scope selector recovered from the installed /router-off is unverified, so
 # only the shapes the installer writes are copied into verified wrappers.
 scope_lab() {

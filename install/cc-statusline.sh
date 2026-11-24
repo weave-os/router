@@ -598,6 +598,7 @@ weave_sync_commands() {
   local sentinel="$baseline_dir/.manifest-seeded"
   local name installed raw prev tmp new_body prev_body installed_body owned
   local manifest="$baseline_dir/.MANIFEST.tmp.$$" seeding="false" unsigned="false" listed_tag=""
+  local release_floor="$WEAVE_RELEASE_TAG" floor_file="$baseline_dir/.manifest-tag" recorded_tag
   if [ -n "${WEAVE_COMMANDS_URL_BASE:-}" ] && weave_trust_unsigned "$url_base"; then
     unsigned="true"
   fi
@@ -613,14 +614,17 @@ weave_sync_commands() {
       weave_verify_manifest "$manifest" "$manifest.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" || exit 0
       # The signature covers digests, not a release name, so bind the MANIFEST
       # to a release through the statusline it lists: that body's own
-      # WEAVE_RELEASE_TAG must be this copy's or newer, or an older signed
+      # WEAVE_RELEASE_TAG must be no older than this copy's or the release the
+      # wrappers were last refreshed from (.manifest-tag), or an older signed
       # release served from a mutable source would roll the wrappers back.
+      recorded_tag="$(sed -n '1p' "$floor_file" 2>/dev/null)" || recorded_tag=""
+      weave_release_tag_newer "$recorded_tag" "$release_floor" && release_floor="$recorded_tag"
       curl -fsSL --max-time 15 "$manifest_base/cc-statusline.sh" -o "$manifest.release" 2>/dev/null || exit 0
       weave_verify_file "$manifest" "install/cc-statusline.sh" "$manifest.release" || exit 0
       listed_tag="$(weave_release_advertised_tag "$manifest.release")" || listed_tag=""
       [ -n "$listed_tag" ] || exit 0
-      [ "$listed_tag" = "$WEAVE_RELEASE_TAG" ] \
-        || weave_release_tag_newer "$listed_tag" "$WEAVE_RELEASE_TAG" || exit 0
+      [ "$listed_tag" = "$release_floor" ] \
+        || weave_release_tag_newer "$listed_tag" "$release_floor" || exit 0
     fi
     while IFS= read -r name; do
       installed="$cmd_dir/$name.md"
@@ -695,6 +699,9 @@ weave_sync_commands() {
 $(weave_installed_command_names "$cmd_dir")
 EOF
     [ "$seeding" = "true" ] && : >"$sentinel" 2>/dev/null
+    if [ -n "$listed_tag" ] && printf '%s\n' "$listed_tag" >"$floor_file.tmp.$$" 2>/dev/null; then
+      mv "$floor_file.tmp.$$" "$floor_file" 2>/dev/null || rm -f "$floor_file.tmp.$$"
+    fi
     true
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
