@@ -55,19 +55,15 @@ USAGE
 
 # ---------- detect (reads only $HOME and PATH) ----------
 
-expand_home() { # expand_home <path>
-  # shellcheck disable=SC2088 # The table spells $HOME as a literal ~.
-  case "$1" in
-    "~/"*) printf '%s\n' "$HOME/${1#"~/"}" ;;
-    *) printf '%s\n' "$1" ;;
-  esac
-}
-
-harness_present() { # harness_present <dirs> <bins> <apps>
+harness_present() {
   local dirs="$1" bins="$2" apps="$3" candidate
   local IFS=','
   for candidate in $dirs $apps; do
-    [ -e "$(expand_home "$candidate")" ] && return 0
+    # shellcheck disable=SC2088 # The table spells $HOME as a literal ~.
+    case "$candidate" in
+      "~/"*) candidate="$HOME/${candidate#"~/"}" ;;
+    esac
+    [ -e "$candidate" ] && return 0
   done
   for candidate in $bins; do
     command -v "$candidate" >/dev/null 2>&1 && return 0
@@ -96,7 +92,7 @@ plan() {
   done <<<"$WEAVE_HARNESSES"
 }
 
-join_by() { # join_by <separator> <items...>
+join_by() {
   local separator="$1" joined=""
   shift
   local item
@@ -125,21 +121,11 @@ machine_id() {
 }
 
 # The token goes to curl on stdin, never in argv, so it does not show in `ps`.
-exchange() { # exchange <app_url> <token> <request_json>
+exchange() {
   printf 'header = "Authorization: Bearer %s"\n' "$2" \
     | curl -sS --max-time 60 --config - \
         -H 'Content-Type: application/json' \
         -d "$3" -w '\n%{http_code}' "$1/api/install/exchange"
-}
-
-run_router_install() { # run_router_install <installer> <router_key> <target>
-  WEAVE_ROUTER_KEY="$2" bash "$1" "--$3" --non-interactive
-}
-
-# The command comes from the Weave app the user chose to enroll with and
-# carries this member's plugin key, so it is run but never printed.
-run_plugin_install() { # run_plugin_install <install_command>
-  bash -c "$1"
 }
 
 resolve_installer() {
@@ -243,7 +229,7 @@ router_key="$(jq -r '.router_key // empty' <<<"$exchange_body")"
 if [ "${#router_targets[@]}" -gt 0 ]; then
   installer="$(resolve_installer)"
   for target in "${router_targets[@]}"; do
-    if [ -n "$router_key" ] && run_router_install "$installer" "$router_key" "$target"; then
+    if [ -n "$router_key" ] && WEAVE_ROUTER_KEY="$router_key" bash "$installer" "--$target" --non-interactive; then
       installed+=("router for $target")
     else
       failed+=("router for $target")
@@ -254,7 +240,9 @@ fi
 while IFS= read -r kind; do
   [ -n "$kind" ] || continue
   install_command="$(jq -r --arg kind "$kind" '.plugins[] | select(.kind == $kind) | .install_command' <<<"$exchange_body")"
-  if run_plugin_install "$install_command"; then
+  # The command comes from the Weave app the user chose to enroll with and
+  # carries this member's plugin key, so it is run but never printed.
+  if bash -c "$install_command"; then
     installed+=("$kind plugin")
   else
     failed+=("$kind plugin")

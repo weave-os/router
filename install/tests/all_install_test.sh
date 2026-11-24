@@ -23,16 +23,16 @@ pass=0
 fail=0
 ok() { echo "  ok   $1"; pass=$((pass + 1)); }
 no() { echo "  FAIL $1"; echo "         expected: $2"; echo "         actual:   $3"; fail=$((fail + 1)); }
-check() { # check <name> <actual> <expected>
+check() {
   if [ "$2" = "$3" ]; then ok "$1"; else no "$1" "$3" "$2"; fi
 }
-check_contains() { # check_contains <name> <haystack> <needle>
+check_contains() {
   case "$2" in
     *"$3"*) ok "$1" ;;
     *) no "$1" "contains: $3" "$2" ;;
   esac
 }
-check_lacks() { # check_lacks <name> <haystack> <needle>
+check_lacks() {
   case "$2" in
     *"$3"*) no "$1" "does not contain: $3" "$2" ;;
     *) ok "$1" ;;
@@ -69,7 +69,7 @@ printf '%s\n%s' "$EXCHANGE_RESPONSE" "${EXCHANGE_STATUS:-200}"
 FAKE
 chmod +x "$fake_bin/curl"
 
-new_home() { # new_home <name> <dirs...>
+new_home() {
   local home="$work/$1" dir
   shift
   mkdir -p "$home/record"
