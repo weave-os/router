@@ -73,6 +73,17 @@ func TestUpstreamGatewayAssertedSessionWins(t *testing.T) {
 	assert.Equal(t, "signed-session", requestcontext.ClientIdentityFrom(ctx).SessionID, "a session signed into the credential beats any inbound header")
 }
 
+func TestUpstreamGatewayOverlongAssertedSessionDoesNotFallBackToHeaders(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Gateway-Session", "gw-1")
+	h.Set(requestcontext.ClaudeCodeSessionHeader, "cc-1")
+	asserted := strings.Repeat("s", requestcontext.MaxClientIdentifierLen+1)
+	ctx := gatewayCtx(t, &requestcontext.Credentials{}, requestcontext.UpstreamGatewaySession{Asserted: asserted, Headers: []string{"X-Gateway-Session"}}, h)
+	gateway, ok := requestcontext.UpstreamGatewayFrom(ctx)
+	assert.True(t, ok)
+	assert.Empty(t, gateway.SessionID, "an unusable signed session is served unpinned, never replaced by an unsigned header")
+}
+
 func TestUpstreamGatewayStoresAndForwardsNoEmail(t *testing.T) {
 	inbound := http.Header{}
 	inbound.Set("X-Weave-User-Email", "engineer@example.com")

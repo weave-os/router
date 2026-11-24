@@ -20,7 +20,7 @@ type upstreamGatewayContextKey struct{}
 
 func WithUpstreamGateway(ctx context.Context, session UpstreamGatewaySession, inbound http.Header) context.Context {
 	sessionID := NormalizeClientIdentifier(session.Asserted)
-	if sessionID == "" {
+	if session.Asserted == "" {
 		sessionID = gatewaySessionID(session.Headers, inbound)
 	}
 	return context.WithValue(ctx, upstreamGatewayContextKey{}, UpstreamGateway{SessionID: sessionID})
