@@ -130,8 +130,7 @@ func betaChainWorker(t *testing.T, fixture betaChainFixture, target policyregist
 		middleware.WithClassifierThread(betaChainThreads{}, func(router.Strategy) bool { return true }),
 		func(c *gin.Context) {
 			identity, _ := requestcontext.ServingIdentityFromContext(c.Request.Context())
-			selection := router.StrategySelectionFromContext(c.Request.Context())
-			c.JSON(http.StatusOK, gin.H{"serving_target": identity.Target, "routing_model": string(selection.RoutingModel)})
+			c.JSON(http.StatusOK, gin.H{"serving_target": identity.Target, "routing_model": string(router.StrategySelectionFromContext(c.Request.Context()).RoutingModel)})
 		},
 	)
 	return engine

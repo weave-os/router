@@ -676,6 +676,8 @@ the admission caches using the same Pub/Sub project and topic.
 
 A worker serves one channel: `prod/stable` is `stable`, `prod/weave-internal`
 is `internal`, and `prod/beta` is `beta`. The host a client calls decides the channel; the alias decides the role.
+The three channels are permanent serving configuration, not an experiment: `beta` is the
+supported channel for running a release ahead of stable, and is not scheduled for removal.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

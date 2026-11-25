@@ -11,7 +11,7 @@ import (
 func TestChannelAdmissionKeepsEnrollmentTargetForStableAndInternal(t *testing.T) {
 	t.Parallel()
 
-	beta := []ChannelPermission{{Channel: ChannelBeta, Generation: 4}}
+	betaPermissions := []ChannelPermission{{Channel: ChannelBeta, Generation: 4}}
 	for _, test := range []struct {
 		name           string
 		worker         ServingTarget
@@ -20,10 +20,10 @@ func TestChannelAdmissionKeepsEnrollmentTargetForStableAndInternal(t *testing.T)
 	}{
 		{name: "unscoped tooling", enrolledTarget: TargetInternal},
 		{name: "stable worker, default access", worker: TargetStable, enrolledTarget: TargetStable},
-		{name: "stable worker, beta holder", worker: TargetStable, enrolledTarget: TargetStable, permissions: beta},
+		{name: "stable worker, beta holder", worker: TargetStable, enrolledTarget: TargetStable, permissions: betaPermissions},
 		{name: "stable worker, staff enrollment", worker: TargetStable, enrolledTarget: TargetInternal},
-		{name: "internal worker, staff enrollment", worker: TargetInternal, enrolledTarget: TargetInternal, permissions: beta},
-		{name: "internal worker, customer", worker: TargetInternal, enrolledTarget: TargetStable, permissions: beta},
+		{name: "internal worker, staff enrollment", worker: TargetInternal, enrolledTarget: TargetInternal, permissions: betaPermissions},
+		{name: "internal worker, customer", worker: TargetInternal, enrolledTarget: TargetStable, permissions: betaPermissions},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
