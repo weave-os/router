@@ -12,7 +12,7 @@ classifier and fixed credentials. Don't deploy it.
 
 | Service | Image | Role |
 | --- | --- | --- |
-| `router` | Managed router image, pinned by digest | Serves `/v1/*`. Its `/ui` dashboard is on unless `ROUTER_UI_ENABLED=false`. |
+| `router` | Managed router image, pinned by digest | Serves `/v1/*`. Its `/ui` dashboard is on standalone and off once linked to Weave; `ROUTER_UI_ENABLED` overrides. |
 | `classifier` | The prod classifier-service image, pinned by digest, in `local` mode | Serves the v5 classifier API from the exported release, selection and package. Embeddings come from Gemini or your own Vertex AI project. The router reaches it at `http://classifier:8080`. |
 | `policy` | Policy bundle | Copies the exported serving registry and the classifier package into the `router_policy` volume, then stays up. |
 | `migrate` | Router migrations | Creates the `router` schema, applies every router migration in this release, then stays up. |
@@ -96,8 +96,10 @@ Weave app creates.
 1. Deploy or upgrade the Weave app with the router link enabled first.
 2. In this app's `.env`:
    - Set `COMPOSE_PROFILES=` (empty), so the bundled Postgres and emulator don't start.
-   - Set `ROUTER_UI_ENABLED=false`. Weave is the only UI; `/v1/*`,
-     `/internal/v1/*`, health and `/v1/version` stay mounted.
+   - Leave `ROUTER_UI_ENABLED` unset. A self-hosted router with
+     `ROUTER_INTERNAL_SERVICE_TOKEN` set turns `/ui` and `/admin/v1` off, so
+     Weave is the only UI; `/v1/*`, `/internal/v1/*`, health and `/v1/version`
+     stay mounted. Set it to `true` or `false` to override.
    - Set `DATABASE_URL=postgres://router-user:<ROUTER_POSTGRES_PASSWORD>@postgres:5432/<weave database>?sslmode=disable`.
    - Set `PUBSUB_EMULATOR_HOST` to the Weave emulator, for example
      `pubsub-emulator:8085`, and `PUBSUB_PROJECT_ID` to the Weave app's emulator

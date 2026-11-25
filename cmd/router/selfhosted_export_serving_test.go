@@ -97,6 +97,18 @@ func TestUIEnabledDefaultsOnAndOnlyFalseDisablesIt(t *testing.T) {
 	}
 }
 
+func TestUIDefaultsOffForASelfHostedRouterLinkedToWeave(t *testing.T) {
+	t.Setenv("ROUTER_UI_ENABLED", "")
+	t.Setenv("ROUTER_DEPLOYMENT_MODE", "selfhosted")
+	t.Setenv("ROUTER_INTERNAL_SERVICE_TOKEN", "linked-token")
+	require.False(t, uiEnabledFromEnv())
+	t.Setenv("ROUTER_UI_ENABLED", "true")
+	require.True(t, uiEnabledFromEnv())
+	t.Setenv("ROUTER_UI_ENABLED", "")
+	t.Setenv("ROUTER_DEPLOYMENT_MODE", "managed")
+	require.True(t, uiEnabledFromEnv())
+}
+
 type directoryExportSource struct {
 	*policyregistry.DirectoryServingStore
 	dir string

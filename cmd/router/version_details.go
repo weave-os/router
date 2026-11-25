@@ -14,7 +14,11 @@ import (
 )
 
 func uiEnabledFromEnv() bool {
-	return !strings.EqualFold(strings.TrimSpace(config.GetOr("ROUTER_UI_ENABLED", "true")), "false")
+	if configured := strings.TrimSpace(config.GetOr("ROUTER_UI_ENABLED", "")); configured != "" {
+		return !strings.EqualFold(configured, "false")
+	}
+	linkedToWeave := server.DeploymentMode(config.GetOr("ROUTER_DEPLOYMENT_MODE", string(server.DeploymentModeSelfHosted))) == server.DeploymentModeSelfHosted && internalServiceTokenFromEnv() != ""
+	return !linkedToWeave
 }
 
 func withVersionDetails(features server.Features, pool sqlc.DBTX) server.Features {

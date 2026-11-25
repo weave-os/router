@@ -15,7 +15,7 @@
 #
 # Standalone: COMPOSE_PROFILES=standalone adds the bundled Postgres and Pub/Sub
 # emulator. Linked (a self-hosted Weave app on the same host): leave the profile
-# unset, set ROUTER_UI_ENABLED=false and point DATABASE_URL and
+# unset (the /ui dashboard turns off once ROUTER_INTERNAL_SERVICE_TOKEN is set) and point DATABASE_URL and
 # PUBSUB_EMULATOR_HOST at the Weave app's services on the shared
 # weave-router-link network. See docs/SELF_HOSTED.md.
 
@@ -171,7 +171,7 @@ services:
     environment:
       PORT: "8080"
       ROUTER_DEPLOYMENT_MODE: selfhosted
-      ROUTER_UI_ENABLED: ${ROUTER_UI_ENABLED:-true}
+      ROUTER_UI_ENABLED: ${ROUTER_UI_ENABLED:-}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
       PUBSUB_EMULATOR_HOST: ${PUBSUB_EMULATOR_HOST:-pubsub-emulator:8085}
       PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-router-local}
