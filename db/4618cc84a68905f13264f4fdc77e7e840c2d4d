@@ -1,0 +1,23 @@
+bench/tests/test_efficiency_results.py
+  s_29aee27fb6d00d::t_f652a5da5786f0 14,62-71,90
+bench/token-efficiency/README.md
+  s_29aee27fb6d00d::t_1aca6cb9842dd5 89,235,320-322,394-399,411
+bench/token-efficiency/results/token_efficiency_results.json
+  s_29aee27fb6d00d::t_a61899df5d4a60 245,248-376
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "db4618cc84a68905f13264f4fdc77e7e840c2d4d",
+  "prompts": {},
+  "sessions": {
+    "s_29aee27fb6d00d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "334c31dc-6e6f-44da-90d5-bb62eb3cf18b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

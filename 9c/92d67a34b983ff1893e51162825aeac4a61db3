@@ -1,0 +1,19 @@
+internal/auth/rotate_spend_cap_test.go
+  s_f1ddfc363ee6c2::t_ca50e9b1176beb 51,53,56,59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "9c92d67a34b983ff1893e51162825aeac4a61db3",
+  "prompts": {},
+  "sessions": {
+    "s_f1ddfc363ee6c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8cda2423-38d2-448a-b281-0fd69c42cb07",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+install/npm/package.json
+  s_daa8141ff6c438::t_c3bb049e591b21 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1ae46f1f9c237534aeab9300bbdc23787ed67a95",
+  "prompts": {},
+  "sessions": {
+    "s_daa8141ff6c438": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a8b-b7b5-72e1-bf01-4c4b38617888",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

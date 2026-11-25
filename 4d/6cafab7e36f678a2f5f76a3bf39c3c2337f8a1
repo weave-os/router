@@ -1,0 +1,92 @@
+internal/policyregistry/serving_routing_model.go
+  s_3d3a92513a159d::t_38428f51972547 47-49,54,61-62,66-69
+  s_3d3a92513a159d::t_33c698cd8cecd1 15-29,59-60
+  s_3d3a92513a159d::t_0901de6cb5f2c1 63-65
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_3d3a92513a159d::t_2c4c6ac619974c 906,933-952,978,1017,1051,1075-1085,1105,1138,1174,1200-1214,1237,1276
+db/queries/serving_admission.sql
+  s_3d3a92513a159d::t_4e1c5203f3e27b 38-39
+  s_3d3a92513a159d::t_3b75e4a9ae5f3c 34-37,40
+internal/postgres/serving/admission_test.go
+  s_3d3a92513a159d::t_0b5aa756ec8977 84
+  s_3d3a92513a159d::t_95e4445e8e378b 8,76-83
+db/queries/model_router_request_telemetry.sql
+  s_3d3a92513a159d::t_d4527a61862c75 959,1106,1145
+internal/router/routing_model_test.go
+  s_3d3a92513a159d::t_798b12c079d253 29-33,35
+  s_3d3a92513a159d::t_cc8a9588d4b0de 34
+internal/api/admin/dashboard_metrics_test.go
+  s_3d3a92513a159d::t_72789a9fa7c8c6 98
+  s_3d3a92513a159d::t_0a4616bbd0cce0 88
+  s_3d3a92513a159d::t_8d50c5b9e16f62 8-9,84-87,89-97
+internal/sqlc/serving_admission.sql.go
+  s_3d3a92513a159d::t_4e1c5203f3e27b 185-205,209
+  s_3d3a92513a159d::t_74ed81d2c211f2 181-184,206-208,210
+internal/policyregistry/serving_routing_model_test.go
+  s_3d3a92513a159d::t_798b12c079d253 164-180
+  s_3d3a92513a159d::t_95e4445e8e378b 181-201
+internal/router/auto_efficient.go
+  s_3d3a92513a159d::t_6afbdb4c7c3a8f 1-5
+internal/server/middleware/serving_admission.go
+  s_3d3a92513a159d::t_5bb5b4d7176f7f 142
+  s_3d3a92513a159d::t_a992bf834a2d6f 68-69,131-141
+internal/proxy/service.go
+  s_3d3a92513a159d::t_8ed0804ccc2064 711
+internal/router/routing_model.go
+  s_3d3a92513a159d::t_a5ce93064e1232 8-11
+  s_3d3a92513a159d::t_6afbdb4c7c3a8f 7,43-46,49
+  s_3d3a92513a159d::t_306f3b21a2ae19 6
+internal/postgres/telemetry.go
+  s_3d3a92513a159d::t_6afda44373fb37 331-334,336-341,868-871,873-878,911-914,916-921
+  s_3d3a92513a159d::t_0a4616bbd0cce0 335,872,915
+internal/api/admin/dashboard_metrics.go
+  s_3d3a92513a159d::t_0a4616bbd0cce0 257
+  s_3d3a92513a159d::t_1a20d76e212ad8 261
+  s_3d3a92513a159d::t_2c4c6ac619974c 247,250,255-256,258-260
+  s_3d3a92513a159d::t_6afda44373fb37 9
+internal/proxy/routing_model_baseline.go
+  s_3d3a92513a159d::t_8ed0804ccc2064 1-14
+internal/telemetry/turnrecord/repository.go
+  s_3d3a92513a159d::t_0a4616bbd0cce0 257-261
+  s_3d3a92513a159d::t_6afda44373fb37 262-267
+internal/router/routing_model_selection.go
+  s_3d3a92513a159d::t_6afbdb4c7c3a8f 30
+  s_3d3a92513a159d::t_43058d7a3a853a 31-33
+internal/postgres/serving/admission.go
+  s_3d3a92513a159d::t_7961c96f21e98d 21,184
+  s_3d3a92513a159d::t_a992bf834a2d6f 103-104,233-253,269,271-272,276,278
+  s_3d3a92513a159d::t_5ccb7fdeba281c 267,270,273-275,277
+  s_3d3a92513a159d::t_95e4445e8e378b 279-286
+  s_3d3a92513a159d::t_eb09851646de1f 254-266,268
+internal/router/strategy_selection_test.go
+  s_3d3a92513a159d::t_c652ef95d61d9a 98
+docs/CONFIGURATION.md
+  s_3d3a92513a159d::t_4a6885b38191e9 23,941-942,947,959-962
+  s_3d3a92513a159d::t_1807cf97db3656 963
+  s_3d3a92513a159d::t_b210553137fc3b 951-954
+  s_3d3a92513a159d::t_13c24fde26bdaa 943-946,948-950,955-958
+internal/proxy/baseline_internal_test.go
+  s_3d3a92513a159d::t_75a435496d1816 40-46
+db/migrations/0161_installation-routing-model-profile-assignments.down.sql
+  s_3d3a92513a159d::t_4cd3ee8bc0bb0c 1-5
+db/migrations/0161_installation-routing-model-profile-assignments.up.sql
+  s_3d3a92513a159d::t_2479c25d52ef28 1-17
+internal/sqlc/models.go
+  s_3d3a92513a159d::t_45c37ebc9fc155 269-277
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4d6cafab7e36f678a2f5f76a3bf39c3c2337f8a1",
+  "prompts": {},
+  "sessions": {
+    "s_3d3a92513a159d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e06a46ff-7689-4654-9d8f-4c966c294be0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}

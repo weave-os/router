@@ -1,0 +1,21 @@
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_55e2e0c8b01ca3::t_3ce58755f2f12f 433-436
+db/queries/model_router_subscription_accounts.sql
+  s_55e2e0c8b01ca3::t_a6bd87e446904a 72-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "473c695586ca97f16e58f27321d94ea34b265035",
+  "prompts": {},
+  "sessions": {
+    "s_55e2e0c8b01ca3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b0a3-72e6-7ec3-b3dc-599831026237",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

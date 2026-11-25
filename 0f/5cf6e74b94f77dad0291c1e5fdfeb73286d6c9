@@ -1,0 +1,103 @@
+internal/proxy/routing_model_selection.go
+  s_3d3a92513a159d::t_9cd8bd7d0551ec 1-9,11-21
+  s_3d3a92513a159d::t_54863029cc0318 10
+internal/router/strategy.go
+  s_3d3a92513a159d::t_54863029cc0318 38-40
+internal/auth/installation.go
+  s_3d3a92513a159d::t_9f4b39be5529ed 49
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_3d3a92513a159d::t_2c4c6ac619974c 906,933-952,978,1017,1051,1075-1085,1105,1138,1174,1200-1214,1237,1276
+internal/api/admin/dashboard_metrics_test.go
+  s_3d3a92513a159d::t_8d50c5b9e16f62 8-9,84-87,89-97
+  s_3d3a92513a159d::t_0a4616bbd0cce0 88
+  s_3d3a92513a159d::t_72789a9fa7c8c6 98
+internal/sqlc/models.go
+  s_3d3a92513a159d::t_49e45cb4456e70 521-522
+internal/policyregistry/serving_routing_model_test.go
+  s_3d3a92513a159d::t_798b12c079d253 164-180
+internal/sqlc/model_router_api_keys.sql.go
+  s_3d3a92513a159d::t_49e45cb4456e70 123,142,213
+internal/proxy/routing_model_cluster_lists_internal_test.go
+  s_3d3a92513a159d::t_54863029cc0318 12-14,16-18
+  s_3d3a92513a159d::t_75a435496d1816 1-11,15,19
+internal/router/strategy_selection_test.go
+  s_3d3a92513a159d::t_798b12c079d253 98-99
+internal/proxy/service.go
+  s_3d3a92513a159d::t_b7c96142d88c09 564
+  s_3d3a92513a159d::t_9cd8bd7d0551ec 711
+internal/router/routing_model_test.go
+  s_3d3a92513a159d::t_798b12c079d253 29-37
+internal/server/middleware/routing_model.go
+  s_3d3a92513a159d::t_54863029cc0318 67-69,91-98
+  s_3d3a92513a159d::t_38428f51972547 8,43-45
+  s_3d3a92513a159d::t_fc6ff96cc20df7 99
+internal/server/middleware/routing_model_test.go
+  s_3d3a92513a159d::t_eac8b72266d85e 308-326,328-344
+  s_3d3a92513a159d::t_f88f9a1c90340a 16,327
+internal/sqlc/model_router_installations.sql.go
+  s_3d3a92513a159d::t_49e45cb4456e70 25,46,93,99,113,164,170,179,236
+db/queries/model_router_request_telemetry.sql
+  s_3d3a92513a159d::t_d4527a61862c75 959,1106,1145
+db/migrations/0161_installation-routing-model-cluster-lists.up.sql
+  s_3d3a92513a159d::t_cf5f3fb6ef7260 1-13
+internal/postgres/converters.go
+  s_3d3a92513a159d::t_f7f2e38ac89f8b 58-63,65-67
+  s_3d3a92513a159d::t_9f4b39be5529ed 5,110-119,121
+internal/telemetry/turnrecord/repository.go
+  s_3d3a92513a159d::t_6afda44373fb37 262-267
+  s_3d3a92513a159d::t_0a4616bbd0cce0 257-261
+internal/policyregistry/serving_routing_model.go
+  s_3d3a92513a159d::t_0901de6cb5f2c1 48-50
+  s_3d3a92513a159d::t_38428f51972547 32-34,39,46-47,51-54
+  s_3d3a92513a159d::t_4ce92bd179cb67 55
+internal/flags/flags_test.go
+  s_3d3a92513a159d::t_80a1874b9fd826 285-286
+  s_3d3a92513a159d::t_4b220d423e637c 278
+internal/router/routing_model.go
+  s_3d3a92513a159d::t_a5ce93064e1232 8-11
+  s_3d3a92513a159d::t_6afbdb4c7c3a8f 7,43-46,49
+  s_3d3a92513a159d::t_306f3b21a2ae19 6
+internal/flags/registry.go
+  s_3d3a92513a159d::t_4bbcfc39237e57 3,38-41
+  s_3d3a92513a159d::t_61b09bb99a9c63 42-43
+internal/flags/flags.go
+  s_3d3a92513a159d::t_4bbcfc39237e57 117
+docs/CONFIGURATION.md
+  s_3d3a92513a159d::t_4a6885b38191e9 23,942-965
+  s_3d3a92513a159d::t_1807cf97db3656 966
+internal/postgres/converters_test.go
+  s_3d3a92513a159d::t_636a18e1bb93a6 110-123
+internal/postgres/telemetry.go
+  s_3d3a92513a159d::t_6afda44373fb37 331-334,336-341,868-871,873-878,911-914,916-921
+  s_3d3a92513a159d::t_0a4616bbd0cce0 335,872,915
+internal/proxy/baseline_internal_test.go
+  s_3d3a92513a159d::t_75a435496d1816 40-46
+internal/router/routing_model_selection.go
+  s_3d3a92513a159d::t_6afbdb4c7c3a8f 4-6,31-34
+  s_3d3a92513a159d::t_43058d7a3a853a 35-37
+internal/router/auto_efficient.go
+  s_3d3a92513a159d::t_6afbdb4c7c3a8f 1-12
+db/migrations/0161_installation-routing-model-cluster-lists.down.sql
+  s_3d3a92513a159d::t_cf5f3fb6ef7260 1-6
+internal/api/admin/dashboard_metrics.go
+  s_3d3a92513a159d::t_2c4c6ac619974c 247,250,255-256,258-260
+  s_3d3a92513a159d::t_6afda44373fb37 9
+  s_3d3a92513a159d::t_0a4616bbd0cce0 257
+  s_3d3a92513a159d::t_1a20d76e212ad8 261
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0f5cf6e74b94f77dad0291c1e5fdfeb73286d6c9",
+  "prompts": {},
+  "sessions": {
+    "s_3d3a92513a159d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e06a46ff-7689-4654-9d8f-4c966c294be0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

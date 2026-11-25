@@ -1,0 +1,21 @@
+internal/proxy/struggle_escalation.go
+  s_daddca850ac23d::t_ac3849437d85e4 53
+  s_daddca850ac23d::t_11154eeb7e95cb 142-145,153
+  s_daddca850ac23d::t_948de931c2e584 52,54-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "0793f93a2d03cf0e798c6ecf9b3f9e1db020d94f",
+  "prompts": {},
+  "sessions": {
+    "s_daddca850ac23d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e3098e4-eb30-4e8b-823c-74a083bc8bae",
+        "model": "deepseek/deepseek-v4-pro-0813"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

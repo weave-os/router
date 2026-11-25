@@ -1,0 +1,45 @@
+internal/analytics/schema.go
+  s_b9214c2cae82d1::t_bb9931c17cd8d8 38-41
+internal/proxy/effort.go
+  s_b9214c2cae82d1::t_bb9931c17cd8d8 14-17
+db/queries/model_router_request_telemetry.sql
+  s_b9214c2cae82d1::t_7081c808acc993 790-793
+internal/postgres/analytics_repo_test.go
+  s_b9214c2cae82d1::t_7081c808acc993 13,29-50
+  s_666cea6889660f::t_15505490d3091d 51-52
+docs/ANALYTICS_EXPORT.md
+  s_b9214c2cae82d1::t_7081c808acc993 97-102
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_b9214c2cae82d1::t_a6b291b3f5969a 92-95,226-229,332-335,471-474
+internal/postgres/analytics_repo.go
+  s_b9214c2cae82d1::t_7081c808acc993 9,71-74
+internal/analytics/analytics.go
+  s_b9214c2cae82d1::t_cad12233c34ccc 37-42,44-49
+  s_b9214c2cae82d1::t_bb9931c17cd8d8 11,43
+internal/router/effort.go
+  s_b9214c2cae82d1::t_bb9931c17cd8d8 5-24,26-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7fa7b8fde5dd818f9cef52db845da3630e410277",
+  "prompts": {},
+  "sessions": {
+    "s_666cea6889660f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19df3-dba2-7972-ae45-53822054a778",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_b9214c2cae82d1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19e45-021f-7f23-9e0f-a8359a4fc275",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

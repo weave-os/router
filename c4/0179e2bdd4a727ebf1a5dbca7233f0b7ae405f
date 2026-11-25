@@ -1,0 +1,19 @@
+internal/proxy/openai_cyber_refusal_internal_test.go
+  s_297c592fd0ceca::t_9ed1a9162fcecd 151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c40179e2bdd4a727ebf1a5dbca7233f0b7ae405f",
+  "prompts": {},
+  "sessions": {
+    "s_297c592fd0ceca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a164ca-1fad-7291-aac4-6c9c6ab4361d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
