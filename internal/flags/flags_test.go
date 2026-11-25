@@ -312,8 +312,14 @@ func TestOverridesDigestIsContentAddressed(t *testing.T) {
 	changed, err := flags.ParseOverrides([]byte(`{"turn_signal_capture_enabled":false,"task_arm_experiment_treatment_pct":30}`))
 	require.NoError(t, err)
 
-	assert.Len(t, first.Digest(), 64)
-	assert.Equal(t, first.Digest(), reordered.Digest())
-	assert.NotEqual(t, first.Digest(), changed.Digest())
-	assert.Empty(t, flags.Overrides{}.Digest())
+	digest := func(o flags.Overrides) string {
+		t.Helper()
+		value, err := o.Digest()
+		require.NoError(t, err)
+		return value
+	}
+	assert.Len(t, digest(first), 64)
+	assert.Equal(t, digest(first), digest(reordered))
+	assert.NotEqual(t, digest(first), digest(changed))
+	assert.Empty(t, digest(flags.Overrides{}))
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/refusal"
 	"weave-os/router/internal/requestcontext"
@@ -107,8 +106,8 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 			abortRefusal(c, refusal.ServingAttributionUnavailable, nil)
 			return
 		}
-		ingress.SetServingReleaseHeaders(ctx, c.Writer.Header())
 		c.Request = c.Request.WithContext(ctx)
+		c.Writer = &servingReleaseHeaderWriter{ResponseWriter: c.Writer, request: func() *http.Request { return c.Request }}
 		c.Next()
 	}
 }
