@@ -122,3 +122,31 @@ func TestServingAdmissionReleaseHeadersFollowTheFinalResponse(t *testing.T) {
 		})
 	}
 }
+
+type stubExperiments bool
+
+func (s stubExperiments) InstallationBlindExperimentEnabled(context.Context, string) bool {
+	return bool(s)
+}
+
+func TestServingAdmissionReleaseHeadersHideOnRoutesThatNeverResolveTheExperiment(t *testing.T) {
+	optIn := func(c *gin.Context) {
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), requestcontext.InstallationServingReleaseHeadersContextKey{}, true))
+	}
+	for name, tc := range map[string]struct {
+		experiments stubExperiments
+		wantHeaders bool
+	}{
+		"installation running a blind experiment hides the release": {experiments: true},
+		"installation without an experiment names its release":      {experiments: false, wantHeaders: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, admitted, _, _ := admissionMiddlewareFixture(t)
+			cfg.Attribution = admissionAttributionFunc(noopAttribution)
+			cfg.Experiments = tc.experiments
+			response := runAdmissionMiddlewareWithPrelude(t, cfg, admitted, optIn, func(c *gin.Context) { c.String(http.StatusOK, "models") })
+			assert.Equal(t, tc.wantHeaders, response.Header().Get(requestcontext.HeaderServingReleaseSHA) != "")
+			assert.Equal(t, tc.wantHeaders, response.Header().Get(requestcontext.HeaderServingPolicySHA) != "")
+		})
+	}
+}

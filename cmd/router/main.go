@@ -783,6 +783,7 @@ func main() {
 		}
 		servingAdmission.TestBudgetEnabled = testPlansEnabled && billingSvc != nil
 		servingAdmission.Attribution = servingpostgres.NewRequestAttributionRepo(pool)
+		servingAdmission.Experiments = authSvc
 		admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMM, baseline)
 		hmmRouter = admittedRouter
 		hmmEmbeddingRouter = policyregistry.NewAdmittedRouter(router.StrategyHMMEmbedding, baseline)
