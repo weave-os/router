@@ -653,17 +653,41 @@ func TestBlindPassthroughServesConfiguredControlModelForUndetectedClient(t *test
 	assert.Equal(t, blindExperimentPublicDecisionReason, decision.Reason)
 }
 
-func TestBlindPassthroughControlModelServesRoutingAndUnknownRequests(t *testing.T) {
+func TestBlindPassthroughControlModelServesRoutingRequests(t *testing.T) {
 	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}}
-	for _, requested := range []string{string(router.ModelAutomatic), string(router.ModelAutoEfficient), "", "unknown-model"} {
+	for _, requested := range []string{string(router.ModelAutomatic), router.ModelAutomaticDisplayName} {
 		decision, _, err := service.blindExperimentPassthroughDecision(
 			blindExperimentControlContext("claude-haiku-4-5", requestcontext.ClientAppClaudeCode),
 			router.Request{RequestedModel: requested, EnabledProviders: enabled})
 
 		require.NoError(t, err, requested)
-		assert.Equal(t, "claude-haiku-4-5", decision.Model, "routing or unknown request %q serves the control model", requested)
+		assert.Equal(t, "claude-haiku-4-5", decision.Model, "routing request %q serves the control model", requested)
 	}
+}
+
+func TestBlindPassthroughControlModelKeepsAnUnknownModelsExplicitError(t *testing.T) {
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	enabled := map[string]struct{}{providers.ProviderAnthropic: {}}
+
+	_, _, err := service.blindExperimentPassthroughDecision(
+		blindExperimentControlContext("claude-haiku-4-5", ""),
+		router.Request{RequestedModel: "in-house-model", EnabledProviders: enabled})
+
+	var unknown *PassthroughModelUnknownError
+	require.ErrorAs(t, err, &unknown, "a caller who names a model the catalog does not own gets the explicit error, never a silent swap to the control model")
+}
+
+func TestBlindPassthroughControlModelKeepsTheEfficientAliasBaseline(t *testing.T) {
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	enabled := map[string]struct{}{providers.ProviderAnthropic: {}}
+
+	decision, _, err := service.blindExperimentPassthroughDecision(
+		blindExperimentControlContext("claude-opus-5-5", requestcontext.ClientAppClaudeCode),
+		router.Request{RequestedModel: string(router.ModelAutoEfficient), EnabledProviders: enabled})
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude-sonnet-5-5", decision.Model, "a caller who asks for the cost-saving alias is never moved to an experiment control model")
 }
 
 func TestBlindPassthroughControlModelKeepsAnExplicitCatalogModel(t *testing.T) {
@@ -763,7 +787,7 @@ func TestBlindExperimentTelemetryReportsControlModelOnlyWhereItApplied(t *testin
 		want      string
 	}{
 		{name: "control arm served a routing request", ctx: ctx, routed: controlArmTurn, requested: "weave-auto", want: control},
-		{name: "control arm served the efficient alias", ctx: ctx, routed: controlArmTurn, requested: string(router.ModelAutoEfficient), want: control},
+		{name: "efficient alias keeps its comparison baseline", ctx: ctx, routed: controlArmTurn, requested: string(router.ModelAutoEfficient), want: "claude-sonnet-5-5"},
 		{name: "explicit catalog model keeps its own baseline", ctx: ctx, routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: "claude-sonnet-4-6"}, CallerModelPassthrough: true}, requested: "claude-sonnet-4-6", want: "claude-sonnet-4-6"},
 		{name: "router-served turn", ctx: ctx, routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: control}}, requested: "weave-auto", want: "claude-opus-5-5"},
 		{name: "client model passthrough", ctx: auth.WithClientModelPassthrough(ctx), routed: controlArmTurn, requested: "weave-auto", want: "claude-opus-5-5"},
