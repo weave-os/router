@@ -8164,8 +8164,13 @@ weave_sync_commands() {
       # slug can collide, so each command directory keeps its own floor file,
       # named by the SHA-256 of its path, and never rewrites another's.
       floor_file="$floor_file.$(printf '%s' "$cmd_dir" | weave_sha256 /dev/stdin)" || exit 0
-      [ ! -e "$floor_file" ] || [ -f "$floor_file" ] || exit 0
-      recorded_tag="$(sed -n '1p' "$floor_file" 2>/dev/null)" || recorded_tag=""
+      # A floor that exists but does not read as a release tag stops the cycle.
+      recorded_tag=""
+      if [ -e "$floor_file" ]; then
+        [ -f "$floor_file" ] && [ -r "$floor_file" ] || exit 0
+        recorded_tag="$(sed -n '1p' "$floor_file" 2>/dev/null)" || exit 0
+        [[ "$recorded_tag" =~ ^router-v[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$ ]] || exit 0
+      fi
       weave_release_tag_newer "$recorded_tag" "$release_floor" && release_floor="$recorded_tag"
       curl -fsSL --max-time 15 "$manifest_base/cc-statusline.sh" -o "$manifest.release" 2>/dev/null || exit 0
       weave_verify_file "$manifest" "install/cc-statusline.sh" "$manifest.release" || exit 0

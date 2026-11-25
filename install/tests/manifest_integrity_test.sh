@@ -702,8 +702,9 @@ wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*"
 sleep 0.5
 check_not_contains "a colliding install's cycle keeps this directory's release floor" "$(cat "$log")" "commands/fm.md"
 
+own_floor="$baseline/.manifest-tag.$(printf '%s' "$(cd "$cmd_dir" && pwd -P)" | sha /dev/stdin)"
 for floor in "$baseline"/.manifest-tag.*; do printf '%s\n' "$next_tag" >"$floor"; done
-rm -f "$baseline/.manifest-tag.$(printf '%s' "$(cd "$cmd_dir" && pwd -P)" | sha /dev/stdin)"
+rm -f "$own_floor"
 rm -f "$lab/cache/weave-router/"checked-at*.commands
 : >"$log"
 run_tool cc "$installed" "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/install/commands"
@@ -711,6 +712,25 @@ if sync_settle "install/commands/rf.md"; then
   ok "a release floor recorded for another command directory is ignored"
 else
   no "a release floor recorded for another command directory is ignored" "wrappers fetched" "$(cat "$log")"
+fi
+
+# A floor that exists but cannot be read as a release tag stops the cycle
+# rather than falling back to the installed copy's older tag.
+floor_refusal() { # the cycle reads the release statusline, then fetches no wrapper body
+  rm -f "$lab/cache/weave-router/"checked-at*.commands
+  : >"$log"
+  run_tool cc "$installed" "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/install/commands"
+  wait_for 20 log_has "$log" "selfhost/install/MANIFEST.sig.b64"
+  wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*"
+  sleep 0.5
+  check_not_contains "$1" "$(cat "$log")" "commands/fm.md"
+}
+printf '%s\n' "not-a-release" >"$own_floor"
+floor_refusal "a malformed release floor fetches no wrapper body"
+if [ "$(id -u)" != "0" ]; then
+  printf '%s\n' "$current_tag" >"$own_floor"; chmod 000 "$own_floor"
+  floor_refusal "an unreadable release floor fetches no wrapper body"
+  chmod 600 "$own_floor"
 fi
 
 # The floor is recorded before any wrapper moves; a cycle that cannot record it
