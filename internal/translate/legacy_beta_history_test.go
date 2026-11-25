@@ -229,3 +229,22 @@ func TestStripRetiredBetaHistoryKeepsAckTextCarryingToolCalls(t *testing.T) {
 
 	assert.Equal(t, 0, env.StripRetiredBetaHistory())
 }
+
+func TestStripRetiredBetaHistoryRemovesRouterReplyButKeepsMixedBetaMessage(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "/beta\nWhich router is active?"},
+			map[string]any{"role": "assistant", "content": "✦ **Weave Router** → Select a router with `wv router set-model weave-hmm-beta`, or `wv router set-model weave-auto`, then start a new session.\n\n"},
+			map[string]any{"role": "user", "content": "continue"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, env.StripRetiredBetaHistory())
+	prepared, err := env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-5.6-sol"})
+	require.NoError(t, err)
+	assert.NotContains(t, string(prepared.Body), "Select a router")
+	assert.Contains(t, string(prepared.Body), "Which router is active?")
+}

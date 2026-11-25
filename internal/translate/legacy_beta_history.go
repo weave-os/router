@@ -35,11 +35,14 @@ func (e *RequestEnvelope) StripRetiredBetaHistory() int {
 			removed++
 			continue
 		}
-		if msg.Get("role").String() == "user" && idx != lastUserIdx && idx+1 < len(messages) &&
-			isBetaCommandOnlyContent(msg.Get("content")) {
-			if reply := messages[idx+1]; reply.Get("role").String() == "assistant" && !carriesToolCall(reply) &&
-				(betaReplyOnlyContent(reply, isRetiredBetaReplyText) || isEmptyTextContent(reply.Get("content"))) {
-				removed += 2
+		if msg.Get("role").String() == "user" && idx != lastUserIdx && idx+1 < len(messages) {
+			if stripCommand, stripReply := retiredBetaReplyAfter(msg, messages[idx+1]); stripReply {
+				if stripCommand {
+					removed++
+				} else {
+					rebuilt = append(rebuilt, msg.Raw)
+				}
+				removed++
 				idx++
 				continue
 			}
@@ -50,6 +53,41 @@ func (e *RequestEnvelope) StripRetiredBetaHistory() int {
 		return 0
 	}
 	return e.setMessages(rebuilt, removed)
+}
+
+func retiredBetaReplyAfter(msg, reply gjson.Result) (stripCommand, stripReply bool) {
+	if reply.Get("role").String() != "assistant" || carriesToolCall(reply) {
+		return false, false
+	}
+	content := msg.Get("content")
+	switch {
+	case isBetaCommandOnlyContent(content):
+		strip := betaReplyOnlyContent(reply, isRetiredBetaReplyText) || isEmptyTextContent(reply.Get("content"))
+		return strip, strip
+	case hasLeadingBetaCommand(content):
+		return false, betaReplyOnlyContent(reply, isRetiredBetaReplyText)
+	default:
+		return false, false
+	}
+}
+
+func hasLeadingBetaCommand(content gjson.Result) bool {
+	switch {
+	case content.Type == gjson.String:
+		_, found, _ := parseInCursorQuery(content.String(), parseLegacyBetaCommand)
+		return found
+	case content.Type == gjson.JSON && content.IsArray():
+		found := false
+		content.ForEach(func(_, block gjson.Result) bool {
+			if block.Get("type").String() == "text" {
+				_, found, _ = parseInCursorQuery(block.Get("text").String(), parseLegacyBetaCommand)
+			}
+			return !found
+		})
+		return found
+	default:
+		return false
+	}
 }
 
 func isEmptyTextContent(content gjson.Result) bool {
