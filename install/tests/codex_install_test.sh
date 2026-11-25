@@ -988,6 +988,7 @@ approval_policy = "on-request"
 
 # --- BEGIN WEAVE TELEMETRY (managed by Weave) ---
 model = "weave-auto"
+# telemetry settings
 
 [otel]
 environment = "prod"
@@ -1005,7 +1006,7 @@ lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
 tomllib.loads("\n".join(lines))
 foreign_begin = lines.index("# --- BEGIN WEAVE TELEMETRY (managed by Weave) ---")
 foreign_end = lines.index("# --- END WEAVE TELEMETRY (managed by Weave) ---")
-assert lines[foreign_begin + 1] == "[otel]", lines[foreign_begin + 1]
+assert lines[foreign_begin + 1 : foreign_begin + 4] == ["# telemetry settings", "", "[otel]"], lines[foreign_begin + 1 : foreign_begin + 4]
 router_end = lines.index("# <<< weave-router managed <<<")
 assert router_end < foreign_begin, (router_end, foreign_begin)
 assert not any("weave-router" in line or "model_provider" in line for line in lines[foreign_begin:foreign_end])

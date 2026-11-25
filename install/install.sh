@@ -1115,9 +1115,9 @@ EOF
     # The Weave Codex telemetry plugin opens its marked region with a begin
     # marker above its first table and deletes everything between its markers
     # when it reinstalls. When that table is the first header, splice above
-    # the marker so the managed block stays outside the region. Keys already
-    # stranded between the marker and its table by an earlier install move
-    # out with it.
+    # the marker so the managed block stays outside the region. The model
+    # keys an earlier install stranded between the marker and its table move
+    # out with it; every other line of the region stays in place.
     local first_section telemetry_begin_line
     read -r first_section telemetry_begin_line <<EOF
 $(awk '
@@ -1131,10 +1131,10 @@ EOF
           head -n "$((telemetry_begin_line - 1))" "$tmp"
         fi
         awk -v begin="$telemetry_begin_line" -v table_line="$first_section" \
-          'NR > begin && NR < table_line && !/^[[:space:]]*(#.*)?$/' "$tmp"
+          'NR > begin && NR < table_line && /^[[:space:]]*model(_reasoning_effort)?[[:space:]]*=/' "$tmp"
         printf "%s\n" "$codex_insertion"
-        awk -v begin="$telemetry_begin_line" 'NR == begin' "$tmp"
-        tail -n "+${first_section}" "$tmp"
+        awk -v begin="$telemetry_begin_line" -v table_line="$first_section" \
+          'NR >= begin && !(NR < table_line && /^[[:space:]]*model(_reasoning_effort)?[[:space:]]*=/)' "$tmp"
       } >"$config_file"
     elif [ -n "$first_section" ]; then
       # BSD `head -n 0` (macOS default) errors with "illegal line count"
