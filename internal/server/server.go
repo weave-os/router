@@ -106,6 +106,7 @@ type Features struct {
 	TelemetryQueries         turnrecord.Queries
 	FeedbackLinks            *feedback.Links
 	EscalationAdmin          admin.EscalationAdmin
+	UsageAnalytics           *analytics.UsageService
 }
 
 func registerInternalEscalation(internalGroup *gin.RouterGroup, escalationAdmin admin.EscalationAdmin) {
@@ -218,6 +219,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, services Se
 			internalGroup.POST("/task-domain/preview", admin.InternalTaskDomainPreviewHandler(features.TaskDomainPreview))
 		}
 		registerInternalEscalation(internalGroup, features.EscalationAdmin)
+		if features.UsageAnalytics != nil {
+			internalAnalytics := engine.Group("/internal/v1/analytics", middleware.WithTimeout(analyticsTimeout), middleware.WithInternalServiceAuth(internalToken))
+			internalAnalytics.GET("/usage", analyticsapi.UsageHandler(features.UsageAnalytics))
+		}
 	}
 
 	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission))
@@ -407,6 +412,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, services Se
 	if analyticsSvc != nil {
 		analyticsGroup := engine.Group("/v1/analytics",
 			middleware.WithTimeout(analyticsTimeout),
+			middleware.WithAnalyticsDeprecation(),
 			middleware.WithAnalyticsKey(authSvc),
 			middleware.WithAnalyticsRateLimit(middleware.AnalyticsRequestsPerMinute),
 		)

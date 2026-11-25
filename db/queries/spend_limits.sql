@@ -5,11 +5,13 @@ SELECT user_monthly_limit_usd_micros, org_monthly_limit_usd_micros
 FROM router.organization_spend_limits
 WHERE organization_id = @organization_id::varchar;
 
--- Resolves a user's effective monthly limit and current-month spend in one
--- round trip for the request-path gate. effective_limit_usd_micros is the
--- per-user override when an override row exists (its NULL means "explicitly
--- uncapped"), otherwise the org-wide default; has_override distinguishes the
--- two NULL meanings. spent is 0 when the user has no spend row this month.
+-- Resolves a user's effective monthly limit, current-month spend, and this
+-- month's approved one-off grants in one round trip for the request-path gate.
+-- effective_limit_usd_micros is the per-user override when an override row
+-- exists (its NULL means "explicitly uncapped"), otherwise the org-wide
+-- default; has_override distinguishes the two NULL meanings. spent is 0 when
+-- the user has no spend row this month. granted is 0 when no grant rows exist
+-- for the current UTC month; grants from other months never count.
 -- name: GetUserMonthlySpendAndLimit :one
 SELECT
     (EXISTS (
@@ -27,7 +29,13 @@ SELECT
         FROM router.model_router_user_monthly_spend sp
         WHERE sp.router_user_id = @router_user_id::uuid
           AND sp.month = DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date
-    ), 0)::bigint AS spent_usd_micros;
+    ), 0)::bigint AS spent_usd_micros,
+    COALESCE((
+        SELECT SUM(g.amount_usd_micros)
+        FROM router.model_router_user_spend_grants g
+        WHERE g.router_user_id = @router_user_id::uuid
+          AND g.month = DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date
+    ), 0)::bigint AS granted_usd_micros;
 
 -- Reads the org's month-to-date spend alongside its monthly cap for the
 -- org-wide gate. Zero-spend months have no row; COALESCE keeps the read

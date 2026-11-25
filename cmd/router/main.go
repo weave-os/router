@@ -1119,6 +1119,7 @@ func main() {
 		PolicyStatus:             policyStatus,
 		FeedbackLinks:            feedbackLinks,
 	}, servingAdmission, routingDistribution), defaultStrategy)), pool), repo.Telemetry), captureMode)
+	serverFeatures.UsageAnalytics = analytics.NewUsageService(repo.Usage)
 	serverFeatures.EscalationAdmin = &floor.Admin{Dashboard: escalationDashboardStore, Sessions: llmEscalationStore, Configuration: llmEscalationStore, InvalidateSelection: authSvc.InvalidateInstallation, SwitchyardJudge: escalationJudge, QwenJudge: qwenEscalationJudge, SwitchyardActive: escalationJudgeActiveEnabled, Clock: time.Now}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture

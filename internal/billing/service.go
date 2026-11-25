@@ -139,20 +139,30 @@ func (s *Service) CheckBalance(ctx context.Context, orgID string) (CheckResult, 
 }
 
 type MonthlySpendResult struct {
-	SpentMicros int64
-	LimitMicros *int64
+	SpentMicros   int64
+	LimitMicros   *int64
+	GrantedMicros int64
+}
+
+func (r MonthlySpendResult) EffectiveLimitMicros() *int64 {
+	if r.LimitMicros == nil {
+		return nil
+	}
+	effective := *r.LimitMicros + r.GrantedMicros
+	return &effective
 }
 
 func (r MonthlySpendResult) LimitReached() bool {
-	return r.LimitMicros != nil && r.SpentMicros >= *r.LimitMicros
+	effective := r.EffectiveLimitMicros()
+	return effective != nil && r.SpentMicros >= *effective
 }
 
 func (s *Service) CheckUserMonthlySpend(ctx context.Context, organizationID, routerUserID string) (MonthlySpendResult, error) {
-	spent, limit, err := s.repo.GetUserMonthlySpendAndLimit(ctx, organizationID, routerUserID)
+	spent, limit, granted, err := s.repo.GetUserMonthlySpendAndLimit(ctx, organizationID, routerUserID)
 	if err != nil {
 		return MonthlySpendResult{}, err
 	}
-	return MonthlySpendResult{SpentMicros: spent, LimitMicros: limit}, nil
+	return MonthlySpendResult{SpentMicros: spent, LimitMicros: limit, GrantedMicros: granted}, nil
 }
 
 func (s *Service) CheckOrgMonthlySpend(ctx context.Context, organizationID string) (MonthlySpendResult, error) {

@@ -11,7 +11,7 @@ type Repo interface {
 
 	GetAPIKeySpend(ctx context.Context, apiKeyID string) (spentMicros int64, capMicros *int64, found bool, err error)
 
-	GetUserMonthlySpendAndLimit(ctx context.Context, organizationID, routerUserID string) (spentMicros int64, limitMicros *int64, err error)
+	GetUserMonthlySpendAndLimit(ctx context.Context, organizationID, routerUserID string) (spentMicros int64, limitMicros *int64, grantedMicros int64, err error)
 
 	GetOrgMonthlySpendAndLimit(ctx context.Context, organizationID string) (spentMicros int64, limitMicros *int64, err error)
 

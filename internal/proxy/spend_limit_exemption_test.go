@@ -29,8 +29,9 @@ import (
 // methods checkUserMonthlySpendLimit and the debit hook touch matter; the rest
 // satisfy the billing.Repo interface.
 type capturingBillingRepo struct {
-	userSpent int64
-	userLimit *int64
+	userSpent   int64
+	userGranted int64
+	userLimit   *int64
 
 	mu     sync.Mutex
 	debits []billing.DebitParams
@@ -49,8 +50,8 @@ func (r *capturingBillingRepo) DebitInference(_ context.Context, p billing.Debit
 func (r *capturingBillingRepo) GetAPIKeySpend(context.Context, string) (int64, *int64, bool, error) {
 	return 0, nil, false, nil
 }
-func (r *capturingBillingRepo) GetUserMonthlySpendAndLimit(context.Context, string, string) (int64, *int64, error) {
-	return r.userSpent, r.userLimit, nil
+func (r *capturingBillingRepo) GetUserMonthlySpendAndLimit(context.Context, string, string) (int64, *int64, int64, error) {
+	return r.userSpent, r.userLimit, r.userGranted, nil
 }
 func (r *capturingBillingRepo) GetOrgMonthlySpendAndLimit(context.Context, string) (int64, *int64, error) {
 	return 0, nil, nil

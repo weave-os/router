@@ -845,6 +845,18 @@ type RouterModelRouterUserSeatUsage struct {
 	ObservedAt             pgtype.Timestamptz
 }
 
+type RouterModelRouterUserSpendGrant struct {
+	ID              uuid.UUID
+	RouterUserID    uuid.UUID
+	Month           pgtype.Date
+	AmountUsdMicros int64
+	Reason          *string
+	ApprovedBy      *string
+	CreatedBy       string
+	IdempotencyKey  *string
+	CreatedAt       pgtype.Timestamptz
+}
+
 type RouterModelRouterUserSpendLimit struct {
 	RouterUserID          uuid.UUID
 	MonthlyLimitUsdMicros *int64
@@ -1134,6 +1146,19 @@ type RouterSessionTurnClock struct {
 	LastResponseEndedAt pgtype.Timestamptz
 	LastServedModel     string
 	UpdatedAt           pgtype.Timestamptz
+}
+
+type RouterSpendLimitChange struct {
+	ID             uuid.UUID
+	OrganizationID string
+	RouterUserID   pgtype.UUID
+	Kind           string
+	OldValue       []byte
+	NewValue       []byte
+	Reason         *string
+	ApprovedBy     *string
+	Actor          string
+	CreatedAt      pgtype.Timestamptz
 }
 
 // ARCHIVED: retired shadow spiral detections, kept read-only for posterity. Nothing writes here.

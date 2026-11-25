@@ -20,9 +20,10 @@ import (
 // spendLimitRepo is the minimum billing.Repo surface needed to drive
 // checkUserMonthlySpendLimit through every branch.
 type spendLimitRepo struct {
-	spent int64
-	limit *int64
-	err   error
+	spent   int64
+	limit   *int64
+	granted int64
+	err     error
 }
 
 func (r *spendLimitRepo) GetBalance(context.Context, string) (int64, error) { return 0, nil }
@@ -35,8 +36,8 @@ func (r *spendLimitRepo) DebitInference(context.Context, billing.DebitParams) (i
 func (r *spendLimitRepo) GetAPIKeySpend(context.Context, string) (int64, *int64, bool, error) {
 	return 0, nil, false, nil
 }
-func (r *spendLimitRepo) GetUserMonthlySpendAndLimit(context.Context, string, string) (int64, *int64, error) {
-	return r.spent, r.limit, r.err
+func (r *spendLimitRepo) GetUserMonthlySpendAndLimit(context.Context, string, string) (int64, *int64, int64, error) {
+	return r.spent, r.limit, r.granted, r.err
 }
 func (r *spendLimitRepo) GetOrgMonthlySpendAndLimit(context.Context, string) (int64, *int64, error) {
 	return 0, nil, nil
@@ -199,4 +200,22 @@ func TestCheckUserMonthlySpendLimit_MaxCoveringSubscriptionDoesNotExempt(t *test
 	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, requestcontext.RoutePathMessages)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
+}
+
+func TestCheckUserMonthlySpendLimit_GrantRaisesCap(t *testing.T) {
+	// Over the $1 base cap but under base plus a $0.50 grant for this month.
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_200_000, limit: micros(1_000_000), granted: 500_000})}
+	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("u1")), "an approved grant lifts the effective cap")
+}
+
+func TestCheckUserMonthlySpendLimit_OverBasePlusGrantRejected(t *testing.T) {
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 1_500_000, limit: micros(1_000_000), granted: 500_000})}
+	err := spendLimitCheck(s, spendLimitCtx("u1"))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
+}
+
+func TestCheckUserMonthlySpendLimit_GrantNeverCapsUncappedUser(t *testing.T) {
+	s := &Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts(), billing: billing.NewService(&spendLimitRepo{spent: 999_999_999, limit: nil, granted: 500_000})}
+	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("u1")))
 }

@@ -1,5 +1,18 @@
 # Routing decision export
 
+> **Deprecated.** The public `/v1/analytics/*` routes and `ra_` analytics keys
+> are deprecated as of 2026-12-01 and will be removed. Responses carry a
+> `Deprecation: @1796083200` header.
+>
+> - **Managed:** use the Weave public API instead: `GET /router/usage` with a
+>   `wv_` Weave API key returns aggregated per-day usage by user, API key and
+>   model.
+> - **Self-hosted:** there is no supported export going forward. The routes
+>   keep working until removal, but nothing replaces them.
+>
+> The router serves the aggregate to Weave on the internal-only
+> `GET /internal/v1/analytics/usage`, which is not callable with customer keys.
+
 The analytics export streams the router's **raw routing decisions** — one row
 per upstream action, nothing aggregated, nothing rounded — so your team can
 load them into a warehouse and do its own analysis.

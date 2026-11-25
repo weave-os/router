@@ -1,0 +1,105 @@
+-- Aggregated usage for the management API. One row per date and dimension
+-- combination. Cost-bearing rows are router.upstream spans, the same set the
+-- routing-decision export reads, and subscription_served uses the export's
+-- exact predicate, so cost totals reconcile with the export.
+--
+-- Every grouping dimension is always selected here. The caller passes a flag
+-- per dimension (@group_user, @group_api_key, @group_served_model,
+-- @group_requested_model); a dimension that is not grouped is returned as NULL
+-- and collapsed into one bucket. This keeps a single planned statement rather
+-- than one query per group_by combination.
+--
+-- Dimensions come back as '' when not grouped (or NULL in the row); the adapter
+-- maps '' to null.
+--
+-- Pages are LIMIT/OFFSET over the deterministic ORDER BY; the grouped
+-- dimensions have no unique key to build a keyset from.
+--
+-- Filters on emails and api key ids are optional; a NULL array means "no filter".
+-- The installation scope is resolved from the organization inside the CTE, so
+-- the telemetry scan is bounded by the time window and installation.
+-- name: GetAnalyticsUsageRows :many
+WITH scoped AS (
+    SELECT
+        t.router_user_id,
+        t.api_key_id,
+        t.decision_model,
+        t.decision_provider,
+        t.requested_model,
+        t.error_class,
+        t.input_tokens,
+        t.output_tokens,
+        t.cache_read_tokens,
+        t.cache_creation_tokens,
+        t.actual_input_cost_usd,
+        t.actual_output_cost_usd,
+        (t.created_at AT TIME ZONE 'utc')::date AS usage_date,
+        COALESCE(
+            t.credential_source IN ('subscription', 'codex_subscription')
+            AND ((t.upstream_status_code >= 200 AND t.upstream_status_code < 300)
+                 OR (t.upstream_status_code = 0 AND t.error_class IS NULL))
+            AND (
+                t.unified_limit_headers->>'anthropic-ratelimit-unified-representative-claim' = 'overage'
+                AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'
+            ) IS DISTINCT FROM true,
+            false
+        )::boolean AS subscription_served
+    FROM router.model_router_request_telemetry t
+    JOIN router.model_router_installations inst
+        ON inst.id = t.installation_id
+        AND inst.deleted_at IS NULL
+    WHERE inst.external_id = @organization_id::varchar
+      AND t.span_type = 'router.upstream'
+      AND t.created_at >= @from_time::timestamptz
+      AND t.created_at < @to_time::timestamptz
+)
+SELECT
+    s.usage_date,
+    COALESCE((CASE WHEN @group_user::boolean THEN s.router_user_id END)::text, '')::text AS router_user_id,
+    COALESCE(CASE WHEN @group_user::boolean THEN u.email END, '')::text AS email,
+    COALESCE(CASE WHEN @group_user::boolean THEN u.display_name END, '')::text AS display_name,
+    COALESCE((CASE WHEN @group_api_key::boolean THEN s.api_key_id END)::text, '')::text AS api_key_id,
+    COALESCE(CASE WHEN @group_api_key::boolean THEN k.name END, '')::text AS api_key_name,
+    COALESCE(CASE WHEN @group_served_model::boolean THEN s.decision_model END, '')::text AS served_model,
+    COALESCE(CASE WHEN @group_served_model::boolean THEN s.decision_provider END, '')::text AS served_provider,
+    COALESCE(CASE WHEN @group_requested_model::boolean THEN s.requested_model END, '')::text AS requested_model,
+    COUNT(*)::bigint AS requests,
+    COUNT(*) FILTER (WHERE s.error_class IS NOT NULL)::bigint AS failed_requests,
+    COUNT(*) FILTER (WHERE s.subscription_served)::bigint AS subscription_requests,
+    COALESCE(SUM(s.input_tokens), 0)::bigint AS input_tokens,
+    COALESCE(SUM(s.output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(s.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+    COALESCE(SUM(s.cache_creation_tokens), 0)::bigint AS cache_write_tokens,
+    COALESCE(SUM(
+        CASE WHEN s.subscription_served THEN 0
+             ELSE COALESCE(s.actual_input_cost_usd, 0) + COALESCE(s.actual_output_cost_usd, 0)
+        END
+    ), 0)::bigint AS cost_usd_micros,
+    COALESCE(SUM(COALESCE(s.actual_input_cost_usd, 0) + COALESCE(s.actual_output_cost_usd, 0)), 0)::bigint AS api_rate_cost_usd_micros
+FROM scoped s
+LEFT JOIN router.model_router_users u
+    ON u.id = s.router_user_id
+    AND u.deleted_at IS NULL
+LEFT JOIN router.model_router_api_keys k
+    ON k.id = s.api_key_id
+WHERE (sqlc.narg('emails')::text[] IS NULL OR u.email = ANY(sqlc.narg('emails')::text[]))
+  AND (sqlc.narg('api_key_ids')::uuid[] IS NULL OR s.api_key_id = ANY(sqlc.narg('api_key_ids')::uuid[]))
+GROUP BY
+    s.usage_date,
+    CASE WHEN @group_user::boolean THEN s.router_user_id END,
+    CASE WHEN @group_user::boolean THEN u.email END,
+    CASE WHEN @group_user::boolean THEN u.display_name END,
+    CASE WHEN @group_api_key::boolean THEN s.api_key_id END,
+    CASE WHEN @group_api_key::boolean THEN k.name END,
+    CASE WHEN @group_served_model::boolean THEN s.decision_model END,
+    CASE WHEN @group_served_model::boolean THEN s.decision_provider END,
+    CASE WHEN @group_requested_model::boolean THEN s.requested_model END
+ORDER BY
+    s.usage_date,
+    router_user_id,
+    api_key_id,
+    served_model,
+    served_provider,
+    requested_model
+LIMIT @row_limit::int
+OFFSET @row_offset::int;

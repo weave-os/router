@@ -39,8 +39,9 @@ func TestMalformedSpendIDsEnforceNoCapWithoutError(t *testing.T) {
 	assert.Nil(t, keyCap)
 	assert.Zero(t, spent)
 
-	spent, limit, err := repo.GetUserMonthlySpendAndLimit(ctx, "org", "not-a-uuid")
+	spent, limit, granted, err := repo.GetUserMonthlySpendAndLimit(ctx, "org", "not-a-uuid")
 	require.NoError(t, err)
 	assert.Nil(t, limit)
 	assert.Zero(t, spent)
+	assert.Zero(t, granted)
 }

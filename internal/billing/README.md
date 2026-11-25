@@ -31,7 +31,10 @@ the test book in. `prepaid_test.go` and
   flight when a cap is nearly reached can together exceed it. A read failure fails closed
   with 503 (`ErrSpendLimitCheckUnavailable`); a key deleted mid-request has no cap
   to enforce.
-- `CheckUserMonthlySpendLimit` decides the engineer UTC-month cap: a reached cap
+- `CheckUserMonthlySpendLimit` decides the engineer UTC-month cap. The effective
+  cap is the base limit (per-user override, else org default) plus this UTC
+  month's approved grants in `model_router_user_spend_grants`; an uncapped user
+  stays uncapped and grants never carry into the next month. A reached cap
   serves subscription-only when the caller's subscription covers the route and
   refuses with 402 (`ErrUserMonthlySpendLimitReached`) otherwise. The caller
   supplies the coverage check, so billing never reads credentials.

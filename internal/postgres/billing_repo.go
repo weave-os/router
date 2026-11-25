@@ -101,10 +101,10 @@ func (r *BillingRepo) GetAPIKeySpend(ctx context.Context, apiKeyID string) (int6
 	return row.SpentUsdMicros, row.SpendCapUsdMicros, true, nil
 }
 
-func (r *BillingRepo) GetUserMonthlySpendAndLimit(ctx context.Context, organizationID, routerUserID string) (int64, *int64, error) {
+func (r *BillingRepo) GetUserMonthlySpendAndLimit(ctx context.Context, organizationID, routerUserID string) (int64, *int64, int64, error) {
 	parsed, ok := parseOptionalUUID(routerUserID)
 	if !ok {
-		return 0, nil, nil
+		return 0, nil, 0, nil
 	}
 	q := dbbudget.Queries(r.tx)
 	row, err := q.GetUserMonthlySpendAndLimit(ctx, sqlc.GetUserMonthlySpendAndLimitParams{
@@ -112,13 +112,13 @@ func (r *BillingRepo) GetUserMonthlySpendAndLimit(ctx context.Context, organizat
 		OrganizationID: organizationID,
 	})
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, 0, err
 	}
 	limit := row.OrgDefaultLimitUsdMicros
 	if row.HasOverride {
 		limit = row.OverrideLimitUsdMicros
 	}
-	return row.SpentUsdMicros, limit, nil
+	return row.SpentUsdMicros, limit, row.GrantedUsdMicros, nil
 }
 
 func (r *BillingRepo) GetOrgMonthlySpendAndLimit(ctx context.Context, organizationID string) (int64, *int64, error) {

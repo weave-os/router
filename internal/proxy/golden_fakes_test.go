@@ -524,8 +524,8 @@ func (b *goldenBilling) GetAPIKeySpend(context.Context, string) (int64, *int64, 
 	return 0, nil, false, nil
 }
 
-func (b *goldenBilling) GetUserMonthlySpendAndLimit(context.Context, string, string) (int64, *int64, error) {
-	return 0, nil, nil
+func (b *goldenBilling) GetUserMonthlySpendAndLimit(context.Context, string, string) (int64, *int64, int64, error) {
+	return 0, nil, 0, nil
 }
 
 func (b *goldenBilling) GetOrgMonthlySpendAndLimit(context.Context, string) (int64, *int64, error) {

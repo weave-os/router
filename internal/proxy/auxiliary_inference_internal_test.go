@@ -131,8 +131,8 @@ func (r *auxBillingRepo) GetAPIKeySpend(context.Context, string) (int64, *int64,
 	return 0, nil, false, nil
 }
 
-func (r *auxBillingRepo) GetUserMonthlySpendAndLimit(context.Context, string, string) (int64, *int64, error) {
-	return 0, nil, nil
+func (r *auxBillingRepo) GetUserMonthlySpendAndLimit(context.Context, string, string) (int64, *int64, int64, error) {
+	return 0, nil, 0, nil
 }
 
 func (r *auxBillingRepo) GetOrgMonthlySpendAndLimit(context.Context, string) (int64, *int64, error) {
