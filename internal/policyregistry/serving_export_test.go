@@ -399,10 +399,10 @@ func TestExportSelfHostedUpgradeRejectsATamperedPreviousExport(t *testing.T) {
 	require.NoError(t, json.Unmarshal(statePayload, &state))
 	root, err := policyregistry.NewDirectoryServingStore(firstDir)
 	require.NoError(t, err)
-	selection := filepath.Join(firstDir, filepath.FromSlash(strings.TrimPrefix(state.Activations[state.CurrentActivationID].SelectionSet.URI, root.RootURI()+"/")))
-	payload, err := os.ReadFile(selection)
+	selectionPath := filepath.Join(firstDir, filepath.FromSlash(strings.TrimPrefix(state.Activations[state.CurrentActivationID].SelectionSet.URI, root.RootURI()+"/")))
+	payload, err := os.ReadFile(selectionPath)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(selection, append(payload, ' '), 0o600))
+	require.NoError(t, os.WriteFile(selectionPath, append(payload, ' '), 0o600))
 
 	request := selfHostedExportRequest(t.TempDir())
 	request.PreviousDir = firstDir

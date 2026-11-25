@@ -92,7 +92,7 @@ func TestExportedServingSourceIsAbsentForManagedRegistries(t *testing.T) {
 
 func TestUIEnabledParsesBooleansAndDefaultsOnForAStandaloneRouter(t *testing.T) {
 	t.Setenv("ROUTER_INTERNAL_SERVICE_TOKEN", "")
-	for value, enabled := range map[string]bool{"": true, "true": true, "TRUE": true, "1": true, "false": false, " False ": false, "0": false, "not-a-bool": true} {
+	for value, enabled := range map[string]bool{"": true, "true": true, "TRUE": true, "1": true, "false": false, " False ": false, "0": false, "off": false, "No": false, "on": true, "not-a-bool": false} {
 		t.Setenv("ROUTER_UI_ENABLED", value)
 		require.Equal(t, enabled, uiEnabledFromEnv(), value)
 	}

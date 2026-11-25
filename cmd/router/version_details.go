@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log/slog"
-	"strconv"
 	"strings"
 
 	"weave-os/router/internal/api/admin"
@@ -14,9 +13,14 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
+var uiEnabledSpellings = map[string]bool{
+	"1": true, "t": true, "true": true, "y": true, "yes": true, "on": true, "enabled": true,
+	"0": false, "f": false, "false": false, "n": false, "no": false, "off": false, "disabled": false,
+}
+
 func uiEnabledFromEnv() bool {
-	if enabled, err := strconv.ParseBool(strings.TrimSpace(config.GetOr("ROUTER_UI_ENABLED", ""))); err == nil {
-		return enabled
+	if value := strings.ToLower(strings.TrimSpace(config.GetOr("ROUTER_UI_ENABLED", ""))); value != "" {
+		return uiEnabledSpellings[value]
 	}
 	linkedToWeave := server.DeploymentMode(config.GetOr("ROUTER_DEPLOYMENT_MODE", string(server.DeploymentModeSelfHosted))) == server.DeploymentModeSelfHosted && internalServiceTokenFromEnv() != ""
 	return !linkedToWeave
