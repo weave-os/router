@@ -99,8 +99,7 @@ func TestServingAdmissionReleaseHeadersFollowTheFinalResponse(t *testing.T) {
 		},
 		"blind experiment resolved after admission hides the release": {
 			handler: func(c *gin.Context) {
-				blind := auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}
-				c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), auth.BlindExperimentContextKey{}, blind))
+				c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}))
 				c.String(http.StatusOK, "ok")
 			},
 		},
