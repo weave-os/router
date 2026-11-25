@@ -27,6 +27,16 @@ func AdmittedRoutingModel(ctx context.Context) router.RoutingModel {
 	return router.ModelAutomatic
 }
 
+func AdmissionRoutingModel(ctx context.Context, previous *SessionReleaseBinding) (model router.RoutingModel, inherited bool) {
+	if _, named := ctx.Value(admittedRoutingModelKey{}).(router.RoutingModel); named {
+		return AdmittedRoutingModel(ctx), false
+	}
+	if previous != nil && router.UsesAssignedProfile(previous.RoutingModel) {
+		return previous.RoutingModel, true
+	}
+	return router.ModelAutomatic, false
+}
+
 func ExperimentalRoutingModelsPermitted(target ServingTarget, plan entitlement.Plan) bool {
 	return target == TargetInternal && (plan == "" || plan == entitlement.PlanBoost)
 }

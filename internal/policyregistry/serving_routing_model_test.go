@@ -199,3 +199,30 @@ type admissionStoreFunc func(context.Context, string, string, string, AdmissionD
 func (f admissionStoreFunc) Admit(ctx context.Context, installation, key, session string, decide AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error) {
 	return f(ctx, installation, key, session, decide)
 }
+
+func TestAdmissionRoutingModelKeepsTheConversationsAssignedProfile(t *testing.T) {
+	t.Parallel()
+
+	efficient := &SessionReleaseBinding{RoutingModel: router.ModelAutoEfficient}
+	automatic := &SessionReleaseBinding{RoutingModel: router.ModelAutomatic}
+	for _, tc := range []struct {
+		name          string
+		ctx           context.Context
+		previous      *SessionReleaseBinding
+		wantModel     router.RoutingModel
+		wantInherited bool
+	}{
+		{name: "unnamed request in an efficient conversation inherits it", ctx: context.Background(), previous: efficient, wantModel: router.ModelAutoEfficient, wantInherited: true},
+		{name: "unnamed request without a binding projects weave-auto", ctx: context.Background(), wantModel: router.ModelAutomatic},
+		{name: "unnamed request in a weave-auto conversation projects weave-auto", ctx: context.Background(), previous: automatic, wantModel: router.ModelAutomatic},
+		{name: "named weave-auto is not overridden by the binding", ctx: withAdmittedRoutingModel(context.Background(), router.ModelAutomatic), previous: efficient, wantModel: router.ModelAutomatic},
+		{name: "named efficient request projects efficient", ctx: withAdmittedRoutingModel(context.Background(), router.ModelAutoEfficient), wantModel: router.ModelAutoEfficient},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			model, inherited := AdmissionRoutingModel(tc.ctx, tc.previous)
+			assert.Equal(t, tc.wantModel, model)
+			assert.Equal(t, tc.wantInherited, inherited)
+		})
+	}
+}

@@ -100,9 +100,6 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 			projection.Target = policyregistry.TargetStaging
 		}
 		timing.target = projection.Target
-		if err := projectServingProfile(ctx, queries, installationUUID, subject, &projection); err != nil {
-			return err
-		}
 		digest, persistent := policyregistry.ServingConversationDigest(identity, clientSessionID)
 		scope = policyregistry.AdmissionScope{InstallationID: installationID, CredentialIdentity: identity, ConversationDigest: digest, Persistent: persistent}
 		timing.persistent = persistent
@@ -127,6 +124,12 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 				}
 			}
 		}
+		profileStart := time.Now()
+		routingModel, inherited := policyregistry.AdmissionRoutingModel(ctx, previous)
+		if err := projectServingProfile(ctx, queries, installationUUID, subject, routingModel, &projection); err != nil {
+			return err
+		}
+		timing.projection += time.Since(profileStart)
 		clock := func(clockCtx context.Context) (time.Time, error) {
 			stamp, err := queries.GetServingAdmissionClock(clockCtx)
 			if err != nil {
@@ -142,6 +145,9 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		}
 		if !persistent {
 			return nil
+		}
+		if inherited {
+			admitted.RoutingModel = routingModel
 		}
 		encoded, err := json.Marshal(admitted)
 		if err != nil {
@@ -231,8 +237,7 @@ func enrollmentProjection(lane sqlc.GetServingInstallationLaneEnrollmentRow, sub
 	return projection
 }
 
-func projectServingProfile(ctx context.Context, queries *sqlc.Queries, installationUUID uuid.UUID, subject *auth.CredentialSubject, projection *policyregistry.AdmissionProjection) error {
-	routingModel := policyregistry.AdmittedRoutingModel(ctx)
+func projectServingProfile(ctx context.Context, queries *sqlc.Queries, installationUUID uuid.UUID, subject *auth.CredentialSubject, routingModel router.RoutingModel, projection *policyregistry.AdmissionProjection) error {
 	if subject != nil {
 		projected, err := queries.GetActiveServingSubscriberPlan(ctx, uuid.MustParse(subject.ID))
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {

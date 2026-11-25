@@ -304,3 +304,36 @@ func TestModelPassthroughKeepsSubscriptionFundingGates(t *testing.T) {
 		})
 	}
 }
+
+func TestAutoEfficientRequiresManagedServingAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		managed bool
+		status  int
+	}{
+		{name: "unmanaged worker refuses auto-efficient", status: http.StatusForbidden},
+		{name: "managed stable worker serves auto-efficient on the admitted strategy", managed: true, status: http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			engine := gin.New()
+			body := `{"model":"` + string(router.ModelAutoEfficient) + `","messages":[{"role":"user","content":"hello"}]}`
+			engine.POST("/v1/messages", middleware.WithClassifierThread(&proxy.Service{}, func(router.Strategy) bool { return true }), func(c *gin.Context) {
+				selection := router.StrategySelectionFromContext(c.Request.Context())
+				require.Equal(t, router.StrategyHMMEmbedding, selection.Strategy)
+				require.Equal(t, router.ModelAutoEfficient, selection.RoutingModel)
+				c.Status(http.StatusOK)
+			})
+			ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
+			if tc.managed {
+				ctx = requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{Target: string(policyregistry.TargetStable), ReleaseID: "reviewed-release", BindingID: "reviewed-binding", CredentialIdentity: "test-principal"})
+			}
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", strings.NewReader(body)))
+			require.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+			if tc.status == http.StatusForbidden {
+				require.Contains(t, recorder.Body.String(), "routing_model_not_permitted")
+			}
+		})
+	}
+}
