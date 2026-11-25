@@ -26,7 +26,7 @@ func (w *servingReleaseHeaderWriter) stamp(status int) {
 		return
 	}
 	ctx := w.request().Context()
-	if _, resolved := auth.BlindExperimentFrom(ctx); !resolved && w.experiments != nil && w.experiments.InstallationBlindExperimentEnabled(ctx, w.installationID) {
+	if _, active := auth.BlindExperimentFrom(ctx); !active && w.experiments != nil && w.experiments.InstallationBlindExperimentEnabled(ctx, w.installationID) {
 		return
 	}
 	ingress.SetServingReleaseHeaders(ctx, w.Header())

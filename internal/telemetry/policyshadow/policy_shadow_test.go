@@ -33,9 +33,7 @@ func TestRecorderStampsServingIdentityAndRequestedModel(t *testing.T) {
 			return router.Decision{Model: "shadow-model"}, nil
 		},
 	}
-	ctx := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: "prod/stable", ReleaseID: "release-sha"})
-
-	recorder.Fire(ctx, "00000000-0000-4000-8000-000000000001", router.StrategyHMMEmbedding, router.StrategyHMMBeta,
+	recorder.Fire(requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: "prod/stable", ReleaseID: "release-sha"}), "00000000-0000-4000-8000-000000000001", router.StrategyHMMEmbedding, router.StrategyHMMBeta,
 		router.Decision{Model: "served-model"}, router.Request{RequestedModel: "weave-auto"})
 
 	select {
