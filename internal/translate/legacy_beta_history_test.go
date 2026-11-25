@@ -174,3 +174,20 @@ func TestStripRetiredBetaHistoryRemovesPinnedAndRoutingModelReplies(t *testing.T
 		})
 	}
 }
+
+func TestStripRetiredBetaHistoryKeepsAdaptedRoutingModelNotice(t *testing.T) {
+	adapted := "✦ **Weave Router** → Select a router with `wv router set-model weave-auto`.\n" +
+		"Save your work first, then start a new session."
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "adapt this router notice for my workspace"},
+			map[string]any{"role": "assistant", "content": adapted},
+			map[string]any{"role": "user", "content": "why save work first?"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, env.StripRetiredBetaHistory())
+}

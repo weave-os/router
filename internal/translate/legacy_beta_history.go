@@ -1,6 +1,7 @@
 package translate
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -151,10 +152,12 @@ func isBetaAckOnlyContent(msg gjson.Result) bool {
 	}
 }
 
+var retiredRoutingModelReply = regexp.MustCompile("^✦ \\*\\*Weave Router\\*\\* → Select a router with " +
+	"(`wv router set-model [A-Za-z0-9._-]+`, )+or `wv router set-model [A-Za-z0-9._-]+`, then start a new session\\.$")
+
 func isBetaAckText(text string) bool {
 	text = strings.TrimSpace(text)
-	if strings.HasPrefix(text, "✦ **Weave Router** → Select a router with `wv router set-model ") &&
-		strings.HasSuffix(text, "then start a new session.") {
+	if retiredRoutingModelReply.MatchString(text) {
 		return true
 	}
 	switch text {
