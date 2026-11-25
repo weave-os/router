@@ -37,10 +37,10 @@ const (
 )
 
 type betaChainFixture struct {
-	pool         *pgxpool.Pool
-	authService  *auth.Service
-	installation uuid.UUID
-	token        string
+	pool           *pgxpool.Pool
+	authService    *auth.Service
+	installationID uuid.UUID
+	token          string
 }
 
 func betaChainDatabase(t *testing.T) betaChainFixture {
@@ -71,19 +71,19 @@ func betaChainDatabase(t *testing.T) betaChainFixture {
 		WithEncryptor(auth.NoOpEncryptor{}).
 		WithCredentialSubjectLookup(postgres.NewCredentialSubjectRepo(pool)).
 		WithRoutingPolicies(repositories.RoutingPolicies, nil)
-	return betaChainFixture{pool: pool, authService: authService, installation: installationID, token: token}
+	return betaChainFixture{pool: pool, authService: authService, installationID: installationID, token: token}
 }
 
 func (f betaChainFixture) grantBeta(t *testing.T) {
 	t.Helper()
-	_, err := f.pool.Exec(context.Background(), `INSERT INTO router.installation_channel_permissions (installation_id, channel) VALUES ($1, 'beta')`, f.installation)
+	_, err := f.pool.Exec(context.Background(), `INSERT INTO router.installation_channel_permissions (installation_id, channel) VALUES ($1, 'beta')`, f.installationID)
 	require.NoError(t, err)
 }
 
 func (f betaChainFixture) sessionBindings(t *testing.T) int {
 	t.Helper()
 	var count int
-	require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT count(*) FROM router.session_release_bindings WHERE installation_id = $1`, f.installation).Scan(&count))
+	require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT count(*) FROM router.session_release_bindings WHERE installation_id = $1`, f.installationID).Scan(&count))
 	return count
 }
 
