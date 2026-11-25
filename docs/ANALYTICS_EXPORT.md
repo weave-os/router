@@ -234,6 +234,8 @@ WITH tokens AS (
     SELECT d.*,
            COALESCE(d.cache_creation_tokens, 0) AS cache_write,
            COALESCE(d.cache_read_tokens, 0)     AS cache_read,
+           LEAST(COALESCE(d.cache_creation_1h_tokens, 0),
+                 COALESCE(d.cache_creation_tokens, 0)) AS cache_write_1h,
            GREATEST(
              CASE WHEN d.decision_provider IN ('anthropic', 'anthropic_gateway', 'wafer_anthropic')
                   THEN d.input_tokens
@@ -245,7 +247,8 @@ WITH tokens AS (
 ), priced AS (
     SELECT t.api_rate_input_cost_usd + t.api_rate_output_cost_usd AS served_usd,
            (t.fresh_input
-            + t.cache_write * p.cache_write_multiplier
+            + (t.cache_write - t.cache_write_1h) * p.cache_write_multiplier
+            + t.cache_write_1h * p.cache_write_1h_multiplier
             + t.cache_read  * p.cache_read_multiplier) / 1e6 * p.input_usd_per_1m
          + (t.output_tokens / 1e6) * p.output_usd_per_1m          AS baseline_usd
     FROM tokens t
@@ -266,11 +269,14 @@ is active, and otherwise falls back to `requested_model`. The inner joins drop
 any row without a matching priced binding, so an alias such as `weave-auto`
 outside an experiment drops out of the total; to include those turns, map the
 alias to the baseline model you choose for that `client_app` before joining
-`baseline_bindings`. This query leaves out the 1-hour cache-write rate
-(`cache_creation_1h_tokens`), long-context rates, the US inference-geo
-multiplier, which `catalog.EffectiveInputCost` also applies, and fast-mode
-rates (`speed = 'fast'`), which the price book does not publish; add them from
-the price book if your traffic uses them.
+`baseline_bindings`. Cache writes are split by TTL:
+`cache_creation_1h_tokens` is the share of `cache_creation_tokens` written with
+the 1-hour TTL and is priced at `cache_write_1h_multiplier`. This query leaves
+out long-context rates and the US inference-geo multiplier, which
+`catalog.EffectiveInputCost` also applies; add them from the price book if your
+traffic uses them. It also leaves out fast-mode rates (`speed = 'fast'`); the
+price book does not publish fast-mode rates, so source them elsewhere if your
+traffic uses them.
 
 `GET /v1/analytics/models` publishes the price book that populates
 `model_prices` — per model, per provider, input and output USD per 1M tokens
