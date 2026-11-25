@@ -1,0 +1,30 @@
+internal/translate/anthropic_final_assistant_cache_test.go
+  s_48c8ecd82f447f::t_4e658ca459d680 57,70-80
+  s_16c97eb3409bb1::t_a1ec0c2fe239de 81
+internal/translate/cache_control.go
+  s_48c8ecd82f447f::t_4e658ca459d680 239-245,264,270,273-276,279,281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0901a9eea24bfc5da5de1fdd0c29bac04615062d",
+  "prompts": {},
+  "sessions": {
+    "s_16c97eb3409bb1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1bd25-71fc-7200-88e5-cafef5387d7f",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_48c8ecd82f447f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1bd34-e28f-7ff2-abed-69e3e042525a",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

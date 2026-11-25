@@ -1,0 +1,33 @@
+internal/auth/service.go
+  s_28c8815db4c15b::t_ccae8824b6f3e7 856-858
+internal/auth/blind_experiment_cache.go
+  s_28c8815db4c15b::t_1a5fab3a2f63a5 32-35
+  s_28c8815db4c15b::t_ccae8824b6f3e7 36,58,61-64,79,96
+internal/auth/blind_experiment_test.go
+  s_28c8815db4c15b::t_ccae8824b6f3e7 52-66,129
+internal/proxy/blind_experiment.go
+  s_28c8815db4c15b::t_ccae8824b6f3e7 34-36
+internal/proxy/blind_experiment_internal_test.go
+  s_28c8815db4c15b::t_ccae8824b6f3e7 12,107-122
+  s_28c8815db4c15b::t_dd57db2059e325 123-124
+internal/postgres/converters.go
+  s_28c8815db4c15b::t_ccae8824b6f3e7 16-27
+internal/postgres/blind_experiment_repo.go
+  s_28c8815db4c15b::t_ccae8824b6f3e7 20,24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "42621977ad8d1bbd88236bc7129ac514410d8bbb",
+  "prompts": {},
+  "sessions": {
+    "s_28c8815db4c15b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0832c-78ed-7dc3-829b-0f975789e8e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

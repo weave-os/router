@@ -1,0 +1,41 @@
+install/vscode/README.md
+  s_1ce6a53dd78954::t_4d1c1e3418e388 1-17
+install/vscode/tsconfig.json
+  s_1ce6a53dd78954::t_3296391af11f50 1-10
+install/vscode/LICENSE
+  s_1ce6a53dd78954::t_4d1c1e3418e388 1-202
+install/vscode/.gitignore
+  s_1ce6a53dd78954::t_e5a788e7cac1cc 1
+install/vscode/src/extension.ts
+  s_1ce6a53dd78954::t_6e15d1de38d092 79,83-85
+  s_1ce6a53dd78954::t_4d1c1e3418e388 1-70,73-78,80-82,86-91,96-105,107-114,116-164
+  s_1ce6a53dd78954::t_e5a788e7cac1cc 71-72,92-95,106,115
+install/vscode/package-lock.json
+  s_1ce6a53dd78954::t_a1a492c3ab71b3 1-4463
+install/vscode/THIRD_PARTY_NOTICES.txt
+  s_1ce6a53dd78954::t_68be8ed39519ef 1-7
+install/vscode/package.json
+  s_1ce6a53dd78954::t_16c43fe4469c46 13,45
+  s_1ce6a53dd78954::t_3296391af11f50 1-12,14-44,46-50
+install/vscode/.vscodeignore
+  s_1ce6a53dd78954::t_3296391af11f50 1-6
+install/vscode/src/messages.ts
+  s_1ce6a53dd78954::t_4d1c1e3418e388 1-33,40,43-51,53-64,71,78-90,92-104
+  s_1ce6a53dd78954::t_e5a788e7cac1cc 34-39,41-42,52,65-70,72-77,91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "48497e6e9b77ffbe5784fa95cdff6b72eeffd141",
+  "prompts": {},
+  "sessions": {
+    "s_1ce6a53dd78954": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f62c-544b-7f61-8096-d1dae027f4c6",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": null
+    }
+  }
+}

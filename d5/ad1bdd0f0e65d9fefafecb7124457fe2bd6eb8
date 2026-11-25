@@ -1,0 +1,36 @@
+internal/proxy/semantic_cache.go
+  s_8960fd48237f12::t_28adda50c8eec4 33,37-39,49,52,59-62,70-74,76-80,82
+internal/proxy/service_cache_test.go
+  s_8960fd48237f12::t_10c7b975c20e04 306-308,339,349,351,378
+  s_8960fd48237f12::t_d97d8fb341d547 305,309-317,319-330,332-336,338,340-348,350,352-355,360-362,364-365,367-374,376-377,379-395,397-398,400-402,404-409,411-417
+  s_8960fd48237f12::t_28adda50c8eec4 254,256,259,262,265,268,282-283,297
+  s_8960fd48237f12::t_21640d390c2225 337
+  s_8960fd48237f12::t_7ebdd58039b5a3 363
+  s_8960fd48237f12::t_797b1ae65fea64 366
+  s_8960fd48237f12::t_0f5587d346db85 375
+  s_8960fd48237f12::t_53662f6e969ad7 396
+internal/router/cache/provenance.go
+  s_8960fd48237f12::t_28adda50c8eec4 10-15,22,27,42,48-50
+  s_8960fd48237f12::t_b1c477f36739c6 7-9
+  s_8960fd48237f12::t_a4176ba5e781f9 51-52
+internal/proxy/service.go
+  s_8960fd48237f12::t_28adda50c8eec4 4003,6965
+internal/router/cache/provenance_test.go
+  s_8960fd48237f12::t_28adda50c8eec4 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d5ad1bdd0f0e65d9fefafecb7124457fe2bd6eb8",
+  "prompts": {},
+  "sessions": {
+    "s_8960fd48237f12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a113a0-b447-73d1-893e-09cd7017cdef",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}

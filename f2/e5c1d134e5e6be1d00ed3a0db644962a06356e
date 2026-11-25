@@ -1,0 +1,21 @@
+sidecars/hmm/tests/test_local_classifier_resolver.py
+  s_771cc636e12898::t_6f9b027e6c1519 197-350
+sidecars/hmm/hmm_sidecar/local_classifier_resolver.py
+  s_771cc636e12898::t_4a66b024f47f90 44-91,159
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f2e5c1d134e5e6be1d00ed3a0db644962a06356e",
+  "prompts": {},
+  "sessions": {
+    "s_771cc636e12898": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "44f12d68-997e-4402-bc11-8fb34984afa0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

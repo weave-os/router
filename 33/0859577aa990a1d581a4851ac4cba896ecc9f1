@@ -1,0 +1,31 @@
+docs/ROUTER_NOTICES.md
+  s_c4bdc8880c7202::t_17b823c85ffabe 73-79
+internal/translate/notice_replay_history_test.go
+  s_c4bdc8880c7202::t_17b823c85ffabe 70-73,79-102
+  s_c4bdc8880c7202::t_e0240addbfc848 74-78
+internal/proxy/slow_start.go
+  s_c4bdc8880c7202::t_599f0998a5028f 155-157
+internal/proxy/slow_start_subagent_test.go
+  s_c4bdc8880c7202::t_c42609071a76f2 5,14,50-85
+  s_c4bdc8880c7202::t_4efb9637079fc9 1-4,6-13,15-49,86-114
+internal/proxy/service.go
+  s_c4bdc8880c7202::t_5d9105affcddd1 726-727,729
+internal/translate/notice_content.go
+  s_c4bdc8880c7202::t_599f0998a5028f 35-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "330859577aa990a1d581a4851ac4cba896ecc9f1",
+  "prompts": {},
+  "sessions": {
+    "s_c4bdc8880c7202": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a32d-a56f-74f1-8384-1e935be70775",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

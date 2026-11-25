@@ -1,0 +1,193 @@
+docs/README.md
+  s_fe45311f065c44::t_0df2fb1c3703ca 8
+docs/THREAD_IDENTITY.md
+  s_fe45311f065c44::t_2d96198d7333d6 1-63
+install/pi-router/src/dispatch.ts
+  s_fe45311f065c44::t_8bb64f516db84e 38,139,177-178,350
+install/pi-router/src/metadata.ts
+  s_fe45311f065c44::t_9daf74d255dd85 11,16,20-34
+install/pi-router/test/metadata.test.ts
+  s_fe45311f065c44::t_19e0e2932218d5 1-32
+internal/api/anthropic/messages.go
+  s_fe45311f065c44::t_08a8b92612f51b 113-115
+internal/proxy/allowed_models_header_internal_test.go
+  s_fe45311f065c44::t_d162f9030b0010 69,96-97,103-104,113,140,154,159-160,196,205,213,215
+internal/proxy/arm_demotion.go
+  s_fe45311f065c44::t_19d357a1029430 198-200
+internal/proxy/arm_demotion_internal_test.go
+  s_fe45311f065c44::t_e0d12ab76229a3 133,191,238,261,298,356,389,472,550,590,658,664,708,742,777,806,820,823,864,866,868,870,881,888,903,905
+internal/proxy/authoritative_downgrade_internal_test.go
+  s_fe45311f065c44::t_67c42d0fd99ab1 56
+internal/proxy/authoritative_turnloop_internal_test.go
+  s_fe45311f065c44::t_1a455e1f9adef9 148,216-217,259,443
+internal/proxy/authoritative_upgrade_internal_test.go
+  s_fe45311f065c44::t_33b333d9b680ac 114,127,131,136,140,144,152,157,162,166,206,235,258,271,316,345,375,394,403,426,453
+internal/proxy/authority_cache_shadow_internal_test.go
+  s_fe45311f065c44::t_6e14f892ad96e4 104
+internal/proxy/baseline_failover_integration_test.go
+  s_fe45311f065c44::t_75837978cc01f7 252,298,339,379
+internal/proxy/blind_experiment_internal_test.go
+  s_fe45311f065c44::t_aa016afda24cf8 25,403,413,423,435
+internal/proxy/boost_force_model_test.go
+  s_fe45311f065c44::t_9fe537e0471390 66
+internal/proxy/client_identity.go
+  s_fe45311f065c44::t_1a9d1386010f6a 42-45,55-92
+internal/proxy/command_outcome.go
+  s_fe45311f065c44::t_ccdee504ea48db 19-21,104-105
+internal/proxy/command_outcome_internal_test.go
+  s_fe45311f065c44::t_adf907288a27dc 44,147,161,163,181,183,195
+internal/proxy/compaction_test.go
+  s_fe45311f065c44::t_71a441099ebf7a 42-43,93-94,194,204,223,229,248,268,296
+internal/proxy/decision_span_embed_test.go
+  s_fe45311f065c44::t_a87824b24d0239 109,258
+internal/proxy/directive_prefix_internal_test.go
+  s_fe45311f065c44::t_d90556dbc636bb 18,52
+internal/proxy/escalation_failopen_internal_test.go
+  s_fe45311f065c44::t_d2b173002e9728 32,43,60
+internal/proxy/escalation_internal_test.go
+  s_fe45311f065c44::t_cdb84c7a22692c 111,188,375,402,416,475
+internal/proxy/failover_integration_test.go
+  s_fe45311f065c44::t_1705a48ea352ce 137,209,265,302,350,396,427,621,661,730,768,811,844
+internal/proxy/force_model.go
+  s_fe45311f065c44::t_18a72eca8cec2e 15,568,593,607-608,621,642,672,695,735-737,826-832
+internal/proxy/force_model_command_matrix_internal_test.go
+  s_fe45311f065c44::t_cbc11c9287281d 48,72,90
+internal/proxy/force_model_exclusions_internal_test.go
+  s_fe45311f065c44::t_04fdc8b5a8116a 28,79,138,186,207,302,434,450,465,477,485
+internal/proxy/force_model_image_guard_internal_test.go
+  s_fe45311f065c44::t_07195b3375540e 54,95
+internal/proxy/force_model_pin_ttl_internal_test.go
+  s_fe45311f065c44::t_7161d0e2ce53fc 86,88,103,105
+internal/proxy/force_model_session_internal_test.go
+  s_fe45311f065c44::t_62a84b2e0c694f 147,160-161,186,212,273,318,360,428
+internal/proxy/force_model_tier_fallback_internal_test.go
+  s_fe45311f065c44::t_e2499e13834820 164,213,258,303,307
+internal/proxy/force_parent_internal_test.go
+  s_fe45311f065c44::t_9c572b0fd14d9a 23,30-31,46-49,51,67,94,106,131,139-142
+internal/proxy/gateway_unserved_models_internal_test.go
+  s_fe45311f065c44::t_05acebda5c76ba 15
+internal/proxy/gemini.go
+  s_fe45311f065c44::t_5d2512337d95b3 42-45
+internal/proxy/global_automatic_exclusions_internal_test.go
+  s_fe45311f065c44::t_447b27568b0a64 41-42,57-58,68,73,84,122,152,183
+internal/proxy/hmm_user_boundary_internal_test.go
+  s_fe45311f065c44::t_670dd26ba9ed86 58,95,112,134,149,178,228
+internal/proxy/hysteresis_turnloop_internal_test.go
+  s_fe45311f065c44::t_0de48a70b63bc7 86
+internal/proxy/loop_detection.go
+  s_fe45311f065c44::t_52cd3b9945220c 162-164,172,174,258
+internal/proxy/loop_detection_internal_test.go
+  s_fe45311f065c44::t_6a9e10b35e9c8e 176,196,208,221,232,243,257,271,311,325
+internal/proxy/managed_subscriptions_test.go
+  s_fe45311f065c44::t_f00b6f289eeabf 74
+internal/proxy/no_progress_internal_test.go
+  s_fe45311f065c44::t_2a9e89e68cf9d6 311,324-325,343,360
+internal/proxy/openai_subscription_pool_failover_test.go
+  s_fe45311f065c44::t_e024e461019448 136
+internal/proxy/output_limit_internal_test.go
+  s_fe45311f065c44::t_7f82a284d973c4 85,104,161
+internal/proxy/pi_handoff.go
+  s_fe45311f065c44::t_db522a9af9f496 18,52-53,137-139,144,156,192,195-196,203,237-238,246-249
+internal/proxy/pi_handoff_test.go
+  s_fe45311f065c44::t_af670a1c05f234 21,50-53,69-84,149,164,170,277,279
+internal/proxy/pi_session.go
+  s_fe45311f065c44::t_ab3990fa1d4373 18,30,34,44,46-47,78-79
+internal/proxy/pi_session_test.go
+  s_fe45311f065c44::t_b3914db75a1b5c 52,107-108,127-128
+internal/proxy/pin_effort_internal_test.go
+  s_fe45311f065c44::t_383694d6a8f153 28,46,69,98,106,126,149,156,185,190,194
+internal/proxy/pin_eviction.go
+  s_fe45311f065c44::t_ea44be00938e76 67-69
+internal/proxy/plan_owned_controls_internal_test.go
+  s_fe45311f065c44::t_8c4e92ee1afcaf 30,74-75,89-90,143
+internal/proxy/policy_deadline_fallback_internal_test.go
+  s_fe45311f065c44::t_b1cadfead54073 147
+internal/proxy/policy_pin_internal_test.go
+  s_fe45311f065c44::t_b2e59023374cfd 30,43,117,172,242,310
+internal/proxy/rate_limit_cooldown_internal_test.go
+  s_fe45311f065c44::t_a012c7c440a450 81,106,125,140,159,182,247,277,298,314,335,360,384,404,418,440,486,504,524,542,560
+internal/proxy/rescued_failure_demotion_internal_test.go
+  s_fe45311f065c44::t_ddc203f580c6a1 102
+internal/proxy/responses_untyped_stream_internal_test.go
+  s_fe45311f065c44::t_41824c6c601642 64
+internal/proxy/router_feedback.go
+  s_fe45311f065c44::t_5f23a88423e630 130
+internal/proxy/router_feedback_proxy_test.go
+  s_fe45311f065c44::t_07bff5073f6e0c 523-524
+internal/proxy/routing_policy_internal_test.go
+  s_fe45311f065c44::t_2d65136d51e533 49,101,135,154,167,169,171,173,176
+internal/proxy/search_scope.go
+  s_fe45311f065c44::t_f334e9bc06db7a 36,61
+internal/proxy/service.go
+  s_fe45311f065c44::t_c3b1ccf09ec2a5 3663-3666,3929,4062,6934-6937,7157,8869-8872
+internal/proxy/service_observation_test.go
+  s_fe45311f065c44::t_3725a43dec55c6 177,286,358,413,450,486,540,570,599,631,709,783,860,945
+internal/proxy/service_session_pin_test.go
+  s_fe45311f065c44::t_aad386a9114967 259
+internal/proxy/service_test.go
+  s_fe45311f065c44::t_1cf1f8338098a8 113,153,184,258,282,312,332,381,424,465,531,582,613,687,743,820,862,935,964,985,993,1016,1047,1088,1137,1160,1222,1256,1284,1319,1345,1382,1426,1458,1487,1525,1539,1556,1577,1599,1609,1625,1666
+internal/proxy/serving_state_internal_test.go
+  s_fe45311f065c44::t_d07c30e2438aab 22,24-25,35,63,78
+internal/proxy/session_key.go
+  s_fe45311f065c44::t_64a750e5ccd494 68-69,71-73,97-111,113,116-122,124,162-164,169-171
+internal/proxy/session_key_internal_test.go
+  s_fe45311f065c44::t_2a9cad1cb01fce 5,8,10-11,14-24,28-49
+internal/proxy/session_key_test.go
+  s_fe45311f065c44::t_2bd512d33035aa 7,12,14
+internal/proxy/stateful_fixture_internal_test.go
+  s_fe45311f065c44::t_440f55671ed2e3 1-24
+internal/proxy/stateful_fixture_test.go
+  s_fe45311f065c44::t_a104b184da4552 1-33
+internal/proxy/struggle_detection.go
+  s_fe45311f065c44::t_59d7fc525c62e4 112-114
+internal/proxy/struggle_detection_internal_test.go
+  s_fe45311f065c44::t_9af95987cd8d3c 130,307
+internal/proxy/surface_purpose_test.go
+  s_fe45311f065c44::t_b778b766f2e851 74
+internal/proxy/thread_conformance_internal_test.go
+  s_fe45311f065c44::t_62c091c1afdf3d 1-203
+internal/proxy/thread_isolation_internal_test.go
+  s_fe45311f065c44::t_6c4e9c672b5f00 1-29
+internal/proxy/tokenizer_calibration_test.go
+  s_fe45311f065c44::t_d0db4b5d690998 81
+internal/proxy/turn_strikes.go
+  s_fe45311f065c44::t_791fc7532173e1 79
+internal/proxy/turn_strikes_internal_test.go
+  s_fe45311f065c44::t_722f9a411c0c26 58,100,114,144,196
+internal/proxy/turnloop.go
+  s_fe45311f065c44::t_eb554a5734d4bb 802-803,881,1225,2744-2746,2767-2769,2884-2886,2929-2931,2968-2970
+internal/proxy/turnloop_arm_demotion_internal_test.go
+  s_fe45311f065c44::t_d75c8ae3c90af2 93,115,138,159
+internal/proxy/two_model_recovery_internal_test.go
+  s_fe45311f065c44::t_2082b88a7f98fb 60,77,79,83,86,93,95,99,145,150,153,156,175,183,198,215,315-316
+internal/proxy/usage_bypass_internal_test.go
+  s_fe45311f065c44::t_b98b7826207cc2 97,134,185,241,293,336,361,378,400,429,452,463,608,620,700,766,787
+internal/proxy/usage_bypass_test.go
+  s_fe45311f065c44::t_062bd379341ff8 58,142,167,181,625,654
+internal/proxy/utility_selection_internal_test.go
+  s_fe45311f065c44::t_f05bfe70072a03 24,118,149,158
+internal/requestcontext/conversation.go
+  s_fe45311f065c44::t_d4467e20d35e42 48,137-140
+internal/requestcontext/identity.go
+  s_fe45311f065c44::t_43a5c112746c8d 16-22
+internal/requestcontext/thread.go
+  s_fe45311f065c44::t_de0f96fa5ed93f 1-201
+internal/requestcontext/thread_test.go
+  s_fe45311f065c44::t_e1bb49e6588bde 1-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "272179556d9d7a69b9c920206c36f19fe72699b3",
+  "prompts": {},
+  "sessions": {
+    "s_fe45311f065c44": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17630-7642-7322-a264-569cda5bc37b",
+        "model": "weave-hmm-20261019-0001v1"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

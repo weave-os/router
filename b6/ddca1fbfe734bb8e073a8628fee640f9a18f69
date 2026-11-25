@@ -1,0 +1,23 @@
+internal/flags/flags.go
+  s_4a5b20b31cab48::t_ce0883b19103c4 181
+internal/subscriptions/runtime.go
+  s_4a5b20b31cab48::t_ce0883b19103c4 158
+internal/subscriptions/runtime_test.go
+  s_4a5b20b31cab48::t_a7c10e681d2b79 1090,1114,1138,1163,1170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b6ddca1fbfe734bb8e073a8628fee640f9a18f69",
+  "prompts": {},
+  "sessions": {
+    "s_4a5b20b31cab48": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c1ea-4f9f-7f23-9ba4-1c6d2643e4ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

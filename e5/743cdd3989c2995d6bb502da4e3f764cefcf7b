@@ -1,0 +1,21 @@
+db/migrations/0134_subscription_weekly_usage.up.sql
+  s_c74e8f385d434f::t_d1dd2fa6c1a32f 1-12
+db/migrations/0134_subscription_weekly_usage.down.sql
+  s_c74e8f385d434f::t_d1dd2fa6c1a32f 1-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e5743cdd3989c2995d6bb502da4e3f764cefcf7b",
+  "prompts": {},
+  "sessions": {
+    "s_c74e8f385d434f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15acf-aae0-7a80-9f4e-d885a372cb0e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

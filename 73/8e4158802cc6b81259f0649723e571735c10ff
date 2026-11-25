@@ -1,0 +1,31 @@
+internal/router/llmescalation/transcript.go
+  s_d94ffb0464bee6::t_6c499b79f40ef5 27-31
+internal/proxy/llm_escalation.go
+  s_d94ffb0464bee6::t_6c499b79f40ef5 225,227,245-256
+  s_d94ffb0464bee6::t_a3855aa2393970 257
+internal/translate/escalation_decorations.go
+  s_d94ffb0464bee6::t_6c499b79f40ef5 3-4,28-31,33-35,39-50,52
+  s_d94ffb0464bee6::t_093035b9bd3f67 32,36-38,51
+  s_d94ffb0464bee6::t_241afee066037b 53-54
+internal/router/llmescalation/transcript_test.go
+  s_d94ffb0464bee6::t_6c499b79f40ef5 81-87,89-91
+  s_d94ffb0464bee6::t_093035b9bd3f67 88
+internal/proxy/llm_escalation_internal_test.go
+  s_d94ffb0464bee6::t_6c499b79f40ef5 205-210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "738e4158802cc6b81259f0649723e571735c10ff",
+  "prompts": {},
+  "sessions": {
+    "s_d94ffb0464bee6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a822-4905-79b3-a637-c99551e4524e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

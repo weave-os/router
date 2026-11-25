@@ -1,0 +1,27 @@
+internal/proxy/pin_eviction.go
+  s_05c9c8c10e8ecd::t_d0c75e290db518 130-153
+internal/proxy/pin_eviction_internal_test.go
+  s_05c9c8c10e8ecd::t_084bd0a2f15674 374,384,395,411-412
+  s_05c9c8c10e8ecd::t_e126115aec309c 375-383,385-392,394,396-410
+  s_05c9c8c10e8ecd::t_70581fe4b5b5ca 393
+internal/proxy/service.go
+  s_05c9c8c10e8ecd::t_d0c75e290db518 3652
+  s_05c9c8c10e8ecd::t_d13e94030fc868 3201-3205
+  s_05c9c8c10e8ecd::t_dbc046adf74ebb 3647-3651,3653
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "5866c711b233508e8c887f10a026da0a851efea3",
+  "prompts": {},
+  "sessions": {
+    "s_05c9c8c10e8ecd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19b8ac3e-3407-419b-ac32-8fb3d3d2e2c3",
+        "model": "deepseek/deepseek-v4-flash"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
