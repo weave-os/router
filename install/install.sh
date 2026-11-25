@@ -5050,8 +5050,11 @@ remove_retired_commands() {
   command_file="$commands_dir/beta.md"
   ownership_file="$command_file.weave-router"
   [ -f "$command_file" ] || return 0
-  refuse_if_symlink "$command_file"
-  refuse_if_symlink "$ownership_file"
+  # Symlinked commands or ownership files are not safe for retirement cleanup.
+  if [ -L "$command_file" ] || [ -L "$ownership_file" ]; then
+    warn "Leaving symlinked $target command or ownership file at $command_file untouched."
+    return 0
+  fi
   # shellcheck disable=SC2016 # the shipped body holds a literal $ARGUMENTS
   shipped_body="$(printf '%s\n' '---' 'description: Toggle beta HMM routing for this session.' '---' '' '/beta $ARGUMENTS')"
   installed="$(sed '/^<!-- weave-router managed command: .* -->$/d' "$command_file")"

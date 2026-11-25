@@ -235,7 +235,15 @@ printf '%s\n' '---' 'description: my own beta notes' '---' '' 'summarize the bet
 run "$upd_home" -- update --claude --quiet
 check "update keeps a user-owned /beta command" \
   "$(sed -n '5p' "$upd_home/.claude/commands/beta.md" 2>/dev/null)" "summarize the beta plan"
-rm -f "$upd_home/.claude/commands/beta.md"
+mv "$upd_home/.claude/commands/beta.md" "$upd_home/my-beta.md"
+ln -s "$upd_home/my-beta.md" "$upd_home/.claude/commands/beta.md"
+rm -f "$upd_home/.claude/commands/router-session.md"
+run "$upd_home" -- update --claude --quiet
+check "update continues past a symlinked /beta command" \
+  "$([ -f "$upd_home/.claude/commands/router-session.md" ] && echo present || echo absent)" present
+check "update leaves a symlinked /beta command in place" \
+  "$([ -L "$upd_home/.claude/commands/beta.md" ] && sed -n '5p' "$upd_home/my-beta.md")" "summarize the beta plan"
+rm -f "$upd_home/.claude/commands/beta.md" "$upd_home/my-beta.md"
 
 # ---------- command baseline seeding ----------
 #
