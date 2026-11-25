@@ -146,7 +146,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		if !persistent {
 			return nil
 		}
-		if inherited {
+		if inherited && previous.Target == admitted.Target {
 			admitted.RoutingModel = routingModel
 		}
 		encoded, err := json.Marshal(admitted)
@@ -239,12 +239,12 @@ func enrollmentProjection(lane sqlc.GetServingInstallationLaneEnrollmentRow, sub
 
 func projectServingProfile(ctx context.Context, queries *sqlc.Queries, installationUUID uuid.UUID, subject *auth.CredentialSubject, routingModel router.RoutingModel, projection *policyregistry.AdmissionProjection) error {
 	if subject != nil {
-		projected, err := queries.GetActiveServingSubscriberPlan(ctx, uuid.MustParse(subject.ID))
+		activePlan, err := queries.GetActiveServingSubscriberPlan(ctx, uuid.MustParse(subject.ID))
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 		if err == nil {
-			planProjection, err := subscriberPlanProjection(projected.Plan, projected.Version)
+			planProjection, err := subscriberPlanProjection(activePlan.Plan, activePlan.Version)
 			if err != nil {
 				return err
 			}
@@ -253,13 +253,16 @@ func projectServingProfile(ctx context.Context, queries *sqlc.Queries, installat
 			projection.Plan = planProjection.Plan
 			projection.EntitlementVersion = planProjection.EntitlementVersion
 			projection.AssignmentGeneration = planProjection.AssignmentGeneration
-			return requireRoutingModelAssignment(routingModel, false)
+			if routingModel != router.ModelAutomatic {
+				return policyregistry.ErrRoutingModelNotAssigned
+			}
+			return nil
 		}
 	}
 	if routingModel != router.ModelAutomatic {
 		assignment, err := queries.GetServingRoutingModelProfileAssignment(ctx, sqlc.GetServingRoutingModelProfileAssignmentParams{InstallationID: installationUUID, RoutingModel: string(routingModel)})
 		if errors.Is(err, sql.ErrNoRows) {
-			return requireRoutingModelAssignment(routingModel, false)
+			return policyregistry.ErrRoutingModelNotAssigned
 		}
 		if err != nil {
 			return err
@@ -280,12 +283,5 @@ func projectServingProfile(ctx context.Context, queries *sqlc.Queries, installat
 		projection.ProfileKey = ""
 	}
 	projection.AssignmentGeneration = assignment.AssignmentGeneration
-	return nil
-}
-
-func requireRoutingModelAssignment(model router.RoutingModel, assigned bool) error {
-	if model != router.ModelAutomatic && !assigned {
-		return policyregistry.ErrRoutingModelNotAssigned
-	}
 	return nil
 }

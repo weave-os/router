@@ -179,6 +179,13 @@ func TestAutoEfficientAdmissionPinsTheConversationAliasOnStable(t *testing.T) {
 	require.ErrorIs(t, err, ErrRoutingModelChanged)
 }
 
+func TestAutoEfficientAdmissionIsStatelessOnInternal(t *testing.T) {
+	store := &routingAdmissionStore{projection: AdmissionProjection{Target: TargetInternal}}
+	_, binding, err := routingAdmissionCache(t, store).AdmitRoutingModel(context.Background(), "installation", "credential", "", router.ModelAutoEfficient, routingReleaseDecision)
+	require.NoError(t, err, "weave-auto-efficient serves stateless requests on every target")
+	assert.Empty(t, binding.RoutingModel)
+}
+
 func TestAdmitRoutingModelHandsTheRoutingModelToTheStore(t *testing.T) {
 	var seen []router.RoutingModel
 	store := admissionStoreFunc(func(ctx context.Context, _, _, _ string, decide AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error) {
@@ -215,8 +222,8 @@ func TestAdmissionRoutingModelKeepsTheConversationsAssignedProfile(t *testing.T)
 		{name: "unnamed request in an efficient conversation inherits it", ctx: context.Background(), previous: efficient, wantModel: router.ModelAutoEfficient, wantInherited: true},
 		{name: "unnamed request without a binding projects weave-auto", ctx: context.Background(), wantModel: router.ModelAutomatic},
 		{name: "unnamed request in a weave-auto conversation projects weave-auto", ctx: context.Background(), previous: automatic, wantModel: router.ModelAutomatic},
-		{name: "named weave-auto is not overridden by the binding", ctx: withAdmittedRoutingModel(context.Background(), router.ModelAutomatic), previous: efficient, wantModel: router.ModelAutomatic},
-		{name: "named efficient request projects efficient", ctx: withAdmittedRoutingModel(context.Background(), router.ModelAutoEfficient), wantModel: router.ModelAutoEfficient},
+		{name: "named weave-auto is not overridden by the binding", ctx: context.WithValue(context.Background(), admittedRoutingModelKey{}, router.ModelAutomatic), previous: efficient, wantModel: router.ModelAutomatic},
+		{name: "named efficient request projects efficient", ctx: context.WithValue(context.Background(), admittedRoutingModelKey{}, router.ModelAutoEfficient), wantModel: router.ModelAutoEfficient},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

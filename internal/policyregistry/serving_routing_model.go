@@ -16,10 +16,6 @@ var ErrRoutingModelNotAssigned = errors.New("routing model has no serving profil
 
 type admittedRoutingModelKey struct{}
 
-func withAdmittedRoutingModel(ctx context.Context, model router.RoutingModel) context.Context {
-	return context.WithValue(ctx, admittedRoutingModelKey{}, model)
-}
-
 func AdmittedRoutingModel(ctx context.Context) router.RoutingModel {
 	if model, ok := ctx.Value(admittedRoutingModelKey{}).(router.RoutingModel); ok && router.UsesAssignedProfile(model) {
 		return model
@@ -47,7 +43,7 @@ func (c *AdmissionDecisionCache) AdmitRoutingModel(ctx context.Context, installa
 	}
 	bind := func(ctx context.Context, admission SerializedAdmission) (SessionReleaseBinding, error) {
 		if ExperimentalRoutingModelsPermitted(admission.Projection.Target, admission.Projection.Plan) {
-			if sessionID == "" && model != router.ModelAutomatic {
+			if sessionID == "" && model != router.ModelAutomatic && !router.UsesAssignedProfile(model) {
 				return SessionReleaseBinding{}, ErrRoutingModelSessionRequired
 			}
 			if previous := admission.Previous; previous != nil && previous.Target == TargetInternal && previous.RoutingModel != "" && previous.RoutingModel != model {
@@ -66,7 +62,7 @@ func (c *AdmissionDecisionCache) AdmitRoutingModel(ctx context.Context, installa
 		}
 		return binding, nil
 	}
-	return c.admit(withAdmittedRoutingModel(ctx, model), installationID, apiKeyID, sessionID, model, bind)
+	return c.admit(context.WithValue(ctx, admittedRoutingModelKey{}, model), installationID, apiKeyID, sessionID, model, bind)
 }
 
 func routingModelSwitchesAlias(previous, requested router.RoutingModel) bool {

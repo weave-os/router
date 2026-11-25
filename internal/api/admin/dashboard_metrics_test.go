@@ -96,3 +96,41 @@ func TestComparisonCostPricesAutoEfficientTurnsAtItsOwnModel(t *testing.T) {
 		t.Fatalf("weave-auto-efficient comparison = %v, want Sonnet's %v below Opus's %v", got, sonnet, opus)
 	}
 }
+
+func TestReportSummaryNamesTheComparisonModelItUsed(t *testing.T) {
+	automatic := turnrecord.TelemetryDashboardFact{DecisionModel: "claude-haiku-5-5", DecisionType: string(dashboardDecisionRouterPick), RequestCount: 1, InputTokens: 1_000_000, ActualCostUSD: 1}
+	efficient := automatic
+	efficient.ComparisonRoutingModel = string(router.ModelAutoEfficient)
+
+	if got := reportSummary([]turnrecord.TelemetryDashboardFact{automatic}).ComparisonModel; got != policy.SavingsComparisonModelLabel {
+		t.Fatalf("weave-auto report comparison model = %q, want %q", got, policy.SavingsComparisonModelLabel)
+	}
+	if got := reportSummary([]turnrecord.TelemetryDashboardFact{efficient}).ComparisonModel; got != router.AutoEfficientComparisonModelLabel {
+		t.Fatalf("weave-auto-efficient report comparison model = %q, want %q", got, router.AutoEfficientComparisonModelLabel)
+	}
+	if got := reportSummary(nil).ComparisonModel; got != policy.SavingsComparisonModelLabel {
+		t.Fatalf("empty report comparison model = %q, want %q", got, policy.SavingsComparisonModelLabel)
+	}
+
+	mixed := reportSummary([]turnrecord.TelemetryDashboardFact{automatic, efficient})
+	if want := "mixed (Claude Opus 5.5 / Claude Sonnet 5.5)"; mixed.ComparisonModel != want {
+		t.Fatalf("mixed report comparison model = %q, want %q", mixed.ComparisonModel, want)
+	}
+	if len(mixed.ComparisonModels) != 2 {
+		t.Fatalf("mixed report breakdown = %+v, want one entry per comparison model", mixed.ComparisonModels)
+	}
+	var breakdownSavings float64
+	for _, savings := range mixed.ComparisonModels {
+		fact := automatic
+		if savings.ComparisonModel == router.AutoEfficientComparisonModelLabel {
+			fact = efficient
+		}
+		if savings.ComparisonCostUSD != comparisonCost(fact) || savings.SavingsUSD != comparisonCost(fact)-billedCost(fact) {
+			t.Fatalf("%s breakdown = %+v, want comparison %v", savings.ComparisonModel, savings, comparisonCost(fact))
+		}
+		breakdownSavings += savings.SavingsUSD
+	}
+	if breakdownSavings != mixed.SavingsUSD {
+		t.Fatalf("breakdown savings %v do not sum to the report's %v", breakdownSavings, mixed.SavingsUSD)
+	}
+}

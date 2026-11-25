@@ -73,5 +73,26 @@ func checkRoutingModelSessionContinuity(ctx context.Context, pool *pgxpool.Pool,
 			return fmt.Errorf("%s persisted a rebind of the efficient session: generation=%d", step.name, storedGeneration)
 		}
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO router.installation_lane_enrollments (installation_id, internal_enrolled, enrollment_generation) VALUES ($1, true, 1)`, installationID); err != nil {
+		return fmt.Errorf("enroll the internal lane: %w", err)
+	}
+	cache, err := freshCache()
+	if err != nil {
+		return err
+	}
+	rebound, err := countTokens(cache)
+	if err != nil {
+		return fmt.Errorf("count_tokens after a serving-target change: %w", err)
+	}
+	if rebound.Target != policyregistry.TargetInternal || rebound.RoutingModel != "" {
+		return fmt.Errorf("a serving-target change kept the efficient routing model: target=%q routing_model=%q", rebound.Target, rebound.RoutingModel)
+	}
+	var storedRoutingModel string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(binding->>'routing_model', '') FROM router.session_release_bindings WHERE installation_id = $1 AND credential_scope = $2`, installationID, keyID).Scan(&storedRoutingModel); err != nil {
+		return fmt.Errorf("read the rebound session binding: %w", err)
+	}
+	if storedRoutingModel != "" {
+		return fmt.Errorf("a serving-target change persisted routing_model=%q", storedRoutingModel)
+	}
 	return nil
 }

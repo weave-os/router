@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/router"
@@ -68,13 +69,20 @@ type dashboardSeriesResponse struct {
 }
 
 type dashboardReportSummaryResponse struct {
-	RequestCount      int64   `json:"request_count"`
-	TotalTokens       int64   `json:"total_tokens"`
-	TotalCostUSD      float64 `json:"total_cost_usd"`
+	RequestCount      int64                        `json:"request_count"`
+	TotalTokens       int64                        `json:"total_tokens"`
+	TotalCostUSD      float64                      `json:"total_cost_usd"`
+	ComparisonModel   string                       `json:"comparison_model"`
+	ComparisonModels  []dashboardComparisonSavings `json:"comparison_models"`
+	ComparisonCostUSD float64                      `json:"comparison_cost_usd"`
+	SavingsUSD        float64                      `json:"savings_usd"`
+	LastRequestAt     *string                      `json:"last_request_at"`
+}
+
+type dashboardComparisonSavings struct {
 	ComparisonModel   string  `json:"comparison_model"`
 	ComparisonCostUSD float64 `json:"comparison_cost_usd"`
 	SavingsUSD        float64 `json:"savings_usd"`
-	LastRequestAt     *string `json:"last_request_at"`
 }
 
 func MetricsSeriesHandler(queries turnrecord.Queries) gin.HandlerFunc {
@@ -215,7 +223,8 @@ func factsInGroup(facts []turnrecord.TelemetryDashboardFact, group dashboardMetr
 }
 
 func reportSummary(facts []turnrecord.TelemetryDashboardFact) dashboardReportSummaryResponse {
-	summary := dashboardReportSummaryResponse{ComparisonModel: policy.SavingsComparisonModelLabel}
+	var summary dashboardReportSummaryResponse
+	summary.ComparisonModel, summary.ComparisonModels = comparisonSavings(facts)
 	var last time.Time
 	for _, fact := range facts {
 		summary.RequestCount += fact.RequestCount
@@ -247,17 +256,51 @@ func comparisonCost(fact turnrecord.TelemetryDashboardFact) float64 {
 	if dashboardDecisionType(fact.DecisionType) != dashboardDecisionRouterPick {
 		return fact.ActualCostUSD
 	}
-	if cost, ok := catalogCost(comparisonModelFor(fact), fact); ok {
+	modelID, _ := comparisonModel(fact)
+	if cost, ok := catalogCost(modelID, fact); ok {
 		return cost
 	}
 	return fact.ActualCostUSD
 }
 
-func comparisonModelFor(fact turnrecord.TelemetryDashboardFact) string {
-	if comparison, found := router.DefaultRoutingModelComparisonModels[router.RoutingModel(fact.ComparisonRoutingModel)]; found {
-		return comparison
+func comparisonModel(fact turnrecord.TelemetryDashboardFact) (modelID, label string) {
+	if router.RoutingModel(fact.ComparisonRoutingModel) == router.ModelAutoEfficient {
+		return router.AutoEfficientComparisonModel, router.AutoEfficientComparisonModelLabel
 	}
-	return policy.SavingsComparisonModel
+	return policy.SavingsComparisonModel, policy.SavingsComparisonModelLabel
+}
+
+func comparisonSavings(facts []turnrecord.TelemetryDashboardFact) (label string, breakdown []dashboardComparisonSavings) {
+	byLabel := map[string]*dashboardComparisonSavings{}
+	for _, fact := range facts {
+		_, factLabel := comparisonModel(fact)
+		savings, ok := byLabel[factLabel]
+		if !ok {
+			savings = &dashboardComparisonSavings{ComparisonModel: factLabel}
+			byLabel[factLabel] = savings
+		}
+		comparison := comparisonCost(fact)
+		savings.ComparisonCostUSD += comparison
+		savings.SavingsUSD += comparison - billedCost(fact)
+	}
+	breakdown = make([]dashboardComparisonSavings, 0, len(byLabel))
+	for _, savings := range byLabel {
+		breakdown = append(breakdown, *savings)
+	}
+	slices.SortFunc(breakdown, func(a, b dashboardComparisonSavings) int {
+		return cmp.Compare(a.ComparisonModel, b.ComparisonModel)
+	})
+	switch len(breakdown) {
+	case 0:
+		return policy.SavingsComparisonModelLabel, breakdown
+	case 1:
+		return breakdown[0].ComparisonModel, breakdown
+	}
+	labels := make([]string, 0, len(breakdown))
+	for _, savings := range breakdown {
+		labels = append(labels, savings.ComparisonModel)
+	}
+	return "mixed (" + strings.Join(labels, " / ") + ")", breakdown
 }
 
 func listPriceCost(fact turnrecord.TelemetryDashboardFact) float64 {

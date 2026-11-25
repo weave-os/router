@@ -44,6 +44,7 @@ var fixtureTables = []struct {
 	{table: "router.credential_subject_installations", scope: "installation_id = $1"},
 	{table: "router.installation_profile_assignments", scope: "installation_id = $1"},
 	{table: "router.installation_routing_model_profile_assignments", scope: "installation_id = $1"},
+	{table: "router.installation_lane_enrollments", scope: "installation_id = $1"},
 	{table: "router.session_release_bindings", scope: "installation_id = $1"},
 	{table: "router.serving_request_attribution", scope: "installation_id = $1"},
 	{table: "router.credential_subjects", scope: "id = ANY($1::uuid[])", subjectScoped: true},

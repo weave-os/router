@@ -979,8 +979,11 @@ not listed in `/v1/models` or the installers.
   admission. A self-hosted router without it refuses `weave-auto-efficient`
   with `403 routing_model_not_permitted` rather than serving the default roster.
 - **Savings.** Its counterfactual and dashboard comparison price turns at
-  `claude-sonnet-5-5` (`router.DefaultRoutingModelComparisonModels`) instead of
-  the client baseline.
+  `claude-sonnet-5-5` (`router.AutoEfficientComparisonModel`) instead of
+  the client baseline. The admin dashboard summary and drill-down name the
+  comparison model each report used; a report that spans both reads
+  `mixed (Claude Opus 5.5 / Claude Sonnet 5.5)` and lists savings per
+  comparison model in `comparison_models`.
 
 ## Provider and model exclusions
 

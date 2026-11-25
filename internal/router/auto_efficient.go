@@ -1,5 +1,6 @@
 package router
 
-var DefaultRoutingModelComparisonModels = map[RoutingModel]string{
-	ModelAutoEfficient: "claude-sonnet-5-5",
-}
+const (
+	AutoEfficientComparisonModel      = "claude-sonnet-5-5"
+	AutoEfficientComparisonModelLabel = "Claude Sonnet 5.5"
+)
