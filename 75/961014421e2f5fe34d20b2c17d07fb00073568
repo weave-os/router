@@ -1,0 +1,63 @@
+cmd/router/main.go
+  s_302a3bf6862e3e::t_ca9a34025b073c 997
+cmd/router/recipe_shadow.go
+  s_302a3bf6862e3e::t_4097a659955a4d 1-41
+db/queries/policy_shadow_decisions.sql
+  s_302a3bf6862e3e::t_92e29586c71d53 24-32,55-63
+internal/flags/flags.go
+  s_302a3bf6862e3e::t_2be8f2888947b1 82
+internal/flags/flags_test.go
+  s_302a3bf6862e3e::t_8be9ac2c53d6fc 278,285-286
+internal/flags/registry.go
+  s_302a3bf6862e3e::t_191d09cdf275f0 3,140-145
+internal/policyregistry/recipe_shadow.go
+  s_302a3bf6862e3e::t_b152856e3e2623 1-95
+internal/policyregistry/recipe_shadow_test.go
+  s_302a3bf6862e3e::t_d9b8eb0c046bdb 1-48
+internal/postgres/policy_shadow_repo.go
+  s_302a3bf6862e3e::t_5680de063ef044 43-50
+internal/postgres/policy_shadow_repo_test.go
+  s_302a3bf6862e3e::t_5b9794dd5af3bb 1-47
+internal/postgres/serving/recipe_shadow.go
+  s_302a3bf6862e3e::t_34c2b14b322b99 1-35
+internal/proxy/deps.go
+  s_302a3bf6862e3e::t_73353079c252eb 22,69,180-182
+internal/proxy/policy_shadow.go
+  s_302a3bf6862e3e::t_750f8814198524 6-8,21-35
+internal/proxy/recipe_shadow_internal_test.go
+  s_302a3bf6862e3e::t_1a729e87b2ea46 1-70
+internal/proxy/turn_telemetry.go
+  s_302a3bf6862e3e::t_e423d134fee96e 11,20
+internal/router/hmm/recipeshadow/replay.go
+  s_302a3bf6862e3e::t_1c2b14ffaa87a1 1-111
+internal/router/hmm/recipeshadow/replay_test.go
+  s_302a3bf6862e3e::t_8f8f098367755f 1-126
+internal/router/recipe_shadow.go
+  s_302a3bf6862e3e::t_5b24e3e6f1dcc5 1-23
+internal/sqlc/models.go
+  s_302a3bf6862e3e::t_1749bf96020925 966-973
+internal/sqlc/policy_shadow_decisions.sql.go
+  s_302a3bf6862e3e::t_e36388b2ba52aa 37-45,68-76,103-110,137-145,168-176,202-209
+internal/telemetry/policy_shadow.go
+  s_302a3bf6862e3e::t_c0e8290997ab03 34-42
+internal/telemetry/policyshadow/recipe_shadow.go
+  s_302a3bf6862e3e::t_8a8a1866fd0c08 1-95
+internal/telemetry/policyshadow/recipe_shadow_test.go
+  s_302a3bf6862e3e::t_ac9c7eb96bc68f 1-175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "75961014421e2f5fe34d20b2c17d07fb00073568",
+  "prompts": {},
+  "sessions": {
+    "s_302a3bf6862e3e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5b51397d-350a-449c-8758-91ad07df6634",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
