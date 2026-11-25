@@ -91,6 +91,8 @@ type Features struct {
 	SubscriptionLogins       admin.SubscriptionLoginFlow
 	SubscriptionRefresh      subscriptions.AccountRefresher
 	PolicyStatus             admin.PolicyStatusSource
+	Version                  admin.VersionDetails
+	UIDisabled               bool
 	RoutingDistribution      admin.DistributionRosterSource
 	RosterCatalogID          func(string) string
 	TaskDomainPreview        taskdomain.Previewer
@@ -180,7 +182,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, services Se
 	engine.GET("/readyz", middleware.WithTimeout(readinessTimeout), admin.ReadinessHandler(readinessChecker))
 	engine.GET("/startupz", middleware.WithTimeout(startupTimeout), admin.StartupHandler(features.StartupDatabasePing))
 
-	engine.GET("/v1/version", middleware.WithTimeout(healthTimeout), admin.VersionHandler(features.PolicyStatus))
+	engine.GET("/v1/version", middleware.WithTimeout(healthTimeout), admin.VersionHandler(features.PolicyStatus, features.Version))
 	routingCatalog := services.RoutingCatalog
 	registeredStrategies, strategyAvailability := registeredStrategyAvailability(routingCatalog)
 	defaultStrategy := middleware.NormalizeRouterStrategyDefault(features.defaultStrategy(), registeredStrategies...)
@@ -232,7 +234,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, services Se
 		subscriptionsapi.Register(subscriptionGroup, authSvc)
 	}
 
-	if mode == DeploymentModeSelfHosted {
+	if mode == DeploymentModeSelfHosted && !features.UIDisabled {
 		engine.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/ui") })
 		registerUIStatic(engine, "./assets/ui")
 

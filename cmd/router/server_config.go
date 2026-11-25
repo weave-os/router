@@ -20,6 +20,7 @@ func withEnvServerConfig(features server.Features, defaultStrategy router.Strate
 	features.DefaultStrategy = defaultStrategy
 	features.InternalServiceToken = internalServiceTokenFromEnv()
 	features.Admin = adminConfigFromEnv()
+	features.UIDisabled = !uiEnabledFromEnv()
 	return features
 }
 

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -118,6 +120,21 @@ func TestRegister_DeploymentMode(t *testing.T) {
 		}
 		for _, unwanted := range dashboardRoutes {
 			assert.NotContains(t, got, unwanted, "dashboard route must not be mounted in managed mode")
+		}
+	})
+
+	t.Run("selfhosted with the UI disabled keeps product, internal and version routes", func(t *testing.T) {
+		engine := gin.New()
+		server.RegisterWithFeatures(engine, nil, server.Services{}, fakeHMMRosterSource{}, server.DeploymentModeSelfHosted, nil, nil, nil, nil, server.Features{UIDisabled: true, InternalServiceToken: "internal-token"})
+		got := routeSet(engine)
+		for _, want := range append(slices.Clone(productRoutes), "GET /v1/version", "POST /internal/v1/session-issuers") {
+			assert.Contains(t, got, want, "route missing with the UI disabled")
+		}
+		for _, unwanted := range dashboardRoutes {
+			assert.NotContains(t, got, unwanted, "dashboard route must not be mounted with the UI disabled")
+		}
+		for route := range got {
+			assert.False(t, strings.HasPrefix(route, "GET /ui") || strings.Contains(route, " /admin/v1/"), "dashboard route %s mounted with the UI disabled", route)
 		}
 	})
 
