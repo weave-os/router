@@ -32,5 +32,4 @@ func TestAutoEfficientIsAnAutomaticRoutingModel(t *testing.T) {
 	require.True(t, UsesAssignedProfile(ModelAutoEfficient))
 	require.False(t, UsesAssignedProfile(ModelAutomatic))
 	require.False(t, IsRoutingModel("weave-auto-efficiency"))
-	require.Equal(t, "claude-sonnet-5-5", AutoEfficientComparisonModel)
 }

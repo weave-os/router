@@ -256,24 +256,17 @@ func comparisonCost(fact turnrecord.TelemetryDashboardFact) float64 {
 	if dashboardDecisionType(fact.DecisionType) != dashboardDecisionRouterPick {
 		return fact.ActualCostUSD
 	}
-	modelID, _ := comparisonModel(fact)
+	modelID, _ := policy.SavingsComparisonFor(router.RoutingModel(fact.ComparisonRoutingModel))
 	if cost, ok := catalogCost(modelID, fact); ok {
 		return cost
 	}
 	return fact.ActualCostUSD
 }
 
-func comparisonModel(fact turnrecord.TelemetryDashboardFact) (modelID, label string) {
-	if router.RoutingModel(fact.ComparisonRoutingModel) == router.ModelAutoEfficient {
-		return router.AutoEfficientComparisonModel, router.AutoEfficientComparisonModelLabel
-	}
-	return policy.SavingsComparisonModel, policy.SavingsComparisonModelLabel
-}
-
 func comparisonSavings(facts []turnrecord.TelemetryDashboardFact) (label string, breakdown []dashboardComparisonSavings) {
 	byLabel := map[string]*dashboardComparisonSavings{}
 	for _, fact := range facts {
-		_, factLabel := comparisonModel(fact)
+		_, factLabel := policy.SavingsComparisonFor(router.RoutingModel(fact.ComparisonRoutingModel))
 		savings, ok := byLabel[factLabel]
 		if !ok {
 			savings = &dashboardComparisonSavings{ComparisonModel: factLabel}

@@ -6,14 +6,16 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/policy"
 )
 
 func clientRequestedModel(ctx context.Context, requested string) string {
 	if !router.IsRoutingModel(requested) {
 		return requested
 	}
-	if router.CanonicalRoutingModel(requested) == router.ModelAutoEfficient {
-		return router.AutoEfficientComparisonModel
+	if canonical := router.CanonicalRoutingModel(requested); canonical == router.ModelAutoEfficient {
+		comparison, _ := policy.SavingsComparisonFor(canonical)
+		return comparison
 	}
 	if baseline := clientBaselineModel(ctx); baseline != "" {
 		return baseline

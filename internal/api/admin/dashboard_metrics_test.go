@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
 
@@ -87,13 +86,11 @@ func TestComparisonCostPricesAutoEfficientTurnsAtItsOwnModel(t *testing.T) {
 	efficient := automatic
 	efficient.ComparisonRoutingModel = string(router.ModelAutoEfficient)
 
-	opus, _ := catalogCost(policy.SavingsComparisonModel, automatic)
-	sonnet, _ := catalogCost("claude-sonnet-5-5", automatic)
-	if got := comparisonCost(automatic); got != opus {
-		t.Fatalf("weave-auto comparison = %v, want the deployment comparison model's %v", got, opus)
+	if got := comparisonCost(automatic); got != 4 {
+		t.Fatalf("weave-auto comparison = %v, want Opus 5.5's $4 per million fresh input tokens", got)
 	}
-	if got := comparisonCost(efficient); got != sonnet || sonnet >= opus {
-		t.Fatalf("weave-auto-efficient comparison = %v, want Sonnet's %v below Opus's %v", got, sonnet, opus)
+	if got := comparisonCost(efficient); got != 2 {
+		t.Fatalf("weave-auto-efficient comparison = %v, want Sonnet 5.5's $2 per million fresh input tokens", got)
 	}
 }
 
@@ -102,35 +99,28 @@ func TestReportSummaryNamesTheComparisonModelItUsed(t *testing.T) {
 	efficient := automatic
 	efficient.ComparisonRoutingModel = string(router.ModelAutoEfficient)
 
-	if got := reportSummary([]turnrecord.TelemetryDashboardFact{automatic}).ComparisonModel; got != policy.SavingsComparisonModelLabel {
-		t.Fatalf("weave-auto report comparison model = %q, want %q", got, policy.SavingsComparisonModelLabel)
+	if got := reportSummary([]turnrecord.TelemetryDashboardFact{automatic}).ComparisonModel; got != "Claude Opus 5.5" {
+		t.Fatalf("weave-auto report comparison model = %q", got)
 	}
-	if got := reportSummary([]turnrecord.TelemetryDashboardFact{efficient}).ComparisonModel; got != router.AutoEfficientComparisonModelLabel {
-		t.Fatalf("weave-auto-efficient report comparison model = %q, want %q", got, router.AutoEfficientComparisonModelLabel)
+	if got := reportSummary([]turnrecord.TelemetryDashboardFact{efficient}).ComparisonModel; got != "Claude Sonnet 5.5" {
+		t.Fatalf("weave-auto-efficient report comparison model = %q", got)
 	}
-	if got := reportSummary(nil).ComparisonModel; got != policy.SavingsComparisonModelLabel {
-		t.Fatalf("empty report comparison model = %q, want %q", got, policy.SavingsComparisonModelLabel)
+	if got := reportSummary(nil).ComparisonModel; got != "Claude Opus 5.5" {
+		t.Fatalf("empty report comparison model = %q", got)
 	}
 
 	mixed := reportSummary([]turnrecord.TelemetryDashboardFact{automatic, efficient})
 	if want := "mixed (Claude Opus 5.5 / Claude Sonnet 5.5)"; mixed.ComparisonModel != want {
 		t.Fatalf("mixed report comparison model = %q, want %q", mixed.ComparisonModel, want)
 	}
-	if len(mixed.ComparisonModels) != 2 {
-		t.Fatalf("mixed report breakdown = %+v, want one entry per comparison model", mixed.ComparisonModels)
+	want := []dashboardComparisonSavings{
+		{ComparisonModel: "Claude Opus 5.5", ComparisonCostUSD: 4, SavingsUSD: 3},
+		{ComparisonModel: "Claude Sonnet 5.5", ComparisonCostUSD: 2, SavingsUSD: 1},
 	}
-	var breakdownSavings float64
-	for _, savings := range mixed.ComparisonModels {
-		fact := automatic
-		if savings.ComparisonModel == router.AutoEfficientComparisonModelLabel {
-			fact = efficient
-		}
-		if savings.ComparisonCostUSD != comparisonCost(fact) || savings.SavingsUSD != comparisonCost(fact)-billedCost(fact) {
-			t.Fatalf("%s breakdown = %+v, want comparison %v", savings.ComparisonModel, savings, comparisonCost(fact))
-		}
-		breakdownSavings += savings.SavingsUSD
+	if !slices.Equal(mixed.ComparisonModels, want) {
+		t.Fatalf("mixed report breakdown = %+v, want %+v", mixed.ComparisonModels, want)
 	}
-	if breakdownSavings != mixed.SavingsUSD {
-		t.Fatalf("breakdown savings %v do not sum to the report's %v", breakdownSavings, mixed.SavingsUSD)
+	if mixed.ComparisonCostUSD != 6 || mixed.SavingsUSD != 4 {
+		t.Fatalf("mixed report totals = comparison %v savings %v, want 6 and 4", mixed.ComparisonCostUSD, mixed.SavingsUSD)
 	}
 }
