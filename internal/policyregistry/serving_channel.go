@@ -70,8 +70,9 @@ func EnrollmentDecidesTarget(target ServingTarget) bool {
 	switch target {
 	case TargetStaging, TargetStable, TargetInternal:
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 func RejectSessionChannelChange(previous *SessionReleaseBinding, target ServingTarget) error {
