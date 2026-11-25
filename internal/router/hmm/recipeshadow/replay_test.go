@@ -111,7 +111,7 @@ func TestServedFactsRequireAnHMMClassifierDecision(t *testing.T) {
 		_, scored := replayer.ServedFacts(decision)
 		assert.False(t, scored, name)
 		_, err := replayer.Replay(context.Background(), efficientProfileKey, decision, anthropicRequest())
-		assert.ErrorIs(t, err, recipeshadow.ErrNoClassifierFacts, name)
+		assert.ErrorIs(t, err, router.ErrRecipeShadowNoClassifierFacts, name)
 	}
 }
 

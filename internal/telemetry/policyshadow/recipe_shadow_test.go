@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -127,16 +128,27 @@ func TestRecipeShadowRecordsWouldHavePickedWithoutContent(t *testing.T) {
 	assert.NotContains(t, string(encoded), promptSentinel, "the shadow row must hold identifiers only, never prompt text")
 }
 
-func TestRecipeShadowRecordsReplayErrorWithoutPick(t *testing.T) {
-	store := newRecordingStore()
-	replayer := &fakeReplayer{scored: true, err: errors.New("no eligible arm")}
+func TestRecipeShadowRecordsReplayErrorAsAReasonCode(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{err: fmt.Errorf("picked arm: %w", router.ErrRecipeShadowNoEligibleArm), want: "no_eligible_arm"},
+		{err: router.ErrRecipeShadowNoClassifierFacts, want: "no_classifier_facts"},
+		{err: errors.New("read gs://registry-bucket/objects/policy: not found"), want: "replay_failed"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			store := newRecordingStore()
+			replayer := &fakeReplayer{scored: true, err: tc.err}
 
-	recorder(store, &fakeProfiles{profileKey: efficientProfileKey, assigned: true}, replayer).Fire(context.Background(), recipeTurn())
-	event := store.wait(t)
+			recorder(store, &fakeProfiles{profileKey: efficientProfileKey, assigned: true}, replayer).Fire(context.Background(), recipeTurn())
+			event := store.wait(t)
 
-	assert.Equal(t, "no eligible arm", event.ShadowError)
-	assert.Empty(t, event.ShadowModel)
-	assert.False(t, event.ModelsAgree)
+			assert.Equal(t, tc.want, event.ShadowError, "the row stores a closed reason code, never the raw error text")
+			assert.Empty(t, event.ShadowModel)
+			assert.False(t, event.ModelsAgree)
+		})
+	}
 }
 
 func TestRecipeShadowWritesNoRowWhenTheShadowProfileIsInactive(t *testing.T) {

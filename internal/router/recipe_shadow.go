@@ -13,7 +13,11 @@ type RecipeShadowPick struct {
 	PolicySHA256 string
 }
 
-var ErrRecipeShadowProfileInactive = errors.New("shadow profile is not in the target's current selection set")
+var (
+	ErrRecipeShadowProfileInactive   = errors.New("shadow profile is not in the target's current selection set")
+	ErrRecipeShadowNoClassifierFacts = errors.New("served decision carries no classifier facts to replay")
+	ErrRecipeShadowNoEligibleArm     = errors.New("recipe shadow found no eligible arm")
+)
 
 type RecipeShadowServed struct {
 	RosterArmID    string

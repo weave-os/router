@@ -54,10 +54,28 @@ func (r RecipeRecorder) Fire(ctx context.Context, turn RecipeTurn) {
 		if errors.Is(replayErr, router.ErrRecipeShadowProfileInactive) {
 			return
 		}
-		event := recipeShadowEvent(turn, servedFacts, r.ShadowModel, profileKey)
-		event.ShadowLatencyMs = r.Now().Sub(started).Milliseconds()
+		event := telemetry.PolicyShadowDecision{
+			InstallationID:           turn.InstallationID,
+			OrganizationID:           turn.Request.OrganizationID,
+			RolloutID:                turn.Request.RolloutID,
+			ClientApp:                turn.Request.ClientApp,
+			TrainingAllowed:          turn.Request.TrainingAllowed,
+			ServingStrategy:          string(turn.ServingStrategy),
+			ServingModel:             turn.Served.Model,
+			ServingProvider:          turn.Served.Provider,
+			ShadowStrategy:           string(turn.ServingStrategy),
+			ShadowRoutingModel:       string(r.ShadowModel),
+			ServingProfileKey:        turn.ServingProfileKey,
+			ShadowProfileKey:         profileKey,
+			ClassifierPredictedLabel: servedFacts.PredictedLabel,
+			ServingPolicyGroup:       servedFacts.PolicyGroup,
+			ServingRosterArmID:       servedFacts.RosterArmID,
+			ShadowLatencyMs:          r.Now().Sub(started).Milliseconds(),
+		}
+		applyServingMetadata(&event, turn.Served.Metadata)
 		if replayErr != nil {
-			event.ShadowError = truncateError(replayErr.Error())
+			log.Warn("Recipe shadow replay failed", "err", replayErr)
+			event.ShadowError = string(recipeShadowFailureFor(replayErr))
 		} else {
 			event.ShadowModel = pick.Model
 			event.ShadowProvider = pick.Provider
@@ -72,24 +90,21 @@ func (r RecipeRecorder) Fire(ctx context.Context, turn RecipeTurn) {
 	})
 }
 
-func recipeShadowEvent(turn RecipeTurn, served router.RecipeShadowServed, shadowModel router.RoutingModel, shadowProfileKey string) telemetry.PolicyShadowDecision {
-	event := telemetry.PolicyShadowDecision{
-		InstallationID:           turn.InstallationID,
-		OrganizationID:           turn.Request.OrganizationID,
-		RolloutID:                turn.Request.RolloutID,
-		ClientApp:                turn.Request.ClientApp,
-		TrainingAllowed:          turn.Request.TrainingAllowed,
-		ServingStrategy:          string(turn.ServingStrategy),
-		ServingModel:             turn.Served.Model,
-		ServingProvider:          turn.Served.Provider,
-		ShadowStrategy:           string(turn.ServingStrategy),
-		ShadowRoutingModel:       string(shadowModel),
-		ServingProfileKey:        turn.ServingProfileKey,
-		ShadowProfileKey:         shadowProfileKey,
-		ClassifierPredictedLabel: served.PredictedLabel,
-		ServingPolicyGroup:       served.PolicyGroup,
-		ServingRosterArmID:       served.RosterArmID,
+type recipeShadowFailure string
+
+const (
+	recipeShadowNoEligibleArm     recipeShadowFailure = "no_eligible_arm"
+	recipeShadowNoClassifierFacts recipeShadowFailure = "no_classifier_facts"
+	recipeShadowReplayFailed      recipeShadowFailure = "replay_failed"
+)
+
+func recipeShadowFailureFor(err error) recipeShadowFailure {
+	switch {
+	case errors.Is(err, router.ErrRecipeShadowNoEligibleArm):
+		return recipeShadowNoEligibleArm
+	case errors.Is(err, router.ErrRecipeShadowNoClassifierFacts):
+		return recipeShadowNoClassifierFacts
+	default:
+		return recipeShadowReplayFailed
 	}
-	applyServingMetadata(&event, turn.Served.Metadata)
-	return event
 }

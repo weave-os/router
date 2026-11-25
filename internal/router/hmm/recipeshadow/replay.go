@@ -2,7 +2,6 @@ package recipeshadow
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 
@@ -14,8 +13,6 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rosterdata"
 )
-
-var ErrNoClassifierFacts = errors.New("served decision carries no classifier facts to replay")
 
 type ProfileRoster struct {
 	Roster       *rosterdata.Roster
@@ -55,7 +52,7 @@ func (r *Replayer) ServedFacts(served router.Decision) (router.RecipeShadowServe
 
 func (r *Replayer) Replay(ctx context.Context, profileKey string, served router.Decision, req router.Request) (router.RecipeShadowPick, error) {
 	if _, ok := r.ServedFacts(served); !ok {
-		return router.RecipeShadowPick{}, ErrNoClassifierFacts
+		return router.RecipeShadowPick{}, router.ErrRecipeShadowNoClassifierFacts
 	}
 	facts := hmm.ClassifierTelemetryOf(served.Metadata)
 	profile, err := r.rosters.ProfileRoster(ctx, profileKey)
@@ -64,7 +61,7 @@ func (r *Replayer) Replay(ctx context.Context, profileKey string, served router.
 	}
 	resolved := r.resolver.Resolve(req)
 	if len(resolved.Candidates) == 0 {
-		return router.RecipeShadowPick{}, fmt.Errorf("recipe shadow: %w", policy.ErrNoEligibleArm)
+		return router.RecipeShadowPick{}, fmt.Errorf("%w: %w", router.ErrRecipeShadowNoEligibleArm, policy.ErrNoEligibleArm)
 	}
 	input := policy.SelectionInput{
 		Strategy:           router.Strategy(served.Metadata.Strategy),
@@ -89,7 +86,7 @@ func (r *Replayer) Replay(ctx context.Context, profileKey string, served router.
 	}
 	binding, ok := resolved.BindingForSelection("", pick.Arm)
 	if !ok {
-		return router.RecipeShadowPick{}, fmt.Errorf("recipe shadow picked %q, which no candidate serves: %w", pick.Arm, policy.ErrNoEligibleArm)
+		return router.RecipeShadowPick{}, fmt.Errorf("recipe shadow picked %q, which no candidate serves: %w: %w", pick.Arm, router.ErrRecipeShadowNoEligibleArm, policy.ErrNoEligibleArm)
 	}
 	return router.RecipeShadowPick{
 		Model:        binding.CatalogID,
