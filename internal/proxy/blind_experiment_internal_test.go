@@ -622,3 +622,86 @@ func TestBlindExperimentTelemetryNamesWhatDecidedTheModel(t *testing.T) {
 		})
 	}
 }
+
+func blindExperimentControlContext(controlModel, clientApp string) context.Context {
+	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
+		Active:              true,
+		Arm:                 auth.BlindExperimentArmPassthrough,
+		AssignmentSource:    auth.BlindExperimentAssignmentAutomatic,
+		CanonicalSubjectKey: "account-1",
+		Mode:                auth.BlindExperimentModeSession,
+		ControlModel:        controlModel,
+	})
+	return context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: clientApp})
+}
+
+func TestBlindPassthroughServesConfiguredControlModelForUndetectedClient(t *testing.T) {
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	enabled := map[string]struct{}{providers.ProviderAnthropic: {}}
+
+	_, _, err := service.blindExperimentPassthroughDecision(blindExperimentControlContext("", ""),
+		router.Request{RequestedModel: "weave-auto", EnabledProviders: enabled})
+	require.Error(t, err, "an undetected client has no baseline without a configured control model")
+
+	decision, handled, err := service.blindExperimentPassthroughDecision(blindExperimentControlContext("claude-opus-5-5", ""),
+		router.Request{RequestedModel: "weave-auto", EnabledProviders: enabled})
+
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Equal(t, "claude-opus-5-5", decision.Model)
+	assert.Equal(t, blindExperimentPublicDecisionReason, decision.Reason)
+}
+
+func TestBlindPassthroughControlModelOverridesClientDetectionAndRequestedModel(t *testing.T) {
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	enabled := map[string]struct{}{providers.ProviderAnthropic: {}}
+	for _, requested := range []string{"weave-auto", "claude-sonnet-4-6"} {
+		decision, _, err := service.blindExperimentPassthroughDecision(
+			blindExperimentControlContext("claude-haiku-4-5", requestcontext.ClientAppClaudeCode),
+			router.Request{RequestedModel: requested, EnabledProviders: enabled})
+
+		require.NoError(t, err)
+		assert.Equal(t, "claude-haiku-4-5", decision.Model, "every control-arm turn serves the configured control model, requested %q", requested)
+	}
+}
+
+func TestBlindPassthroughControlModelServesThroughGatewayAlias(t *testing.T) {
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+
+	decision, _, err := service.blindExperimentPassthroughDecision(blindExperimentControlContext("claude-opus-5-5", ""),
+		router.Request{
+			RequestedModel:   "weave-auto",
+			EnabledProviders: map[string]struct{}{providers.ProviderAnthropicGateway: {}},
+			GatewayProviders: map[string]struct{}{providers.ProviderAnthropicGateway: {}},
+			CustomBindings:   map[string][]string{"claude-opus-5-5": {providers.ProviderAnthropicGateway}},
+		})
+
+	require.NoError(t, err)
+	assert.Equal(t, providers.ProviderAnthropicGateway, decision.Provider)
+	assert.Equal(t, "claude-opus-5-5", decision.Model)
+}
+
+func TestBlindPassthroughControlModelHonoursExclusions(t *testing.T) {
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+
+	_, _, err := service.blindExperimentPassthroughDecision(blindExperimentControlContext("claude-opus-5-5", ""),
+		router.Request{
+			RequestedModel:   "weave-auto",
+			EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
+			Candidates:       router.Candidates{ExcludedModels: map[string]struct{}{"claude-opus-5-5": {}}},
+		})
+
+	require.ErrorIs(t, err, router.ErrNoEligibleProvider)
+}
+
+func TestBlindExperimentTelemetryReportsControlModelAsBaseline(t *testing.T) {
+	ctx := blindExperimentControlContext("claude-opus-5-5", "")
+	outcome := blindExperimentOutcomeFor(ctx, auth.BlindExperimentState{Arm: auth.BlindExperimentArmPassthrough}, &routingpolicy.TurnRoute{
+		Decision:               router.Decision{Model: "claude-opus-5-5"},
+		CallerModelPassthrough: true,
+	}, "weave-auto", "claude-opus-5-5")
+
+	assert.Equal(t, "claude-opus-5-5", outcome.baselineModel)
+	require.NotNil(t, outcome.modelChanged)
+	assert.False(t, *outcome.modelChanged)
+}

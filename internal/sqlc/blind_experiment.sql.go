@@ -65,6 +65,7 @@ SELECT
     router_on_percentage,
     seed::text AS seed,
     session_mode,
+    COALESCE(control_model, '')::text AS control_model,
     COALESCE(cohort_experiment_id::text, '')::text AS cohort_experiment_id
 FROM router.blind_router_experiment_configurations
 WHERE installation_id = $1::uuid
@@ -75,6 +76,7 @@ type GetBlindRouterExperimentForInstallationRow struct {
 	RouterOnPercentage int16
 	Seed               string
 	SessionMode        bool
+	ControlModel       string
 	CohortExperimentID string
 }
 
@@ -85,6 +87,7 @@ type GetBlindRouterExperimentForInstallationRow struct {
 //	    router_on_percentage,
 //	    seed::text AS seed,
 //	    session_mode,
+//	    COALESCE(control_model, '')::text AS control_model,
 //	    COALESCE(cohort_experiment_id::text, '')::text AS cohort_experiment_id
 //	FROM router.blind_router_experiment_configurations
 //	WHERE installation_id = $1::uuid
@@ -96,6 +99,7 @@ func (q *Queries) GetBlindRouterExperimentForInstallation(ctx context.Context, i
 		&i.RouterOnPercentage,
 		&i.Seed,
 		&i.SessionMode,
+		&i.ControlModel,
 		&i.CohortExperimentID,
 	)
 	return i, err
@@ -108,6 +112,7 @@ SELECT
     COALESCE(configuration.router_on_percentage, 100)::smallint AS router_on_percentage,
     COALESCE(configuration.seed::text, '')::text AS seed,
     COALESCE(configuration.session_mode, FALSE)::boolean AS session_mode,
+    COALESCE(configuration.control_model, '')::text AS control_model,
     assignment.canonical_subject_key,
     assignment.automatic_arm,
     assignment.manual_override,
@@ -166,6 +171,7 @@ type GetBlindRouterExperimentForUserRow struct {
 	RouterOnPercentage  int16
 	Seed                string
 	SessionMode         bool
+	ControlModel        string
 	CanonicalSubjectKey *string
 	AutomaticArm        *string
 	ManualOverride      *string
@@ -188,6 +194,7 @@ type GetBlindRouterExperimentForUserRow struct {
 //	    COALESCE(configuration.router_on_percentage, 100)::smallint AS router_on_percentage,
 //	    COALESCE(configuration.seed::text, '')::text AS seed,
 //	    COALESCE(configuration.session_mode, FALSE)::boolean AS session_mode,
+//	    COALESCE(configuration.control_model, '')::text AS control_model,
 //	    assignment.canonical_subject_key,
 //	    assignment.automatic_arm,
 //	    assignment.manual_override,
@@ -242,6 +249,7 @@ func (q *Queries) GetBlindRouterExperimentForUser(ctx context.Context, arg GetBl
 		&i.RouterOnPercentage,
 		&i.Seed,
 		&i.SessionMode,
+		&i.ControlModel,
 		&i.CanonicalSubjectKey,
 		&i.AutomaticArm,
 		&i.ManualOverride,

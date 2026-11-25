@@ -50,6 +50,8 @@ type RouterBlindRouterExperimentConfiguration struct {
 	CohortTimezone     *string
 	CohortRevision     *int32
 	SessionMode        bool
+	// Model every experiment-passthrough turn serves. NULL keeps the client-detected baseline, which exists only for Claude Code and Codex.
+	ControlModel *string
 }
 
 type RouterBlindRouterExperimentEmergencyOverride struct {

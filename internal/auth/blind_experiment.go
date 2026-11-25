@@ -66,6 +66,7 @@ type BlindExperimentState struct {
 	ManualOverride            BlindExperimentArm
 	Mode                      BlindExperimentMode
 	SessionSubjectKey         string
+	ControlModel              string
 	sessionSeed               string
 	sessionRouterOnPercentage int
 }
@@ -89,6 +90,7 @@ type BlindExperimentRecord struct {
 	RouterOnPercentage  int
 	Seed                string
 	SessionMode         bool
+	ControlModel        string
 	CanonicalSubjectKey string
 	AutomaticArm        BlindExperimentArm
 	ManualOverride      BlindExperimentArm
@@ -154,6 +156,7 @@ func resolveBlindExperiment(record BlindExperimentRecord, routerUserID string) B
 			CohortOverrides:     record.CohortOverrides,
 			ManualOverride:      record.ManualOverride,
 			Mode:                BlindExperimentModeCohort,
+			ControlModel:        record.ControlModel,
 		}
 	}
 	if !record.Enabled {
@@ -166,6 +169,7 @@ func resolveBlindExperiment(record BlindExperimentRecord, routerUserID string) B
 			AssignmentSource:          BlindExperimentAssignmentAutomatic,
 			CanonicalSubjectKey:       subjectKey,
 			Mode:                      BlindExperimentModeSession,
+			ControlModel:              record.ControlModel,
 			sessionSeed:               record.Seed,
 			sessionRouterOnPercentage: record.RouterOnPercentage,
 		}
@@ -181,6 +185,7 @@ func resolveBlindExperiment(record BlindExperimentRecord, routerUserID string) B
 			AssignmentSource:    BlindExperimentAssignmentManual,
 			CanonicalSubjectKey: subjectKey,
 			Mode:                BlindExperimentModeUser,
+			ControlModel:        record.ControlModel,
 		}
 	}
 	return BlindExperimentState{
@@ -189,6 +194,7 @@ func resolveBlindExperiment(record BlindExperimentRecord, routerUserID string) B
 		AssignmentSource:    BlindExperimentAssignmentAutomatic,
 		CanonicalSubjectKey: subjectKey,
 		Mode:                BlindExperimentModeUser,
+		ControlModel:        record.ControlModel,
 	}
 }
 
