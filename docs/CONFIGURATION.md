@@ -971,10 +971,11 @@ not listed in `/v1/models` or the installers.
   falls back to the `weave-auto` profile.
 - **Conversation pinning.** A conversation keeps the routing model it started
   with: switching between `weave-auto` and `weave-auto-efficient` returns
-  `409 start_new_thread_to_change_router`. A request in that conversation that
-  names no routing model (`/v1/messages/count_tokens`, or a concrete model)
-  keeps the conversation's `weave-auto-efficient` profile instead of rebinding
-  it to the `weave-auto` profile.
+  `409 start_new_thread_to_change_router`. A request that omits `model` is
+  served as `weave-auto`, so it counts as that switch. A request in that
+  conversation that names no routing model (`/v1/messages/count_tokens`, or a
+  concrete model) keeps the conversation's `weave-auto-efficient` profile
+  instead of rebinding it to the `weave-auto` profile.
 - **Managed only.** The efficient profile exists only under managed serving
   admission. A self-hosted router without it refuses `weave-auto-efficient`
   with `403 routing_model_not_permitted` rather than serving the default roster.
