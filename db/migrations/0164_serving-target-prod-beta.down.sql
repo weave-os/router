@@ -3,13 +3,12 @@
 --
 -- The first step swaps in the narrow constraints as NOT VALID, waiting for its
 -- lock at most 250ms per attempt (below the application pool's 1s lock_timeout)
--- and retrying a timed-out attempt inside the migration (up to 40 times, with
--- jittered exponential backoff capped at 2s). From
--- its commit on, no new prod/beta row can be written. The second transaction
--- then removes the prod/beta rows written before that commit and validates.
--- It takes only ROW EXCLUSIVE and SHARE UPDATE EXCLUSIVE, which block neither
--- readers nor writers, so it waits without a bound and cannot be aborted by a
--- lock timeout after the narrowed constraints have committed.
+-- and retrying at most 5 times inside a 10s total deadline; after that it fails
+-- fast. From its commit on, no new prod/beta row can be written. The second
+-- transaction then removes the prod/beta rows written before that commit and
+-- validates, bounded by lock_timeout and statement_timeout so it fails loudly
+-- instead of hanging. A failed rollback leaves version 163 dirty: run
+-- `migrate force 164` and run it again; every statement here is re-runnable.
 --
 -- A session binding pins a conversation to a target's activation, so a
 -- prod/beta binding is meaningless once the target is gone: delete it.
@@ -22,8 +21,9 @@ BEGIN;
 DO $swap$
 DECLARE
     attempt integer;
+    deadline timestamptz := clock_timestamp() + interval '10 seconds';
 BEGIN
-    FOR attempt IN 1..40 LOOP
+    FOR attempt IN 1..5 LOOP
         BEGIN
             SET LOCAL lock_timeout = '250ms';
             ALTER TABLE router.session_release_bindings
@@ -38,10 +38,10 @@ BEGIN
                     CHECK (serving_target IS NULL OR serving_target IN ('staging', 'prod/stable', 'prod/weave-internal')) NOT VALID;
             RETURN;
         EXCEPTION WHEN lock_not_available THEN
-            IF attempt = 40 THEN
+            IF attempt = 5 OR clock_timestamp() + interval '2.25 seconds' > deadline THEN
                 RAISE;
             END IF;
-            PERFORM pg_sleep(least(0.1 * power(2, attempt - 1), 2) * (0.5 + random()));
+            PERFORM pg_sleep(least(0.25 * power(2, attempt - 1), 2) * (0.5 + random() / 2));
         END;
     END LOOP;
 END
@@ -50,6 +50,9 @@ $swap$;
 COMMIT;
 
 BEGIN;
+
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '15min';
 
 DELETE FROM router.session_release_bindings WHERE target = 'prod/beta';
 
