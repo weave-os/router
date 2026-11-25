@@ -136,7 +136,9 @@ func (e *RequestEnvelope) StripRetiredBetaNotices() int {
 	for idx := 0; idx < len(messages); idx++ {
 		msg := messages[idx]
 		rebuilt = append(rebuilt, msg.Raw)
-		if idx+1 < len(messages) && isMixedBetaPrompt(msg) {
+		content := msg.Get("content")
+		if idx+1 < len(messages) && msg.Get("role").String() == "user" &&
+			!isBetaCommandOnlyContent(content) && hasLeadingBetaCommand(content) {
 			if reply := messages[idx+1]; !carriesToolCall(reply) && betaReplyOnlyContent(reply, isRetiredBetaReplyText) {
 				removed++
 				idx++
@@ -147,14 +149,6 @@ func (e *RequestEnvelope) StripRetiredBetaNotices() int {
 		return 0
 	}
 	return e.setMessages(rebuilt, removed)
-}
-
-func isMixedBetaPrompt(msg gjson.Result) bool {
-	if msg.Get("role").String() != "user" {
-		return false
-	}
-	content := msg.Get("content")
-	return !isBetaCommandOnlyContent(content) && hasLeadingBetaCommand(content)
 }
 
 func hasLeadingBetaCommand(content gjson.Result) bool {
