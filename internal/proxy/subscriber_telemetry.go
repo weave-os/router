@@ -38,7 +38,7 @@ func applyServingTelemetry(ctx context.Context, telemetry *turnrecord.InsertTele
 	if telemetry.ServingRecipe.PolicySHA256 == "" {
 		telemetry.ServingRecipe.PolicySHA256 = identity.Recipe.PolicySHA256
 	}
-	if overrides, found := flags.OverridesFromContext(ctx); found {
+	if overrides, found := flags.StoredOverridesFromContext(ctx); found {
 		digest, err := overrides.Digest()
 		if err != nil {
 			observability.FromContext(ctx).Error("Failed to digest flag overrides for turn telemetry", "err", err)

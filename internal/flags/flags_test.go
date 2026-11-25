@@ -323,3 +323,27 @@ func TestOverridesDigestIsContentAddressed(t *testing.T) {
 	assert.NotEqual(t, digest(first), digest(changed))
 	assert.Empty(t, digest(flags.Overrides{}))
 }
+
+func TestStoredOverridesIgnoreTheRequestOverlay(t *testing.T) {
+	stored, err := flags.ParseOverrides([]byte(`{"turn_signal_capture_enabled":false}`))
+	require.NoError(t, err)
+	requested, err := flags.ParseOverrides([]byte(`{"task_arm_experiment_treatment_pct":25}`))
+	require.NoError(t, err)
+
+	overlaid := flags.WithRequestOverlay(context.Background(), stored, stored.Overlay(requested))
+
+	effective, found := flags.OverridesFromContext(overlaid)
+	require.True(t, found)
+	assert.Equal(t, 25, effective.Ints[flags.KeyTaskArmExperimentTreatmentPct], "serving reads the overlaid overrides")
+	installation, found := flags.StoredOverridesFromContext(overlaid)
+	require.True(t, found)
+	assert.Equal(t, stored, installation, "telemetry reads only the installation's stored overrides")
+
+	_, found = flags.StoredOverridesFromContext(flags.WithRequestOverlay(context.Background(), flags.Overrides{}, requested))
+	assert.False(t, found, "an installation without stored overrides records none, whatever the caller overlays")
+
+	plain := flags.WithOverrides(context.Background(), stored)
+	installation, found = flags.StoredOverridesFromContext(plain)
+	require.True(t, found)
+	assert.Equal(t, stored, installation)
+}
