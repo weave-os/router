@@ -1,0 +1,27 @@
+internal/proxy/blind_experiment_internal_test.go
+  s_ce9e4105348e97::t_2f7316af60d4cf 18,711,715,721
+  s_ce9e4105348e97::t_21300b24d5b703 712-714,716-720,722-724
+  s_ce9e4105348e97::t_526fec8104192e 725
+internal/postgres/blind_experiment_control_model.go
+  s_ce9e4105348e97::t_2f7316af60d4cf 15-16
+internal/postgres/blind_experiment_control_model_test.go
+  s_ce9e4105348e97::t_2f7316af60d4cf 13
+internal/proxy/blind_experiment.go
+  s_ce9e4105348e97::t_2f7316af60d4cf 214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "eb63a22144b308b17d8d6087f1b7ffede358e19c",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
