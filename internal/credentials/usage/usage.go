@@ -33,6 +33,13 @@ type Window struct {
 
 func (w Window) present() bool { return w.WindowMinutes > 0 || w.UsedPercent > 0 }
 
+func (w Window) observedAtOr(snapshotObservedAt time.Time) time.Time {
+	if w.ObservedAt.IsZero() {
+		return snapshotObservedAt
+	}
+	return w.ObservedAt
+}
+
 type Snapshot struct {
 	Primary             Window
 	Secondary           Window
@@ -46,6 +53,19 @@ type Snapshot struct {
 
 func (s Snapshot) OverageWithoutIncludedWindows() bool {
 	return s.OverageInUse && !s.includedWindowsExpired && !s.Primary.present() && !s.Secondary.present()
+}
+
+func (s Snapshot) ObservedSince(since time.Time) Snapshot {
+	if s.ObservedAt.Before(since) {
+		return Snapshot{}
+	}
+	if s.Primary.observedAtOr(s.ObservedAt).Before(since) {
+		s.Primary = Window{}
+	}
+	if s.Secondary.observedAtOr(s.ObservedAt).Before(since) {
+		s.Secondary = Window{}
+	}
+	return s
 }
 
 func (s Snapshot) hasData() bool {
