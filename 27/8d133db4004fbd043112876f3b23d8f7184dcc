@@ -1,0 +1,27 @@
+internal/router/routing_model.go
+  s_71e3fa757e743b::t_76d53af4b33cea 8,38-39
+internal/router/routing_model_test.go
+  s_71e3fa757e743b::t_3115004b9cf1c4 38-46
+internal/server/middleware/routing_model.go
+  s_71e3fa757e743b::t_6ff53f0ac0fecb 21-28
+internal/server/middleware/serving_channel.go
+  s_71e3fa757e743b::t_36b79ab603a71b 10,14,17-29
+internal/sqlc/models.go
+  s_71e3fa757e743b::t_b7fedf020d9edc 248
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "278d133db4004fbd043112876f3b23d8f7184dcc",
+  "prompts": {},
+  "sessions": {
+    "s_71e3fa757e743b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6721a841-a3d2-4940-a839-a1e2ad28413d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
