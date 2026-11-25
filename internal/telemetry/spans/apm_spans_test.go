@@ -57,8 +57,7 @@ func TestFinishInferenceSpanOmitsEmptySessionFromExceptionEvent(t *testing.T) {
 	require.Empty(t, observability.ClientSessionIDFromContext(ctx))
 	spans.FinishInferenceSpan(ctx, span, decision, providers.ProviderOpenAI, -1, &providers.UpstreamErrorResponse{Status: 502})
 
-	event := recorder.Ended()[0].Events()[0]
-	attrs := attribute.NewSet(event.Attributes...)
+	attrs := attribute.NewSet(recorder.Ended()[0].Events()[0].Attributes...)
 	_, hasSession := attrs.Value("client.session_id")
 	assert.False(t, hasSession)
 	_, hasBinding := attrs.Value("upstream.binding_index")
