@@ -1,0 +1,48 @@
+internal/api/analytics/usage_test.go
+  s_74c9be4d467ec4::t_8ef70315991142 41,47-48,84-85,123
+internal/billing/monthly_spend_test.go
+  s_74c9be4d467ec4::t_8ef70315991142 57-60
+internal/server/server.go
+  s_74c9be4d467ec4::t_c3a399019b6eeb 112-129,426
+internal/analytics/usage_cursor_test.go
+  s_74c9be4d467ec4::t_8ef70315991142 1-36
+internal/postgres/analytics_usage_repo_test.go
+  s_74c9be4d467ec4::t_a41badea60058a 17-22
+  s_74c9be4d467ec4::t_8ef70315991142 31,46,132-138
+internal/postgres/billing_repo_test.go
+  s_74c9be4d467ec4::t_8ef70315991142 32-45
+cmd/router/repository_queries.go
+  s_74c9be4d467ec4::t_cff4e6e0f023af 1-16
+db/queries/billing.sql
+  s_74c9be4d467ec4::t_8b5b4799b86fe2 211-212,214
+internal/sqlc/billing.sql.go
+  s_74c9be4d467ec4::t_8b5b4799b86fe2 28-29,31,54-55,57
+internal/server/analytics_routes_test.go
+  s_74c9be4d467ec4::t_8ef70315991142 31
+cmd/router/main.go
+  s_74c9be4d467ec4::t_cff4e6e0f023af 1109,1121
+internal/analytics/usage_cursor.go
+  s_74c9be4d467ec4::t_a67cacf9ee0205 8,13-14,16-17,20,26-27,38-39,42,46-50
+internal/analytics/usage_service.go
+  s_74c9be4d467ec4::t_374349478ec29c 6,13,16-20,27-28,30-31,38-40
+internal/api/analytics/usage.go
+  s_74c9be4d467ec4::t_68eff60bc9741e 14,58-62,96,103-110,119,130
+internal/postgres/analytics_usage_repo.go
+  s_74c9be4d467ec4::t_781fb0dbee816c 39,67-74,87-90,92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "387a6407fdeddb9f7b1dad021a36f4f4799b039e",
+  "prompts": {},
+  "sessions": {
+    "s_74c9be4d467ec4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c4ef478-774b-4ebc-995e-d3cd2de768ff",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
