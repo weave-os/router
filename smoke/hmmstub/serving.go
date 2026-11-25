@@ -3,6 +3,7 @@ package hmmstub
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -161,6 +162,10 @@ func NewServingGraph(classifierURL string) (ServingGraph, error) {
 			policyregistry.DirectoryServingRuntimeBindingPath(environment, releaseObject.ref.SHA256): binding,
 		},
 	}, nil
+}
+
+func (g ServingGraph) Objects() map[string][]byte {
+	return maps.Clone(g.objects)
 }
 
 func (g ServingGraph) Write(dir string) error {
