@@ -706,6 +706,26 @@ func TestBlindPassthroughControlModelKeepsTheCallersBYOKModel(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-4-6", decision.Model, "a BYOK request keeps the caller's requested model")
 }
 
+func TestBlindPassthroughControlModelKeepsTheCallersSubscriptionModel(t *testing.T) {
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	ctx := blindExperimentControlContext("claude-haiku-4-5", requestcontext.ClientAppClaudeCode)
+	request := router.Request{
+		RequestedModel:        "weave-auto",
+		EnabledProviders:      map[string]struct{}{providers.ProviderAnthropic: {}},
+		SubscriptionProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
+	}
+
+	decision, _, err := service.blindExperimentPassthroughDecision(ctx, request)
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-5-5", decision.Model, "a caller paying with its own subscription gets the detected client baseline, never the control model")
+
+	request.SubscriptionProviders = nil
+	decision, _, err = service.blindExperimentPassthroughDecision(ctx, request)
+	require.NoError(t, err)
+	assert.Equal(t, "claude-haiku-4-5", decision.Model, "without caller-paid funding the control model serves")
+}
+
 func TestBlindPassthroughControlModelHonoursExclusions(t *testing.T) {
 	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
