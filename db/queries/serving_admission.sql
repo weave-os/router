@@ -25,6 +25,13 @@ SELECT internal_enrolled, enrollment_generation
 FROM router.installation_lane_enrollments
 WHERE installation_id = @installation_id::uuid;
 
+-- No rows means the enrollment-decided channel; the installation lock protects absence too.
+-- name: ListServingInstallationChannelPermissions :many
+SELECT channel, generation
+FROM router.installation_channel_permissions
+WHERE installation_id = @installation_id::uuid
+ORDER BY channel;
+
 -- A missing assignment means follow the lane default; the installation lock protects absence too.
 -- name: GetServingProfileAssignment :one
 SELECT profile_key, assignment_generation

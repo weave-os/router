@@ -7,11 +7,15 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"weave-os/router/internal/config"
 	"weave-os/router/internal/gcsregistry"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
+	servingpostgres "weave-os/router/internal/postgres/serving"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
@@ -38,6 +42,25 @@ var managedServingEnvVars = []string{
 	"ROUTER_SERVING_SELECTION_SET_SHA256",
 	"ROUTER_SERVING_SELECTION_SET_GENERATION",
 	"ROUTER_SERVING_ASSERTION_KEY",
+}
+
+func buildAdmissionDecisions(pool *pgxpool.Pool) (*policyregistry.AdmissionDecisionCache, error) {
+	if !servingTargetConfigured() {
+		return nil, nil
+	}
+	target := policyregistry.ServingTarget(config.MustGet("ROUTER_SERVING_TARGET"))
+	environment, err := target.Environment()
+	if err != nil {
+		return nil, err
+	}
+	admissions, err := servingpostgres.NewServingAdmissionRepo(pool, environment)
+	if err != nil {
+		return nil, err
+	}
+	if channel, hasChannel := target.Channel(); hasChannel {
+		admissions = admissions.ForWorker(target, channel)
+	}
+	return policyregistry.NewAdmissionDecisionCache(admissions, 10000, 30*time.Second, time.Now)
 }
 
 func servingTargetConfigured() bool {
@@ -133,7 +156,8 @@ func buildManagedServingRuntime(ctx context.Context, mode server.DeploymentMode,
 		closeRegistry()
 		return nil, nil, nil, err
 	}
-	return &middleware.ServingAdmissionConfig{Store: registry, Identity: identity, Cache: cache}, baseline, closeRegistry, nil
+	channels := config.ServingChannelBaseURLs()
+	return &middleware.ServingAdmissionConfig{Store: registry, Identity: identity, Cache: cache, StableBaseURL: channels.Stable, BetaBaseURL: channels.Beta}, baseline, closeRegistry, nil
 }
 
 func openServingStore(ctx context.Context, mode server.DeploymentMode, registryURI string) (policyregistry.ServingStore, func(), error) {

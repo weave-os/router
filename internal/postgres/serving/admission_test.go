@@ -72,3 +72,20 @@ func TestEnrollmentProjectionGenerationChangesWhenEitherEnrollmentFlips(t *testi
 	assert.Equal(t, policyregistry.TargetInternal, laneFlipped.Target)
 	assert.Equal(t, policyregistry.TargetInternal, subjectFlipped.Target)
 }
+
+func TestChannelPermissionsRejectUnknownChannel(t *testing.T) {
+	t.Parallel()
+
+	permissions, err := channelPermissions([]sqlc.ListServingInstallationChannelPermissionsRow{{Channel: "beta", Generation: 2}})
+	require.NoError(t, err)
+	assert.Equal(t, []policyregistry.ChannelPermission{{Channel: policyregistry.ChannelBeta, Generation: 2}}, permissions)
+	_, err = channelPermissions([]sqlc.ListServingInstallationChannelPermissionsRow{{Channel: "hmm_beta", Generation: 1}})
+	require.Error(t, err)
+}
+
+func TestAdmissionRefusalsAreDeniedNotFailed(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, admissionDenied, admissionOutcomeFor(policyregistry.ErrServingChannelNotPermitted))
+	assert.Equal(t, admissionDenied, admissionOutcomeFor(policyregistry.ErrServingChannelChanged))
+}

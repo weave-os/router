@@ -245,6 +245,14 @@ type RouterGlobalAutomaticRoutingExclusion struct {
 	CreatedBy *string
 }
 
+// Serving channels an installation may be admitted to; no rows keeps the enrollment-decided channel
+type RouterInstallationChannelPermission struct {
+	InstallationID uuid.UUID
+	Channel        string
+	Generation     int64
+	UpdatedAt      pgtype.Timestamptz
+}
+
 type RouterInstallationLaneEnrollment struct {
 	InstallationID       uuid.UUID
 	InternalEnrolled     bool

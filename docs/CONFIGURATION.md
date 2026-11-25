@@ -641,7 +641,7 @@ kept out of revision-specific stamping.
 | --- | --- | --- | --- |
 | `ROUTER_SERVING_REGISTRY_URI` | Worker | Terraform and deploy script (worker) | Falls back to `WEAVE_REGISTRY_URI`, then `gs://weave_ml/weave_registry`; set it explicitly. A local path instead serves a read-only serving registry directory, which the local compose stack bakes from `smoke/hmmstub` and a self-hosted install receives from `policyctl serving export-selfhosted`. A local directory's classifier runtime bindings get the same schema, environment, release, revision and digest checks as GCS, but skip the managed project and https Cloud Run origin checks, because the local stub classifier is a plain-http compose container. |
 | `ROUTER_ALLOW_LOCAL_SERVING_REGISTRY` | Worker | Local compose and smoke only | `true` lets `ROUTER_DEPLOYMENT_MODE=managed` serve from a local `ROUTER_SERVING_REGISTRY_URI` directory and logs a startup warning. Unset, a managed worker refuses a non-`gs://` serving registry. Never set it on a deployed worker. |
-| `ROUTER_SERVING_TARGET` | Worker | Deploy script and Terraform | Boot fails. Must name a known target (`staging`, `prod/stable`, `prod/weave-internal`). |
+| `ROUTER_SERVING_TARGET` | Worker | Deploy script and Terraform | Boot fails. Must name a known target (`staging`, `prod/stable`, `prod/weave-internal`). The target's channel scopes admission; see [Serving channels](#serving-channels-and-channel-permission). |
 | `ROUTER_SERVING_PROJECT` | Worker | Deploy script and Terraform | Boot fails. |
 | `ROUTER_SERVING_REGION` | Worker | Deploy script and Terraform | Boot fails. |
 | `ROUTER_SERVING_IMAGE_DIGEST` | Worker | Deploy script | Boot fails. Must be an exact image digest. |
@@ -671,6 +671,44 @@ Inject `ROUTER_INTERNAL_SERVICE_TOKEN` into every worker fleet and the
 The `policyctl serving` runner and worker fleets must also share `PUBSUB_PROJECT_ID`
 and `PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION` so activation invalidations reach
 the admission caches using the same Pub/Sub project and topic.
+
+### Serving channels and channel permission
+
+A worker serves one channel: `prod/stable` is `stable`, `prod/weave-internal`
+is `internal`, and `beta` is a recognized channel value reserved for a beta
+cohort. The host a client calls decides the channel; the alias decides the role.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ROUTER_STABLE_BASE_URL` | *(none)* | Stable client base URL, named in the `403 serving_channel_not_permitted` body so a refused client can fall back. |
+| `ROUTER_BETA_BASE_URL` | *(none)* | Beta client base URL, named in the `421 misdirected_serving_channel` body. |
+
+Admission resolves the target from the worker's channel and
+`router.installation_channel_permissions`:
+
+- **Stable and internal** keep the enrollment-decided target
+  (`installation_lane_enrollments.internal_enrolled` and credential-subject
+  internal enrollment), exactly as before permissions existed. Stable needs no
+  row. A permission row never grants `internal`: experimental strategies and
+  classifier variants stay staff-only through internal enrollment and
+  `ExperimentalRoutingModelsPermitted`.
+- **Any other channel (beta)** is opt-in and fails closed: an installation
+  without that channel's row gets `403 serving_channel_not_permitted`, which
+  names the channel and the stable base URL. The permission generation is
+  folded into the enrollment generation, so a revoke and re-grant rebinds live
+  sessions.
+- `weave-auto-beta` is a synonym of `weave-auto` that only a beta worker serves.
+  Any other worker returns `421 misdirected_serving_channel` with the beta base
+  URL before admission, so no session binding or attribution row is written.
+- The session binding key carries no target. Inside the locked admission
+  transaction, before the upsert, a conversation bound to one host-decided
+  target that arrives on another gets `409 start_new_thread_to_change_router`.
+  Moves between enrollment-decided targets still rebind, as an enrollment flip
+  always has.
+
+Writers of `installation_channel_permissions` take the installation row's
+exclusive lock and publish an installation invalidation, which drops that
+installation's cached admissions (the 30-second TTL recovers a lost message).
 
 Cache invalidation is a broadcast: each replica creates its own subscription
 (with an expiration TTL that reclaims subscriptions leaked by a crashed replica)

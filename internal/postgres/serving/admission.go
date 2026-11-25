@@ -3,19 +3,14 @@ package serving
 import (
 	"context"
 	"database/sql"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/router"
@@ -24,8 +19,17 @@ import (
 )
 
 type ServingAdmissionRepo struct {
-	pool        *pgxpool.Pool
-	environment policyregistry.Environment
+	pool          *pgxpool.Pool
+	environment   policyregistry.Environment
+	worker        policyregistry.ServingTarget
+	workerChannel policyregistry.ServingChannel
+}
+
+func (r *ServingAdmissionRepo) ForWorker(worker policyregistry.ServingTarget, channel policyregistry.ServingChannel) *ServingAdmissionRepo {
+	scoped := *r
+	scoped.worker = worker
+	scoped.workerChannel = channel
+	return &scoped
 }
 
 func NewServingAdmissionRepo(pool *pgxpool.Pool, environment policyregistry.Environment) (*ServingAdmissionRepo, error) {
@@ -70,59 +74,30 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		if err != nil {
 			return err
 		}
-		credential, err := queries.GetServingCredentialForAdmission(ctx, sqlc.GetServingCredentialForAdmissionParams{APIKeyID: keyUUID, InstallationID: installationUUID})
+		subject, err := admitServingCredential(ctx, queries, installationUUID, keyUUID, apiKeyID, installationID)
 		if err != nil {
 			return err
 		}
-		key := auth.APIKey{ID: apiKeyID, InstallationID: installationID, Scope: auth.APIKeyScope(credential.Scope), CredentialSubjectID: uuidString(credential.CredentialSubjectID)}
-		var subject *auth.CredentialSubject
-		if credential.CredentialSubjectID.Valid {
-			projection, err := queries.GetServingSubjectForAdmission(ctx, sqlc.GetServingSubjectForAdmissionParams{SubjectID: uuid.UUID(credential.CredentialSubjectID.Bytes), InstallationID: installationUUID})
-			if err != nil {
-				return err
-			}
-			subject = &auth.CredentialSubject{ID: projection.RouterCredentialSubject.ID.String(), ProjectionComplete: projection.RouterCredentialSubject.ProjectionComplete, InternalEnrolled: projection.RouterCredentialSubject.InternalEnrolled, EnrollmentGeneration: projection.RouterCredentialSubject.EnrollmentGeneration, AccessEnabled: projection.AccessEnabled, RevokedAt: timestamptzPtr(projection.RouterCredentialSubject.RevokedAt)}
-		}
-		if err := auth.ValidateServingCredential(key, subject); err != nil {
+		projection, err := r.projectServingTarget(ctx, queries, installationUUID, subject)
+		if err != nil {
 			return err
 		}
-		lane, err := queries.GetServingInstallationLaneEnrollment(ctx, installationUUID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		projection := enrollmentProjection(lane, subject)
 		projection.RoutingControlsDigest = policyregistry.RoutingControlsDigest(installation.AllowedModels, installation.ExcludedModels, installation.ExcludedProviders, installation.RoutingStrategy)
 		identity := apiKeyID
 		if subject != nil {
 			identity = subject.ID
-		}
-		if r.environment == policyregistry.EnvironmentStaging {
-			projection.Target = policyregistry.TargetStaging
 		}
 		timing.target = projection.Target
 		digest, persistent := policyregistry.ServingConversationDigest(identity, clientSessionID)
 		scope = policyregistry.AdmissionScope{InstallationID: installationID, CredentialIdentity: identity, ConversationDigest: digest, Persistent: persistent}
 		timing.persistent = persistent
 		recordProjection()
-		var previous *policyregistry.SessionReleaseBinding
-		if persistent {
-			lockKey := installationID + "/" + identity + "/" + hex.EncodeToString(digest[:])
-			lockStart := time.Now()
-			err := queries.GetServingConversationLock(ctx, lockKey)
-			timing.lockWait += time.Since(lockStart)
-			if err != nil {
-				return err
-			}
-			encoded, err := queries.GetSessionReleaseBinding(ctx, sqlc.GetSessionReleaseBindingParams{InstallationID: installationUUID, CredentialScope: identity, ConversationDigest: digest[:]})
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return err
-			}
-			if err == nil {
-				previous = &policyregistry.SessionReleaseBinding{}
-				if err := json.Unmarshal(encoded, previous); err != nil {
-					return fmt.Errorf("decode session release binding: %w", err)
-				}
-			}
+		previous, err := lockSessionBinding(ctx, queries, scope, &timing)
+		if err != nil {
+			return err
+		}
+		if err := policyregistry.RejectSessionChannelChange(previous, projection.Target); err != nil {
+			return err
 		}
 		profileStart := time.Now()
 		routingModel, inherited := policyregistry.AdmissionRoutingModel(ctx, previous)
@@ -149,57 +124,12 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		if inherited && previous.Target == admitted.Target {
 			admitted.RoutingModel = routingModel
 		}
-		encoded, err := json.Marshal(admitted)
-		if err != nil {
-			return err
-		}
-		activationUUID, err := uuid.Parse(admitted.ActivationID)
-		if err != nil {
-			return err
-		}
-		profileUUID := pgtype.UUID{}
-		var profileRevision *string
-		if admitted.ProfileKey != "" {
-			parsed, err := uuid.Parse(admitted.ProfileKey)
-			if err != nil {
-				return err
-			}
-			if admitted.Selection.Profile == nil {
-				return errors.New("admitted profile lacks exact revision")
-			}
-			profileUUID = pgtype.UUID{Bytes: parsed, Valid: true}
-			profileRevision = &admitted.Selection.Profile.SHA256
-		}
-		if previous != nil {
-			if err := policyregistry.RejectStaleServingGeneration(previous.BindingGeneration, admitted.BindingGeneration); err != nil {
-				return err
-			}
-		}
-		updated, err := queries.UpsertSessionReleaseBinding(ctx, sqlc.UpsertSessionReleaseBindingParams{InstallationID: installationUUID, CredentialScope: identity, ConversationDigest: digest[:], Target: string(admitted.Target), ActivationID: activationUUID, ReleaseSha256: admitted.Selection.Release.SHA256, BindingSha256: admitted.Selection.Binding.SHA256, ProfileKey: profileUUID, ProfileRevisionSha256: profileRevision, EnrollmentGeneration: admitted.EnrollmentGeneration, AssignmentGeneration: admitted.AssignmentGeneration, BindingGeneration: admitted.BindingGeneration, Binding: encoded, CreatedAt: pgtype.Timestamptz{Time: admitted.CreatedAt, Valid: true}, LastAdmittedAt: pgtype.Timestamptz{Time: admitted.LastAdmittedAt, Valid: true}})
-		if err != nil {
-			return err
-		}
-		if updated == 0 {
-			return policyregistry.ErrStaleServingGeneration
-		}
-		return nil
+		return persistSessionBinding(ctx, queries, scope, previous, admitted)
 	})
 	timing.transaction = time.Since(transactionStart)
 	if err != nil {
-		logger := observability.FromContext(ctx)
-		if errors.Is(err, auth.ErrPersonalCredentialRequired) || errors.Is(err, auth.ErrInvalidKeyScope) || errors.Is(err, sql.ErrNoRows) || errors.Is(err, policyregistry.ErrStaleServingGeneration) || errors.Is(err, policyregistry.ErrRoutingModelNotAssigned) {
-			timing.outcome = admissionDenied
-			logger.Debug("Serving admission denied", "installation_id", installationID, "err", err)
-		} else {
-			logger.Error("Serving admission transaction failed", "installation_id", installationID, "err", err)
-		}
-		if errors.Is(err, sql.ErrNoRows) {
-			err = auth.ErrInvalidToken
-		}
-		if errors.Is(err, auth.ErrInvalidKeyScope) {
-			err = auth.ErrWrongKeyScope
-		}
-		return policyregistry.AdmissionScope{}, policyregistry.SessionReleaseBinding{}, err
+		timing.outcome = admissionOutcomeFor(err)
+		return policyregistry.AdmissionScope{}, policyregistry.SessionReleaseBinding{}, logAdmissionFailure(ctx, installationID, err)
 	}
 	timing.outcome = admissionAdmitted
 	timing.activationID = admitted.ActivationID
