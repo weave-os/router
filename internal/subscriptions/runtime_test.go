@@ -290,6 +290,24 @@ func (s *runtimeStore) UpdateSubscriptionAccountHealth(_ context.Context, _ auth
 	return disconnected, nil
 }
 
+func (s *runtimeStore) ReactivateSubscriptionAccountQuota(_ context.Context, _ auth.SubscriptionOwner, accountID string, probedCooldown time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stateErr != nil {
+		return false, s.stateErr
+	}
+	for _, account := range s.accounts {
+		if account.ID == accountID && account.Enabled && account.State == auth.SubscriptionAccountStateExhausted &&
+			account.CooldownUntil != nil && account.CooldownUntil.Equal(probedCooldown) {
+			account.State = auth.SubscriptionAccountStateActive
+			account.CooldownUntil = nil
+			s.healthStates[accountID] = account.State
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 type runtimeRefreshFunc func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error)
 
 func (f runtimeRefreshFunc) Refresh(ctx context.Context, provider subscriptions.Provider, token string) (subscriptions.RefreshedToken, error) {

@@ -172,7 +172,7 @@ func TestCodexExtraCreditsManagedAccountWithSpentObservation(t *testing.T) {
 				require.Empty(t, leaser.cooldownIDs)
 			} else {
 				require.Zero(t, inference.Load())
-				require.Zero(t, quotaChecks.Load(), "cached included exhaustion suppresses the account without credit opt-in")
+				require.EqualValues(t, 2, quotaChecks.Load(), "a live quota check, not the cached observation, rejects the account without credit opt-in")
 			}
 		})
 	}
@@ -234,4 +234,64 @@ func TestCodexExtraCreditsCallerLoginPrecedesAPIFallback(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCodexReactivatedManagedAccountIgnoresStaleSpentObservation(t *testing.T) {
+	var inference, quotaChecks atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/wham/usage" {
+			quotaChecks.Add(1)
+			_, _ = io.WriteString(w, `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":10}}}`)
+			return
+		}
+		inference.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"answer\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"synthetic\",\"status\":\"completed\",\"output\":[]}}\n\n")
+	}))
+	defer upstream.Close()
+	client := openai.NewClient("must-not-use-api-key", upstream.URL)
+	client.SetCodexBaseURL(upstream.URL)
+	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "synthetic-account", AccessToken: "synthetic-refreshed", ProviderAccount: "synthetic-provider", State: auth.SubscriptionAccountStateActive}}, repeatLast: true}
+	observer := usage.NewObserver([]byte("synthetic-credit-salt"), time.Minute, time.Now)
+	observer.Record(observer.Key([]byte("subscription-account:synthetic-account")), usage.Snapshot{Primary: usage.Window{UsedPercent: 1, WindowMinutes: 300, ResetAt: time.Now().Add(time.Hour)}})
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{}).WithUsageObserver(observer)
+	ctx := credentials.WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderCodex), []*auth.SubscriptionAccount{{
+		ID: "synthetic-account", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive,
+	}})
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
+	body := `{"model":"auto","stream":true,"input":"synthetic","tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`
+	rec := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))))
+	require.Contains(t, rec.Body.String(), "answer")
+	require.EqualValues(t, 1, quotaChecks.Load(), "the live quota check decides instead of the cached observation")
+	require.EqualValues(t, 1, inference.Load())
+	require.Empty(t, leaser.cooldownIDs, "the pre-reset observation must not restore the old cooldown")
+}
+
+func TestCodexLiveExhaustionWithoutResetKeepsObservedReset(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/wham/usage" {
+			_, _ = io.WriteString(w, `{"rate_limit":{"allowed":false,"limit_reached":true}}`)
+			return
+		}
+		t.Errorf("unexpected inference on an exhausted account: %s", r.URL.Path)
+	}))
+	defer upstream.Close()
+	client := openai.NewClient("must-not-use-api-key", upstream.URL)
+	client.SetCodexBaseURL(upstream.URL)
+	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "synthetic-account", AccessToken: "synthetic-token", ProviderAccount: "synthetic-provider", State: auth.SubscriptionAccountStateActive}}}
+	observedReset := time.Now().Add(time.Hour)
+	observer := usage.NewObserver([]byte("synthetic-credit-salt"), time.Minute, time.Now)
+	observer.Record(observer.Key([]byte("subscription-account:synthetic-account")), usage.Snapshot{Primary: usage.Window{UsedPercent: 1, WindowMinutes: 300, ResetAt: observedReset}})
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{}).WithUsageObserver(observer)
+	ctx := credentials.WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderCodex), []*auth.SubscriptionAccount{{
+		ID: "synthetic-account", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive,
+	}})
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
+	body := `{"model":"auto","stream":true,"input":"synthetic","tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`
+	_ = svc.ProxyOpenAIResponses(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	require.Equal(t, []string{"synthetic-account"}, leaser.cooldownIDs)
+	require.WithinDuration(t, observedReset, leaser.cooldownUntil[0], time.Second, "an exhaustion without a reset keeps the observed reset instead of a fresh window")
 }

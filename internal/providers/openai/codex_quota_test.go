@@ -266,7 +266,7 @@ func TestCodexQuotaVerificationFailureClassification(t *testing.T) {
 func TestCodexQuotaRequestBuildFailureIsClassified(t *testing.T) {
 	client := NewClient("synthetic-paid-key", "")
 	client.SetCodexBaseURL(":invalid")
-	err := client.checkCodexIncludedQuota(context.Background(), "gpt-6.1-sol")
+	err := client.checkCodexIncludedQuota(context.Background(), "gpt-6.1-sol", client.allowCodexExtraCredits)
 	var unavailable *providers.QuotaVerificationUnavailableError
 	require.ErrorAs(t, err, &unavailable)
 	require.Equal(t, providers.QuotaVerificationFailureRequest, unavailable.Failure)
@@ -299,7 +299,7 @@ func TestCodexQuotaParentCancellationIsNotRetryable(t *testing.T) {
 	client.http = &http.Client{Transport: creditsRoundTripper(func(req *http.Request) (*http.Response, error) {
 		return nil, req.Context().Err()
 	})}
-	err := client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol")
+	err := client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol", client.allowCodexExtraCredits)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.False(t, providers.IsRetryable(err))
 }
@@ -311,7 +311,7 @@ func TestCodexReachedTypeKeepsWindowReset(t *testing.T) {
 	defer server.Close()
 	client := NewClient("deployment-key", server.URL)
 	client.SetCodexBaseURL(server.URL)
-	err := client.checkCodexIncludedQuota(codexCtx("test-token", "test-account"), "gpt-6.1-sol")
+	err := client.checkCodexIncludedQuota(codexCtx("test-token", "test-account"), "gpt-6.1-sol", client.allowCodexExtraCredits)
 	var upstream *providers.UpstreamErrorResponse
 	require.ErrorAs(t, err, &upstream)
 	require.Equal(t, http.StatusTooManyRequests, upstream.Status)
@@ -342,7 +342,7 @@ func TestCodexPreflightPublishesAccountQuotaBeforeDenial(t *testing.T) {
 			client.SetCodexBaseURL(server.URL)
 			var observed http.Header
 			ctx := providers.WithUpstreamHeaderObserver(codexCtx("synthetic-token", "synthetic-account"), func(_ context.Context, h http.Header) { observed = h.Clone() })
-			err := client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol")
+			err := client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol", client.allowCodexExtraCredits)
 			require.Equal(t, tc.wantError, err != nil)
 			require.Equal(t, tc.wantObservation, len(observed) > 0)
 			if tc.wantObservation {
@@ -368,7 +368,22 @@ func TestCodexPreflightOmitsOverflowingWindowLength(t *testing.T) {
 	client.SetCodexBaseURL(server.URL)
 	var observed http.Header
 	ctx := providers.WithUpstreamHeaderObserver(codexCtx("synthetic-token", "synthetic-account"), func(_ context.Context, h http.Header) { observed = h.Clone() })
-	require.NoError(t, client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol"))
+	require.NoError(t, client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol", client.allowCodexExtraCredits))
 	require.Equal(t, "40", observed.Get("x-codex-primary-used-percent"))
 	require.Empty(t, observed.Get("x-codex-primary-window-minutes"))
+}
+
+func TestCodexQuotaProbeIgnoresExtraCreditOptIn(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}},"credits":{"has_credits":true,"balance":"20"}}`)
+	}))
+	defer server.Close()
+	client := NewClient("", server.URL)
+	client.SetCodexBaseURL(server.URL)
+	client.SetCodexExtraCreditsAllowed(true)
+	require.NoError(t, client.checkCodexIncludedQuota(codexCtx("synthetic-token", "synthetic-account"), "gpt-6.1-sol", client.allowCodexExtraCredits), "turns may spend opted-in credits")
+	err := client.ProbeCodexQuota(context.Background(), "synthetic-token", "synthetic-account")
+	var upstream *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &upstream, "a reactivation probe reports included quota only")
+	require.Equal(t, http.StatusTooManyRequests, upstream.Status)
 }

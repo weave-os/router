@@ -84,6 +84,7 @@ type SubscriptionAccount struct {
 	AccessTokenMissing     bool
 	TokenRefreshVersion    int64
 	CredentialRejections   int
+	QuotaReactivatedAt     time.Time
 }
 
 type CreateSubscriptionAccountParams struct {
@@ -416,6 +417,16 @@ func (s *Service) UpdateSubscriptionAccountHealth(ctx context.Context, owner Sub
 		return repository.UpdateSubscriptionAccountHealth(ctx, accountID, owner, state, enabled, cooldownUntil)
 	}
 	return false, s.subscriptionAccounts.UpdateSubscriptionAccountState(ctx, accountID, owner, enabled, cooldownUntil)
+}
+
+func (s *Service) ReactivateSubscriptionAccountQuota(ctx context.Context, owner SubscriptionOwner, accountID string, probedCooldown time.Time) (bool, error) {
+	repository, ok := s.subscriptionAccounts.(interface {
+		ReactivateSubscriptionAccountQuota(context.Context, string, SubscriptionOwner, time.Time) (bool, error)
+	})
+	if !ok {
+		return false, errors.New("subscription quota reactivation is not configured")
+	}
+	return repository.ReactivateSubscriptionAccountQuota(ctx, accountID, owner, probedCooldown)
 }
 
 func (s *Service) DeleteSubscriptionAccount(ctx context.Context, owner SubscriptionOwner, accountID string) error {

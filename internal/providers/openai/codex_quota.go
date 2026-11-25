@@ -29,7 +29,7 @@ type codexIncludedQuota struct {
 	Secondary    *codexQuotaWindow `json:"secondary_window"`
 }
 
-func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quotaErr error) {
+func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string, allowExtraCredits bool) (quotaErr error) {
 	started := time.Now()
 	upstreamStatus := 0
 	defer func() {
@@ -97,7 +97,7 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 	planReported := quotaStatus.PlanType != ""
 	limitReached := (quotaStatus.SpendControl != nil && quotaStatus.SpendControl.Reached) ||
 		(quotaStatus.RateLimitReachedType != nil && codexReachedTypes[quotaStatus.RateLimitReachedType.Type])
-	creditReason, creditErr := codexQuotaCreditAdmission(ctx, body, c.allowCodexExtraCredits)
+	creditReason, creditErr := codexQuotaCreditAdmission(ctx, body, allowExtraCredits)
 	if creditErr != nil {
 		return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, resp.StatusCode)
 	}
@@ -148,6 +148,12 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 		}
 	}
 	return nil
+}
+
+func (c *Client) ProbeCodexQuota(ctx context.Context, accessToken, accountID string) error {
+	return c.checkCodexIncludedQuota(requestcontext.WithCredentials(ctx, &requestcontext.Credentials{
+		APIKey: []byte(accessToken), AccountID: []byte(accountID), OAuth: true,
+	}), "", false)
 }
 
 var codexReachedTypes = map[string]bool{

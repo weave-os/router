@@ -162,6 +162,21 @@ WHERE account.id = @id::uuid
        OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
   AND enabled = TRUE;
 
+-- Clears a quota exhaustion the provider has confirmed is over before the recorded reset time.
+-- The probed cooldown fences out an exhaustion another replica recorded while the probe ran.
+-- name: ResetModelRouterSubscriptionAccountQuota :execrows
+UPDATE router.model_router_subscription_accounts
+SET health_state = 'active',
+    cooldown_until = NULL,
+    quota_reactivated_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = @id::uuid
+  AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
+       OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
+  AND enabled = TRUE
+  AND health_state = 'exhausted'
+  AND cooldown_until = @probed_cooldown_until::timestamp;
+
 -- Updates the internal credential-free routing health for one linked account.
 -- enabled = enabled AND @enabled never re-enables an operator-disabled row
 -- (Activate/Exhaust) while still allowing ReconnectRequired to disable it.
@@ -417,6 +432,7 @@ SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        CASE WHEN account.subscriber_id = sqlc.narg(subscriber_id)::uuid THEN 'personal' ELSE 'shared' END AS tier,
        (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
        account.token_refresh_version,
+       account.quota_reactivated_at,
        -- A successful refresh clears the reason but keeps the rolling strikes.
        (CASE WHEN account.credential_last_rejection_reason IS NULL THEN 0
              ELSE account.credential_rejection_count END)::integer AS credential_rejection_count

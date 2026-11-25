@@ -170,6 +170,21 @@ func (r *subscriptionAccountRepo) UpdateSubscriptionAccountHealth(ctx context.Co
 	return transition.Disconnected, nil
 }
 
+func (r *subscriptionAccountRepo) ReactivateSubscriptionAccountQuota(ctx context.Context, accountID string, owner auth.SubscriptionOwner, probedCooldown time.Time) (bool, error) {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return false, err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return false, err
+	}
+	rows, err := dbbudget.Queries(r.tx).ResetModelRouterSubscriptionAccountQuota(ctx, sqlc.ResetModelRouterSubscriptionAccountQuotaParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, ProbedCooldownUntil: pgtype.Timestamp{Time: probedCooldown.UTC(), Valid: true},
+	})
+	return rows > 0, err
+}
+
 func (r *subscriptionAccountRepo) UpdateSubscriptionRefreshToken(ctx context.Context, accountID string, owner auth.SubscriptionOwner, ciphertext []byte) error {
 	accountUUID, err := uuid.Parse(accountID)
 	if err != nil {

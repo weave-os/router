@@ -44,6 +44,21 @@ func TestClaudeOverageCannotEraseLiveProviderCooldown(t *testing.T) {
 	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
 }
 
+func TestTokenRefreshKeepsLiveProviderCooldown(t *testing.T) {
+	now := time.Now()
+	pool := subscriptions.NewPool("owner", subscriptions.ProviderClaude, func() time.Time { return now })
+	account := subscriptions.Account{ID: "seat", OwnerID: "owner", Provider: subscriptions.ProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive, AccessToken: "synthetic-token", TokenRefreshVersion: 1}
+	require.NoError(t, pool.Upsert(account))
+	require.True(t, pool.Cooldown("seat", now.Add(time.Hour)))
+	account.State = auth.SubscriptionAccountStateExhausted
+	account.CooldownTil = now.Add(time.Hour)
+	account.AccessToken = "synthetic-token-2"
+	account.TokenRefreshVersion = 2
+	require.NoError(t, pool.Upsert(account))
+	_, _, err := pool.Lease(requestcontext.WithSubscriptionExtraUsage(context.Background()), subscriptions.ProviderClaude, "", nil)
+	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+}
+
 func TestPoolRefreshesOnceForConcurrentLeases(t *testing.T) {
 	p := subscriptions.NewPool("user-a", subscriptions.ProviderClaude, nil)
 	require.NoError(t, p.Upsert(subscriptions.Account{ID: "claude", OwnerID: "user-a", Provider: subscriptions.ProviderClaude, Enabled: true}))
