@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -705,6 +706,21 @@ func TestBlindPassthroughControlModelKeepsAnExplicitStrategyModel(t *testing.T) 
 	var unknown *PassthroughModelUnknownError
 	require.ErrorAs(t, err, &unknown, "an explicit weave-hmm request keeps its own passthrough behaviour instead of being served the control model")
 	assert.Empty(t, decision.Model)
+}
+
+func TestBlindPassthroughControlModelRespectsTheCallersProductEligibility(t *testing.T) {
+	const closedSourceControl = "claude-haiku-4-5"
+	require.False(t, catalog.PermittedBy(eligibility.MaxOpenSourceOnly, closedSourceControl), "fixture: the control model must be closed-source")
+	ctx := blindExperimentControlContext(closedSourceControl, "")
+
+	require.False(t, controlModelServed(ctx, router.Request{RequestedModel: string(router.ModelAutomatic), ProductEligibility: eligibility.MaxOpenSourceOnly}),
+		"an open-source-only caller is never served a closed-source control model")
+	require.True(t, controlModelServed(ctx, router.Request{RequestedModel: string(router.ModelAutomatic), ProductEligibility: eligibility.Unrestricted()}),
+		"an unrestricted caller still gets the control model")
+}
+
+func controlModelServed(ctx context.Context, req router.Request) bool {
+	return passthroughServedModel(ctx, req) == blindExperimentControlModel(ctx)
 }
 
 func TestBlindPassthroughControlModelKeepsAnExplicitCatalogModel(t *testing.T) {

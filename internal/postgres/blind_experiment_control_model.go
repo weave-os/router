@@ -12,8 +12,8 @@ func servableControlModel(ctx context.Context, installationID, controlModel stri
 	if controlModel == "" {
 		return ""
 	}
-	_, known := catalog.ByID(controlModel)
-	if known && !router.IsRoutingModel(controlModel) {
+	model, known := catalog.ByID(controlModel)
+	if known && model.ID == controlModel && !router.IsRoutingModel(controlModel) {
 		return controlModel
 	}
 	observability.FromContext(ctx).Error("Blind experiment control model is not a servable catalog model; falling back to the detected baseline", "installation_id", installationID, "control_model", controlModel)

@@ -211,7 +211,7 @@ func passthroughServedModel(ctx context.Context, req router.Request) string {
 		return requested
 	}
 	callerCredentials := len(req.GatewayProviders) > 0 || len(req.SubscriptionProviders) > 0 || len(credentials.ExternalKeysFromContext(ctx)) > 0
-	if control := blindExperimentControlModel(ctx); control != "" && !callerCredentials && controlModelApplies(req.RequestedModel) {
+	if control := blindExperimentControlModel(ctx); control != "" && !callerCredentials && controlModelApplies(req.RequestedModel) && catalog.PermittedBy(req.ProductEligibility, control) {
 		return control
 	}
 	if len(req.GatewayProviders) > 0 {
