@@ -1,0 +1,19 @@
+internal/postgres/blind_experiment_control_model_repo_test.go
+  s_ce9e4105348e97::t_2542d8458371b6 1-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "45f127ff05bd9489aebac8f2325f60b0b194cb4b",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
