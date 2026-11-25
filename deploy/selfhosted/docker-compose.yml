@@ -1,0 +1,234 @@
+# Production compose for a self-hosted Weave Router: the managed router and
+# classifier images serving an exported prod/stable v5 graph.
+# Operator guide: docs/SELF_HOSTED.md. Variables: deploy/selfhosted/.env.example.
+#
+# Images are referenced by digest. The release that publishes this file fills
+# in ROUTER_IMAGE, CLASSIFIER_IMAGE, MIGRATE_IMAGE, POLICY_IMAGE,
+# PUBSUB_EMULATOR_IMAGE, the ROUTER_SERVING_* values printed by
+# `policyctl serving export-selfhosted` and the classifier digests; nothing here
+# builds from source. The policy image holds the export (including its
+# classifier/ files) at /bundle/registry and the package at /bundle/package.tgz.
+#
+# migrate and policy stay running after they finish because Distr reports any
+# exited container, even with exit 0, as a failed deployment. Dependents wait
+# on their healthchecks instead.
+#
+# Standalone: COMPOSE_PROFILES=standalone adds the bundled Postgres and Pub/Sub
+# emulator. Linked (a self-hosted Weave app on the same host): leave the profile
+# unset, set ROUTER_UI_ENABLED=false and point DATABASE_URL and
+# PUBSUB_EMULATOR_HOST at the Weave app's services on the shared
+# weave-router-link network. See docs/SELF_HOSTED.md.
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 50m
+    max-file: "5"
+
+services:
+  postgres:
+    profiles: ["standalone"]
+    image: postgres:15-alpine
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: router
+      POSTGRES_PASSWORD: ${ROUTER_POSTGRES_PASSWORD:?set ROUTER_POSTGRES_PASSWORD}
+      POSTGRES_DB: router
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U router -d router"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - router_postgres_data:/var/lib/postgresql/data
+    networks:
+      - router
+    restart: unless-stopped
+
+  pubsub-emulator:
+    profiles: ["standalone"]
+    image: ${PUBSUB_EMULATOR_IMAGE:?set PUBSUB_EMULATOR_IMAGE}
+    logging: *default-logging
+    environment:
+      PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-router-local}
+      PUBSUB_TOPIC_ROUTER_INVALIDATION: router-installation-invalidate
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8085 >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      - router
+    restart: unless-stopped
+
+  # Runs initdb and every router migration up to this release, then stays up.
+  # The router app owns router-schema migrations in both standalone and linked
+  # mode. A dirty schema_migrations row fails loudly; nothing forces a version.
+  migrate:
+    image: ${MIGRATE_IMAGE:?set MIGRATE_IMAGE}
+    logging: *default-logging
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        rm -f /tmp/migrated
+        initdb || exit 1
+        migrate -path=/migrations -database="$${DATABASE_URL}&search_path=router" up || exit 1
+        touch /tmp/migrated
+        trap 'exit 0' TERM INT
+        while true; do
+          sleep 3600 &
+          wait $$!
+        done
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/migrated"]
+      interval: 2s
+      start_period: 300s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+    networks:
+      - router
+      - weave-router-link
+    restart: unless-stopped
+
+  # Installs the exported serving registry and classifier package into the
+  # shared volume. An unchanged bundle is left in place so a host reboot never
+  # rewrites files the router and classifier are reading.
+  policy:
+    image: ${POLICY_IMAGE:?set POLICY_IMAGE}
+    logging: *default-logging
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        rm -f /tmp/policy-installed
+        if ! diff -r /bundle /policy/current >/dev/null 2>&1; then
+          rm -rf /policy/next &&
+            cp -a /bundle /policy/next &&
+            rm -rf /policy/current &&
+            mv /policy/next /policy/current || exit 1
+        fi
+        touch /tmp/policy-installed
+        trap 'exit 0' TERM INT
+        while true; do
+          sleep 3600 &
+          wait $$!
+        done
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/policy-installed"]
+      interval: 2s
+      start_period: 60s
+      retries: 5
+    volumes:
+      - router_policy:/policy
+    networks:
+      - router
+    restart: unless-stopped
+
+  # The prod classifier-service image in local mode: it serves the v5 API from
+  # the exported release and selection under /policy/current/registry/classifier.
+  classifier:
+    image: ${CLASSIFIER_IMAGE:?set CLASSIFIER_IMAGE}
+    logging: *default-logging
+    mem_limit: ${CLASSIFIER_MEM_LIMIT:-4g}
+    environment:
+      PORT: "8080"
+      CLASSIFIER_SERVICE_MODE: local
+      CLASSIFIER_LOCAL_RELEASE_MANIFEST_PATH: /policy/current/registry/classifier/release.json
+      CLASSIFIER_LOCAL_SELECTION_PATH: /policy/current/registry/classifier/selection.json
+      CLASSIFIER_LOCAL_PACKAGE_PATH: /policy/current/package.tgz
+      CLASSIFIER_LOCAL_PACKAGE_SHA256: ${CLASSIFIER_LOCAL_PACKAGE_SHA256:?set CLASSIFIER_LOCAL_PACKAGE_SHA256}
+      CLASSIFIER_IMAGE_DIGEST: ${CLASSIFIER_IMAGE_DIGEST:?set CLASSIFIER_IMAGE_DIGEST}
+      HMM_INFER_DEADLINE_SECONDS: ${HMM_INFER_DEADLINE_SECONDS:-10}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      HMM_GEMINI_TRANSPORT: ${HMM_GEMINI_TRANSPORT:-}
+      HMM_VERTEX_PROJECT: ${HMM_VERTEX_PROJECT:-}
+      HMM_VERTEX_LOCATION: ${HMM_VERTEX_LOCATION:-}
+    depends_on:
+      policy:
+        condition: service_healthy
+    volumes:
+      - router_policy:/policy:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/readyz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    networks:
+      - router
+    restart: unless-stopped
+
+  router:
+    image: ${ROUTER_IMAGE:?set ROUTER_IMAGE}
+    logging: *default-logging
+    mem_limit: ${ROUTER_MEM_LIMIT:-4g}
+    environment:
+      PORT: "8080"
+      ROUTER_DEPLOYMENT_MODE: selfhosted
+      ROUTER_UI_ENABLED: ${ROUTER_UI_ENABLED:-true}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      PUBSUB_EMULATOR_HOST: ${PUBSUB_EMULATOR_HOST:-pubsub-emulator:8085}
+      PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-router-local}
+      PUBSUB_TOPIC_ROUTER_INVALIDATION: router-installation-invalidate
+      PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION: router-installation-invalidate
+      ROUTER_SERVING_REGISTRY_URI: /policy/current/registry
+      ROUTER_SERVING_TARGET: ${ROUTER_SERVING_TARGET:?set ROUTER_SERVING_TARGET}
+      ROUTER_SERVING_PROJECT: ${ROUTER_SERVING_PROJECT:?set ROUTER_SERVING_PROJECT}
+      ROUTER_SERVING_REGION: ${ROUTER_SERVING_REGION:?set ROUTER_SERVING_REGION}
+      ROUTER_SERVING_REVISION: ${ROUTER_SERVING_REVISION:?set ROUTER_SERVING_REVISION}
+      ROUTER_SERVING_IMAGE_DIGEST: ${ROUTER_SERVING_IMAGE_DIGEST:?set ROUTER_SERVING_IMAGE_DIGEST}
+      ROUTER_SERVING_CONFIGURATION_URI: ${ROUTER_SERVING_CONFIGURATION_URI:?set ROUTER_SERVING_CONFIGURATION_URI}
+      ROUTER_SERVING_CONFIGURATION_SHA256: ${ROUTER_SERVING_CONFIGURATION_SHA256:?set ROUTER_SERVING_CONFIGURATION_SHA256}
+      ROUTER_SERVING_CONFIGURATION_GENERATION: ${ROUTER_SERVING_CONFIGURATION_GENERATION:?set ROUTER_SERVING_CONFIGURATION_GENERATION}
+      ROUTER_SERVING_SELECTION_SET_URI: ${ROUTER_SERVING_SELECTION_SET_URI:?set ROUTER_SERVING_SELECTION_SET_URI}
+      ROUTER_SERVING_SELECTION_SET_SHA256: ${ROUTER_SERVING_SELECTION_SET_SHA256:?set ROUTER_SERVING_SELECTION_SET_SHA256}
+      ROUTER_SERVING_SELECTION_SET_GENERATION: ${ROUTER_SERVING_SELECTION_SET_GENERATION:?set ROUTER_SERVING_SELECTION_SET_GENERATION}
+      ROUTER_HMM_SIDECAR_URL: http://classifier:8080
+      ROUTER_HMM_SIDECAR_AUTH: none
+      ROUTER_HMM_SIDECAR_TIMEOUT_MS: ${ROUTER_HMM_SIDECAR_TIMEOUT_MS:-11000}
+      ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS: ${ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS:-10500}
+      ROUTER_DEFAULT_STRATEGY: ${ROUTER_DEFAULT_STRATEGY:-hmm_embedding}
+      ROUTER_ADMIN_PASSWORD: ${ROUTER_ADMIN_PASSWORD:-}
+      ROUTER_COOKIE_INSECURE: ${ROUTER_COOKIE_INSECURE:-false}
+      ROUTER_INTERNAL_SERVICE_TOKEN: ${ROUTER_INTERNAL_SERVICE_TOKEN:-}
+      EXTERNAL_KEY_ENCRYPTION_KEY: ${EXTERNAL_KEY_ENCRYPTION_KEY:?set EXTERNAL_KEY_ENCRYPTION_KEY}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+    depends_on:
+      pubsub-emulator:
+        condition: service_healthy
+        required: false
+      migrate:
+        condition: service_healthy
+      policy:
+        condition: service_healthy
+      classifier:
+        condition: service_healthy
+    volumes:
+      - router_policy:/policy:ro
+    ports:
+      - "${ROUTER_BIND_ADDRESS:-127.0.0.1}:${ROUTER_PORT:-8080}:8080"
+    networks:
+      - router
+      - weave-router-link
+    restart: unless-stopped
+
+volumes:
+  router_postgres_data:
+  router_policy:
+
+networks:
+  router:
+  weave-router-link:
+    name: weave-router-link

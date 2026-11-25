@@ -15,14 +15,19 @@ registry writer. The kept list is at the end of this document.
 
 ## Command surface
 
-`policyctl serving` exposes exactly four verbs. Every verb accepts
-`--registry gs://<bucket>/<prefix>` (default `gs://weave_ml/weave_registry`).
+`policyctl serving` exposes five verbs. The four control-plane verbs accept
+`--registry gs://<bucket>/<prefix>` (default `gs://weave_ml/weave_registry`);
+the managed serving registry is `gs://weave_ml/weave_registry/router/serving`.
+`export-selfhosted` defaults `--registry` to that serving registry.
 
 ```bash
 policyctl serving publish  --kind candidate|selection_set|proposal --manifest <file> [--dry-run]
 policyctl serving publish-release --candidate <file> --selection-set <file> --proposal <file> [--dry-run]
 policyctl serving apply    --proposal <ObjectRef.json> | --proposal-sha256 <sha256> [--dry-run]
 policyctl serving status   --target staging|prod/stable|prod/weave-internal | --proposal <ObjectRef.json>
+policyctl serving export-selfhosted --target prod/stable [--activation <id>] [--registry <root>] --out <dir>
+                           --router-image-digest sha256:<64 hex> --classifier-url http://classifier:8080 [--classifier-image-digest sha256:<64 hex>]
+                           [--worker-project selfhosted] [--worker-region local] [--worker-revision selfhosted-router]
 ```
 
 | Command | Required inputs | Effect | Stdout on success |
@@ -34,6 +39,7 @@ policyctl serving status   --target staging|prod/stable|prod/weave-internal | --
 | `serving apply` | `--proposal <ObjectRef.json>` **or** `--proposal-sha256 <digest>` | Reads the proposal at its exact generation, checks `sha256(stored bytes) == ref.sha256`, computes the activation transition against the authoritative target state (replay detection first), validates the proposal (evidence, candidate attestation, every lane against its live worker and classifier revision, scope rules), then CASes the target's single state object, superseding the outgoing activation and applying explicit withdrawals in the same write. A proposal with `scope: rollback` — or any proposal listing `withdraw_activations` — additionally has its `source_candidate` checked against the target's retained activation history before the CAS, on the dry run as well as the commit. | `ActivationResult` — `{"snapshot":{"state","generation"},"activation","outcome":"activated"\|"superseded","replayed"}` |
 | `serving apply --dry-run` | Same | Everything above except the CAS: no registry write, no infrastructure change. A proposal that was already activated reconciles to its original outcome instead of re-validating destinations, so completed retries never require healthy old revisions. | `PreparationResult` — `{"proposal","prepared",` `"activation"?}`; `prepared:true` means ready to apply, `prepared:false` with `activation` means already applied |
 | `serving status --target` | `--target` | Authoritative target state read (`state/<env>/<target>.json`, falling back to the legacy path for targets that have not applied since the layout move). Never validates against reachable workers. | `ServingStateSnapshot` — `{"state","generation"}` |
+| `serving export-selfhosted` | `--target`, `--out`, `--router-image-digest`, `--classifier-url` (`--classifier-image-digest` optional) | Read-only against the source registry. Copies one activation's (default: current) candidate, classifier release and policies into an empty directory unchanged, writes a fresh selection set, serving state and classifier runtime binding bound to a self-hosted worker, and reads the result back through the directory store and `PrepareWorker` before printing. See [Self-hosted export](#self-hosted-export). | `{"router_env","classifier","sidecar_env","source"}` |
 | `serving status --proposal` | `--proposal <ObjectRef.json>` | Outcome reconciliation for that exact proposal: scans the target's activations for `activation.proposal == ref`. | `ActivationResult` with `replayed:true` if activated; otherwise `{"proposal","activated":false,"generation"}` |
 
 Removed verbs `validate`, `resolve`, `prepare`, `activate`, and `rollback` exit
@@ -71,7 +77,8 @@ destination validation calls the HTTPS origins the selection set's lanes declare
   Every compiled roster must also pass the catalog validation `publish` applies,
   because a policy that fails it can never become a release.
 - The lane-head verbs `validate`, `publish`, `promote`, `rollback`, `status` and
-  `export` are removed; `policyctl serving` publishes and inspects v5 serving releases.
+  `export` are removed; `policyctl serving` publishes and inspects v5 serving releases,
+  and `serving export-selfhosted` replaces the lane-head `export`.
 - The retired serving verbs `validate`, `resolve`, `prepare` and `activate` exit
   non-zero and name the `publish`/`apply` invocation that replaced them.
 - `serving publish` digests the manifest bytes exactly as they would be stored;
@@ -737,6 +744,87 @@ Each classify/preview attempt sends its remaining budget as
 classifier API bounds inference by it, answering 503 `classifier_unavailable`
 when it expires, and rejects a malformed or out-of-range budget with 422 before
 inference.
+
+## Self-hosted export
+
+`policyctl serving export-selfhosted` turns one managed activation into a
+directory serving registry that a self-hosted router reads through
+`ROUTER_SERVING_REGISTRY_URI=<dir>`. The managed validators are unchanged;
+the export satisfies them by writing new objects rather than relaxing any check.
+
+Copied byte for byte (each copy must still hash to the digest the source
+selection set pinned, or the export fails):
+
+- the v3 router candidate (so `router_image_digest` and the candidate requirements are prod's);
+- the v1 classifier release (so the classifier image, package and taxonomy are prod's);
+- the default, profile and strategy policies.
+
+Written fresh, bound to the self-hosted worker:
+
+| Object | Why it cannot be copied |
+| --- | --- |
+| Selection set (`router_serving_selection_set_v4`) | `code` names prod's project, region, Cloud Run revision and HTTPS origins, which `PrepareWorker` compares with the worker identity. The rebound set keeps the candidate, release, enabled variants and policies and replaces `code` with `--worker-project`, `--worker-region`, `--worker-revision` and the router digest. The classifier `service_url`/`audience` are dropped; the runtime binding supplies the URL. |
+| Serving state | Prod's state carries every retained activation and its proposals. The export writes one activation (sequence 1) whose `request_id` is the source activation ID. |
+| Classifier runtime binding | Prod's binding names the Cloud Run classifier worker. The export binds `--classifier-url` and the release's runtime image digest. A directory store skips the managed Cloud Run origin and project checks, as it already does for the local stub. |
+| Provenance artifact (`router_selfhosted_export_provenance_v1`) | The source configuration and attestation live under `artifacts/sha256/`, a layout the directory store does not serve. One artifact records the source target, activation, selection-set ref, configuration ref and attestation ref, and serves as the worker configuration, code attestation and activation proposal ref. The router reads it at boot to report `serving_source` on `/v1/version`. |
+
+`--router-image-digest` must equal the copied candidate's `router_image_digest`:
+`PrepareWorker` rejects any other digest, so a self-hosted install runs prod's exact
+router image. Only `v4` selection sets (classifier API v5) can be exported.
+
+The output directory must be empty. It holds the registry objects, `registry_root`
+(a label, `gs://weave-router-selfhosted/serving`; the directory store never reads
+GCS), and the classifier service's local inputs:
+
+- `classifier/release.json`: the classifier release manifest bytes.
+- `classifier/selection.json`: the rebound selection-set bytes. The router sends
+  SHA-256 of these bytes as `classifier_selection_id`, and the classifier's local
+  resolver keys its selection on the same bytes, so the two ids match by
+  construction.
+
+Stdout is one JSON document:
+
+```json
+{
+  "router_env": {
+    "ROUTER_SERVING_TARGET": "prod/stable",
+    "ROUTER_SERVING_PROJECT": "selfhosted",
+    "ROUTER_SERVING_REGION": "local",
+    "ROUTER_SERVING_REVISION": "selfhosted-router",
+    "ROUTER_SERVING_IMAGE_DIGEST": "sha256:…",
+    "ROUTER_SERVING_CONFIGURATION_URI": "gs://weave-router-selfhosted/serving/artifacts/<sha256>.json",
+    "ROUTER_SERVING_CONFIGURATION_SHA256": "<sha256>",
+    "ROUTER_SERVING_CONFIGURATION_GENERATION": "1",
+    "ROUTER_SERVING_SELECTION_SET_URI": "gs://weave-router-selfhosted/serving/artifacts/<sha256>.json",
+    "ROUTER_SERVING_SELECTION_SET_SHA256": "<sha256>",
+    "ROUTER_SERVING_SELECTION_SET_GENERATION": "1"
+  },
+  "classifier": {
+    "image_digest": "sha256:…",
+    "package_uri": "gs://…/package.tar.gz",
+    "package_sha256": "<sha256>",
+    "release_manifest_path": "classifier/release.json",
+    "selection_path": "classifier/selection.json",
+    "rebound": false,
+    "rebind_reason": "classifier image … differs from the released image …; release re-bound to the customer image"
+  },
+  "classifier_env": {
+    "CLASSIFIER_LOCAL_RELEASE_MANIFEST_PATH": "classifier/release.json",
+    "CLASSIFIER_LOCAL_SELECTION_PATH": "classifier/selection.json"
+  },}
+```
+
+`router_env` values go to the router as-is, plus `ROUTER_SERVING_REGISTRY_URI`
+pointing at the copied directory. `classifier_env` paths are relative to `--out`;
+the deployment prefixes them with the directory the classifier service mounts.
+`classifier.rebound` is `false` when the release is copied unchanged, which happens
+when `--classifier-image-digest` is omitted or equals the release's runtime image.
+When it differs, the release is re-bound to that digest and `rebind_reason` says why.
+`classifier.image_digest` is the classifier image the release pins, which the
+classifier service must report as `CLASSIFIER_IMAGE_DIGEST`. The command does not download
+the classifier package; fetch `package_uri` separately and verify it against
+`package_sha256`. Running the export twice against the same activation produces
+identical bytes.
 
 ## Internal production plan tests
 
