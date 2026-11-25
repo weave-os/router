@@ -73,7 +73,7 @@ func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentSt
 		treatmentApplied: blindExperimentTreatmentApplied(state.Arm, source),
 		baselineModel:    blindExperimentDetectedBaselineModel(ctx, requestedModel),
 	}
-	if control := blindExperimentControlModel(ctx); control != "" && source == auth.BlindExperimentModelSourceExperimentPassthrough && routed.Decision.Model == control {
+	if control := blindExperimentControlModel(ctx); control != "" && source == auth.BlindExperimentModelSourceExperimentPassthrough && controlModelApplies(requestedModel) && routed.Decision.Model == control {
 		outcome.baselineModel = control
 	}
 	if source != auth.BlindExperimentModelSourceNotDispatched && outcome.baselineModel != "" {
@@ -211,7 +211,7 @@ func passthroughServedModel(ctx context.Context, req router.Request) string {
 		return requested
 	}
 	callerCredentials := len(req.GatewayProviders) > 0 || len(credentials.ExternalKeysFromContext(ctx)) > 0
-	if control := blindExperimentControlModel(ctx); control != "" && !callerCredentials && !namesCatalogModel(requested) {
+	if control := blindExperimentControlModel(ctx); control != "" && !callerCredentials && controlModelApplies(req.RequestedModel) {
 		return control
 	}
 	if len(req.GatewayProviders) > 0 {
@@ -223,12 +223,12 @@ func passthroughServedModel(ctx context.Context, req router.Request) string {
 	return requested
 }
 
-func namesCatalogModel(model string) bool {
-	if router.IsRoutingModel(model) {
-		return false
+func controlModelApplies(requestedModel string) bool {
+	if router.IsRoutingModel(requestedModel) {
+		return true
 	}
-	_, known := catalog.ByID(model)
-	return known
+	_, named := catalog.ByID(requestedModel)
+	return !named
 }
 
 func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router.Request) (router.Decision, error) {

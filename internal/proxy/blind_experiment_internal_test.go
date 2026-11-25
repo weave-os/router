@@ -653,12 +653,12 @@ func TestBlindPassthroughServesConfiguredControlModelForUndetectedClient(t *test
 	assert.Equal(t, blindExperimentPublicDecisionReason, decision.Reason)
 }
 
-func TestBlindPassthroughControlModelServesRoutingAndUnknownModelsOnly(t *testing.T) {
+func TestBlindPassthroughControlModelServesRoutingAndUnknownRequests(t *testing.T) {
 	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}}
-	for _, requested := range []string{"weave-auto", "", "unknown-model"} {
+	for _, requested := range []string{string(router.ModelAutomatic), string(router.ModelAutoEfficient), "", "unknown-model"} {
 		decision, _, err := service.blindExperimentPassthroughDecision(
-			blindExperimentControlContext("claude-haiku-4-5", ""),
+			blindExperimentControlContext("claude-haiku-4-5", requestcontext.ClientAppClaudeCode),
 			router.Request{RequestedModel: requested, EnabledProviders: enabled})
 
 		require.NoError(t, err, requested)
@@ -731,21 +731,26 @@ func TestBlindExperimentTelemetryReportsControlModelAsBaseline(t *testing.T) {
 	assert.False(t, *outcome.modelChanged)
 }
 
-func TestBlindExperimentTelemetryReportsControlModelOnlyForControlArmTurns(t *testing.T) {
+func TestBlindExperimentTelemetryReportsControlModelOnlyWhereItApplied(t *testing.T) {
 	const control = "claude-haiku-4-5"
 	ctx := blindExperimentControlContext(control, requestcontext.ClientAppClaudeCode)
+	controlArmTurn := &routingpolicy.TurnRoute{Decision: router.Decision{Model: control}, CallerModelPassthrough: true}
 	for _, tc := range []struct {
-		name   string
-		ctx    context.Context
-		routed *routingpolicy.TurnRoute
+		name      string
+		ctx       context.Context
+		routed    *routingpolicy.TurnRoute
+		requested string
+		want      string
 	}{
-		{name: "router-served turn", ctx: ctx, routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: control}}},
-		{name: "client model passthrough", ctx: auth.WithClientModelPassthrough(ctx), routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: control}, CallerModelPassthrough: true}},
-		{name: "control arm served the caller's own model", ctx: ctx, routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: "claude-sonnet-4-6"}, CallerModelPassthrough: true}},
+		{name: "control arm served a routing request", ctx: ctx, routed: controlArmTurn, requested: "weave-auto", want: control},
+		{name: "control arm served the efficient alias", ctx: ctx, routed: controlArmTurn, requested: string(router.ModelAutoEfficient), want: control},
+		{name: "explicit catalog model keeps its own baseline", ctx: ctx, routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: "claude-sonnet-4-6"}, CallerModelPassthrough: true}, requested: "claude-sonnet-4-6", want: "claude-sonnet-4-6"},
+		{name: "router-served turn", ctx: ctx, routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: control}}, requested: "weave-auto", want: "claude-opus-5-5"},
+		{name: "client model passthrough", ctx: auth.WithClientModelPassthrough(ctx), routed: controlArmTurn, requested: "weave-auto", want: "claude-opus-5-5"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			outcome := blindExperimentOutcomeFor(tc.ctx, auth.BlindExperimentState{Arm: auth.BlindExperimentArmPassthrough}, tc.routed, "weave-auto", tc.routed.Decision.Model)
-			assert.Equal(t, "claude-opus-5-5", outcome.baselineModel, "the control model is the baseline only for turns the control arm served it on")
+			outcome := blindExperimentOutcomeFor(tc.ctx, auth.BlindExperimentState{Arm: auth.BlindExperimentArmPassthrough}, tc.routed, tc.requested, tc.routed.Decision.Model)
+			assert.Equal(t, tc.want, outcome.baselineModel)
 		})
 	}
 }
