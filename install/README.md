@@ -11,12 +11,6 @@ Weave Router permanently. No shell exports, no manual config edits.
 # Opens the hosted setup page, which gives you a key and the install command
 npx @weave-os/router
 
-# Everything at once: the router for every coding agent found on this machine,
-# plus the Weave telemetry plugin for each one that has one. The setup page
-# gives you the token. Re-run it after installing a new agent to add it.
-npx @weave-os/router --all --token <enrollment token>
-npx @weave-os/router --all --dry-run              # only show what was found
-
 # Already have a key? Install for one client directly:
 npx @weave-os/router --claude                     # Claude Code, user scope
 npx @weave-os/router --codex                      # Codex, user scope

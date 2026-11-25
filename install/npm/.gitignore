@@ -3,7 +3,6 @@
 # ../codex-status.sh, ../codex-toggle.sh, ../registry.sh, ../directives.tsv, ../desktop-shim.js, ../commands/, ../codex-skills/, ../skills/, and
 # ../../LICENSE and ../../NOTICE.
 install.sh
-all.sh
 uninstall.sh
 cc-statusline.sh
 codex-status.sh

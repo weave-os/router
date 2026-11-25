@@ -386,7 +386,6 @@ usage() {
   cat <<USAGE
 Set up
   $npx                          open the setup page to get a key
-  $npx --all --token <token>    set up the router and Weave plugins for every agent found
   $npx --claude | --codex       install for Claude Code or Codex
   $npx setup --claude --codex   install for both (one key prompt)
   $npx --opencode | --pi        install for opencode or pi
@@ -1699,40 +1698,6 @@ for arg in "$@"; do
       exit 1
     fi
     exec bash -c "$uninstall_body" weave-uninstall "${cleaned_args[@]+"${cleaned_args[@]}"}"
-  fi
-done
-
-# ---------- --all delegation ----------
-#
-# `--all` hands the whole run to all.sh, which detects the coding agents on
-# this machine and calls back into this script once per router target. It is
-# resolved like uninstall.sh: the sibling file, else the canonical copy.
-for arg in "$@"; do
-  if [ "$arg" = "--all" ]; then
-    # --dry-run and --help promise to change nothing, so they never download jq.
-    case " $* " in
-      *" --dry-run "*|*" --help "*|*" -h "*) ;;
-      *) ensure_jq ;;
-    esac
-    script_path="${BASH_SOURCE[0]:-$0}"
-    if [ -f "$script_path" ]; then
-      sibling_dir="$(cd "$(dirname "$script_path")" 2>/dev/null && pwd)"
-      if [ -n "$sibling_dir" ] && [ -f "$sibling_dir/all.sh" ]; then
-        exec bash "$sibling_dir/all.sh" "$@"
-      fi
-    fi
-
-    require_cmd curl "https://curl.se"
-    url="${WEAVE_ALL_URL:-https://raw.githubusercontent.com/weave-os/router/main/install/all.sh}"
-    if ! all_body="$(curl -fsSL --max-time 30 "$url" 2>/dev/null)"; then
-      err "Failed to fetch all.sh from $url."
-      exit 1
-    fi
-    if [ -z "$all_body" ] || [ "${all_body:0:2}" != "#!" ]; then
-      err "Fetched content from $url doesn't look like a bash script."
-      exit 1
-    fi
-    exec bash -c "$all_body" weave-install-all "$@"
   fi
 done
 

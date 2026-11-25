@@ -19,7 +19,6 @@
     "windows.js",
     "vscode.js",
     "install.sh",
-    "all.sh",
     "uninstall.sh",
     "desktop-shim.js",
     "cc-statusline.sh",
