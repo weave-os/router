@@ -37,6 +37,10 @@ func (r Recorder) Fire(ctx context.Context, installationID string, servingStrate
 		ServingModel:    serving.Model,
 		ServingProvider: serving.Provider,
 		ShadowStrategy:  string(shadowStrategy),
+		RequestedModel:  req.RequestedModel,
+	}
+	if identity, managed := requestcontext.ServingIdentityFromContext(ctx); managed {
+		base.ServingTarget, base.ServingReleaseID = identity.Target, identity.ReleaseID
 	}
 	applyServingMetadata(&base, serving.Metadata)
 

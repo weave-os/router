@@ -117,6 +117,7 @@ func (b *blindExperimentWriter) release() {
 
 func stripRouterResponseHeaders(h http.Header) {
 	h.Del("Access-Control-Expose-Headers")
+	StripServingReleaseHeaders(h)
 	for name := range h {
 		if strings.HasPrefix(http.CanonicalHeaderKey(name), routerResponseHeaderPrefix) {
 			delete(h, name)

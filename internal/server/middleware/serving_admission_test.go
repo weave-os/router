@@ -160,6 +160,16 @@ func runAdmissionMiddleware(t *testing.T, cfg *ServingAdmissionConfig, assertion
 
 func runAdmissionMiddlewareWithBody(t *testing.T, cfg *ServingAdmissionConfig, assertion policyregistry.ServingAssertion, body string, handler gin.HandlerFunc) *httptest.ResponseRecorder {
 	t.Helper()
+	return runAdmission(t, cfg, assertion, body, func(*gin.Context) {}, handler)
+}
+
+func runAdmissionMiddlewareWithPrelude(t *testing.T, cfg *ServingAdmissionConfig, assertion policyregistry.ServingAssertion, prelude, handler gin.HandlerFunc) *httptest.ResponseRecorder {
+	t.Helper()
+	return runAdmission(t, cfg, assertion, admissionTestBody, prelude, handler)
+}
+
+func runAdmission(t *testing.T, cfg *ServingAdmissionConfig, assertion policyregistry.ServingAssertion, body string, prelude, handler gin.HandlerFunc) *httptest.ResponseRecorder {
+	t.Helper()
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages?original=1", strings.NewReader(body))
 	request.Header.Set(auth.RouterKeyHeader, admissionTestCredential)
 	request.Header.Set(policyregistry.ServingAssertionHeader, "forged-client-assertion")
@@ -171,6 +181,7 @@ func runAdmissionMiddlewareWithBody(t *testing.T, cfg *ServingAdmissionConfig, a
 	engine.Use(func(c *gin.Context) {
 		c.Set(ctxKeyInstallation, &auth.Installation{ID: assertion.Scope.InstallationID})
 		c.Set(ctxKeyAPIKey, &auth.APIKey{ID: assertion.APIKeyID})
+		prelude(c)
 		c.Next()
 	})
 	engine.POST("/v1/messages", WithServingAdmission(cfg), handler)

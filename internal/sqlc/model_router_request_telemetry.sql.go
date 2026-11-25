@@ -2890,6 +2890,14 @@ INSERT INTO router.model_router_request_telemetry (
     serving_release_id,
     serving_binding_id,
     serving_target,
+    worker_revision,
+    worker_image_digest,
+    worker_configuration_sha256,
+    serving_policy_sha256,
+    effective_strategy,
+    classifier_release_id,
+    classifier_enabled_variants,
+    flag_overrides_sha256,
     boost_optimizer_version,
     user_prompt,
     user_prompt_gap_ms,
@@ -3074,13 +3082,21 @@ INSERT INTO router.model_router_request_telemetry (
     $173::varchar,
     $174::varchar,
     $175::varchar,
-    $176::boolean,
-    $177::bigint,
+    $176::varchar,
+    $177::varchar,
     $178::varchar,
     $179::varchar,
     $180::varchar,
-    $181::jsonb,
-    $182::jsonb
+    $181::varchar,
+    $182::varchar,
+    $183::varchar,
+    $184::boolean,
+    $185::bigint,
+    $186::varchar,
+    $187::varchar,
+    $188::varchar,
+    $189::jsonb,
+    $190::jsonb
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -3260,6 +3276,14 @@ type InsertRequestTelemetryParams struct {
 	ServingReleaseID                         *string
 	ServingBindingID                         *string
 	ServingTarget                            *string
+	WorkerRevision                           *string
+	WorkerImageDigest                        *string
+	WorkerConfigurationSha256                *string
+	ServingPolicySha256                      *string
+	EffectiveStrategy                        *string
+	ClassifierReleaseID                      *string
+	ClassifierEnabledVariants                *string
+	FlagOverridesSha256                      *string
 	BoostOptimizerVersion                    *string
 	UserPrompt                               *bool
 	UserPromptGapMs                          *int64
@@ -3326,6 +3350,13 @@ type InsertRequestTelemetryParams struct {
 // normal completion) and failure_owner names who owns that failure. latest_tool_call_counts is {tool: {calls, errors}} over
 // only the tool results this request delivered, unlike tool_error_counts,
 // which re-counts the whole history on every turn.
+// worker_* / serving_policy_sha256 / effective_strategy / classifier_release_id /
+// classifier_enabled_variants / flag_overrides_sha256 record the recipe a managed worker
+// actually ran: a retained conversation runs current worker code with its
+// historical policy and classifier, so serving_release_id alone does not
+// identify it. flag_overrides_sha256 digests the installation's flag overrides
+// (deployment defaults are covered by worker_configuration_sha256) and is NULL
+// when the installation has none. All NULL outside managed serving.
 // failover_used marks a turn a rescue served; failover_attempted marks any turn
 // on which a rescue was dispatched, whether or not it served.
 //
@@ -3504,6 +3535,14 @@ type InsertRequestTelemetryParams struct {
 //	    serving_release_id,
 //	    serving_binding_id,
 //	    serving_target,
+//	    worker_revision,
+//	    worker_image_digest,
+//	    worker_configuration_sha256,
+//	    serving_policy_sha256,
+//	    effective_strategy,
+//	    classifier_release_id,
+//	    classifier_enabled_variants,
+//	    flag_overrides_sha256,
 //	    boost_optimizer_version,
 //	    user_prompt,
 //	    user_prompt_gap_ms,
@@ -3688,13 +3727,21 @@ type InsertRequestTelemetryParams struct {
 //	    $173::varchar,
 //	    $174::varchar,
 //	    $175::varchar,
-//	    $176::boolean,
-//	    $177::bigint,
+//	    $176::varchar,
+//	    $177::varchar,
 //	    $178::varchar,
 //	    $179::varchar,
 //	    $180::varchar,
-//	    $181::jsonb,
-//	    $182::jsonb
+//	    $181::varchar,
+//	    $182::varchar,
+//	    $183::varchar,
+//	    $184::boolean,
+//	    $185::bigint,
+//	    $186::varchar,
+//	    $187::varchar,
+//	    $188::varchar,
+//	    $189::jsonb,
+//	    $190::jsonb
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -3873,6 +3920,14 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.ServingReleaseID,
 		arg.ServingBindingID,
 		arg.ServingTarget,
+		arg.WorkerRevision,
+		arg.WorkerImageDigest,
+		arg.WorkerConfigurationSha256,
+		arg.ServingPolicySha256,
+		arg.EffectiveStrategy,
+		arg.ClassifierReleaseID,
+		arg.ClassifierEnabledVariants,
+		arg.FlagOverridesSha256,
 		arg.BoostOptimizerVersion,
 		arg.UserPrompt,
 		arg.UserPromptGapMs,

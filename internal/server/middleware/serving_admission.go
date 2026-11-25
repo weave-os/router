@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/refusal"
 	"weave-os/router/internal/requestcontext"
@@ -85,6 +86,7 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		}
 		ctx := policyregistry.WithServingAssertion(c.Request.Context(), assertion)
 		ctx = policyregistry.WithServingSnapshot(ctx, snapshot)
+		ctx = policyregistry.WithServingRecipe(ctx, cfg.Identity, snapshot)
 		if assertion.TestPlan != nil && assertion.TestPlan.Plan != policyregistry.TestPlanStable {
 			ctx = entitlement.WithProductScope(ctx, entitlement.Plan(assertion.TestPlan.Plan))
 		}
@@ -105,6 +107,7 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 			abortRefusal(c, refusal.ServingAttributionUnavailable, nil)
 			return
 		}
+		ingress.SetServingReleaseHeaders(ctx, c.Writer.Header())
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}

@@ -7,18 +7,28 @@ import (
 )
 
 type ServingIdentity struct {
-	Target             string `json:"target"`
-	ActivationID       string `json:"activation_id"`
-	ReleaseID          string `json:"release_id"`
-	BindingID          string `json:"binding_id"`
-	ProfileKey         string `json:"profile_key,omitempty"`
-	ProfileName        string `json:"profile_name,omitempty"`
-	ProfileRevision    string `json:"profile_revision,omitempty"`
-	Plan               string `json:"plan,omitempty"`
-	EntitlementVersion int64  `json:"entitlement_version,omitempty"`
-	BindingGeneration  int64  `json:"binding_generation"`
-	StateNamespace     string `json:"-"`
-	CredentialIdentity string `json:"-"`
+	Target             string        `json:"target"`
+	ActivationID       string        `json:"activation_id"`
+	ReleaseID          string        `json:"release_id"`
+	BindingID          string        `json:"binding_id"`
+	ProfileKey         string        `json:"profile_key,omitempty"`
+	ProfileName        string        `json:"profile_name,omitempty"`
+	ProfileRevision    string        `json:"profile_revision,omitempty"`
+	Plan               string        `json:"plan,omitempty"`
+	EntitlementVersion int64         `json:"entitlement_version,omitempty"`
+	BindingGeneration  int64         `json:"binding_generation"`
+	StateNamespace     string        `json:"-"`
+	CredentialIdentity string        `json:"-"`
+	Recipe             ServingRecipe `json:"-"`
+}
+
+type ServingRecipe struct {
+	WorkerRevision            string
+	WorkerImageDigest         string
+	WorkerConfigurationSHA256 string
+	PolicySHA256              string
+	ClassifierReleaseID       string
+	ClassifierEnabledVariants string
 }
 
 type servingIdentityContextKey struct{}

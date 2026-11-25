@@ -54,6 +54,13 @@
 -- normal completion) and failure_owner names who owns that failure. latest_tool_call_counts is {tool: {calls, errors}} over
 -- only the tool results this request delivered, unlike tool_error_counts,
 -- which re-counts the whole history on every turn.
+-- worker_* / serving_policy_sha256 / effective_strategy / classifier_release_id /
+-- classifier_enabled_variants / flag_overrides_sha256 record the recipe a managed worker
+-- actually ran: a retained conversation runs current worker code with its
+-- historical policy and classifier, so serving_release_id alone does not
+-- identify it. flag_overrides_sha256 digests the installation's flag overrides
+-- (deployment defaults are covered by worker_configuration_sha256) and is NULL
+-- when the installation has none. All NULL outside managed serving.
 -- failover_used marks a turn a rescue served; failover_attempted marks any turn
 -- on which a rescue was dispatched, whether or not it served.
 -- name: InsertRequestTelemetry :exec
@@ -232,6 +239,14 @@ INSERT INTO router.model_router_request_telemetry (
     serving_release_id,
     serving_binding_id,
     serving_target,
+    worker_revision,
+    worker_image_digest,
+    worker_configuration_sha256,
+    serving_policy_sha256,
+    effective_strategy,
+    classifier_release_id,
+    classifier_enabled_variants,
+    flag_overrides_sha256,
     boost_optimizer_version,
     user_prompt,
     user_prompt_gap_ms,
@@ -415,6 +430,14 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('serving_release_id')::varchar,
     sqlc.narg('serving_binding_id')::varchar,
     sqlc.narg('serving_target')::varchar,
+    sqlc.narg('worker_revision')::varchar,
+    sqlc.narg('worker_image_digest')::varchar,
+    sqlc.narg('worker_configuration_sha256')::varchar,
+    sqlc.narg('serving_policy_sha256')::varchar,
+    sqlc.narg('effective_strategy')::varchar,
+    sqlc.narg('classifier_release_id')::varchar,
+    sqlc.narg('classifier_enabled_variants')::varchar,
+    sqlc.narg('flag_overrides_sha256')::varchar,
     sqlc.narg('boost_optimizer_version')::varchar,
     sqlc.narg('user_prompt')::boolean,
     sqlc.narg('user_prompt_gap_ms')::bigint,

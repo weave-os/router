@@ -2,6 +2,8 @@ package flags
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -365,6 +367,18 @@ func (o Overrides) MarshalJSON() (data []byte, err error) {
 		flat[string(k)] = v
 	}
 	return json.Marshal(flat)
+}
+
+func (o Overrides) Digest() string {
+	if o.IsEmpty() {
+		return ""
+	}
+	payload, err := o.MarshalJSON()
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
 }
 
 type overridesContextKey struct{}

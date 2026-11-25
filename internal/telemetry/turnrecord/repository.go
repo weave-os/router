@@ -144,6 +144,7 @@ type InsertTelemetryParams struct {
 	ServingReleaseID         string
 	ServingBindingID         string
 	ServingTarget            string
+	ServingRecipe            ServingRecipe
 	BoostOptimizerVersion    string
 	RolloutID                string
 
@@ -360,4 +361,15 @@ type AgreementShadowInput struct {
 	Key         switchpolicy.ShadowKey
 	Observation switchpolicy.ShadowObservation
 	Epoch       int
+}
+
+type ServingRecipe struct {
+	WorkerRevision            string
+	WorkerImageDigest         string
+	WorkerConfigurationSHA256 string
+	PolicySHA256              string
+	EffectiveStrategy         string
+	ClassifierReleaseID       string
+	ClassifierEnabledVariants string
+	FlagOverridesSHA256       string
 }

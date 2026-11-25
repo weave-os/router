@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials/usage"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/server/middleware"
 
@@ -62,6 +63,9 @@ func DisplaySettingsHandler(accounts SubscriptionAccountLister, resolveCaller Ca
 			if !hide && auth.UserIDFrom(callerCtx) == "" && experiments != nil {
 				hide = experiments.InstallationBlindExperimentEnabled(callerCtx, installation.ID)
 			}
+		}
+		if hide {
+			ingress.StripServingReleaseHeaders(c.Writer.Header())
 		}
 		c.JSON(http.StatusOK, displaySettingsResponse{
 			HideTerminalSurfaces: hide,
