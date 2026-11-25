@@ -352,6 +352,9 @@ func geminiPartFromAnthropic(c *userPartCollector, block gjson.Result, toolNames
 func anthropicDocumentSourceError(block gjson.Result, target string) error {
 	src := block.Get("source")
 	data := src.Get("data").String()
+	if block.Get("citations.enabled").Bool() {
+		return newUnsupportedUserPart(FormatAnthropic, target, "document", "document citations cannot be represented on this target")
+	}
 	switch src.Get("type").String() {
 	case "base64":
 		if data == "" || !isValidBase64(data) {
@@ -360,9 +363,6 @@ func anthropicDocumentSourceError(block gjson.Result, target string) error {
 	case "text":
 		if data == "" {
 			return newUnsupportedUserPart(FormatAnthropic, target, "document", "text document source.data is missing")
-		}
-		if block.Get("citations.enabled").Bool() {
-			return newUnsupportedUserPart(FormatAnthropic, target, "document", "document citations cannot be represented on this target")
 		}
 	case "url":
 		return newUnsupportedUserPart(FormatAnthropic, target, "document", "url-source documents cannot be fetched by the router")
@@ -409,12 +409,7 @@ func openAIPartFromAnthropicBlock(c *userPartCollector, toolResultRaws *[]string
 	case "tool_result":
 		*toolResultRaws = append(*toolResultRaws, buildOpenAIToolResultMessage(block))
 		block.Get("content").ForEach(func(_, inner gjson.Result) bool {
-			if inner.Get("type").String() == "image" {
-				if part := buildOpenAIImagePart(inner); part != "" {
-					c.parts = append(c.parts, part)
-				}
-			}
-			return true
+			return openAIPartFromAnthropicToolResultBlock(c, inner)
 		})
 		return true
 	case "text":
@@ -431,6 +426,20 @@ func openAIPartFromAnthropicBlock(c *userPartCollector, toolResultRaws *[]string
 	default:
 		return c.skip(blockType)
 	}
+}
+
+func openAIPartFromAnthropicToolResultBlock(c *userPartCollector, inner gjson.Result) bool {
+	switch inner.Get("type").String() {
+	case "image":
+		if part := buildOpenAIImagePart(inner); part != "" {
+			c.parts = append(c.parts, part)
+			return true
+		}
+		return c.skip("image")
+	case "document":
+		return c.skip("document")
+	}
+	return true
 }
 
 func buildOpenAITextPart(text string) string {
