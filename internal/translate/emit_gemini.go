@@ -1,7 +1,6 @@
 package translate
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -252,15 +251,10 @@ func writeGeminiFromOpenAI(jw *jsonWriter, body []byte, opts EmitOptions) error 
 		case "system", "developer":
 			return true
 		case "user":
-			parts, partsErr := openAIUserPartsGJSON(msg.Get("content"))
-			if partsErr != nil {
-				walkErr = partsErr
-				return false
-			}
-			if len(parts) == 0 {
-				return true
-			}
-			entries = append(entries, contentEntry{role: "user", parts: parts})
+			var parts []string
+			parts, walkErr = openAIUserPartsGJSON(msg.Get("content"))
+			entries = appendContentEntry(entries, "user", parts)
+			return walkErr == nil
 		case "assistant":
 			parts, parseErr := openAIAssistantPartsGJSON(msg)
 			if parseErr != nil {
@@ -298,119 +292,6 @@ func writeGeminiFromOpenAI(jw *jsonWriter, body []byte, opts EmitOptions) error 
 		return err
 	}
 	return nil
-}
-
-func openAIUserPartsGJSON(content gjson.Result) ([]string, error) {
-	switch content.Type {
-	case gjson.String:
-		s := content.String()
-		if s == "" {
-			return nil, nil
-		}
-		return []string{geminiTextPart(s)}, nil
-	case gjson.JSON:
-		var parts []string
-		var walkErr error
-		skippedType := ""
-		content.ForEach(func(_, p gjson.Result) bool {
-			partType := p.Get("type").String()
-			switch partType {
-			case "text":
-				if s := p.Get("text").String(); s != "" {
-					parts = append(parts, geminiTextPart(s))
-				}
-			case "image_url":
-				mime, data, ok := parseDataURL(p.Get("image_url.url").String())
-				if !ok || !isValidBase64(data) {
-					if skippedType == "" {
-						skippedType = partType
-					}
-					return true
-				}
-				if mime == "" {
-					mime = "image/jpeg"
-				}
-				parts = append(parts, geminiInlineDataPart(mime, data))
-			case "file":
-				part, err := geminiInlineDataFromOpenAIFile(p.Get("file"))
-				if err != nil {
-					walkErr = err
-					return false
-				}
-				parts = append(parts, part)
-			case "input_audio":
-				part, err := geminiInlineDataFromOpenAIAudio(p.Get("input_audio"))
-				if err != nil {
-					walkErr = err
-					return false
-				}
-				parts = append(parts, part)
-			default:
-				if skippedType == "" {
-					skippedType = partType
-				}
-			}
-			return true
-		})
-		if walkErr != nil {
-			return nil, walkErr
-		}
-		if len(parts) == 0 && skippedType != "" {
-			return nil, newUnsupportedUserPart(FormatOpenAI, "gemini", skippedType, "no Gemini equivalent; the message would be sent with no content")
-		}
-		return parts, nil
-	default:
-	}
-	return nil, nil
-}
-
-func geminiInlineDataFromOpenAIFile(file gjson.Result) (string, error) {
-	mime, data, ok := parseDataURL(file.Get("file_data").String())
-	if !ok {
-		reason := "file part has no inline data URL file_data"
-		if file.Get("file_id").String() != "" {
-			reason = "only bare file_id without inline file_data; cross-provider file ids cannot be forwarded"
-		}
-		return "", newUnsupportedUserPart(FormatOpenAI, "gemini", "file", reason)
-	}
-	if !isValidBase64(data) {
-		return "", newUnsupportedUserPart(FormatOpenAI, "gemini", "file", "file_data is not valid base64")
-	}
-	if mime == "" {
-		mime = "application/pdf"
-	}
-	return geminiInlineDataPart(mime, data), nil
-}
-
-func geminiInlineDataFromOpenAIAudio(audio gjson.Result) (string, error) {
-	data := audio.Get("data").String()
-	if data == "" || !isValidBase64(data) {
-		return "", newUnsupportedUserPart(FormatOpenAI, "gemini", "input_audio", "input_audio.data is missing or not valid base64")
-	}
-	mime := "audio/wav"
-	if strings.EqualFold(audio.Get("format").String(), "mp3") {
-		mime = "audio/mpeg"
-	}
-	return geminiInlineDataPart(mime, data), nil
-}
-
-func isValidBase64(data string) bool {
-	_, err := base64.StdEncoding.DecodeString(data)
-	return err == nil
-}
-
-func geminiInlineDataPart(mime, data string) string {
-	pw := newJSONWriter()
-	pw.Obj()
-	pw.Key("inlineData")
-	pw.Obj()
-	pw.Key("mimeType")
-	pw.Str(mime)
-	pw.Key("data")
-	pw.Str(data)
-	pw.EndObj()
-	pw.EndObj()
-	return string(pw.Bytes())
 }
 
 func openAIAssistantPartsGJSON(msg gjson.Result) ([]string, error) {
@@ -670,15 +551,10 @@ func writeGeminiFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) err
 		role := msg.Get("role").String()
 		switch role {
 		case "user":
-			parts, partsErr := anthropicUserPartsGJSON(msg.Get("content"), toolNames)
-			if partsErr != nil {
-				walkErr = partsErr
-				return false
-			}
-			if len(parts) == 0 {
-				return true
-			}
-			entries = append(entries, contentEntry{role: "user", parts: parts})
+			var parts []string
+			parts, walkErr = anthropicUserPartsGJSON(msg.Get("content"), toolNames)
+			entries = appendContentEntry(entries, "user", parts)
+			return walkErr == nil
 		case "assistant":
 			parts := anthropicAssistantPartsGJSON(msg.Get("content"))
 			if len(parts) == 0 {
@@ -744,6 +620,13 @@ func emitGeminiContents(jw *jsonWriter, entries []contentEntry) {
 	jw.EndArr()
 }
 
+func appendContentEntry(entries []contentEntry, role string, parts []string) []contentEntry {
+	if len(parts) == 0 {
+		return entries
+	}
+	return append(entries, contentEntry{role: role, parts: parts})
+}
+
 func geminiFunctionResponsePart(name, result string) string {
 	pw := newJSONWriter()
 	pw.Obj()
@@ -786,103 +669,6 @@ func geminiEmitsValidatedToolMode(body []byte, model string, format Format) bool
 		return false
 	}
 	return kind == toolChoiceAbsent || kind == toolChoiceAuto
-}
-
-func anthropicUserPartsGJSON(content gjson.Result, toolNames map[string]string) ([]string, error) {
-	switch content.Type {
-	case gjson.String:
-		s := content.String()
-		if s == "" {
-			return nil, nil
-		}
-		return []string{geminiTextPart(s)}, nil
-	case gjson.JSON:
-		var parts []string
-		var walkErr error
-		skippedType := ""
-		content.ForEach(func(_, block gjson.Result) bool {
-			blockType := block.Get("type").String()
-			switch blockType {
-			case "text":
-				if text := block.Get("text").String(); text != "" {
-					parts = append(parts, geminiTextPart(text))
-				}
-			case "image":
-				data := block.Get("source.data").String()
-				if block.Get("source.type").String() != "base64" || data == "" {
-					if skippedType == "" {
-						skippedType = blockType
-					}
-					return true
-				}
-				mime := block.Get("source.media_type").String()
-				if mime == "" {
-					mime = "image/jpeg"
-				}
-				parts = append(parts, geminiInlineDataPart(mime, data))
-			case "document":
-				part, err := geminiInlineDataFromAnthropicDocument(block.Get("source"))
-				if err != nil {
-					walkErr = err
-					return false
-				}
-				parts = append(parts, part)
-			case "container_upload":
-				walkErr = newUnsupportedUserPart(FormatAnthropic, "gemini", "container_upload", "cross-provider file ids cannot be forwarded")
-				return false
-			case "tool_result":
-				id := block.Get("tool_use_id").String()
-				name := toolNames[id]
-				if name == "" {
-					return true
-				}
-				result := toolResultContentGJSON(block.Get("content"))
-				pw := newJSONWriter()
-				pw.Obj()
-				pw.Key("functionResponse")
-				pw.Obj()
-				pw.Key("name")
-				pw.Str(name)
-				pw.Key("response")
-				pw.Obj()
-				pw.Key("result")
-				pw.Str(result)
-				pw.EndObj()
-				pw.EndObj()
-				pw.EndObj()
-				parts = append(parts, string(pw.Bytes()))
-			default:
-				if skippedType == "" {
-					skippedType = blockType
-				}
-			}
-			return true
-		})
-		if walkErr != nil {
-			return nil, walkErr
-		}
-		if len(parts) == 0 && skippedType != "" {
-			return nil, newUnsupportedUserPart(FormatAnthropic, "gemini", skippedType, "no Gemini equivalent; the message would be sent with no content")
-		}
-		return parts, nil
-	default:
-	}
-	return nil, nil
-}
-
-func geminiInlineDataFromAnthropicDocument(source gjson.Result) (string, error) {
-	if source.Get("type").String() != "base64" {
-		return "", newUnsupportedUserPart(FormatAnthropic, "gemini", "document", "url-source documents cannot be fetched by the router")
-	}
-	data := source.Get("data").String()
-	if data == "" || !isValidBase64(data) {
-		return "", newUnsupportedUserPart(FormatAnthropic, "gemini", "document", "document source.data is missing or not valid base64")
-	}
-	mime := source.Get("media_type").String()
-	if mime == "" {
-		mime = "application/pdf"
-	}
-	return geminiInlineDataPart(mime, data), nil
 }
 
 func anthropicAssistantPartsGJSON(content gjson.Result) []string {

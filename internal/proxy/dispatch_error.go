@@ -31,7 +31,6 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 	var forcedClusterUnservable *policy.ForcedClusterUnservableError
 	var resolution *policy.ResolutionError
 	var compactionUnservable *CompactionUnservableError
-	var unsupportedPart *translate.UnsupportedUserPartError
 	switch {
 	case errors.Is(err, auth.ErrAnthropicFederationUnavailable):
 		return ingress.DispatchErrorClass{Kind: ingress.DispatchErrorAnthropicFederationUnavailable, Status: http.StatusServiceUnavailable, Message: "Anthropic workload federation is unavailable.", RetryAfter: true}, true
@@ -172,14 +171,6 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: invalid Anthropic cache_control",
 		}, true
-	case errors.As(err, &unsupportedPart):
-		return ingress.DispatchErrorClass{
-			Kind:       ingress.DispatchErrorTranslationIntrinsicallyIncompatible,
-			Status:     http.StatusBadRequest,
-			Message:    unsupportedUserPartMessage(unsupportedPart),
-			LogLevel:   "warn",
-			LogMessage: "Rejected request: unsupported user content part in cross-format translation",
-		}, true
 	case errors.Is(err, ErrTranslationIntrinsicallyIncompatible):
 		return ingress.DispatchErrorClass{
 			Kind:       ingress.DispatchErrorTranslationIntrinsicallyIncompatible,
@@ -266,8 +257,22 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 	case errors.As(err, &resolution):
 		return classifyResolutionError(resolution), true
 	default:
-		return classifyPolicyDispatchError(err)
+		return classifyUnsupportedUserPartOrPolicyError(err)
 	}
+}
+
+func classifyUnsupportedUserPartOrPolicyError(err error) (ingress.DispatchErrorClass, bool) {
+	var unsupportedPart *translate.UnsupportedUserPartError
+	if errors.As(err, &unsupportedPart) {
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorTranslationIntrinsicallyIncompatible,
+			Status:     http.StatusBadRequest,
+			Message:    unsupportedUserPartMessage(unsupportedPart),
+			LogLevel:   "warn",
+			LogMessage: "Rejected request: unsupported user content part in cross-format translation",
+		}, true
+	}
+	return classifyPolicyDispatchError(err)
 }
 
 func unwrapToSentinelMessage(err error) string {
