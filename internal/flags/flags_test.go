@@ -342,8 +342,7 @@ func TestStoredOverridesIgnoreTheRequestOverlay(t *testing.T) {
 	_, found = flags.StoredOverridesFromContext(flags.WithRequestOverlay(context.Background(), flags.Overrides{}, requested))
 	assert.False(t, found, "an installation without stored overrides records none, whatever the caller overlays")
 
-	plain := flags.WithOverrides(context.Background(), stored)
-	storedOverrides, found = flags.StoredOverridesFromContext(plain)
+	storedOverrides, found = flags.StoredOverridesFromContext(flags.WithOverrides(context.Background(), stored))
 	require.True(t, found)
 	assert.Equal(t, stored, storedOverrides)
 }
