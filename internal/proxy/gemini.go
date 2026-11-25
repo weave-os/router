@@ -18,7 +18,6 @@ import (
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
 	"weave-os/router/internal/telemetry/iolog"
@@ -100,7 +99,6 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if eligibilityErr != nil {
 		return eligibilityErr
 	}
-	enabledProviders := eligibility.EnabledProviders
 	excluded := s.excludedModelsForRequest(ctx)
 	outputReserve := contextWindowOutputReserve
 	if feats.MaxTokens > outputReserve {
@@ -112,33 +110,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		AdvisorExclusions: candidates.AdvisorExclusions(env, s.routableUniverse()),
 	})
 	candidates.LogPrefilter(log, env, feats.ImageCount, outputReserve, prefiltered)
-	excluded, overflowEstimate := prefiltered.Excluded, prefiltered.OverflowEstimate
+	overflowEstimate := prefiltered.OverflowEstimate
 
-	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
-	routeRequest := router.Request{
-		RequestedModel:               feats.Model,
-		ForceCluster:                 forceCluster,
-		EstimatedInputTokens:         feats.Tokens,
-		HasTools:                     feats.HasTools,
-		HasImages:                    feats.HasImages,
-		ImageCount:                   feats.ImageCount,
-		TranslationRequirements:      env.TranslationRequirements(router.EndpointGeminiGenerate),
-		ReasoningConfigurationSHA256: env.ReasoningConfigurationSHA256(),
-		ToolConfigurationSHA256:      env.ToolConfigurationSHA256(),
-		PromptText:                   routingPromptText,
-		ConversationMessages:         routingMessages,
-		AvailableTools:               availableToolsForRouting(env),
-		Tools:                        toolsForRouting(env),
-		ClientSessionID:              clientSessionIDForRequest(ctx, env),
-		EnabledProviders:             enabledProviders,
-		CustomBindings:               eligibility.CustomBindings,
-		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
-		Candidates:                   candidates.PrefilteredCandidates(excluded, allowedModelsForRequest(ctx), prefiltered),
-		PreferredModels:              preferredModelsForRequest(ctx),
-		RoutingKnobs:                 router.RoutingKnobsFromContext(ctx),
-		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
-		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
-	}
+	routeRequest := geminiRouteRequest(ctx, s, r.Header, geminiRouteInput{env: env, feats: feats, forceCluster: forceCluster, promptText: promptText, eligibility: eligibility, prefiltered: prefiltered})
 	routeRes, routeMs, err := routeTurn(ctx, s, s.clock, log, routeTurnRequest{
 		Request:        routeRequest,
 		Started:        s.clock.Now(),
