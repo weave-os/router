@@ -975,4 +975,38 @@ if [ -f "$config" ] && grep -Fq 'base_url = "http://127.0.0.1:41984/v1"' "$confi
   fail "failed classifier probe modified the Codex provider"
 fi
 
+# ---------- another installer's marked region is never split ----------
+#
+# The Weave Codex telemetry plugin wraps its tables in begin/end comment
+# markers and deletes everything between them when it reinstalls. Its begin
+# marker sits directly above the first table header, so splicing the managed
+# block "before the first header" put routing inside that region.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex"
+cat >"$config" <<'TOML'
+approval_policy = "on-request"
+
+# --- BEGIN WEAVE TELEMETRY (managed by Weave) ---
+[otel]
+environment = "prod"
+# --- END WEAVE TELEMETRY (managed by Weave) ---
+TOML
+run_install
+run_install
+python3 - "$config" <<'PY' || fail "router block was spliced into another installer's marked region"
+import sys
+import tomllib
+
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+tomllib.loads("\n".join(lines))
+foreign_begin = lines.index("# --- BEGIN WEAVE TELEMETRY (managed by Weave) ---")
+foreign_end = lines.index("# --- END WEAVE TELEMETRY (managed by Weave) ---")
+assert lines[foreign_begin + 1] == "[otel]", lines[foreign_begin + 1]
+router_end = lines.index("# <<< weave-router managed <<<")
+assert router_end < foreign_begin, (router_end, foreign_begin)
+assert not any("weave-router" in line or "model_provider" in line for line in lines[foreign_begin:foreign_end])
+PY
+assert_top_level_setting model_provider weave
+assert_top_level_setting approval_policy on-request
+
 echo "Codex installer routing regression tests passed"

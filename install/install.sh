@@ -1112,7 +1112,15 @@ $(weave_owned_codex_helpers)
 EOF
     strip_weave_codex_hooks "$tmp" ${owned_helpers[@]+"${owned_helpers[@]}"}
     local first_section
-    first_section="$(awk '/^[[:space:]]*\[/ { print NR; exit }' "$tmp")"
+    # Comment lines directly above the first header belong to it: another
+    # installer's begin marker sits there, and a block spliced between that
+    # marker and its header is deleted the next time that installer rewrites
+    # its own region.
+    first_section="$(awk '
+      /^[[:space:]]*\[/ { print (attached_comment ? attached_comment : NR); exit }
+      /^[[:space:]]*#/ { if (!attached_comment) attached_comment = NR; next }
+      { attached_comment = 0 }
+    ' "$tmp")"
     if [ -n "$first_section" ]; then
       # BSD `head -n 0` (macOS default) errors with "illegal line count"
       # and trips `set -euo pipefail`, leaving an empty config. Skip the
