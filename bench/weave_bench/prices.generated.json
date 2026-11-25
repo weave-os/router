@@ -1,5 +1,5 @@
 {
-  "pricing_version": "catalog-sha256:0d33dc4d29fa3947",
+  "pricing_version": "catalog-sha256:02124320efe77d8b",
   "models": {
     "claude-fable-5": {
       "input_usd_per_million": 10,
@@ -218,14 +218,14 @@
       "cache_write_multiplier": 1.25
     },
     "gemini-4-argon": {
-      "input_usd_per_million": 2,
-      "output_usd_per_million": 10,
+      "input_usd_per_million": 4,
+      "output_usd_per_million": 20,
       "cache_read_multiplier": 0.1,
       "cache_write_multiplier": 1.25
     },
     "gemini-4-carbon": {
-      "input_usd_per_million": 2,
-      "output_usd_per_million": 10,
+      "input_usd_per_million": 4,
+      "output_usd_per_million": 20,
       "cache_read_multiplier": 0.05,
       "cache_write_multiplier": 1.25
     },
