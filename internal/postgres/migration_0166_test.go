@@ -36,6 +36,14 @@ func TestBlindExperimentControlModelLoadsForSessionInstallation(t *testing.T) {
 	assert.Equal(t, "claude-opus-5-5", record.ControlModel)
 
 	_, err = pool.Exec(ctx,
+		`UPDATE router.blind_router_experiment_configurations SET control_model = 'weave-auto' WHERE installation_id = $1`,
+		installationID)
+	require.NoError(t, err)
+	record, err = postgres.NewBlindExperimentSessionRepo(pool).GetForInstallation(ctx, installationID.String())
+	require.NoError(t, err)
+	assert.Empty(t, record.ControlModel, "an unservable control model falls back to the detected baseline")
+
+	_, err = pool.Exec(ctx,
 		`UPDATE router.blind_router_experiment_configurations SET control_model = '  ' WHERE installation_id = $1`,
 		installationID)
 	assert.Error(t, err, "a blank control model must be NULL, not whitespace")

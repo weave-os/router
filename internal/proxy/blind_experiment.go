@@ -71,7 +71,10 @@ func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentSt
 	outcome := blindExperimentOutcome{
 		source:           source,
 		treatmentApplied: blindExperimentTreatmentApplied(state.Arm, source),
-		baselineModel:    blindExperimentBaselineModel(ctx, requestedModel),
+		baselineModel:    blindExperimentDetectedBaselineModel(ctx, requestedModel),
+	}
+	if control := blindExperimentControlModel(ctx); control != "" && source == auth.BlindExperimentModelSourceExperimentPassthrough && routed.Decision.Model == control {
+		outcome.baselineModel = control
 	}
 	if source != auth.BlindExperimentModelSourceNotDispatched && outcome.baselineModel != "" {
 		if servedModel == "" {
@@ -83,10 +86,7 @@ func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentSt
 	return outcome
 }
 
-func blindExperimentBaselineModel(ctx context.Context, requestedModel string) string {
-	if control := blindExperimentControlModel(ctx); control != "" {
-		return control
-	}
+func blindExperimentDetectedBaselineModel(ctx context.Context, requestedModel string) string {
 	baseline := clientRequestedModel(ctx, requestedModel)
 	if router.IsRoutingModel(baseline) {
 		return ""
@@ -210,13 +210,14 @@ func passthroughServedModel(ctx context.Context, req router.Request) string {
 	if !experimentArm {
 		return requested
 	}
-	if control := blindExperimentControlModel(ctx); control != "" {
+	callerCredentials := len(req.GatewayProviders) > 0 || len(credentials.ExternalKeysFromContext(ctx)) > 0
+	if control := blindExperimentControlModel(ctx); control != "" && !callerCredentials {
 		return control
 	}
 	if len(req.GatewayProviders) > 0 {
 		return requested
 	}
-	if baseline := blindExperimentBaselineModel(ctx, requested); baseline != "" {
+	if baseline := blindExperimentDetectedBaselineModel(ctx, requested); baseline != "" {
 		return baseline
 	}
 	return requested

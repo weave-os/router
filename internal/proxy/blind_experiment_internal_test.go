@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -665,20 +666,32 @@ func TestBlindPassthroughControlModelOverridesClientDetectionAndRequestedModel(t
 	}
 }
 
-func TestBlindPassthroughControlModelServesThroughGatewayAlias(t *testing.T) {
+func TestBlindPassthroughControlModelKeepsTheCallersGatewayModel(t *testing.T) {
 	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	decision, _, err := service.blindExperimentPassthroughDecision(blindExperimentControlContext("claude-opus-5-5", ""),
 		router.Request{
-			RequestedModel:   "weave-auto",
+			RequestedModel:   "claude-sonnet-4-6",
 			EnabledProviders: map[string]struct{}{providers.ProviderAnthropicGateway: {}},
 			GatewayProviders: map[string]struct{}{providers.ProviderAnthropicGateway: {}},
-			CustomBindings:   map[string][]string{"claude-opus-5-5": {providers.ProviderAnthropicGateway}},
+			CustomBindings:   map[string][]string{"claude-sonnet-4-6": {providers.ProviderAnthropicGateway}, "claude-opus-5-5": {providers.ProviderAnthropicGateway}},
 		})
 
 	require.NoError(t, err)
 	assert.Equal(t, providers.ProviderAnthropicGateway, decision.Provider)
-	assert.Equal(t, "claude-opus-5-5", decision.Model)
+	assert.Equal(t, "claude-sonnet-4-6", decision.Model, "the caller's own gateway key never pays for a control model it did not request")
+}
+
+func TestBlindPassthroughControlModelKeepsTheCallersBYOKModel(t *testing.T) {
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	ctx := context.WithValue(blindExperimentControlContext("claude-opus-5-5", ""), credentials.ExternalAPIKeysContextKey{},
+		[]*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, Plaintext: []byte("caller-key")}})
+
+	decision, _, err := service.blindExperimentPassthroughDecision(ctx,
+		router.Request{RequestedModel: "claude-sonnet-4-6", EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}})
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude-sonnet-4-6", decision.Model, "a BYOK request keeps the caller's requested model")
 }
 
 func TestBlindPassthroughControlModelHonoursExclusions(t *testing.T) {
@@ -704,4 +717,23 @@ func TestBlindExperimentTelemetryReportsControlModelAsBaseline(t *testing.T) {
 	assert.Equal(t, "claude-opus-5-5", outcome.baselineModel)
 	require.NotNil(t, outcome.modelChanged)
 	assert.False(t, *outcome.modelChanged)
+}
+
+func TestBlindExperimentTelemetryReportsControlModelOnlyForControlArmTurns(t *testing.T) {
+	const control = "claude-haiku-4-5"
+	ctx := blindExperimentControlContext(control, requestcontext.ClientAppClaudeCode)
+	for _, tc := range []struct {
+		name   string
+		ctx    context.Context
+		routed *routingpolicy.TurnRoute
+	}{
+		{name: "router-served turn", ctx: ctx, routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: control}}},
+		{name: "client model passthrough", ctx: auth.WithClientModelPassthrough(ctx), routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: control}, CallerModelPassthrough: true}},
+		{name: "control arm served the caller's own model", ctx: ctx, routed: &routingpolicy.TurnRoute{Decision: router.Decision{Model: "claude-sonnet-4-6"}, CallerModelPassthrough: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			outcome := blindExperimentOutcomeFor(tc.ctx, auth.BlindExperimentState{Arm: auth.BlindExperimentArmPassthrough}, tc.routed, "weave-auto", tc.routed.Decision.Model)
+			assert.Equal(t, "claude-opus-5-5", outcome.baselineModel, "the control model is the baseline only for turns the control arm served it on")
+		})
+	}
 }
