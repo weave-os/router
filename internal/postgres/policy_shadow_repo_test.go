@@ -33,15 +33,15 @@ func TestPolicyShadowDecisionStoresRecipeShadowColumns(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var shadowRoutingModel, shadowProfileKey, label, shadowArm string
+	var shadowRoutingModel, shadowProfileKey, predictedLabel, shadowArm string
 	var servingProfileKey *string
 	require.NoError(t, pool.QueryRow(ctx,
 		`SELECT shadow_routing_model, shadow_profile_key, serving_profile_key, classifier_predicted_label, shadow_roster_arm_id
 		 FROM router.policy_shadow_decisions WHERE installation_id = $1`, installationID).
-		Scan(&shadowRoutingModel, &shadowProfileKey, &servingProfileKey, &label, &shadowArm))
+		Scan(&shadowRoutingModel, &shadowProfileKey, &servingProfileKey, &predictedLabel, &shadowArm))
 	assert.Equal(t, "weave-auto-efficient", shadowRoutingModel)
 	assert.Equal(t, "00000000-0000-5000-8000-0000000000e1", shadowProfileKey)
 	assert.Nil(t, servingProfileKey, "the default profile is stored as NULL")
-	assert.Equal(t, "high", label)
+	assert.Equal(t, "high", predictedLabel)
 	assert.Equal(t, "anthropic/claude-sonnet-5.5", shadowArm)
 }

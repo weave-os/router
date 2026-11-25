@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/policyshadow"
@@ -52,12 +53,22 @@ func recipeShadowFired(ctx context.Context) bool {
 	}
 }
 
+func recipeShadowEnabled() context.Context {
+	managed := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: "prod/stable"})
+	return flags.WithOverrides(managed, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyRecipeShadow: true}})
+}
+
 func TestRecipeShadowIsOffUnlessFlagged(t *testing.T) {
-	assert.False(t, recipeShadowFired(context.Background()))
+	assert.False(t, recipeShadowFired(requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: "prod/stable"})))
+}
+
+func TestRecipeShadowSkipsTurnsWithoutAServingIdentity(t *testing.T) {
+	unmanaged := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyRecipeShadow: true}})
+	assert.False(t, recipeShadowFired(unmanaged), "without a serving identity the serving profile is unknown, so nothing is compared")
 }
 
 func TestRecipeShadowObservesOnlyDefaultRecipeTurns(t *testing.T) {
-	enabled := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyRecipeShadow: true}})
+	enabled := recipeShadowEnabled()
 	for model, want := range map[router.RoutingModel]bool{
 		"":                        true,
 		router.ModelAutomatic:     true,

@@ -140,7 +140,7 @@ var Registry = []Definition{
 	{
 		Key:            KeyRecipeShadow,
 		Kind:           KindBool,
-		Description:    "Experiment (owner steventohme, expires 2027-03-31): on default-recipe HMM turns, record what the installation's assigned weave-auto-efficient profile would have picked from the same classifier facts. No provider or classifier call; stores identifiers, model, arm and label only. Never changes what is served.",
+		Description:    "Experiment (owner steventohme, expires 2027-03-31): on default-recipe HMM turns, record what the installation's assigned weave-auto-efficient profile would have picked from the same classifier facts. No provider or classifier call; stores identifiers, model, arm and label only. Never changes what is served. The replay runs the stateless selector without the turn loop's session pins, subscription, forced-group, escalation and final-exclusion rules, so its agreement with serving is biased low.",
 		OrgOverridable: true,
 	},
 	{

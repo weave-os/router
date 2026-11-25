@@ -28,7 +28,10 @@ func fireRecipeShadow(ctx context.Context, turns turnTelemetry, clock auth.Clock
 	if model := router.StrategySelectionFromContext(ctx).RoutingModel; model != "" && model != router.ModelAutomatic {
 		return
 	}
-	identity, _ := requestcontext.ServingIdentityFromContext(ctx)
+	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
+	if !managed {
+		return
+	}
 	recorder := turns.recipe
 	recorder.Store, _ = turns.repo.(telemetry.PolicyShadowStore)
 	recorder.Now = clock.Now

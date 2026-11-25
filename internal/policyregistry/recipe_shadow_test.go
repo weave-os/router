@@ -9,23 +9,23 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/router"
 )
 
 func TestRecipePolicySourceReadsTheProfileFromTheCurrentActivation(t *testing.T) {
-	store, controller, set := controllerFixture(t)
-	base := *mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, set.Default.Release))
-	set.Profiles[profileKeyOne] = registerProfileFixture(t, store, set.Default, profileKeyOne, base.Policy)
-	store.publish(t, policyregistry.ServingSelectionSets, set)
-	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	store, controller, selectionSet := controllerFixture(t)
+	base := *mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, selectionSet.Default.Release))
+	selectionSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, selectionSet.Default, profileKeyOne, base.Policy)
+	store.publish(t, policyregistry.ServingSelectionSets, selectionSet)
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, selectionSet, servingEpoch)
 	_, err := controller.Activate(context.Background(), store.publishArtifact(t, policyregistry.ServingProposal, proposal), "workflow")
 	require.NoError(t, err)
-	source, err := policyregistry.NewRecipePolicySource(store, set.Target)
+	source, err := policyregistry.NewRecipePolicySource(store, selectionSet.Target)
 	require.NoError(t, err)
 
 	recipe, err := source.ProfilePolicy(context.Background(), profileKeyOne)
 
 	require.NoError(t, err)
-	assert.Equal(t, profileKeyOne, recipe.ProfileKey)
 	assert.Equal(t, base.Policy.SHA256, recipe.Policy.SHA256)
 	require.NotNil(t, recipe.Roster)
 
@@ -36,7 +36,7 @@ func TestRecipePolicySourceReadsTheProfileFromTheCurrentActivation(t *testing.T)
 	store.readErr = nil
 
 	_, err = source.ProfilePolicy(context.Background(), profileKeyTwo)
-	require.ErrorIs(t, err, policyregistry.ErrRecipeProfileNotActive, "a profile outside the active selection set is never shadowed")
+	require.ErrorIs(t, err, router.ErrRecipeShadowProfileInactive, "a profile outside the active selection selectionSet is never shadowed")
 }
 
 func TestRecipePolicySourceRequiresStoreAndTarget(t *testing.T) {

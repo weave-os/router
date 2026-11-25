@@ -83,7 +83,6 @@ func TestReplayPicksFromShadowRosterUsingServedClassifierFacts(t *testing.T) {
 	assert.Equal(t, providers.ProviderAnthropic, pick.Provider)
 	assert.Equal(t, sonnetArm, pick.RosterArmID)
 	assert.Equal(t, "high", pick.PolicyGroup)
-	assert.Equal(t, "high", pick.PredictedLabel)
 	assert.Equal(t, efficientPolicySHA, pick.PolicySHA256)
 }
 

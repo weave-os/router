@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/armid"
@@ -72,7 +73,7 @@ func (r *Replayer) Replay(ctx context.Context, profileKey string, served router.
 		Harness:            policy.SelectionHarnessForClientApp(req.ClientApp),
 		PredictedLabel:     facts.PredictedLabel,
 		ClassOrder:         append([]string(nil), facts.ClassOrder...),
-		ClassProbabilities: cloneProbabilities(facts.Probabilities),
+		ClassProbabilities: maps.Clone(facts.Probabilities),
 		PreferredModels:    append([]string(nil), req.PreferredModels...),
 	}
 	for _, candidate := range resolved.Candidates {
@@ -91,21 +92,12 @@ func (r *Replayer) Replay(ctx context.Context, profileKey string, served router.
 		return router.RecipeShadowPick{}, fmt.Errorf("recipe shadow picked %q, which no candidate serves: %w", pick.Arm, policy.ErrNoEligibleArm)
 	}
 	return router.RecipeShadowPick{
-		Model:          binding.CatalogID,
-		Provider:       binding.Provider,
-		RosterArmID:    pick.Arm,
-		PolicyGroup:    pick.Group,
-		PolicySHA256:   profile.PolicySHA256,
-		PredictedLabel: facts.PredictedLabel,
+		Model:        binding.CatalogID,
+		Provider:     binding.Provider,
+		RosterArmID:  pick.Arm,
+		PolicyGroup:  pick.Group,
+		PolicySHA256: profile.PolicySHA256,
 	}, nil
-}
-
-func cloneProbabilities(probabilities map[string]float64) map[string]float64 {
-	cloned := make(map[string]float64, len(probabilities))
-	for label, probability := range probabilities {
-		cloned[label] = probability
-	}
-	return cloned
 }
 
 var _ router.RecipeShadowReplayer = (*Replayer)(nil)

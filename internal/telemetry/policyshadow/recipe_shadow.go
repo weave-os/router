@@ -2,6 +2,7 @@ package policyshadow
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"weave-os/router/internal/observability"
@@ -31,7 +32,7 @@ type RecipeTurn struct {
 }
 
 func (r RecipeRecorder) Fire(ctx context.Context, turn RecipeTurn) {
-	if r.Store == nil || r.Profiles == nil || r.Replayer == nil || r.ShadowModel == "" || turn.InstallationID == "" {
+	if r.Store == nil || r.Profiles == nil || r.ShadowModel == "" || turn.InstallationID == "" {
 		return
 	}
 	servedFacts, scored := r.Replayer.ServedFacts(turn.Served)
@@ -50,12 +51,20 @@ func (r RecipeRecorder) Fire(ctx context.Context, turn RecipeTurn) {
 		}
 		started := r.Now()
 		pick, replayErr := r.Replayer.Replay(shadowCtx, profileKey, turn.Served, turn.Request)
+		if errors.Is(replayErr, router.ErrRecipeShadowProfileInactive) {
+			return
+		}
 		event := recipeShadowEvent(turn, servedFacts, r.ShadowModel, profileKey)
 		event.ShadowLatencyMs = r.Now().Sub(started).Milliseconds()
 		if replayErr != nil {
 			event.ShadowError = truncateError(replayErr.Error())
 		} else {
-			applyRecipePick(&event, pick)
+			event.ShadowModel = pick.Model
+			event.ShadowProvider = pick.Provider
+			event.ShadowPolicyArtifactSHA256 = pick.PolicySHA256
+			event.ShadowPolicyGroup = pick.PolicyGroup
+			event.ShadowRosterArmID = pick.RosterArmID
+			event.ModelsAgree = pick.Model == event.ServingModel
 		}
 		if insertErr := r.Store.InsertPolicyShadowDecision(shadowCtx, event); insertErr != nil {
 			log.Warn("Recipe shadow decision insert failed", "err", insertErr)
@@ -83,13 +92,4 @@ func recipeShadowEvent(turn RecipeTurn, served router.RecipeShadowServed, shadow
 	}
 	applyServingMetadata(&event, turn.Served.Metadata)
 	return event
-}
-
-func applyRecipePick(event *telemetry.PolicyShadowDecision, pick router.RecipeShadowPick) {
-	event.ShadowModel = pick.Model
-	event.ShadowProvider = pick.Provider
-	event.ShadowPolicyArtifactSHA256 = pick.PolicySHA256
-	event.ShadowPolicyGroup = pick.PolicyGroup
-	event.ShadowRosterArmID = pick.RosterArmID
-	event.ModelsAgree = pick.Model == event.ServingModel
 }

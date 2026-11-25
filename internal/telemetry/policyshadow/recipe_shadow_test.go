@@ -100,7 +100,7 @@ func TestRecipeShadowRecordsWouldHavePickedWithoutContent(t *testing.T) {
 	profiles := &fakeProfiles{profileKey: efficientProfileKey, assigned: true}
 	replayer := &fakeReplayer{scored: true, pick: router.RecipeShadowPick{
 		Model: "claude-sonnet-5-5", Provider: "anthropic", RosterArmID: "anthropic/claude-sonnet-5.5",
-		PolicyGroup: "high", PolicySHA256: "sha256:efficient", PredictedLabel: "high",
+		PolicyGroup: "high", PolicySHA256: "sha256:efficient",
 	}}
 
 	recorder(store, profiles, replayer).Fire(context.Background(), recipeTurn())
@@ -137,6 +137,20 @@ func TestRecipeShadowRecordsReplayErrorWithoutPick(t *testing.T) {
 	assert.Equal(t, "no eligible arm", event.ShadowError)
 	assert.Empty(t, event.ShadowModel)
 	assert.False(t, event.ModelsAgree)
+}
+
+func TestRecipeShadowWritesNoRowWhenTheShadowProfileIsInactive(t *testing.T) {
+	store := newRecordingStore()
+	replayer := &fakeReplayer{scored: true, err: router.ErrRecipeShadowProfileInactive, replayed: make(chan router.Request, 1)}
+
+	recorder(store, &fakeProfiles{profileKey: efficientProfileKey, assigned: true}, replayer).Fire(context.Background(), recipeTurn())
+
+	<-replayer.replayed
+	select {
+	case <-store.done:
+		t.Fatal("an inactive shadow profile must not write an error row")
+	case <-time.After(100 * time.Millisecond):
+	}
 }
 
 func TestRecipeShadowSkipsTurnsWithNothingToCompare(t *testing.T) {

@@ -3,33 +3,32 @@ package policyregistry
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"golang.org/x/sync/singleflight"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/rosterdata"
 )
 
 const (
-	recipePolicyCacheSize = 128
-	recipePolicyCacheTTL  = time.Minute
+	recipePolicyCacheSize         = 128
+	recipePolicyCacheTTL          = time.Minute
+	inactiveRecipeProfileCacheTTL = 30 * time.Second
 )
 
-var ErrRecipeProfileNotActive = errors.New("shadow profile is not in the target's current selection set")
-
 type RecipePolicy struct {
-	ProfileKey string
-	Policy     PolicyObject
-	Roster     *rosterdata.Roster
+	Policy PolicyObject
+	Roster *rosterdata.Roster
 }
 
 type RecipePolicySource struct {
-	store   ServingStore
-	target  ServingTarget
-	loaded  *expirable.LRU[string, RecipePolicy]
-	flights singleflight.Group
+	store            ServingStore
+	target           ServingTarget
+	cache            *expirable.LRU[string, RecipePolicy]
+	inactiveProfiles *expirable.LRU[string, struct{}]
+	flights          singleflight.Group
 }
 
 func NewRecipePolicySource(store ServingStore, target ServingTarget) (*RecipePolicySource, error) {
@@ -37,30 +36,31 @@ func NewRecipePolicySource(store ServingStore, target ServingTarget) (*RecipePol
 		return nil, errors.New("recipe policy source requires a serving store and target")
 	}
 	return &RecipePolicySource{
-		store:  store,
-		target: target,
-		loaded: expirable.NewLRU[string, RecipePolicy](recipePolicyCacheSize, nil, recipePolicyCacheTTL),
+		store:            store,
+		target:           target,
+		cache:            expirable.NewLRU[string, RecipePolicy](recipePolicyCacheSize, nil, recipePolicyCacheTTL),
+		inactiveProfiles: expirable.NewLRU[string, struct{}](recipePolicyCacheSize, nil, inactiveRecipeProfileCacheTTL),
 	}, nil
 }
 
 func (s *RecipePolicySource) ProfilePolicy(ctx context.Context, profileKey string) (RecipePolicy, error) {
-	if profileKey == "" {
-		return RecipePolicy{}, errors.New("recipe policy requires a profile key")
-	}
-	if cached, found := s.loaded.Get(profileKey); found {
+	if cached, found := s.cache.Get(profileKey); found {
 		return cached, nil
+	}
+	if _, inactive := s.inactiveProfiles.Get(profileKey); inactive {
+		return RecipePolicy{}, router.ErrRecipeShadowProfileInactive
 	}
 	loaded, err, _ := s.flights.Do(profileKey, func() (any, error) {
 		return s.readProfilePolicy(ctx, profileKey)
 	})
+	if errors.Is(err, router.ErrRecipeShadowProfileInactive) {
+		s.inactiveProfiles.Add(profileKey, struct{}{})
+	}
 	if err != nil {
 		return RecipePolicy{}, err
 	}
-	recipe, ok := loaded.(RecipePolicy)
-	if !ok {
-		return RecipePolicy{}, fmt.Errorf("recipe policy load returned %T", loaded)
-	}
-	s.loaded.Add(profileKey, recipe)
+	recipe, _ := loaded.(RecipePolicy)
+	s.cache.Add(profileKey, recipe)
 	return recipe, nil
 }
 
@@ -76,13 +76,13 @@ func (s *RecipePolicySource) readProfilePolicy(ctx context.Context, profileKey s
 	if !exists {
 		return RecipePolicy{}, errors.New("target has no current activation")
 	}
-	set, err := readSelectionSetView(ctx, s.store, current.SelectionSet)
+	selectionSet, err := readSelectionSetView(ctx, s.store, current.SelectionSet)
 	if err != nil {
 		return RecipePolicy{}, err
 	}
-	selection, exists := set.Profiles[profileKey]
+	selection, exists := selectionSet.Profiles[profileKey]
 	if !exists {
-		return RecipePolicy{}, ErrRecipeProfileNotActive
+		return RecipePolicy{}, router.ErrRecipeShadowProfileInactive
 	}
 	prepared, err := ReadPreparedSelection(ctx, s.store, s.target, profileKey, selection)
 	if err != nil {
@@ -91,5 +91,5 @@ func (s *RecipePolicySource) readProfilePolicy(ctx context.Context, profileKey s
 	if diagnostics := prepared.Policy.CatalogDiagnostics(); len(diagnostics) != 0 {
 		return RecipePolicy{}, errors.New("shadow profile policy contains arms absent from the worker catalog")
 	}
-	return RecipePolicy{ProfileKey: profileKey, Policy: prepared.PolicyReference, Roster: prepared.Policy}, nil
+	return RecipePolicy{Policy: prepared.PolicyReference, Roster: prepared.Policy}, nil
 }
