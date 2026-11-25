@@ -142,7 +142,7 @@ func IncludedQuotaObservedSpent(observer *usage.Observer, candidate ManagedSubsc
 		return false
 	}
 	snapshot, observed := observer.Snapshot(observer.Key([]byte("subscription-account:" + candidate.AccountID)))
-	if observed && codexRowWrittenAfterObservation(candidate, snapshot) {
+	if observed && codexQuotaReactivatedAfterObservation(candidate, snapshot) {
 		return false
 	}
 	return observed && IncludedQuotaSpent(snapshot, now)
@@ -165,7 +165,7 @@ func ManagedSubscriptionEnrollmentUnavailable(ctx context.Context) bool {
 	return unavailable
 }
 
-func codexRowWrittenAfterObservation(candidate ManagedSubscriptionCandidate, snapshot usage.Snapshot) bool {
+func codexQuotaReactivatedAfterObservation(candidate ManagedSubscriptionCandidate, snapshot usage.Snapshot) bool {
 	return candidate.Provider == auth.SubscriptionProviderCodex && candidate.State.Routable() &&
-		!snapshot.ObservedAt.IsZero() && snapshot.ObservedAt.Before(candidate.UpdatedAt)
+		snapshot.ObservedAt.Before(candidate.QuotaReactivatedAt)
 }

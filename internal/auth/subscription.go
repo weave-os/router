@@ -84,7 +84,7 @@ type SubscriptionAccount struct {
 	AccessTokenMissing     bool
 	TokenRefreshVersion    int64
 	CredentialRejections   int
-	UpdatedAt              time.Time
+	QuotaReactivatedAt     time.Time
 }
 
 type CreateSubscriptionAccountParams struct {

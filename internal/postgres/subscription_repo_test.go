@@ -726,3 +726,48 @@ func TestSubscriberEnrollmentOwnerAdmitsMembersWithoutARoutingKey(t *testing.T) 
 	_, err = resolver.SubscriberEnrollmentOwner(ctx, keyless.String())
 	require.ErrorIs(t, err, auth.ErrSubscriptionEnrollmentMembershipNotFound)
 }
+
+func TestSubscriptionQuotaResetIsFencedAndStampsCandidates(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderCodex, ExternalAccountID: "synthetic-quota-reset", ProviderUserID: "synthetic-user", RefreshToken: []byte("ciphertext"),
+	})
+	require.NoError(t, err)
+	quotaReactivatedAt := func() time.Time {
+		candidates, err := mustAs[interface {
+			ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
+		}](t, repo).ListSubscriptionCandidates(ctx, owner)
+		require.NoError(t, err)
+		for _, candidate := range candidates {
+			if candidate.ID == account.ID {
+				return candidate.QuotaReactivatedAt
+			}
+		}
+		t.Fatalf("account %s not listed", account.ID)
+		return time.Time{}
+	}
+	quota := mustAs[interface {
+		UpdateSubscriptionAccountHealth(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionAccountState, bool, *time.Time) (bool, error)
+		ReactivateSubscriptionAccountQuota(context.Context, string, auth.SubscriptionOwner, time.Time) (bool, error)
+	}](t, repo)
+	probed := time.Now().Add(48 * time.Hour).Truncate(time.Microsecond)
+	_, err = quota.UpdateSubscriptionAccountHealth(ctx, account.ID, owner, auth.SubscriptionAccountStateExhausted, true, &probed)
+	require.NoError(t, err)
+	_, err = fixture.pool.Exec(ctx, "UPDATE router.model_router_subscription_accounts SET updated_at = CURRENT_TIMESTAMP WHERE id = $1", account.ID)
+	require.NoError(t, err)
+	assert.True(t, quotaReactivatedAt().IsZero(), "unrelated row writes are not quota reactivations")
+
+	reset, err := quota.ReactivateSubscriptionAccountQuota(ctx, account.ID, owner, probed.Add(time.Hour))
+	require.NoError(t, err)
+	assert.False(t, reset, "a newer exhaustion than the probed one stands")
+	assert.True(t, quotaReactivatedAt().IsZero())
+
+	before := time.Now()
+	reset, err = quota.ReactivateSubscriptionAccountQuota(ctx, account.ID, owner, probed)
+	require.NoError(t, err)
+	assert.True(t, reset)
+	assert.WithinDuration(t, before, quotaReactivatedAt(), time.Minute)
+}

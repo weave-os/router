@@ -168,6 +168,7 @@ WHERE account.id = @id::uuid
 UPDATE router.model_router_subscription_accounts
 SET health_state = 'active',
     cooldown_until = NULL,
+    quota_reactivated_at = CURRENT_TIMESTAMP,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = @id::uuid
   AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
@@ -431,7 +432,7 @@ SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        CASE WHEN account.subscriber_id = sqlc.narg(subscriber_id)::uuid THEN 'personal' ELSE 'shared' END AS tier,
        (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
        account.token_refresh_version,
-       account.updated_at,
+       account.quota_reactivated_at,
        -- A successful refresh clears the reason but keeps the rolling strikes.
        (CASE WHEN account.credential_last_rejection_reason IS NULL THEN 0
              ELSE account.credential_rejection_count END)::integer AS credential_rejection_count
