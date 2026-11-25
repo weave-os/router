@@ -1,0 +1,19 @@
+internal/proxy/usage/usage_test.go
+  s_6bd2081d775c8f::t_09dfacb8a85fff 127-134,139-140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "516104261c11956ce994174aeb9d1ac1173431a6",
+  "prompts": {},
+  "sessions": {
+    "s_6bd2081d775c8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f4eb-51b4-7ca0-9ba7-a09a7ee1c767",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

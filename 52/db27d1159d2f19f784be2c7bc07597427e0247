@@ -1,0 +1,21 @@
+install/install.sh
+  s_980914d43580db::t_c6e1118f9d177c 1051-1054,1079
+install/tests/opencode_install_test.sh
+  s_980914d43580db::t_9914494d0eb8c2 72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "52db27d1159d2f19f784be2c7bc07597427e0247",
+  "prompts": {},
+  "sessions": {
+    "s_980914d43580db": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae5ab8c5-50a9-4ae6-930a-ff22188bfb75",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

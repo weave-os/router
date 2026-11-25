@@ -1,0 +1,29 @@
+install/codex-skills/fm/SKILL.md
+  s_f234886be83e15::t_9fc373394bf8eb 8-15
+install/codex-skills/force-model/SKILL.md
+  s_f234886be83e15::t_98384f4a0ef43d 8-15
+install/codex-skills/rf/SKILL.md
+  s_f234886be83e15::t_2f65778a84e00f 8-15
+install/codex-skills/router-feedback/SKILL.md
+  s_f234886be83e15::t_b1b789e572a337 8-15
+install/codex-skills/ufm/SKILL.md
+  s_f234886be83e15::t_7bc85a069c9351 8-14
+install/codex-skills/unforce-model/SKILL.md
+  s_f234886be83e15::t_b4e4aca5231f13 8-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "18fd58941eb7694722b356155635adb274ae9083",
+  "prompts": {},
+  "sessions": {
+    "s_f234886be83e15": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fecd80f1-1961-41db-9f82-dc35c7bb06da",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
