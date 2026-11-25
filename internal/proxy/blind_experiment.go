@@ -227,8 +227,8 @@ func controlModelApplies(requestedModel string) bool {
 	if router.IsRoutingModel(requestedModel) {
 		return true
 	}
-	_, named := catalog.ByID(requestedModel)
-	return !named
+	_, known := catalog.ByID(requestedModel)
+	return !known
 }
 
 func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router.Request) (router.Decision, error) {
