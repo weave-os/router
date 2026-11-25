@@ -25,6 +25,7 @@ func withResponsesRoutingEnvelope(ctx context.Context, body []byte) (context.Con
 	}
 	env.StripRouterFeedbackArtifacts()
 	env.StripRetiredBetaHistory()
+	env.StripRetiredBetaNotices()
 	return context.WithValue(ctx, responsesRoutingEnvelopeContextKey{}, env), nil
 }
 

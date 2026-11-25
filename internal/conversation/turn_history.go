@@ -35,5 +35,8 @@ func StripClientHistory(ctx context.Context, log *slog.Logger, env *translate.Re
 		ctx = withBetaArtifactHistory(ctx)
 		log.Info("Stripped retired beta history from "+provider+" history", "removed_messages", removed)
 	}
+	if removed := env.StripRetiredBetaNotices(); removed > 0 {
+		log.Info("Stripped retired beta notices from "+provider+" history", "removed_messages", removed)
+	}
 	return ctx, nil
 }

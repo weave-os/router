@@ -90,66 +90,11 @@ func parseLegacyBetaCommand(text string) (struct{}, bool, string) {
 }
 
 func isBetaCommandOnlyContent(content gjson.Result) bool {
-	switch {
-	case content.Type == gjson.String:
-		_, found, stripped := parseInCursorQuery(content.String(), parseLegacyBetaCommand)
-		return found && isOnlyInjectedCommandText(stripped)
-	case content.Type == gjson.JSON && content.IsArray():
-		seenCommand := false
-		allSynthetic := true
-		content.ForEach(func(_, block gjson.Result) bool {
-			if block.Get("type").String() != "text" {
-				allSynthetic = false
-				return false
-			}
-			text := block.Get("text").String()
-			if _, found, stripped := parseInCursorQuery(text, parseLegacyBetaCommand); found && isOnlyInjectedCommandText(stripped) {
-				seenCommand = true
-				return true
-			}
-			if strings.TrimSpace(text) == "" || isClaudeCodeInjectedBlock(text) || isOnlyInjectedCommandText(text) {
-				return true
-			}
-			allSynthetic = false
-			return false
-		})
-		return seenCommand && allSynthetic
-	default:
-		return false
-	}
+	return commandOnlyContent(content, parseLegacyBetaCommand)
 }
 
 func betaReplyOnlyContent(msg gjson.Result, isReply func(string) bool) bool {
-	if msg.Get("role").String() != "assistant" {
-		return false
-	}
-	content := msg.Get("content")
-	switch {
-	case content.Type == gjson.String:
-		return isReply(content.String())
-	case content.Type == gjson.JSON && content.IsArray():
-		seenAck := false
-		allSynthetic := true
-		content.ForEach(func(_, block gjson.Result) bool {
-			if block.Get("type").String() != "text" {
-				allSynthetic = false
-				return false
-			}
-			text := block.Get("text").String()
-			if strings.TrimSpace(text) == "" {
-				return true
-			}
-			if isReply(text) {
-				seenAck = true
-				return true
-			}
-			allSynthetic = false
-			return false
-		})
-		return seenAck && allSynthetic
-	default:
-		return false
-	}
+	return msg.Get("role").String() == "assistant" && syntheticTextOnlyContent(msg.Get("content"), isReply)
 }
 
 var retiredRoutingModelReply = regexp.MustCompile("^✦ \\*\\*Weave Router\\*\\* → Select a router with " +
@@ -174,6 +119,58 @@ func isBetaAckText(text string) bool {
 		"✦ **Weave Router** → Beta is unavailable for this session.",
 		"✦ **Weave Router** → Usage: /beta":
 		return true
+	default:
+		return false
+	}
+}
+
+func (e *RequestEnvelope) StripRetiredBetaNotices() int {
+	switch e.format {
+	case FormatAnthropic, FormatOpenAI:
+	default:
+		return 0
+	}
+	messages := gjson.GetBytes(e.body, "messages").Array()
+	removed := 0
+	rebuilt := make([]string, 0, len(messages))
+	for idx := 0; idx < len(messages); idx++ {
+		msg := messages[idx]
+		rebuilt = append(rebuilt, msg.Raw)
+		if idx+1 < len(messages) && isMixedBetaPrompt(msg) {
+			if reply := messages[idx+1]; !carriesToolCall(reply) && betaReplyOnlyContent(reply, isRetiredBetaReplyText) {
+				removed++
+				idx++
+			}
+		}
+	}
+	if removed == 0 {
+		return 0
+	}
+	return e.setMessages(rebuilt, removed)
+}
+
+func isMixedBetaPrompt(msg gjson.Result) bool {
+	if msg.Get("role").String() != "user" {
+		return false
+	}
+	content := msg.Get("content")
+	return !isBetaCommandOnlyContent(content) && hasLeadingBetaCommand(content)
+}
+
+func hasLeadingBetaCommand(content gjson.Result) bool {
+	switch {
+	case content.Type == gjson.String:
+		_, found, _ := parseInCursorQuery(content.String(), parseLegacyBetaCommand)
+		return found
+	case content.Type == gjson.JSON && content.IsArray():
+		found := false
+		content.ForEach(func(_, block gjson.Result) bool {
+			if block.Get("type").String() == "text" {
+				_, found, _ = parseInCursorQuery(block.Get("text").String(), parseLegacyBetaCommand)
+			}
+			return !found
+		})
+		return found
 	default:
 		return false
 	}

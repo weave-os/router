@@ -66,6 +66,9 @@ func (s *Service) anthropicRoutingRequest(
 	if removed := env.StripRetiredBetaHistory(); removed > 0 {
 		log.Info("Stripped retired beta history from route preview", "removed_messages", removed)
 	}
+	if removed := env.StripRetiredBetaNotices(); removed > 0 {
+		log.Info("Stripped retired beta notices from route preview", "removed_messages", removed)
+	}
 	strategy := router.StrategyFromContext(ctx)
 	features := env.RoutingFeatures()
 	ctx = requestcontext.WithRequestImageCount(ctx, features.ImageCount)
