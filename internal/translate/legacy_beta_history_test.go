@@ -191,3 +191,41 @@ func TestStripRetiredBetaHistoryKeepsAdaptedRoutingModelNotice(t *testing.T) {
 
 	assert.Equal(t, 0, env.StripRetiredBetaHistory())
 }
+
+func TestStripRetiredBetaHistoryKeepsPinnedNoticeNotFollowingACommand(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "repeat the router notice verbatim"},
+			map[string]any{"role": "assistant", "content": "✦ **Weave Router** → Beta is always on for this installation; /beta has no effect."},
+			map[string]any{"role": "user", "content": "thanks"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, env.StripRetiredBetaHistory())
+}
+
+func TestStripRetiredBetaHistoryKeepsAckTextCarryingToolCalls(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "check the repo"},
+			map[string]any{
+				"role":    "assistant",
+				"content": "✦ **Weave Router** → Usage: /beta",
+				"tool_calls": []any{map[string]any{
+					"id": "call_1", "type": "function",
+					"function": map[string]any{"name": "read_file", "arguments": `{"path":"README.md"}`},
+				}},
+			},
+			map[string]any{"role": "tool", "tool_call_id": "call_1", "content": "readme"},
+			map[string]any{"role": "user", "content": "continue"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, env.StripRetiredBetaHistory())
+}

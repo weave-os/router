@@ -31,14 +31,14 @@ func (e *RequestEnvelope) StripRetiredBetaHistory() int {
 	rebuilt := make([]string, 0, len(messages))
 	for idx := 0; idx < len(messages); idx++ {
 		msg := messages[idx]
-		if isBetaAckOnlyContent(msg) {
+		if !carriesToolCall(msg) && betaReplyOnlyContent(msg, isBetaAckText) {
 			removed++
 			continue
 		}
 		if msg.Get("role").String() == "user" && idx != lastUserIdx && idx+1 < len(messages) &&
 			isBetaCommandOnlyContent(msg.Get("content")) {
-			if reply := messages[idx+1]; isBetaAckOnlyContent(reply) ||
-				(reply.Get("role").String() == "assistant" && !carriesToolCall(reply) && isEmptyTextContent(reply.Get("content"))) {
+			if reply := messages[idx+1]; reply.Get("role").String() == "assistant" && !carriesToolCall(reply) &&
+				(betaReplyOnlyContent(reply, isRetiredBetaReplyText) || isEmptyTextContent(reply.Get("content"))) {
 				removed += 2
 				idx++
 				continue
@@ -119,14 +119,14 @@ func isBetaCommandOnlyContent(content gjson.Result) bool {
 	}
 }
 
-func isBetaAckOnlyContent(msg gjson.Result) bool {
+func betaReplyOnlyContent(msg gjson.Result, isReply func(string) bool) bool {
 	if msg.Get("role").String() != "assistant" {
 		return false
 	}
 	content := msg.Get("content")
 	switch {
 	case content.Type == gjson.String:
-		return isBetaAckText(content.String())
+		return isReply(content.String())
 	case content.Type == gjson.JSON && content.IsArray():
 		seenAck := false
 		allSynthetic := true
@@ -139,7 +139,7 @@ func isBetaAckOnlyContent(msg gjson.Result) bool {
 			if strings.TrimSpace(text) == "" {
 				return true
 			}
-			if isBetaAckText(text) {
+			if isReply(text) {
 				seenAck = true
 				return true
 			}
@@ -155,12 +155,15 @@ func isBetaAckOnlyContent(msg gjson.Result) bool {
 var retiredRoutingModelReply = regexp.MustCompile("^✦ \\*\\*Weave Router\\*\\* → Select a router with " +
 	"(`wv router set-model [A-Za-z0-9._-]+`, )+or `wv router set-model [A-Za-z0-9._-]+`, then start a new session\\.$")
 
+func isRetiredBetaReplyText(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	return isBetaAckText(text) ||
+		trimmed == "✦ **Weave Router** → Beta is always on for this installation; /beta has no effect." ||
+		retiredRoutingModelReply.MatchString(trimmed)
+}
+
 func isBetaAckText(text string) bool {
-	text = strings.TrimSpace(text)
-	if retiredRoutingModelReply.MatchString(text) {
-		return true
-	}
-	switch text {
+	switch strings.TrimSpace(text) {
 	case "✦ **Weave Router** → Beta enabled. Type /beta again to turn it off.",
 		"✦ **Weave Router** → Qwen beta enabled. Type /beta-llm again to turn it off.",
 		"✦ **Weave Router** → Qwen beta disabled. Stable routing restored.",
@@ -168,7 +171,6 @@ func isBetaAckText(text string) bool {
 		"✦ **Weave Router** → Usage: /beta-llm",
 		"✦ **Weave Router** → Beta has been retired. Internal routing requires authenticated account enrollment.",
 		"✦ **Weave Router** → Beta disabled. Stable routing restored.",
-		"✦ **Weave Router** → Beta is always on for this installation; /beta has no effect.",
 		"✦ **Weave Router** → Beta is unavailable for this session.",
 		"✦ **Weave Router** → Usage: /beta":
 		return true
