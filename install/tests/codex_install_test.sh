@@ -988,6 +988,7 @@ approval_policy = "on-request"
 
 # --- BEGIN WEAVE TELEMETRY (managed by Weave) ---
 model = "weave-auto"
+sandbox_mode = "workspace-write"
 # telemetry settings
 
 [otel]
@@ -1013,6 +1014,7 @@ assert not any("weave-router" in line or "model_provider" in line for line in li
 PY
 assert_top_level_setting model_provider weave
 assert_top_level_setting model weave-auto
+assert_top_level_setting sandbox_mode workspace-write
 assert_top_level_setting approval_policy on-request
 
 # A comment above the first header that is not the telemetry begin marker
