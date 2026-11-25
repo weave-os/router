@@ -20,28 +20,28 @@ type geminiRouteInput struct {
 	prefiltered  candidates.Prefiltered
 }
 
-func geminiRouteRequest(ctx context.Context, s *Service, headers http.Header, in geminiRouteInput) router.Request {
-	routingPromptText, routingMessages := routingInputForRequest(ctx, in.env, in.promptText)
+func geminiRouteRequest(ctx context.Context, s *Service, headers http.Header, input geminiRouteInput) router.Request {
+	routingPromptText, routingMessages := routingInputForRequest(ctx, input.env, input.promptText)
 	return router.Request{
-		RequestedModel:               in.feats.Model,
-		ForceCluster:                 in.forceCluster,
-		EstimatedInputTokens:         in.feats.Tokens,
-		HasTools:                     in.feats.HasTools,
-		HasImages:                    in.feats.HasImages,
-		ImageCount:                   in.feats.ImageCount,
-		TranslationRequirements:      in.env.TranslationRequirements(router.EndpointGeminiGenerate),
-		ReasoningConfigurationSHA256: in.env.ReasoningConfigurationSHA256(),
-		ToolConfigurationSHA256:      in.env.ToolConfigurationSHA256(),
+		RequestedModel:               input.feats.Model,
+		ForceCluster:                 input.forceCluster,
+		EstimatedInputTokens:         input.feats.Tokens,
+		HasTools:                     input.feats.HasTools,
+		HasImages:                    input.feats.HasImages,
+		ImageCount:                   input.feats.ImageCount,
+		TranslationRequirements:      input.env.TranslationRequirements(router.EndpointGeminiGenerate),
+		ReasoningConfigurationSHA256: input.env.ReasoningConfigurationSHA256(),
+		ToolConfigurationSHA256:      input.env.ToolConfigurationSHA256(),
 		PromptText:                   routingPromptText,
 		ConversationMessages:         routingMessages,
-		AvailableTools:               availableToolsForRouting(in.env),
-		Tools:                        toolsForRouting(in.env),
-		ClientSessionID:              clientSessionIDForRequest(ctx, in.env),
-		EnabledProviders:             in.eligibility.EnabledProviders,
-		CustomBindings:               in.eligibility.CustomBindings,
+		AvailableTools:               availableToolsForRouting(input.env),
+		Tools:                        toolsForRouting(input.env),
+		ClientSessionID:              clientSessionIDForRequest(ctx, input.env),
+		EnabledProviders:             input.eligibility.EnabledProviders,
+		CustomBindings:               input.eligibility.CustomBindings,
 		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
 		SubscriptionProviders:        s.selectableSubscriptionProviders(ctx, headers),
-		Candidates:                   candidates.PrefilteredCandidates(in.prefiltered.Excluded, allowedModelsForRequest(ctx), in.prefiltered),
+		Candidates:                   candidates.PrefilteredCandidates(input.prefiltered.Excluded, allowedModelsForRequest(ctx), input.prefiltered),
 		PreferredModels:              preferredModelsForRequest(ctx),
 		RoutingKnobs:                 router.RoutingKnobsFromContext(ctx),
 		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
