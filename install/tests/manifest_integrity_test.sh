@@ -682,18 +682,51 @@ sleep 0.5
 check "a release older than the installed wrappers does not roll them back" "$(cat "$cmd_dir/fm.md")" "$newer_fm"
 check_not_contains "a release older than the installed wrappers fetches no wrapper body" "$(cat "$log")" "commands/fm.md"
 
-# Command directories whose slugs collide share a baseline cache, so a floor
-# recorded for another directory must not block this one's signed release.
-printf '%s\n%s\n' "$next_tag" "/elsewhere/.claude/commands" >"$baseline/.manifest-tag"
+# Command directories whose cache slugs collide share the floor file, so it
+# keeps one row per directory: another install's cycle must not erase this
+# directory's floor, and another directory's row must not block this one.
+other_home="${lab}_home"; other_cmd="$other_home/.claude/commands"
+mkdir -p "$other_home/.weave" "$other_cmd"
+cp "$cc_keyed" "$other_home/.weave/cc-statusline.sh"
+cp "$script_dir/../commands/fm.md" "$script_dir/../commands/rf.md" "$other_cmd/"
+rm -f "$lab/cache/weave-router/"checked-at*.commands
+: >"$log"
+run_tool cc "$other_home/.weave/cc-statusline.sh" "HOME=$other_home" \
+  "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/install/commands"
+sync_settle "install/commands/rf.md"
 rm -f "$lab/cache/weave-router/"checked-at*.commands
 : >"$log"
 run_tool cc "$installed" "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/install/commands"
-if wait_for 20 grep -q "release $current_tag fm." "$cmd_dir/fm.md"; then
+wait_for 20 log_has "$log" "selfhost/install/cc-statusline.sh"
+wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*"
+sleep 0.5
+check_not_contains "a colliding install's cycle keeps this directory's release floor" "$(cat "$log")" "commands/fm.md"
+
+printf '%s\t%s\n' "$next_tag" "/elsewhere/.claude/commands" >"$baseline/.manifest-tag"
+rm -f "$lab/cache/weave-router/"checked-at*.commands
+: >"$log"
+run_tool cc "$installed" "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/install/commands"
+if sync_settle "install/commands/rf.md"; then
   ok "a release floor recorded for another command directory is ignored"
 else
-  no "a release floor recorded for another command directory is ignored" "refreshed fm" "$(cat "$cmd_dir/fm.md")"
+  no "a release floor recorded for another command directory is ignored" "wrappers fetched" "$(cat "$log")"
 fi
-sync_settle "install/commands/rf.md"
+
+# The floor is recorded before any wrapper moves; a cycle that cannot record it
+# installs nothing, so a later replay cannot roll the newer wrappers back.
+rm -f "$baseline/.manifest-tag"; mkdir "$baseline/.manifest-tag"
+retag "$release_dir/cc-statusline.sh" "$next_tag"
+upstream_wrapper fm "release $next_tag fm, unrecorded."
+sign_commands
+fm_before="$(cat "$cmd_dir/fm.md")"
+rm -f "$lab/cache/weave-router/"checked-at*.commands
+: >"$log"
+run_tool cc "$installed" "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/install/commands"
+wait_for 20 log_has "$log" "selfhost/install/cc-statusline.sh"
+wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*"
+sleep 0.5
+check "a cycle that cannot record its release floor installs no wrapper" "$(cat "$cmd_dir/fm.md")" "$fm_before"
+check_not_contains "a cycle that cannot record its release floor fetches no wrapper body" "$(cat "$log")" "commands/fm.md"
 
 # The scope selector recovered from the installed /router-off is unverified, so
 # only the shapes the installer writes are copied into verified wrappers.
