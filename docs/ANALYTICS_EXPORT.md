@@ -215,10 +215,11 @@ details decide whether the number is right:
   has `actual_*` of `0` (see
   [Subscription-served turns cost $0](#subscription-served-turns-cost-0)), so
   subtracting `actual_*` from a full-price baseline counts the whole baseline
-  as saved. `api_rate_*` prices every served turn the same way. This compares
-  model cost at API rates; the dashboard's own savings figure instead leaves
-  subscription-served turns out on both sides. To match it, add
-  `AND NOT d.subscription_served` to the first CTE.
+  as saved. `api_rate_*` prices every served turn at API rates. To leave out
+  turns served on included subscription quota, add
+  `AND NOT d.subscription_served` to the first CTE. The dashboard's savings
+  figure uses its own comparison model and eligibility rules, so it can differ
+  from this query.
 - **Price cached tokens at cache rates, and count them the same way for every
   provider.** Anthropic-family upstreams (`anthropic`, `anthropic_gateway`,
   `wafer_anthropic`) report `input_tokens` *without* cache writes and reads;
@@ -259,10 +260,13 @@ SELECT sum(baseline_usd - served_usd) AS savings_usd FROM priced;
 
 Pick one provider binding per baseline model (`baseline_bindings` above):
 `model_prices` has a row per model and provider, so joining on `model` alone
-counts a multi-provider model's turns once per binding. The join uses
-`blind_experiment_baseline_model`, which already resolves a routing alias such
-as `weave-auto` to the client's default model, and falls back to
-`requested_model`. This query leaves out the 1-hour cache-write rate
+counts a multi-provider model's turns once per binding. The join prefers
+`blind_experiment_baseline_model`, which is set only while a blind experiment
+is active, and otherwise falls back to `requested_model`. The inner joins drop
+any row without a matching priced binding, so an alias such as `weave-auto`
+outside an experiment drops out of the total; to include those turns, map the
+alias to the baseline model you choose for that `client_app` before joining
+`baseline_bindings`. This query leaves out the 1-hour cache-write rate
 (`cache_creation_1h_tokens`), long-context rates, the US inference-geo
 multiplier, which `catalog.EffectiveInputCost` also applies, and fast-mode
 rates (`speed = 'fast'`), which the price book does not publish; add them from
