@@ -8142,7 +8142,7 @@ weave_sync_commands() {
   local sentinel="$baseline_dir/.manifest-seeded"
   local name installed raw prev tmp new_body prev_body installed_body owned
   local manifest="$baseline_dir/.MANIFEST.tmp.$$" seeding="false" unsigned="false" listed_tag=""
-  local release_floor="$WEAVE_RELEASE_TAG" floor_file="$baseline_dir/.manifest-tag" recorded_tag floor_rows row_tag row_dir
+  local release_floor="$WEAVE_RELEASE_TAG" floor_file="$baseline_dir/.manifest-tag" recorded_tag
   if [ -n "${WEAVE_COMMANDS_URL_BASE:-}" ] && weave_trust_unsigned "$url_base"; then
     unsigned="true"
   fi
@@ -8161,20 +8161,11 @@ weave_sync_commands() {
       # WEAVE_RELEASE_TAG must be no older than this copy's or the release the
       # wrappers were last refreshed from (.manifest-tag), or an older signed
       # release served from a mutable source would roll the wrappers back. The
-      # slug can collide, so the file keeps one "<tag><TAB><dir>" row per
-      # command directory and only this directory's row counts.
+      # slug can collide, so each command directory keeps its own floor file,
+      # named by the SHA-256 of its path, and never rewrites another's.
+      floor_file="$floor_file.$(printf '%s' "$cmd_dir" | weave_sha256 /dev/stdin)" || exit 0
       [ ! -e "$floor_file" ] || [ -f "$floor_file" ] || exit 0
-      case "$cmd_dir" in *$'\n'* | *$'\t'*) exit 0 ;; esac
-      recorded_tag="" floor_rows=""
-      if [ -f "$floor_file" ]; then
-        while IFS=$'\t' read -r row_tag row_dir; do
-          if [ "$row_dir" = "$cmd_dir" ]; then
-            recorded_tag="$row_tag"
-          elif [ -n "$row_dir" ]; then
-            floor_rows="$floor_rows$row_tag"$'\t'"$row_dir"$'\n'
-          fi
-        done <"$floor_file"
-      fi
+      recorded_tag="$(sed -n '1p' "$floor_file" 2>/dev/null)" || recorded_tag=""
       weave_release_tag_newer "$recorded_tag" "$release_floor" && release_floor="$recorded_tag"
       curl -fsSL --max-time 15 "$manifest_base/cc-statusline.sh" -o "$manifest.release" 2>/dev/null || exit 0
       weave_verify_file "$manifest" "install/cc-statusline.sh" "$manifest.release" || exit 0
@@ -8184,7 +8175,7 @@ weave_sync_commands() {
         || weave_release_tag_newer "$listed_tag" "$release_floor" || exit 0
       # Record the floor before any wrapper moves, so a cycle that dies
       # mid-loop still guards what it installed; no record, no refresh.
-      printf '%s%s\t%s\n' "$floor_rows" "$listed_tag" "$cmd_dir" >"$floor_file.tmp.$$" 2>/dev/null \
+      printf '%s\n' "$listed_tag" >"$floor_file.tmp.$$" 2>/dev/null \
         && mv -f "$floor_file.tmp.$$" "$floor_file" 2>/dev/null && [ -f "$floor_file" ] || exit 0
     fi
     while IFS= read -r name; do

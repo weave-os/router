@@ -682,9 +682,9 @@ sleep 0.5
 check "a release older than the installed wrappers does not roll them back" "$(cat "$cmd_dir/fm.md")" "$newer_fm"
 check_not_contains "a release older than the installed wrappers fetches no wrapper body" "$(cat "$log")" "commands/fm.md"
 
-# Command directories whose cache slugs collide share the floor file, so it
-# keeps one row per directory: another install's cycle must not erase this
-# directory's floor, and another directory's row must not block this one.
+# Command directories whose cache slugs collide share the baseline cache, so
+# each keeps its own floor file: another install's cycle must not erase this
+# directory's floor, and another directory's floor must not block this one.
 other_home="${lab}_home"; other_cmd="$other_home/.claude/commands"
 mkdir -p "$other_home/.weave" "$other_cmd"
 cp "$cc_keyed" "$other_home/.weave/cc-statusline.sh"
@@ -702,7 +702,8 @@ wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*"
 sleep 0.5
 check_not_contains "a colliding install's cycle keeps this directory's release floor" "$(cat "$log")" "commands/fm.md"
 
-printf '%s\t%s\n' "$next_tag" "/elsewhere/.claude/commands" >"$baseline/.manifest-tag"
+for floor in "$baseline"/.manifest-tag.*; do printf '%s\n' "$next_tag" >"$floor"; done
+rm -f "$baseline/.manifest-tag.$(printf '%s' "$(cd "$cmd_dir" && pwd -P)" | sha /dev/stdin)"
 rm -f "$lab/cache/weave-router/"checked-at*.commands
 : >"$log"
 run_tool cc "$installed" "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/install/commands"
@@ -714,7 +715,7 @@ fi
 
 # The floor is recorded before any wrapper moves; a cycle that cannot record it
 # installs nothing, so a later replay cannot roll the newer wrappers back.
-rm -f "$baseline/.manifest-tag"; mkdir "$baseline/.manifest-tag"
+for floor in "$baseline"/.manifest-tag.*; do rm -f "$floor"; mkdir "$floor"; done
 retag "$release_dir/cc-statusline.sh" "$next_tag"
 upstream_wrapper fm "release $next_tag fm, unrecorded."
 sign_commands
