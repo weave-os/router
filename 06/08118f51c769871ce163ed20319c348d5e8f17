@@ -1,0 +1,22 @@
+internal/flags/flags_test.go
+  s_ce9e4105348e97::t_3a4c44974d9141 338,340,346,348
+internal/ingress/blind_experiment_writer.go
+  s_ce9e4105348e97::t_3a4c44974d9141 121-122
+  s_ce9e4105348e97::t_51ba12806bde4f 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0608118f51c769871ce163ed20319c348d5e8f17",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
