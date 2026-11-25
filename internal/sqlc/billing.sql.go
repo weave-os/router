@@ -25,10 +25,9 @@ SELECT (
         'organization_spend_limits',
         'model_router_user_spend_limits',
         'subscriber_autopay_config',
-        'delegated_token_spend',
-        'model_router_user_spend_grants'
+        'delegated_token_spend'
       )
-) = 10 AS billing_tables_exist
+) = 9 AS billing_tables_exist
 `
 
 // Returns true if every table the billing debit path touches exists in the
@@ -51,10 +50,9 @@ SELECT (
 //	        'organization_spend_limits',
 //	        'model_router_user_spend_limits',
 //	        'subscriber_autopay_config',
-//	        'delegated_token_spend',
-//	        'model_router_user_spend_grants'
+//	        'delegated_token_spend'
 //	      )
-//	) = 10 AS billing_tables_exist
+//	) = 9 AS billing_tables_exist
 func (q *Queries) CheckBillingTablesExist(ctx context.Context) (bool, error) {
 	row := q.db.QueryRow(ctx, checkBillingTablesExist)
 	var billing_tables_exist bool
