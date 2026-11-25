@@ -185,7 +185,7 @@ func ConvertResponsesToChatCompletions(body []byte) (ResponsesConversion, error)
 	if topP := root.Get("top_p"); topP.Type == gjson.Number {
 		out["top_p"] = topP.Num
 	}
-	if max := root.Get("max_output_tokens"); max.Type == gjson.Number {
+	if max := root.Get("max_output_tokens"); max.Type != gjson.Null {
 		out["max_completion_tokens"] = max.Int()
 	}
 	if md := root.Get("metadata"); md.IsObject() {

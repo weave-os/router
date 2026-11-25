@@ -450,6 +450,15 @@ func TestConvertResponsesToChatCompletions_NullSamplingAndLimitFieldsAreUnset(t 
 	}
 }
 
+func TestConvertResponsesToChatCompletions_NumericStringMaxOutputTokensKeepsCallerCeiling(t *testing.T) {
+	for _, portable := range []bool{false, true} {
+		body := []byte(`{"model":"gpt-5","input":"hi","max_output_tokens":"512"}`)
+		conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: portable})
+		require.NoError(t, err)
+		assert.Equal(t, int64(512), gjson.GetBytes(conversion.Body, "max_completion_tokens").Int(), "portable=%v: %s", portable, conversion.Body)
+	}
+}
+
 // Codex always sends a `reasoning` field, including effort:"none" (invalid as
 // reasoning_effort); reasoning OpenAI models also 400 on reasoning_effort+tools.
 // No effort value may leak into the translated chat body.

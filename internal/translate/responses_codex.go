@@ -700,7 +700,7 @@ func (c *portableCodexResponsesConverter) copyRequestControls(root gjson.Result,
 	if topP := root.Get("top_p"); topP.Type == gjson.Number {
 		out["top_p"] = topP.Num
 	}
-	if maxOutput := root.Get("max_output_tokens"); maxOutput.Type == gjson.Number {
+	if maxOutput := root.Get("max_output_tokens"); maxOutput.Type != gjson.Null {
 		out["max_completion_tokens"] = maxOutput.Int()
 	}
 	if metadata := root.Get("metadata"); metadata.IsObject() {

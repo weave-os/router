@@ -511,7 +511,7 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 	}
 
 	if ov.DefaultMaxTokensKey != "" && ov.DefaultMaxTokensValue > 0 {
-		if !gjson.GetBytes(out, ov.DefaultMaxTokensKey).Exists() {
+		if gjson.GetBytes(out, ov.DefaultMaxTokensKey).Type == gjson.Null {
 			out, err = sjson.SetBytes(out, ov.DefaultMaxTokensKey, ov.DefaultMaxTokensValue)
 			if err != nil {
 				return nil, fmt.Errorf("set default %s: %w", ov.DefaultMaxTokensKey, err)
@@ -1066,8 +1066,8 @@ func resolveOpenAIOverrides(body []byte, opts EmitOptions) EmitOverrides {
 	}
 
 	maxTokens := gjson.GetBytes(body, "max_tokens")
-	hasMaxTokens := maxTokens.Type == gjson.Number
-	hasMaxComp := gjson.GetBytes(body, "max_completion_tokens").Type == gjson.Number
+	hasMaxTokens := maxTokens.Type != gjson.Null
+	hasMaxComp := gjson.GetBytes(body, "max_completion_tokens").Type != gjson.Null
 
 	if maxTokens.Exists() && supportsReasoning {
 		if hasMaxTokens && !hasMaxComp {
