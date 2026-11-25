@@ -1,7 +1,6 @@
 package proxy_test
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -16,25 +15,16 @@ import (
 )
 
 func TestUnsupportedUserPart_ClassifiedAsClientVisible400(t *testing.T) {
-	err := fmt.Errorf("prepare: %w", translate.NewUnsupportedUserPart(translate.FormatOpenAI, "anthropic", "input_audio", "anthropic has no audio input"))
-
-	cls, ok := proxy.ClassifyDispatchError(err)
+	partErr := &translate.UnsupportedUserPartError{SourceFormat: translate.FormatOpenAI, TargetFamily: "anthropic", PartType: "input_audio", Reason: "anthropic has no audio input"}
+	classification, ok := proxy.ClassifyDispatchError(fmt.Errorf("prepare: %w", partErr))
 	require.True(t, ok)
-	assert.Equal(t, http.StatusBadRequest, cls.Status)
-	assert.Equal(t, ingress.DispatchErrorTranslationIntrinsicallyIncompatible, cls.Kind)
-	assert.True(t, cls.Kind.IsClientError())
-	assert.Equal(t, "warn", cls.LogLevel)
-	assert.Contains(t, cls.Message, "anthropic")
-	assert.Contains(t, cls.Message, "input_audio")
-	assert.Contains(t, cls.Message, "anthropic has no audio input")
-}
-
-func TestUnsupportedUserPart_BareSentinelStillClassified(t *testing.T) {
-	cls, ok := proxy.ClassifyDispatchError(fmt.Errorf("prepare: %w", translate.ErrUnsupportedUserPart))
-	require.True(t, ok)
-	assert.Equal(t, http.StatusBadRequest, cls.Status)
-	assert.True(t, cls.Kind.IsClientError())
-	assert.NotEmpty(t, cls.Message)
+	assert.Equal(t, http.StatusBadRequest, classification.Status)
+	assert.Equal(t, ingress.DispatchErrorTranslationIntrinsicallyIncompatible, classification.Kind)
+	assert.True(t, classification.Kind.IsClientError())
+	assert.Equal(t, "warn", classification.LogLevel)
+	assert.Contains(t, classification.Message, "anthropic")
+	assert.Contains(t, classification.Message, "input_audio")
+	assert.Contains(t, classification.Message, "anthropic has no audio input")
 }
 
 func TestUnsupportedUserPart_DefaultCompatibilityModeRejectsAtEmit(t *testing.T) {
@@ -53,6 +43,7 @@ func TestUnsupportedUserPart_DefaultCompatibilityModeRejectsAtEmit(t *testing.T)
 
 	prepareOpenAI := func(body []byte, emit func(*translate.RequestEnvelope) ([]byte, error)) func(*testing.T) ([]byte, error) {
 		return func(t *testing.T) ([]byte, error) {
+			t.Helper()
 			env, err := translate.ParseOpenAI(body)
 			require.NoError(t, err)
 			return emit(env)
@@ -60,6 +51,7 @@ func TestUnsupportedUserPart_DefaultCompatibilityModeRejectsAtEmit(t *testing.T)
 	}
 	prepareAnthropic := func(body []byte, emit func(*translate.RequestEnvelope) ([]byte, error)) func(*testing.T) ([]byte, error) {
 		return func(t *testing.T) ([]byte, error) {
+			t.Helper()
 			env, err := translate.ParseAnthropic(body)
 			require.NoError(t, err)
 			return emit(env)
@@ -94,19 +86,19 @@ func TestUnsupportedUserPart_DefaultCompatibilityModeRejectsAtEmit(t *testing.T)
 		t.Run(tc.name, func(t *testing.T) {
 			body, err := tc.prepare(t)
 			require.Error(t, err)
-			require.True(t, errors.Is(err, translate.ErrUnsupportedUserPart))
+			require.ErrorIs(t, err, translate.ErrUnsupportedUserPart)
 			var partErr *translate.UnsupportedUserPartError
 			require.ErrorAs(t, err, &partErr)
 			assert.Equal(t, tc.target, partErr.TargetFamily)
 			assert.Equal(t, tc.partType, partErr.PartType)
 			assert.Empty(t, body, "a rejected request must not produce an upstream body")
 
-			cls, ok := proxy.ClassifyDispatchError(err)
+			classification, ok := proxy.ClassifyDispatchError(err)
 			require.True(t, ok)
-			assert.Equal(t, http.StatusBadRequest, cls.Status)
-			assert.True(t, cls.Kind.IsClientError())
-			assert.Contains(t, cls.Message, tc.partType)
-			assert.Contains(t, cls.Message, tc.target)
+			assert.Equal(t, http.StatusBadRequest, classification.Status)
+			assert.True(t, classification.Kind.IsClientError())
+			assert.Contains(t, classification.Message, tc.partType)
+			assert.Contains(t, classification.Message, tc.target)
 		})
 	}
 }

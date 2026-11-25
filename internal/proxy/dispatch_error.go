@@ -31,6 +31,7 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 	var forcedClusterUnservable *policy.ForcedClusterUnservableError
 	var resolution *policy.ResolutionError
 	var compactionUnservable *CompactionUnservableError
+	var unsupportedPart *translate.UnsupportedUserPartError
 	switch {
 	case errors.Is(err, auth.ErrAnthropicFederationUnavailable):
 		return ingress.DispatchErrorClass{Kind: ingress.DispatchErrorAnthropicFederationUnavailable, Status: http.StatusServiceUnavailable, Message: "Anthropic workload federation is unavailable.", RetryAfter: true}, true
@@ -171,11 +172,11 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: invalid Anthropic cache_control",
 		}, true
-	case errors.Is(err, translate.ErrUnsupportedUserPart):
+	case errors.As(err, &unsupportedPart):
 		return ingress.DispatchErrorClass{
 			Kind:       ingress.DispatchErrorTranslationIntrinsicallyIncompatible,
 			Status:     http.StatusBadRequest,
-			Message:    unsupportedUserPartMessage(err),
+			Message:    unsupportedUserPartMessage(unsupportedPart),
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: unsupported user content part in cross-format translation",
 		}, true
@@ -282,11 +283,7 @@ func unwrapToSentinelMessage(err error) string {
 	return err.Error()
 }
 
-func unsupportedUserPartMessage(err error) string {
-	var partErr *translate.UnsupportedUserPartError
-	if !errors.As(err, &partErr) {
-		return "Unsupported user content part for the routed model. Remove the part or use a provider that accepts it."
-	}
+func unsupportedUserPartMessage(partErr *translate.UnsupportedUserPartError) string {
 	detail := strings.TrimSuffix(partErr.PartType+" ("+partErr.Reason+")", " ()")
 	return "Unsupported user content for " + partErr.TargetFamily + ": " + detail + ". Remove the part or use a provider that accepts it."
 }

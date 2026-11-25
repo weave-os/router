@@ -387,14 +387,11 @@ func geminiInlineDataFromOpenAIAudio(audio gjson.Result) (string, error) {
 	if data == "" || !isValidBase64(data) {
 		return "", newUnsupportedUserPart(FormatOpenAI, "gemini", "input_audio", "input_audio.data is missing or not valid base64")
 	}
-	return geminiInlineDataPart(geminiAudioMIMEType(audio.Get("format").String()), data), nil
-}
-
-func geminiAudioMIMEType(format string) string {
-	if strings.EqualFold(format, "mp3") {
-		return "audio/mpeg"
+	mime := "audio/wav"
+	if strings.EqualFold(audio.Get("format").String(), "mp3") {
+		mime = "audio/mpeg"
 	}
-	return "audio/wav"
+	return geminiInlineDataPart(mime, data), nil
 }
 
 func isValidBase64(data string) bool {

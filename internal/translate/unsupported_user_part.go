@@ -34,7 +34,3 @@ func newUnsupportedUserPart(src Format, target, partType, reason string) error {
 		Reason:       reason,
 	}
 }
-
-func NewUnsupportedUserPart(src Format, target, partType, reason string) error {
-	return newUnsupportedUserPart(src, target, partType, reason)
-}

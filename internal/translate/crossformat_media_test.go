@@ -59,8 +59,7 @@ func requireUnsupportedUserPart(t *testing.T, body []byte, err error, partType, 
 
 func singleUserContent(t *testing.T, body []byte, msgKey, contentKey string) []any {
 	t.Helper()
-	doc := unmarshalBody(t, body)
-	msgs := getArray(t, doc, msgKey)
+	msgs := getArray(t, unmarshalBody(t, body), msgKey)
 	require.Len(t, msgs, 1)
 	msg := msgAt(t, msgs, 0)
 	assert.Equal(t, "user", msg["role"])
@@ -90,8 +89,7 @@ func assertOpenAIFilePart(t *testing.T, part any) {
 	t.Helper()
 	m := mustAs[map[string]any](t, part)
 	assert.Equal(t, "file", m["type"])
-	file := getMap(t, m, "file")
-	assert.Equal(t, "data:application/pdf;base64,"+mediaTestPDF, file["file_data"])
+	assert.Equal(t, "data:application/pdf;base64,"+mediaTestPDF, getMap(t, m, "file")["file_data"])
 }
 
 func TestCrossFormat_OpenAIToAnthropic_BareFileIDRejected(t *testing.T) {
