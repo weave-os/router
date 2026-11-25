@@ -245,7 +245,7 @@ type RouterGlobalAutomaticRoutingExclusion struct {
 	CreatedBy *string
 }
 
-// Serving channels an installation may be admitted to; no rows keeps the enrollment-decided channel
+// Opt-in serving channels an installation may be admitted to; stable and internal stay enrollment-decided
 type RouterInstallationChannelPermission struct {
 	InstallationID uuid.UUID
 	Channel        string
