@@ -45,14 +45,16 @@ func TestServedTurnRecipeRecordsWorkerClassifierAndScoringPolicy(t *testing.T) {
 
 	assert.Equal(t, "prod/stable", telemetry.ServingTarget)
 	assert.Equal(t, turnrecord.ServingRecipe{
-		WorkerRevision:            "router-worker-00042",
-		WorkerImageDigest:         "sha256:worker",
-		WorkerConfigurationSHA256: "configuration-sha",
-		PolicySHA256:              "historical-policy-sha",
-		EffectiveStrategy:         string(router.StrategyHMMEmbedding),
-		ClassifierReleaseID:       "classifier-release-sha",
-		ClassifierEnabledVariants: "primary",
-		FlagOverridesSHA256:       overrideDigest,
+		ServingRecipe: requestcontext.ServingRecipe{
+			WorkerRevision:            "router-worker-00042",
+			WorkerImageDigest:         "sha256:worker",
+			WorkerConfigurationSHA256: "configuration-sha",
+			PolicySHA256:              "historical-policy-sha",
+			ClassifierReleaseID:       "classifier-release-sha",
+			ClassifierEnabledVariants: "primary",
+		},
+		EffectiveStrategy:   string(router.StrategyHMMEmbedding),
+		FlagOverridesSHA256: overrideDigest,
 	}, telemetry.ServingRecipe)
 }
 

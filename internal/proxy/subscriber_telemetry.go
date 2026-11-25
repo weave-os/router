@@ -26,17 +26,14 @@ func applyServingTelemetry(ctx context.Context, telemetry *turnrecord.InsertTele
 	telemetry.ServingProfileVersion = identity.ProfileRevision
 	telemetry.ServingReleaseID = identity.ReleaseID
 	telemetry.ServingBindingID = identity.BindingID
-	telemetry.ServingRecipe.WorkerRevision = identity.Recipe.WorkerRevision
-	telemetry.ServingRecipe.WorkerImageDigest = identity.Recipe.WorkerImageDigest
-	telemetry.ServingRecipe.WorkerConfigurationSHA256 = identity.Recipe.WorkerConfigurationSHA256
-	telemetry.ServingRecipe.ClassifierReleaseID = identity.Recipe.ClassifierReleaseID
-	telemetry.ServingRecipe.ClassifierEnabledVariants = identity.Recipe.ClassifierEnabledVariants
+	servedPolicySHA256 := telemetry.ServingRecipe.PolicySHA256
+	telemetry.ServingRecipe.ServingRecipe = identity.Recipe
+	if servedPolicySHA256 != "" {
+		telemetry.ServingRecipe.PolicySHA256 = servedPolicySHA256
+	}
 	telemetry.ServingRecipe.EffectiveStrategy = telemetry.Strategy
 	if telemetry.ServingRecipe.EffectiveStrategy == "" {
 		telemetry.ServingRecipe.EffectiveStrategy = string(router.StrategySelectionFromContext(ctx).Effective())
-	}
-	if telemetry.ServingRecipe.PolicySHA256 == "" {
-		telemetry.ServingRecipe.PolicySHA256 = identity.Recipe.PolicySHA256
 	}
 	if overrides, found := flags.StoredOverridesFromContext(ctx); found {
 		digest, err := overrides.Digest()

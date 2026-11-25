@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/switchpolicy"
 )
 
@@ -364,12 +365,7 @@ type AgreementShadowInput struct {
 }
 
 type ServingRecipe struct {
-	WorkerRevision            string
-	WorkerImageDigest         string
-	WorkerConfigurationSHA256 string
-	PolicySHA256              string
-	EffectiveStrategy         string
-	ClassifierReleaseID       string
-	ClassifierEnabledVariants string
-	FlagOverridesSHA256       string
+	requestcontext.ServingRecipe
+	EffectiveStrategy   string
+	FlagOverridesSHA256 string
 }
