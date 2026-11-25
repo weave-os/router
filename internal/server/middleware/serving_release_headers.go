@@ -5,13 +5,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/ingress"
 )
 
 type servingReleaseHeaderWriter struct {
 	gin.ResponseWriter
-	request func() *http.Request
-	stamped bool
+	request        func() *http.Request
+	experiments    InstallationExperimentChecker
+	installationID string
+	stamped        bool
 }
 
 func (w *servingReleaseHeaderWriter) stamp(status int) {
@@ -19,9 +22,14 @@ func (w *servingReleaseHeaderWriter) stamp(status int) {
 		return
 	}
 	w.stamped = true
-	if status < http.StatusBadRequest {
-		ingress.SetServingReleaseHeaders(w.request().Context(), w.Header())
+	if status >= http.StatusBadRequest {
+		return
 	}
+	ctx := w.request().Context()
+	if _, resolved := auth.BlindExperimentFrom(ctx); !resolved && w.experiments != nil && w.experiments.InstallationBlindExperimentEnabled(ctx, w.installationID) {
+		return
+	}
+	ingress.SetServingReleaseHeaders(ctx, w.Header())
 }
 
 func (w *servingReleaseHeaderWriter) WriteHeader(code int) {

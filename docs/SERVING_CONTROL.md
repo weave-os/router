@@ -784,6 +784,13 @@ the blind experiment is resolved, and never on a 4xx or 5xx refusal. Upstream-ga
 the installation opts in; `ServingReleaseHeadersVisible` in `internal/ingress/terminal_surfaces.go` is the one
 predicate to extend.
 
+`serving_release_headers_enabled` is a temporary opt-in. Its owner is serving
+admission. It is removed, or promoted to a documented permanent per-installation
+setting, once the release-attribution rollout is decided. On routes that never
+resolve the blind experiment into the request (`/v1/models`, `/v1/codex/models`,
+`/v1/messages/count_tokens`, `/v1/route`), an installation that runs a blind
+experiment never receives the headers.
+
 ## Self-hosted export
 
 `policyctl serving export-selfhosted` turns one managed activation into a

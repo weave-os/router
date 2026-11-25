@@ -32,6 +32,11 @@ type ServingAdmissionConfig struct {
 	Attribution       policyregistry.RequestAttributionStore
 	StableBaseURL     string
 	BetaBaseURL       string
+	Experiments       InstallationExperimentChecker
+}
+
+type InstallationExperimentChecker interface {
+	InstallationBlindExperimentEnabled(ctx context.Context, installationID string) bool
 }
 
 func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
@@ -107,7 +112,7 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 			return
 		}
 		c.Request = c.Request.WithContext(ctx)
-		c.Writer = &servingReleaseHeaderWriter{ResponseWriter: c.Writer, request: func() *http.Request { return c.Request }}
+		c.Writer = &servingReleaseHeaderWriter{ResponseWriter: c.Writer, request: func() *http.Request { return c.Request }, experiments: cfg.Experiments, installationID: installation.ID}
 		c.Next()
 	}
 }
