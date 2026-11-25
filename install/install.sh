@@ -2669,11 +2669,11 @@ write_claude_beta_settings() {
   beta_file="$(beta_settings_file)"
   refuse_if_symlink "$beta_file"
   [ "$beta_url" = "$BETA_HOSTED_BASE_URL" ] || override="$beta_url"
-  jq -n --arg url "$beta_url" --arg header "$custom_headers" --arg override "$override" '{
+  (umask 077 && jq -n --arg url "$beta_url" --arg header "$custom_headers" --arg override "$override" '{
     env: ({ ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header,
             ENABLE_TOOL_SEARCH: "true", CLAUDE_CODE_AUTO_MODE_SERVER: "0" }
           + (if $override == "" then {} else { WEAVE_ROUTER_BETA_URL: $override } end))
-  }' >"$beta_file.tmp"
+  }' >"$beta_file.tmp")
   chmod 600 "$beta_file.tmp"
   mv -f "$beta_file.tmp" "$beta_file"
   ok "Beta settings written to $beta_file"

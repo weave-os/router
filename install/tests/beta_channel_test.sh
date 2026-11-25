@@ -55,7 +55,7 @@ launcher="$h/.weave/bin/claude-beta"
 [ "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$beta")" = "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$settings")" ] \
   || fail "beta settings do not carry the same router key headers"
 [ "$(jq -r '.env | has("WEAVE_ROUTER_BETA_URL")' "$beta")" = false ] || fail "default beta host was written as an override"
-[ "$(stat -f %Lp "$beta" 2>/dev/null || stat -c %a "$beta")" = 600 ] || fail "weave-beta.json is not mode 600"
+[ "$(stat -c %a "$beta" 2>/dev/null || stat -f %Lp "$beta")" = 600 ] || fail "weave-beta.json is not mode 600"
 [ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$settings")" = "$hosted" ] || fail "stable settings were changed"
 [ -x "$launcher" ] || fail "claude-beta launcher was not installed"
 grep -Fq -- "--settings" "$launcher" || fail "claude-beta does not pass --settings"
