@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -170,6 +171,14 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: invalid Anthropic cache_control",
 		}, true
+	case errors.Is(err, translate.ErrUnsupportedUserPart):
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorTranslationIntrinsicallyIncompatible,
+			Status:     http.StatusBadRequest,
+			Message:    unsupportedUserPartMessage(err),
+			LogLevel:   "warn",
+			LogMessage: "Rejected request: unsupported user content part in cross-format translation",
+		}, true
 	case errors.Is(err, ErrTranslationIntrinsicallyIncompatible):
 		return ingress.DispatchErrorClass{
 			Kind:       ingress.DispatchErrorTranslationIntrinsicallyIncompatible,
@@ -271,6 +280,15 @@ func unwrapToSentinelMessage(err error) string {
 		}
 	}
 	return err.Error()
+}
+
+func unsupportedUserPartMessage(err error) string {
+	var partErr *translate.UnsupportedUserPartError
+	if !errors.As(err, &partErr) {
+		return "Unsupported user content part for the routed model. Remove the part or use a provider that accepts it."
+	}
+	detail := strings.TrimSuffix(partErr.PartType+" ("+partErr.Reason+")", " ()")
+	return "Unsupported user content for " + partErr.TargetFamily + ": " + detail + ". Remove the part or use a provider that accepts it."
 }
 
 var allowanceWindowNames = map[entitlement.PeriodKind]string{
