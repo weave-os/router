@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/postgres"
 
 	"github.com/stretchr/testify/assert"
@@ -29,18 +30,19 @@ func TestBillingTablesExistDetectsMissingAutopayConfig(t *testing.T) {
 	assert.False(t, ok, "missing subscriber_autopay_config must fail billing readiness")
 }
 
-func TestMalformedSpendIDsEnforceNoCapWithoutError(t *testing.T) {
-	repo := postgres.NewBillingRepo(nil)
+func TestMissingSpendGrantsFailsUserGateClosedWithoutDisablingBilling(t *testing.T) {
+	pool := testPool(t)
 	ctx := context.Background()
-
-	spent, keyCap, found, err := repo.GetAPIKeySpend(ctx, "not-a-uuid")
+	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
-	assert.False(t, found)
-	assert.Nil(t, keyCap)
-	assert.Zero(t, spent)
-
-	spent, limit, err := repo.GetUserMonthlySpendAndLimit(ctx, "org", "not-a-uuid")
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, "DROP TABLE router.model_router_user_spend_grants")
 	require.NoError(t, err)
-	assert.Nil(t, limit)
-	assert.Zero(t, spent)
+
+	tablesExist, err := postgres.NewBillingRepo(tx).BillingTablesExist(ctx)
+	require.NoError(t, err)
+	require.True(t, tablesExist, "a missing grants table must not switch billing off for the whole fleet")
+
+	_, err = billing.CheckUserMonthlySpendLimit(ctx, billing.NewService(postgres.NewBillingRepo(tx)), "spend-grant-missing-org", "7c000000-0000-0000-0000-0000000000a1", func() bool { return false })
+	assert.ErrorIs(t, err, billing.ErrSpendLimitCheckUnavailable, "the user gate fails closed for that request instead")
 }

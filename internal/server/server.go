@@ -106,6 +106,25 @@ type Features struct {
 	TelemetryQueries         turnrecord.Queries
 	FeedbackLinks            *feedback.Links
 	EscalationAdmin          admin.EscalationAdmin
+	UsageAnalytics           *analytics.UsageService
+}
+
+func registerAnalytics(engine *gin.Engine, authSvc *auth.Service, analyticsSvc *analytics.Service, features Features) {
+	if analyticsSvc != nil {
+		analyticsGroup := engine.Group("/v1/analytics",
+			middleware.WithTimeout(analyticsTimeout),
+			middleware.WithAnalyticsDeprecation(),
+			middleware.WithAnalyticsKey(authSvc),
+			middleware.WithAnalyticsRateLimit(middleware.AnalyticsRequestsPerMinute),
+		)
+		analyticsGroup.GET("/routing-decisions", analyticsapi.RoutingDecisionsHandler(analyticsSvc))
+		analyticsGroup.GET("/models", analyticsapi.ModelsHandler())
+		analyticsGroup.GET("/schema", analyticsapi.SchemaHandler())
+	}
+	if features.InternalServiceToken != "" && features.UsageAnalytics != nil {
+		internalAnalytics := engine.Group("/internal/v1/analytics", middleware.WithTimeout(analyticsTimeout), middleware.WithInternalServiceAuth(features.InternalServiceToken))
+		internalAnalytics.GET("/usage", analyticsapi.UsageHandler(features.UsageAnalytics))
+	}
 }
 
 func registerInternalEscalation(internalGroup *gin.RouterGroup, escalationAdmin admin.EscalationAdmin) {
@@ -404,16 +423,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, services Se
 	previewGroup := engine.Group("", previewMiddleware...)
 	previewGroup.POST("/v1/route/preview", anthropicapi.PreviewRouteHandler(services.RoutePreviewer))
 
-	if analyticsSvc != nil {
-		analyticsGroup := engine.Group("/v1/analytics",
-			middleware.WithTimeout(analyticsTimeout),
-			middleware.WithAnalyticsKey(authSvc),
-			middleware.WithAnalyticsRateLimit(middleware.AnalyticsRequestsPerMinute),
-		)
-		analyticsGroup.GET("/routing-decisions", analyticsapi.RoutingDecisionsHandler(analyticsSvc))
-		analyticsGroup.GET("/models", analyticsapi.ModelsHandler())
-		analyticsGroup.GET("/schema", analyticsapi.SchemaHandler())
-	}
+	registerAnalytics(engine, authSvc, analyticsSvc, features)
 
 	if features.FeedbackLinks.Enabled() {
 		feedbackGroup := engine.Group("/v1/feedback", middleware.WithTimeout(feedbackTimeout))

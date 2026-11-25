@@ -54,8 +54,8 @@ func (r *stubBillingRepo) DebitInference(_ context.Context, _ billing.DebitParam
 func (r *stubBillingRepo) GetAPIKeySpend(_ context.Context, _ string) (int64, *int64, bool, error) {
 	return r.spendMicros, r.capMicros, r.spendFound, r.spendErr
 }
-func (r *stubBillingRepo) GetUserMonthlySpendAndLimit(_ context.Context, _, _ string) (int64, *int64, error) {
-	return 0, nil, nil
+func (r *stubBillingRepo) GetUserMonthlySpendAndLimit(_ context.Context, _, _ string) (int64, *int64, int64, error) {
+	return 0, nil, 0, nil
 }
 func (r *stubBillingRepo) GetOrgMonthlySpendAndLimit(_ context.Context, organizationID string) (int64, *int64, error) {
 	r.orgMonthOrgIDs = append(r.orgMonthOrgIDs, organizationID)

@@ -52,3 +52,21 @@ func TestCheckOrgMonthlySpend_RepoError(t *testing.T) {
 	_, err := svc.CheckOrgMonthlySpend(context.Background(), "org-1")
 	assert.ErrorIs(t, err, sentinel)
 }
+
+func TestMonthlySpendResult_GrantRaisesEffectiveLimit(t *testing.T) {
+	overBaseCap := billing.MonthlySpendResult{SpentMicros: 1_200_000, LimitMicros: limitPtr(1_000_000), GrantedMicros: 500_000}
+	assert.False(t, overBaseCap.LimitReached(), "over base but under base+grant is allowed")
+	require.NotNil(t, overBaseCap.EffectiveLimitMicros())
+	assert.Equal(t, int64(1_500_000), *overBaseCap.EffectiveLimitMicros())
+
+	assert.True(t, billing.MonthlySpendResult{SpentMicros: 1_500_000, LimitMicros: limitPtr(1_000_000), GrantedMicros: 500_000}.LimitReached())
+	assert.Nil(t, billing.MonthlySpendResult{SpentMicros: 5, GrantedMicros: 500_000}.EffectiveLimitMicros(), "uncapped stays uncapped")
+}
+
+func TestCheckUserMonthlySpend_CarriesGrant(t *testing.T) {
+	svc := billing.NewService(&fakeRepo{userMonthSpent: 42, userMonthLimit: limitPtr(100), userMonthGranted: 25})
+	res, err := svc.CheckUserMonthlySpend(context.Background(), "org-1", "user-1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(25), res.GrantedMicros)
+	assert.Equal(t, int64(125), *res.EffectiveLimitMicros())
+}

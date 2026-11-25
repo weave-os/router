@@ -22,7 +22,8 @@ func CheckUserMonthlySpendLimit(ctx context.Context, svc *Service, orgID, userID
 				"organization_id", orgID,
 				"router_user_id", userID,
 				"spent_usd_micros", spend.SpentMicros,
-				"monthly_limit_usd_micros", *spend.LimitMicros,
+				"monthly_limit_usd_micros", *spend.EffectiveLimitMicros(),
+				"granted_usd_micros", spend.GrantedMicros,
 			)
 			return laneCtx, nil
 		}
@@ -30,9 +31,10 @@ func CheckUserMonthlySpendLimit(ctx context.Context, svc *Service, orgID, userID
 			"organization_id", orgID,
 			"router_user_id", userID,
 			"spent_usd_micros", spend.SpentMicros,
-			"monthly_limit_usd_micros", *spend.LimitMicros,
+			"monthly_limit_usd_micros", *spend.EffectiveLimitMicros(),
+			"granted_usd_micros", spend.GrantedMicros,
 		)
-		return ctx, fmt.Errorf("%w: spent %d of %d usd micros", ErrUserMonthlySpendLimitReached, spend.SpentMicros, *spend.LimitMicros)
+		return ctx, fmt.Errorf("%w: spent %d of %d usd micros", ErrUserMonthlySpendLimitReached, spend.SpentMicros, *spend.EffectiveLimitMicros())
 	}
 	return ctx, nil
 }

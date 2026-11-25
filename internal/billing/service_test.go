@@ -55,6 +55,7 @@ type fakeRepo struct {
 	userMonthSpent   int64
 	userMonthLimit   *int64
 	userMonthErr     error
+	userMonthGranted int64
 	orgMonthSpent    int64
 	orgMonthLimit    *int64
 	orgMonthErr      error
@@ -100,11 +101,11 @@ func (r *fakeRepo) GetAPIKeySpend(_ context.Context, _ string) (int64, *int64, b
 	return 0, nil, false, nil
 }
 
-func (r *fakeRepo) GetUserMonthlySpendAndLimit(_ context.Context, _, _ string) (int64, *int64, error) {
+func (r *fakeRepo) GetUserMonthlySpendAndLimit(_ context.Context, _, _ string) (int64, *int64, int64, error) {
 	if r.userMonthErr != nil {
-		return 0, nil, r.userMonthErr
+		return 0, nil, 0, r.userMonthErr
 	}
-	return r.userMonthSpent, r.userMonthLimit, nil
+	return r.userMonthSpent, r.userMonthLimit, r.userMonthGranted, nil
 }
 
 func (r *fakeRepo) GetOrgMonthlySpendAndLimit(_ context.Context, _ string) (int64, *int64, error) {

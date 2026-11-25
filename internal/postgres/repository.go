@@ -26,6 +26,7 @@ type Repository struct {
 	Telemetry                 *TelemetryRepo
 	Feedback                  *FeedbackRepo
 	Analytics                 *AnalyticsRepo
+	Usage                     *UsageRepo
 	FlagDefinitions           *FlagDefinitionRepo
 	GlobalAutomaticExclusions *GlobalAutomaticExclusionRepo
 }
@@ -45,6 +46,7 @@ func NewRepository(tx sqlc.DBTX, encryptor auth.Encryptor) *Repository {
 		Telemetry:                 NewTelemetryRepo(tx),
 		Feedback:                  NewFeedbackRepo(tx),
 		Analytics:                 NewAnalyticsRepo(tx),
+		Usage:                     NewUsageRepo(tx),
 		FlagDefinitions:           NewFlagDefinitionRepo(tx),
 		GlobalAutomaticExclusions: NewGlobalAutomaticExclusionRepo(tx),
 	}
