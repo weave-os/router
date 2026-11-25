@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
-	"maps"
 	"net/url"
 	"os"
 	"strings"
@@ -168,8 +166,8 @@ func ExportSelfHostedServingGraph(ctx context.Context, source SelfHostedExportSt
 }
 
 type selfHostedActivationSource struct {
-	activation Activation
-	selection  *SelectionSetV4
+	pinned    Activation
+	selection *SelectionSetV4
 }
 
 type selfHostedPinnedObjects struct {
@@ -224,7 +222,7 @@ func readSelfHostedActivation(ctx context.Context, source SelfHostedExportStore,
 	if !isV4 {
 		return selfHostedActivationSource{}, fmt.Errorf("activation %s selects %T; self-hosted export supports only v4 classifier selection sets", activation.ID, selectionManifest)
 	}
-	return selfHostedActivationSource{activation: activation, selection: selection}, nil
+	return selfHostedActivationSource{pinned: activation, selection: selection}, nil
 }
 
 func readSelfHostedPinned(ctx context.Context, source SelfHostedExportStore, activation selfHostedActivationSource, routerImageDigest string) (selfHostedPinnedObjects, error) {
@@ -251,7 +249,12 @@ func readSelfHostedPinned(ctx context.Context, source SelfHostedExportStore, act
 	if release.Variants[policy.ClassifierVariantPrimary].PackageWeaveDataRef == nil {
 		return selfHostedPinnedObjects{}, errors.New("classifier release primary variant has no package reference")
 	}
-	return selfHostedPinnedObjects{activation: activation.activation, selection: selection, release: release, candidatePayload: candidatePayload, releasePayload: releasePayload}, nil
+	for _, variantID := range selection.Classifier.EnabledVariants {
+		if kind := release.Variants[variantID].Kind; kind != ClassifierVariantKindHMMPackage {
+			return selfHostedPinnedObjects{}, fmt.Errorf("enabled classifier variant %q is a %q; the self-hosted classifier serves only %q variants", variantID, kind, ClassifierVariantKindHMMPackage)
+		}
+	}
+	return selfHostedPinnedObjects{activation: activation.pinned, selection: selection, release: release, candidatePayload: candidatePayload, releasePayload: releasePayload}, nil
 }
 
 func selfHostedReleasePayload(pinned selfHostedPinnedObjects, classifierImageDigest string) ([]byte, bool, error) {
@@ -380,83 +383,6 @@ func rebindSelfHostedGraph(graph *selfHostedGraph, request SelfHostedExportReque
 	return selfHostedBoundRefs{selectionRef: selectionRef, configurationRef: configurationRef}, nil
 }
 
-func carrySelfHostedHistory(ctx context.Context, request SelfHostedExportRequest, graph selfHostedGraph) (*ServingControlState, error) {
-	if request.PreviousDir == "" {
-		return nil, nil
-	}
-	store, err := NewDirectoryServingStore(request.PreviousDir)
-	if err != nil {
-		return nil, fmt.Errorf("open previous self-hosted export: %w", err)
-	}
-	if store.RootURI() != graph.root {
-		return nil, fmt.Errorf("previous export root %s differs from %s", store.RootURI(), graph.root)
-	}
-	snapshot, err := store.ReadServingState(ctx, request.Target)
-	if err != nil {
-		return nil, fmt.Errorf("read previous self-hosted serving state: %w", err)
-	}
-	statePath, err := DirectoryServingStatePath(request.Target)
-	if err != nil {
-		return nil, err
-	}
-	regenerated := map[string]struct{}{statePath: {}, directoryServingRootFile: {}, SelfHostedClassifierReleasePath: {}, SelfHostedClassifierSelectionPath: {}}
-	previousRoot, err := os.OpenRoot(request.PreviousDir)
-	if err != nil {
-		return nil, fmt.Errorf("open previous self-hosted export: %w", err)
-	}
-	defer func() { _ = previousRoot.Close() }()
-	previousFS := previousRoot.FS()
-	err = fs.WalkDir(previousFS, ".", func(relative string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil || entry.IsDir() {
-			return walkErr
-		}
-		if _, skip := regenerated[relative]; skip {
-			return nil
-		}
-		payload, err := fs.ReadFile(previousFS, relative)
-		if err != nil {
-			return err
-		}
-		graph.objects[relative] = payload
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("copy previous self-hosted export: %w", err)
-	}
-	return &snapshot.State, nil
-}
-
-func selfHostedServingState(previous *ServingControlState, target ServingTarget, next Activation) ServingControlState {
-	state := ServingControlState{SchemaVersion: ServingControlStateV1, Target: target, Sequence: 1, Activations: map[string]Activation{}}
-	if previous != nil {
-		current := previous.Activations[previous.CurrentActivationID]
-		if current.SelectionSet == next.SelectionSet {
-			return *previous
-		}
-		state.Sequence = previous.Sequence + 1
-		state.Activations = maps.Clone(previous.Activations)
-		if next.ActivatedAt.Before(current.ActivatedAt) {
-			next.ActivatedAt = current.ActivatedAt
-		}
-	}
-	next.Sequence = state.Sequence
-	next.ID = uuid.NewSHA1(selfHostedActivationNamespace, fmt.Appendf(nil, "%s/%d", next.SelectionSet.SHA256, next.Sequence)).String()
-	retiredAt := next.ActivatedAt
-	for id, retired := range state.Activations {
-		if retired.SupersededAt == nil {
-			retired.SupersededAt = &retiredAt
-		}
-		if retired.WithdrawnAt == nil {
-			retired.WithdrawnAt = &retiredAt
-			retired.ReplacementID = next.ID
-		}
-		state.Activations[id] = retired
-	}
-	state.CurrentActivationID = next.ID
-	state.Activations[next.ID] = next
-	return state
-}
-
 func rebindReason(copied selfHostedCopied, pinned selfHostedPinnedObjects) string {
 	if !copied.rebound {
 		return ""
@@ -479,7 +405,7 @@ func selfHostedExportDocument(request SelfHostedExportRequest, activation selfHo
 			ReleaseManifestPath: SelfHostedClassifierReleasePath, SelectionPath: SelfHostedClassifierSelectionPath,
 		},
 		ClassifierEnv: SelfHostedClassifierEnv{ReleaseManifestPath: SelfHostedClassifierReleasePath, SelectionPath: SelfHostedClassifierSelectionPath},
-		Source:        SelfHostedExportSource{Target: request.Target, ActivationID: activation.activation.ID, SelectionSetSHA256: activation.activation.SelectionSet.SHA256},
+		Source:        SelfHostedExportSource{Target: request.Target, ActivationID: activation.pinned.ID, SelectionSetSHA256: activation.pinned.SelectionSet.SHA256},
 	}
 }
 

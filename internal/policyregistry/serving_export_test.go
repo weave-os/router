@@ -385,3 +385,27 @@ func TestExportSelfHostedUpgradeRebindsSessionsFromThePreviousExport(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, snapshot.State, replayed.State)
 }
+
+func TestExportSelfHostedUpgradeRejectsATamperedPreviousExport(t *testing.T) {
+	ctx := context.Background()
+	firstDir := t.TempDir()
+	_, err := policyregistry.ExportSelfHostedServingGraph(ctx, newGCSShapedExportSource(t), selfHostedExportRequest(firstDir))
+	require.NoError(t, err)
+	statePath, err := policyregistry.DirectoryServingStatePath(hmmstub.ServingTarget)
+	require.NoError(t, err)
+	var state policyregistry.ServingControlState
+	statePayload, err := os.ReadFile(filepath.Join(firstDir, filepath.FromSlash(statePath)))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(statePayload, &state))
+	root, err := policyregistry.NewDirectoryServingStore(firstDir)
+	require.NoError(t, err)
+	selection := filepath.Join(firstDir, filepath.FromSlash(strings.TrimPrefix(state.Activations[state.CurrentActivationID].SelectionSet.URI, root.RootURI()+"/")))
+	payload, err := os.ReadFile(selection)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(selection, append(payload, ' '), 0o600))
+
+	request := selfHostedExportRequest(t.TempDir())
+	request.PreviousDir = firstDir
+	_, err = policyregistry.ExportSelfHostedServingGraph(ctx, newGCSShapedExportSource(t), request)
+	require.ErrorContains(t, err, "does not match its digest")
+}

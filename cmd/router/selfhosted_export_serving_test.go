@@ -90,8 +90,9 @@ func TestExportedServingSourceIsAbsentForManagedRegistries(t *testing.T) {
 	require.Nil(t, exportedServingSource(policyregistry.WorkerIdentity{}))
 }
 
-func TestUIEnabledDefaultsOnAndOnlyFalseDisablesIt(t *testing.T) {
-	for value, enabled := range map[string]bool{"": true, "true": true, "TRUE": true, "false": false, " False ": false, "0": true} {
+func TestUIEnabledParsesBooleansAndDefaultsOnForAStandaloneRouter(t *testing.T) {
+	t.Setenv("ROUTER_INTERNAL_SERVICE_TOKEN", "")
+	for value, enabled := range map[string]bool{"": true, "true": true, "TRUE": true, "1": true, "false": false, " False ": false, "0": false, "not-a-bool": true} {
 		t.Setenv("ROUTER_UI_ENABLED", value)
 		require.Equal(t, enabled, uiEnabledFromEnv(), value)
 	}

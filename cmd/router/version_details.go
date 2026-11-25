@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"weave-os/router/internal/api/admin"
@@ -14,8 +15,8 @@ import (
 )
 
 func uiEnabledFromEnv() bool {
-	if configured := strings.TrimSpace(config.GetOr("ROUTER_UI_ENABLED", "")); configured != "" {
-		return !strings.EqualFold(configured, "false")
+	if enabled, err := strconv.ParseBool(strings.TrimSpace(config.GetOr("ROUTER_UI_ENABLED", ""))); err == nil {
+		return enabled
 	}
 	linkedToWeave := server.DeploymentMode(config.GetOr("ROUTER_DEPLOYMENT_MODE", string(server.DeploymentModeSelfHosted))) == server.DeploymentModeSelfHosted && internalServiceTokenFromEnv() != ""
 	return !linkedToWeave
