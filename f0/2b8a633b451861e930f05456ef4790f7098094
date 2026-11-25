@@ -1,0 +1,19 @@
+internal/proxy/service.go
+  s_54eed062b921da::t_3d9253bf876df6 1442-1443
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "f02b8a633b451861e930f05456ef4790f7098094",
+  "prompts": {},
+  "sessions": {
+    "s_54eed062b921da": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d02b656d-81f5-41d1-88eb-98e754eb8bdb",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

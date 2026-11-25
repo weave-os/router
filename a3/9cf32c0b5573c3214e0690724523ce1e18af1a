@@ -1,0 +1,36 @@
+internal/translate/AGENTS.md
+  s_7a7f620246593b::t_3d4dd074d0ab27 114-117
+internal/translate/CLAUDE.md
+  s_7a7f620246593b::t_029d1132e4ff62 114-117
+internal/translate/command_history.go
+  s_7a7f620246593b::t_9f49b7fcd37727 56,63,68-69,81,139-158,175,181,184,214,295,301,306-310
+  s_7a7f620246593b::t_ab2bd570af74ca 296,302-305,311-316,321
+  s_7a7f620246593b::t_1f950ef1bd5c9b 79,159-160,176,189-191,317-319
+  s_7a7f620246593b::t_59bc72248c5910 57,70-78,91,161-174,177-180,182-183,185-188,192-213,320
+  s_7a7f620246593b::t_b9896e25a31510 215
+internal/translate/command_history_internal_test.go
+  s_7a7f620246593b::t_46b533100dc64f 140-141
+  s_7a7f620246593b::t_3e2d022d631438 143-144,153-154
+  s_7a7f620246593b::t_514aadb83f8e30 138-139,142,145-152,155-185
+internal/translate/command_history_test.go
+  s_7a7f620246593b::t_3e2d022d631438 5,76-77,80,82
+  s_7a7f620246593b::t_62b3e6a2fbbaa3 72,95,125-126
+  s_7a7f620246593b::t_029d1132e4ff62 84-88,92,106,121,133-134
+  s_7a7f620246593b::t_2e3778ce93449d 73-75,78-79,81,83,89-91,93-94,96-105,107-120,122-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a39cf32c0b5573c3214e0690724523ce1e18af1a",
+  "prompts": {},
+  "sessions": {
+    "s_7a7f620246593b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ccff-ce44-74d0-b044-15adb92fb852",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Sam Coutts <sam@workweave.ai>"
+    }
+  }
+}

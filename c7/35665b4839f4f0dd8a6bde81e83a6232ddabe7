@@ -1,0 +1,58 @@
+internal/proxy/response_protocol_switch_internal_test.go
+  s_95845d1025ffe4::t_8c026c8d0389a2 71-115
+  s_95845d1025ffe4::t_59868ee9513854 54-55,116
+  s_95845d1025ffe4::t_e9d700e238e7cf 56-68
+  s_95845d1025ffe4::t_ec4a538f6e29cd 69-70
+internal/proxy/gemini_tool_mode_retry.go
+  s_95845d1025ffe4::t_47aafc4c7cb508 1-11,15,17-41
+  s_95845d1025ffe4::t_e9d700e238e7cf 12-14,16
+internal/proxy/CLAUDE.md
+  s_95845d1025ffe4::t_5ade1a48bc40a3 441
+internal/proxy/model_attempt_options_internal_test.go
+  s_95845d1025ffe4::t_f0453f60f2cdca 20-21,30-31,35
+  s_95845d1025ffe4::t_95cd0827a55b7c 1-19,22-29,32-34,36-37
+internal/proxy/gemini_tool_mode_retry_test.go
+  s_95845d1025ffe4::t_e3a722ce004dce 36
+  s_95845d1025ffe4::t_8c026c8d0389a2 1-21,30-35,37-47,49-58,60-67
+  s_95845d1025ffe4::t_1d9b73150d0dbe 22-24,27-29
+  s_95845d1025ffe4::t_7c87ffe6f146fe 48
+  s_95845d1025ffe4::t_a6045ca07d21b1 59
+  s_95845d1025ffe4::t_3991842c495a17 25-26
+internal/proxy/service.go
+  s_95845d1025ffe4::t_7ff5f881c35ed6 5153-5155
+  s_95845d1025ffe4::t_39a015f1a1dfe6 7287,7522,7605,7607,7616-7617,7620,7622,7667,7689,7692,7739,7965,7993-7994
+  s_95845d1025ffe4::t_8c246bcb651764 4812-4817,4984,5040,5344,8044-8047,8239,8417,8493
+  s_95845d1025ffe4::t_e9d700e238e7cf 7618-7619,7621,8059,8093-8102,8105-8116
+  s_95845d1025ffe4::t_220acd23ceafe0 7623,7629-7630,7641,7669
+internal/proxy/response_protocol_switch.go
+  s_95845d1025ffe4::t_d2fa413f117cfb 36,38,40-57,61-71,89-91,107,117
+  s_95845d1025ffe4::t_e9d700e238e7cf 33-35,37
+  s_95845d1025ffe4::t_ec4a538f6e29cd 58-60,105-106
+  s_95845d1025ffe4::t_05c1ce6d0bd7db 12-26,92
+  s_95845d1025ffe4::t_72a77860cfb03c 39
+internal/proxy/fastmode_internal_test.go
+  s_95845d1025ffe4::t_fa9aa542f6fadd 224,233-237,239-248,250-256
+  s_95845d1025ffe4::t_cf7fb900bd4b8a 225-232,238,249
+internal/proxy/AGENTS.md
+  s_95845d1025ffe4::t_5ade1a48bc40a3 441
+internal/proxy/model_attempt_options.go
+  s_95845d1025ffe4::t_47aafc4c7cb508 1-20
+internal/proxy/fastmode.go
+  s_95845d1025ffe4::t_b005c4bf7f3db5 71-93,95-96,98-99,101-104,106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c735665b4839f4f0dd8a6bde81e83a6232ddabe7",
+  "prompts": {},
+  "sessions": {
+    "s_95845d1025ffe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1db9c-aee6-7cf2-a53f-0d751f308140",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

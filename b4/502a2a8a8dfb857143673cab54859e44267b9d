@@ -1,0 +1,24 @@
+internal/translate/force_model.go
+  s_049874a7166f8d::t_2f034fc1b795c8 64-95,120-128,143-147
+internal/translate/router_feedback.go
+  s_049874a7166f8d::t_20f972a4ba7352 79-87,89
+internal/translate/codex_skill_turn_test.go
+  s_049874a7166f8d::t_03356ed2320d59 1-40,48-104,123,137
+  s_049874a7166f8d::t_7f0438ce12c0ba 41-47,105-122,124-136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b4502a2a8a8dfb857143673cab54859e44267b9d",
+  "prompts": {},
+  "sessions": {
+    "s_049874a7166f8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b6a9f0a-cd46-4fd9-942c-7daea97cec2a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

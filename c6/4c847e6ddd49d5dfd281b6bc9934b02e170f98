@@ -1,0 +1,23 @@
+internal/policyclient/client_test.go
+  s_80d9b7f7eef86b::t_610b88d2a4ef7b 231,234
+internal/router/router.go
+  s_80d9b7f7eef86b::t_67b8725a8c8ea7 308-309
+internal/policyclient/client.go
+  s_80d9b7f7eef86b::t_25e974a601bd2e 384,396-398
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "c64c847e6ddd49d5dfd281b6bc9934b02e170f98",
+  "prompts": {},
+  "sessions": {
+    "s_80d9b7f7eef86b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4d0fe794-4035-4a5e-97f9-285eeb68ee17",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

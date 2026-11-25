@@ -1,0 +1,23 @@
+cmd/router/main.go
+  s_2d33071feb5300::t_8db2ee1ccd2b22 1882
+internal/anthropicwif/client.go
+  s_2d33071feb5300::t_3ea4d6ee246022 85,92,99-100,105
+internal/api/admin/keys.go
+  s_2d33071feb5300::t_d36e23b69853d2 215-218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2877c845743b50f9c8c5daed742236f8fb08e01b",
+  "prompts": {},
+  "sessions": {
+    "s_2d33071feb5300": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18e94-744a-7141-91dc-6f39035909e9",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

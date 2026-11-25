@@ -1,0 +1,21 @@
+install/pi-router/src/metadata.ts
+  s_fe45311f065c44::t_28c74f7a660170 3,16
+install/pi-router/test/metadata.test.ts
+  s_fe45311f065c44::t_54c28c0824ef2e 3-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bd91d7314925868d23503b264882f23ee57aab8b",
+  "prompts": {},
+  "sessions": {
+    "s_fe45311f065c44": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17630-7642-7322-a264-569cda5bc37b",
+        "model": "weave-hmm-20261019-0001v1"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

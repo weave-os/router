@@ -1,0 +1,45 @@
+cmd/router/main.go
+  s_771cc636e12898::t_40dbf9262e4bb4 1112
+  s_771cc636e12898::t_85b3024bfa2ce7 1124
+cmd/router/version_details.go
+  s_771cc636e12898::t_b114401c2e6ac8 5,10,39-42,44
+  s_771cc636e12898::t_cdd931b93d81df 12,20-35
+  s_771cc636e12898::t_0f67967c298624 1-4,6-9,11,13-19,36-38,43
+docs/CONFIGURATION.md
+  s_771cc636e12898::t_3ac4f3cad13152 576,583-595,622-624,641
+internal/server/server.go
+  s_771cc636e12898::t_a3411fae9d3f58 94-95,185,237
+internal/api/admin/version_test.go
+  s_771cc636e12898::t_4043536e23a5af 4,6,9,53-54,70,85-91,93-110,112-129
+  s_771cc636e12898::t_a3411fae9d3f58 30
+  s_771cc636e12898::t_05df665ca8142b 92,111
+internal/server/server_test.go
+  s_771cc636e12898::t_ea883d10663c18 8-9
+  s_771cc636e12898::t_f74f5b25945b21 126-138
+  s_771cc636e12898::t_3cc24191ac5463 139-140
+cmd/router/selfhosted_export_serving_test.go
+  s_771cc636e12898::t_e899d9b5ff3e0e 1-107
+internal/api/admin/version.go
+  s_771cc636e12898::t_c8482d7948da3d 14-18
+  s_771cc636e12898::t_b4fb765f884117 4,19-35,42,56-62
+internal/postgres/schema_version.go
+  s_771cc636e12898::t_0f67967c298624 1-25
+cmd/router/server_config.go
+  s_771cc636e12898::t_e64873e9761729 23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1a0b6f803fdcd6483f3903b7dae5d9c9412c6e67",
+  "prompts": {},
+  "sessions": {
+    "s_771cc636e12898": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "44f12d68-997e-4402-bc11-8fb34984afa0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

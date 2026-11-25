@@ -1,0 +1,70 @@
+internal/api/admin/fast_mode_models_test.go
+  s_2faba46bcfd306::t_8ca42bc413246a 74-76
+db/queries/model_router_installations.sql
+  s_2faba46bcfd306::t_c32ec17e3cb7e7 130-139
+internal/translate/strip_marker_test.go
+  s_2faba46bcfd306::t_759083e182b5ef 29
+  s_2faba46bcfd306::t_8a1ea6db2318d9 121-132
+internal/server/middleware/auth_test.go
+  s_2faba46bcfd306::t_bb6e1c4252bb1b 201,221
+  s_2faba46bcfd306::t_44468e28cd23ea 180-183
+internal/auth/service.go
+  s_2faba46bcfd306::t_c32ec17e3cb7e7 657-664
+internal/postgres/repository.go
+  s_2faba46bcfd306::t_8ca42bc413246a 322-338
+internal/translate/envelope.go
+  s_2faba46bcfd306::t_8a1ea6db2318d9 1084-1093,1119,1123
+db/migrations/0112_show-model-selection-reasoning.up.sql
+  s_2faba46bcfd306::t_c32ec17e3cb7e7 1-6
+db/migrations/0112_show-model-selection-reasoning.down.sql
+  s_2faba46bcfd306::t_c32ec17e3cb7e7 1-6
+internal/server/middleware/auth.go
+  s_2faba46bcfd306::t_8ca42bc413246a 177-179
+internal/auth/installation.go
+  s_2faba46bcfd306::t_c32ec17e3cb7e7 98-100,161
+internal/translate/responses_test.go
+  s_2faba46bcfd306::t_759083e182b5ef 245-251
+internal/auth/service_test.go
+  s_2faba46bcfd306::t_759083e182b5ef 160,306-309,1216-1221
+  s_2faba46bcfd306::t_8ca42bc413246a 302-305,310-311
+  s_2faba46bcfd306::t_c90b949cb917ac 1222-1223
+internal/proxy/service.go
+  s_2faba46bcfd306::t_24a171fc85fb40 773-775
+  s_2faba46bcfd306::t_929948c07a1c5a 754,765-767,769-770
+  s_2faba46bcfd306::t_9da37e57a8fbde 4100,4623,4763,6889,7644,7726
+  s_2faba46bcfd306::t_0104d6d4122ba3 762-764,768,771
+  s_2faba46bcfd306::t_8d35adddbad1c8 608-611,747-753,755-761,772,776-794
+  s_2faba46bcfd306::t_c73d2582360e45 795
+internal/postgres/converters.go
+  s_2faba46bcfd306::t_8ca42bc413246a 99
+internal/proxy/marker_internal_test.go
+  s_2faba46bcfd306::t_c02f68f17992c3 4,17-28,31-33,36-56
+  s_2faba46bcfd306::t_24a171fc85fb40 34-35
+  s_2faba46bcfd306::t_61be4f05851879 29-30
+  s_2faba46bcfd306::t_18a9edb1553d16 57
+internal/proxy/gemini.go
+  s_2faba46bcfd306::t_9da37e57a8fbde 316
+  s_2faba46bcfd306::t_8a1ea6db2318d9 77-81
+internal/sqlc/model_router_api_keys.sql.go
+  s_2faba46bcfd306::t_6e9008996fd2d9 113,132,192
+internal/sqlc/model_router_installations.sql.go
+  s_2faba46bcfd306::t_e87da2c71a7236 25,46,85,91,105,148,154,163,212,539-570
+internal/sqlc/models.go
+  s_2faba46bcfd306::t_4bd9bcfaafa822 371
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4006e3c586d90bef18d3b93d8bae69d23c9a2fdc",
+  "prompts": {},
+  "sessions": {
+    "s_2faba46bcfd306": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d460-545a-7e83-aa71-e7abff4abc2a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

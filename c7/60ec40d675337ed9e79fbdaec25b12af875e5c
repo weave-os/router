@@ -1,0 +1,71 @@
+internal/telemetry/policyshadow/recipe_shadow.go
+  s_83f6ee3e20d2c7::t_7d15eae1988e91 5
+  s_83f6ee3e20d2c7::t_246e05b6d60ac3 1-4,6-95
+internal/postgres/policy_shadow_repo.go
+  s_83f6ee3e20d2c7::t_e9281d7bf30e05 43-50
+internal/flags/flags_test.go
+  s_83f6ee3e20d2c7::t_40eb8b81de106e 285-286
+  s_83f6ee3e20d2c7::t_e4a14cc8b73745 278
+internal/flags/flags.go
+  s_83f6ee3e20d2c7::t_51287ee16d248e 83
+internal/policyregistry/recipe_shadow.go
+  s_83f6ee3e20d2c7::t_cd4cdbfcaa2fa9 1-91
+internal/flags/registry.go
+  s_83f6ee3e20d2c7::t_51287ee16d248e 3,147-150
+  s_83f6ee3e20d2c7::t_050fc142f39e8c 151-152
+internal/router/recipe_shadow.go
+  s_83f6ee3e20d2c7::t_edb7d30ec79be3 1-23
+internal/telemetry/policy_shadow.go
+  s_83f6ee3e20d2c7::t_e9281d7bf30e05 34-42
+internal/router/hmm/recipeshadow/replay.go
+  s_83f6ee3e20d2c7::t_8ce1c4b850f2de 9,36
+  s_83f6ee3e20d2c7::t_edb7d30ec79be3 1-8,10-35,37-111
+cmd/router/main.go
+  s_83f6ee3e20d2c7::t_b7f98e96d88725 1011
+cmd/router/recipe_shadow.go
+  s_83f6ee3e20d2c7::t_d2db57a968bf80 1-41
+db/migrations/0165_policy-shadow-recipe-columns.down.sql
+  s_83f6ee3e20d2c7::t_401fd0ad48759f 1-15
+db/migrations/0165_policy-shadow-recipe-columns.up.sql
+  s_83f6ee3e20d2c7::t_264c42e5a1b64a 1-20
+db/queries/policy_shadow_decisions.sql
+  s_83f6ee3e20d2c7::t_4951b3bb065c70 24-32,55-63
+internal/policyregistry/recipe_shadow_test.go
+  s_83f6ee3e20d2c7::t_f820e461695797 1-48
+internal/postgres/policy_shadow_repo_test.go
+  s_83f6ee3e20d2c7::t_704b1539698de9 1-47
+internal/postgres/serving/recipe_shadow.go
+  s_83f6ee3e20d2c7::t_3136dec60fe6ba 1-35
+internal/proxy/deps.go
+  s_83f6ee3e20d2c7::t_1c29f1313912e8 22,69,180-182
+internal/proxy/policy_shadow.go
+  s_83f6ee3e20d2c7::t_9325761ad382ac 6-8,21-35
+internal/proxy/recipe_shadow_internal_test.go
+  s_83f6ee3e20d2c7::t_d3ba0b7abeb494 1-70
+internal/proxy/turn_telemetry.go
+  s_83f6ee3e20d2c7::t_c854e35b2f6bd7 11,20
+internal/router/hmm/recipeshadow/replay_test.go
+  s_83f6ee3e20d2c7::t_6c25ca0798dc2b 1-126
+internal/sqlc/models.go
+  s_83f6ee3e20d2c7::t_8a6cad890afb24 955-962
+internal/sqlc/policy_shadow_decisions.sql.go
+  s_83f6ee3e20d2c7::t_4467a17e472252 37-45,68-76,103-110,137-145,168-176,202-209
+internal/telemetry/policyshadow/recipe_shadow_test.go
+  s_83f6ee3e20d2c7::t_257f2f2f9a18ca 1-175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c760ec40d675337ed9e79fbdaec25b12af875e5c",
+  "prompts": {},
+  "sessions": {
+    "s_83f6ee3e20d2c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4bab6a50-65f6-4d00-89f8-23853aa41e57",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

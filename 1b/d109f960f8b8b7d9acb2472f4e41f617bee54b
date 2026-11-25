@@ -1,0 +1,70 @@
+internal/providers/openai/codex_quota.go
+  s_c74e8f385d434f::t_44f4e124500d32 10,88-91,93-108
+  s_c74e8f385d434f::t_b551099e073040 20-22,92
+  s_c74e8f385d434f::t_b3dc4d45ffe741 109
+internal/api/admin/internal_subscription_accounts_test.go
+  s_c74e8f385d434f::t_b217cedc3a947b 14,143-147
+  s_c74e8f385d434f::t_e5e24136d6adad 125
+internal/providers/openai/codex_quota_test.go
+  s_c74e8f385d434f::t_b217cedc3a947b 19-38
+cmd/router/main.go
+  s_c74e8f385d434f::t_4100a7ac70a9cd 1419
+db/queries/model_router_subscription_accounts.sql
+  s_c74e8f385d434f::t_4100a7ac70a9cd 99-101,109-114,117-118
+  s_c74e8f385d434f::t_223021553cc86c 115-116
+  s_c74e8f385d434f::t_8ebdbc190e8dd0 119
+internal/proxy/usage/usage.go
+  s_c74e8f385d434f::t_4100a7ac70a9cd 15,60-66,343,455
+  s_c74e8f385d434f::t_8b6270bd5b260d 390
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_c74e8f385d434f::t_ede35b6e311ed7 281-283,309-311,332-334,362-364,922-957
+  s_c74e8f385d434f::t_90860979524c85 958
+internal/sqlc/models.go
+  s_c74e8f385d434f::t_ede35b6e311ed7 727-731
+internal/postgres/subscription_repo_test.go
+  s_c74e8f385d434f::t_150b77fa2a3b5f 42-56
+  s_c74e8f385d434f::t_b217cedc3a947b 16,19-29,31-41,57-60
+  s_c74e8f385d434f::t_e5e24136d6adad 30
+  s_c74e8f385d434f::t_18e7d89f7f7f5b 61
+internal/proxy/subscription_observation.go
+  s_c74e8f385d434f::t_4100a7ac70a9cd 6,45-68,192,196
+internal/proxy/service.go
+  s_c74e8f385d434f::t_b551099e073040 432
+  s_c74e8f385d434f::t_4100a7ac70a9cd 433
+db/migrations/0133_subscription_weekly_usage.down.sql
+  s_c74e8f385d434f::t_4100a7ac70a9cd 1-9
+internal/proxy/subscription_observation_test.go
+  s_c74e8f385d434f::t_e5e24136d6adad 24
+  s_c74e8f385d434f::t_d26d56b883e99c 13,18-23,25-68
+  s_c74e8f385d434f::t_2e0325a39d24a6 69
+db/migrations/0133_subscription_weekly_usage.up.sql
+  s_c74e8f385d434f::t_4100a7ac70a9cd 1-12
+internal/auth/subscription.go
+  s_c74e8f385d434f::t_4100a7ac70a9cd 10-11,105
+internal/api/admin/internal_subscription_accounts.go
+  s_c74e8f385d434f::t_b551099e073040 16-23,28-30
+  s_c74e8f385d434f::t_44f4e124500d32 24-27,53,62-69
+internal/postgres/subscription_repo.go
+  s_c74e8f385d434f::t_4100a7ac70a9cd 11,32-43,45-47,366-367,369,371-373
+  s_c74e8f385d434f::t_b551099e073040 44
+  s_c74e8f385d434f::t_223021553cc86c 368,370
+internal/proxy/usage/usage_test.go
+  s_c74e8f385d434f::t_11c4e8a64dfcb5 91-99
+  s_c74e8f385d434f::t_150b77fa2a3b5f 20,28-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1bd109f960f8b8b7d9acb2472f4e41f617bee54b",
+  "prompts": {},
+  "sessions": {
+    "s_c74e8f385d434f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15acf-aae0-7a80-9f4e-d885a372cb0e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

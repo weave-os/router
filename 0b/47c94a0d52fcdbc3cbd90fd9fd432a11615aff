@@ -1,0 +1,23 @@
+internal/translate/command_history.go
+  s_6d50bad16855bd::t_37f367984bd98d 41,45,49,51-52,55,57,60,65,69-72,85,87,92-94,105,111,114,118,120,148,153,156,160,162,164,175,177-178,185,188,191,195,199-202
+internal/translate/command_history_internal_test.go
+  s_6d50bad16855bd::t_37f367984bd98d 31-33,62-64,82-84
+internal/proxy/service.go
+  s_6d50bad16855bd::t_37f367984bd98d 3773-3775,7007-7009
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0b47c94a0d52fcdbc3cbd90fd9fd432a11615aff",
+  "prompts": {},
+  "sessions": {
+    "s_6d50bad16855bd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1758a-0316-7981-8e61-a57c35537a18",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Sam Coutts <sam@workweave.ai>"
+    }
+  }
+}

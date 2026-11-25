@@ -1,0 +1,32 @@
+internal/proxy/struggle_escalation.go
+  s_f9ea2f7c1258a0::t_db750ee14679be 108
+  s_f9ea2f7c1258a0::t_990ccc0aeeb5d7 113
+internal/proxy/service.go
+  s_f9ea2f7c1258a0::t_213a8bd40496ed 2541
+internal/flags/flags.go
+  s_f9ea2f7c1258a0::t_aebc34e0cee020 46-49
+  s_f9ea2f7c1258a0::t_907a295a7135a3 50-61
+  s_f9ea2f7c1258a0::t_1ab9d9516ee38e 91-102
+  s_f9ea2f7c1258a0::t_aae56adba5d791 89-90
+cmd/router/main.go
+  s_f9ea2f7c1258a0::t_a0587f421c66e5 829,832
+  s_f9ea2f7c1258a0::t_907a295a7135a3 830-831,833-844
+internal/proxy/flag_resolution.go
+  s_f9ea2f7c1258a0::t_8c09d7933791cf 28-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "1732a6f3c3704bd8a410f725325e50ab65484fb4",
+  "prompts": {},
+  "sessions": {
+    "s_f9ea2f7c1258a0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "53883ebc-922a-43aa-8cbe-012381ecc189",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
