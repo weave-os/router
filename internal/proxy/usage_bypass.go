@@ -275,7 +275,7 @@ func (s *Service) bypassToAnthropic(
 	if proxyErr == nil && terminal != nil {
 		proxyErr = terminal.StreamErr()
 	}
-	spans.FinishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
+	spans.FinishInferenceSpan(ctx, inferenceSpan, decision, decision.Provider, 0, proxyErr)
 	ctx = spans.RestoreParentSpan(ctx, inferenceParentCtx)
 	var upstreamErr *providers.UpstreamErrorResponse
 	recordSubscriptionModelOutcome(s, ctx, decision.Provider, decision.Model, proxyErr)
