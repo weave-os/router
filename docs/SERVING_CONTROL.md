@@ -773,23 +773,25 @@ unchanged.
 
 ### Release response headers
 
-An admitted managed request may answer with `X-Weave-Release-SHA` and
-`X-Weave-Policy-SHA`: the first 12 hex characters of the admitted release and
-policy digests. The installer status line shows them next to its channel badge so
-a user can quote what served them. The headers appear only when the installation
-has `serving_release_headers_enabled` set (default false) and terminal surfaces
-are not hidden: a blind experiment or `hide_terminal_surfaces` removes them, as
-it removes `X-Router-*` headers. They are set when the response is written, after
-the blind experiment is resolved, and never on a 4xx or 5xx refusal. Upstream-gateway mode must hide them too unless
-the installation opts in; `ServingReleaseHeadersVisible` in `internal/ingress/terminal_surfaces.go` is the one
-predicate to extend.
+`GET /v1/display-settings`, the route the installer status line reads, may answer
+with `X-Weave-Release-SHA` and `X-Weave-Policy-SHA`: the first 12 hex characters
+of the admitted release and policy digests. The status line shows them next to its
+channel badge so a user can quote what served them. They appear on that route
+only: never on model, inference, routing or discovery responses, and never on a
+4xx or 5xx refusal, so an API client of the installation cannot read the
+deployment's release from its own traffic.
+
+On `/v1/display-settings` the headers appear only when the installation has
+`serving_release_headers_enabled` set (default false) and terminal surfaces are
+not hidden for the caller: a blind experiment (for the caller or, for an
+unidentified caller, the installation), `hide_terminal_surfaces`, or upstream
+gateway mode removes them, exactly as it sets `hide_terminal_surfaces` in the
+response body. `ServingReleaseHeadersVisible` in
+`internal/ingress/terminal_surfaces.go` is the one predicate to extend.
 
 `serving_release_headers_enabled` is a temporary opt-in. Its owner is serving
 admission. It is removed, or promoted to a documented permanent per-installation
-setting, once the release-attribution rollout is decided. On routes that never
-resolve the blind experiment into the request (`/v1/models`, `/v1/codex/models`,
-`/v1/messages/count_tokens`, `/v1/route`), an installation that runs a blind
-experiment never receives the headers.
+setting, once the release-attribution rollout is decided.
 
 ## Self-hosted export
 

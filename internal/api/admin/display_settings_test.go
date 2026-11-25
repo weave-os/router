@@ -12,7 +12,7 @@ import (
 
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/ingress"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -240,21 +240,52 @@ func TestDisplaySettingsHandlerReportsOwnSeats(t *testing.T) {
 	}
 }
 
-func TestDisplaySettingsMarksAHiddenResponseSoReleaseHeadersStayOff(t *testing.T) {
+func TestDisplaySettingsNamesTheReleaseOnlyForAnOptedInVisibleCaller(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	var hiddenAtWrite bool
-	engine := gin.New()
-	engine.GET("/v1/display-settings", func(c *gin.Context) {
-		c.Set("router_installation", &auth.Installation{ID: "inst-1"})
-		c.Next()
-		hiddenAtWrite = ingress.TerminalSurfacesHidden(c.Request.Context())
-	}, admin.DisplaySettingsHandler(&fakeAccountLister{}, func(c *gin.Context) context.Context {
-		return context.WithValue(c.Request.Context(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
-	}, nil, nil))
+	const (
+		releaseDigest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		policyDigest  = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+	)
+	for name, tc := range map[string]struct {
+		optIn       bool
+		hide        bool
+		blind       bool
+		wantHeaders bool
+	}{
+		"opted in installation sees its release and policy": {optIn: true, wantHeaders: true},
+		"installation that has not opted in sees nothing":   {},
+		"hidden terminal surfaces hide the release":         {optIn: true, hide: true},
+		"an active blind experiment hides the release":      {optIn: true, blind: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			engine := gin.New()
+			engine.GET("/v1/display-settings", func(c *gin.Context) {
+				c.Set("router_installation", &auth.Installation{ID: "inst-1", HideTerminalSurfaces: tc.hide})
+				ctx := requestcontext.WithServingIdentity(c.Request.Context(), requestcontext.ServingIdentity{
+					Target: "prod/stable", ReleaseID: releaseDigest, Recipe: requestcontext.ServingRecipe{PolicySHA256: policyDigest},
+				})
+				if tc.optIn {
+					ctx = context.WithValue(ctx, requestcontext.InstallationServingReleaseHeadersContextKey{}, true)
+				}
+				c.Request = c.Request.WithContext(ctx)
+			}, admin.DisplaySettingsHandler(&fakeAccountLister{}, func(c *gin.Context) context.Context {
+				if tc.blind {
+					return context.WithValue(c.Request.Context(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
+				}
+				return c.Request.Context()
+			}, nil, nil))
 
-	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
+			rec := httptest.NewRecorder()
+			engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
 
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.True(t, hiddenAtWrite, "the response writer must see the hide decision when it stamps release headers")
+			require.Equal(t, http.StatusOK, rec.Code)
+			if !tc.wantHeaders {
+				require.Empty(t, rec.Header().Get(requestcontext.HeaderServingReleaseSHA))
+				require.Empty(t, rec.Header().Get(requestcontext.HeaderServingPolicySHA))
+				return
+			}
+			require.Equal(t, releaseDigest[:12], rec.Header().Get(requestcontext.HeaderServingReleaseSHA))
+			require.Equal(t, policyDigest[:12], rec.Header().Get(requestcontext.HeaderServingPolicySHA))
+		})
+	}
 }
