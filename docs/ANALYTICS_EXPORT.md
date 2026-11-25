@@ -208,26 +208,72 @@ counterfactual depends on assumptions you should own: which baseline model you
 would otherwise have run, whether its prompt cache would have been as warm, and
 which price you hold it to.
 
-Build the baseline yourself from the token columns and a price book:
+Build the baseline yourself from the token columns and a price book. Two
+details decide whether the number is right:
+
+- **Compare against API rates, not `actual_*`.** A subscription-served turn
+  has `actual_*` of `0` (see
+  [Subscription-served turns cost $0](#subscription-served-turns-cost-0)), so
+  subtracting `actual_*` from a full-price baseline counts the whole baseline
+  as saved. `api_rate_*` prices every served turn the same way. This compares
+  model cost at API rates; the dashboard's own savings figure instead leaves
+  subscription-served turns out on both sides. To match it, add
+  `AND NOT d.subscription_served` to the first CTE.
+- **Price cached tokens at cache rates, and count them the same way for every
+  provider.** Anthropic-family upstreams (`anthropic`, `anthropic_gateway`,
+  `wafer_anthropic`) report `input_tokens` *without* cache writes and reads;
+  every other upstream reports a cache-inclusive count. Pricing `input_tokens`
+  at the base rate therefore drops the cached prompt on Anthropic rows and
+  charges it at the full input rate on the rest. The router's own cost code
+  (`catalog.EffectiveInputCost`) separates fresh, cache-write and cache-read
+  tokens first.
 
 ```sql
-WITH priced AS (
-    SELECT d.actual_input_cost_usd + d.actual_output_cost_usd AS actual_usd,
-           (d.input_tokens  / 1e6) * p.input_usd_per_1m
-         + (d.output_tokens / 1e6) * p.output_usd_per_1m       AS baseline_usd
+WITH tokens AS (
+    SELECT d.*,
+           COALESCE(d.cache_creation_tokens, 0) AS cache_write,
+           COALESCE(d.cache_read_tokens, 0)     AS cache_read,
+           GREATEST(
+             CASE WHEN d.decision_provider IN ('anthropic', 'anthropic_gateway', 'wafer_anthropic')
+                  THEN d.input_tokens
+                  ELSE d.input_tokens - COALESCE(d.cache_creation_tokens, 0) - COALESCE(d.cache_read_tokens, 0)
+             END, 0)                            AS fresh_input
     FROM routing_decisions d
-    JOIN model_prices p ON p.model = d.requested_model
     WHERE d.recorded_at >= now() - interval '30 days'
-      AND d.actual_input_cost_usd IS NOT NULL
+      AND d.api_rate_input_cost_usd IS NOT NULL
+), priced AS (
+    SELECT t.api_rate_input_cost_usd + t.api_rate_output_cost_usd AS served_usd,
+           (t.fresh_input
+            + t.cache_write * p.cache_write_multiplier
+            + t.cache_read  * p.cache_read_multiplier) / 1e6 * p.input_usd_per_1m
+         + (t.output_tokens / 1e6) * p.output_usd_per_1m          AS baseline_usd
+    FROM tokens t
+    -- baseline_bindings(model, provider): one row per baseline model, naming the
+    -- provider you would otherwise have used, e.g. ('claude-opus-5-5', 'anthropic')
+    JOIN baseline_bindings b
+      ON b.model = COALESCE(t.blind_experiment_baseline_model, t.requested_model)
+    JOIN model_prices p ON p.model = b.model AND p.provider = b.provider
 )
-SELECT sum(baseline_usd - actual_usd) AS savings_usd FROM priced;
+SELECT sum(baseline_usd - served_usd) AS savings_usd FROM priced;
 ```
+
+Pick one provider binding per baseline model (`baseline_bindings` above):
+`model_prices` has a row per model and provider, so joining on `model` alone
+counts a multi-provider model's turns once per binding. The join uses
+`blind_experiment_baseline_model`, which already resolves a routing alias such
+as `weave-auto` to the client's default model, and falls back to
+`requested_model`. This query leaves out the 1-hour cache-write rate
+(`cache_creation_1h_tokens`), long-context rates, the US inference-geo
+multiplier, which `catalog.EffectiveInputCost` also applies, and fast-mode
+rates (`speed = 'fast'`), which the price book does not publish; add them from
+the price book if your traffic uses them.
 
 `GET /v1/analytics/models` publishes the price book that populates
 `model_prices` — per model, per provider, input and output USD per 1M tokens
-plus the cache-read multiplier. Note it reports **current** prices, not the
-prices in force when an old row was recorded; pin your own price table if you
-need the historical ones.
+plus the cache-write, 1-hour cache-write and cache-read multipliers, the US
+inference-geo multiplier and any long-context rates. Note it reports
+**current** prices, not the prices in force when an old row was recorded; pin
+your own price table if you need the historical ones.
 
 Cost fields are null for rows the router could not price (an unknown model, an
 upstream error before any usage was reported). They are null rather than `0` so
