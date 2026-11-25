@@ -14,6 +14,7 @@ import (
 
 const (
 	ClassLabel   = "low"
+	RegistryRoot = registryRoot
 	registryRoot = "gs://hmm-stub-fixture/registry"
 	policyJSON   = `{
   "schema_version":"hmm_go_selection_policy_v1",

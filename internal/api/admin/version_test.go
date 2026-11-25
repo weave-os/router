@@ -1,9 +1,12 @@
 package admin_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"weave-os/router/internal/api/admin"
@@ -24,7 +27,7 @@ func TestVersionHandler(t *testing.T) {
 	version.PR = "572"
 
 	engine := gin.New()
-	engine.GET("/v1/version", admin.VersionHandler(nil))
+	engine.GET("/v1/version", admin.VersionHandler(nil, admin.VersionDetails{}))
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/version", nil)
 	rec := httptest.NewRecorder()
@@ -47,6 +50,8 @@ func TestVersionHandler(t *testing.T) {
 	assert.Equal(t, "#572 (0fb46ee)", body.Display)
 	assert.NotContains(t, rec.Body.String(), "cluster_version")
 	assert.NotContains(t, rec.Body.String(), "policy_release_id")
+	assert.NotContains(t, rec.Body.String(), "router_schema_version")
+	assert.NotContains(t, rec.Body.String(), "serving_source")
 }
 
 type fixedPolicyStatus policyregistry.ManagerStatus
@@ -62,7 +67,7 @@ func TestVersionHandlerReportsActivePolicyRelease(t *testing.T) {
 	engine.GET("/v1/version", admin.VersionHandler(fixedPolicyStatus{
 		ActiveReleaseID:    "07c6ce47",
 		ActivePolicySHA256: "abc123",
-	}))
+	}, admin.VersionDetails{}))
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/version", nil)
 	rec := httptest.NewRecorder()
@@ -76,4 +81,49 @@ func TestVersionHandlerReportsActivePolicyRelease(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.Equal(t, "07c6ce47", body.PolicyReleaseID)
 	assert.Equal(t, "abc123", body.PolicySHA256)
+}
+
+func TestVersionHandlerReportsSchemaVersionAndServingSource(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.GET("/v1/version", admin.VersionHandler(nil, admin.VersionDetails{
+		SchemaVersion: func(context.Context) (int64, error) { return 161, nil },
+		ServingSource: &admin.ServingSource{Target: "prod/stable", ActivationID: "00000000-0000-4000-8000-000000000a11", SelectionSetSHA256: strings.Repeat("d", 64)},
+	}))
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/version", nil)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body struct {
+		RouterSchemaVersion int64 `json:"router_schema_version"`
+		ServingSource       struct {
+			Target             string `json:"target"`
+			ActivationID       string `json:"activation_id"`
+			SelectionSetSHA256 string `json:"selection_set_sha256"`
+		} `json:"serving_source"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, int64(161), body.RouterSchemaVersion)
+	assert.Equal(t, "prod/stable", body.ServingSource.Target)
+	assert.Equal(t, "00000000-0000-4000-8000-000000000a11", body.ServingSource.ActivationID)
+	assert.Equal(t, strings.Repeat("d", 64), body.ServingSource.SelectionSetSHA256)
+}
+
+func TestVersionHandlerOmitsSchemaVersionWhenUnreadable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.GET("/v1/version", admin.VersionHandler(nil, admin.VersionDetails{
+		SchemaVersion: func(context.Context) (int64, error) { return 0, errors.New("database unavailable") },
+	}))
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/version", nil)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "router_schema_version")
 }

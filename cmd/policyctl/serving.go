@@ -41,6 +41,7 @@ type servingRegistry interface {
 type servingDependencies struct {
 	invalidateAdmission func(context.Context, policyregistry.ServingTarget) error
 	openRegistry        func(context.Context, string) (servingRegistry, error)
+	openExportSource    selfHostedExportSourceOpener
 	endpoints           func() (policyregistry.DestinationEndpoints, error)
 	writeOutput         func(any) error
 	clock               func() time.Time
@@ -99,9 +100,16 @@ func workflowActorFor(getenv func(string) string, proposal policyregistry.Propos
 
 func runServingWith(ctx context.Context, args []string, dependencies servingDependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: policyctl serving <publish|publish-release|apply|status> [flags]")
+		return errors.New("usage: policyctl serving <publish|publish-release|apply|status|export-selfhosted> [flags]")
 	}
 	command := commandName(args[0])
+	if command == commandExportSelfHosted {
+		openSource := dependencies.openExportSource
+		if openSource == nil {
+			openSource = openGCSSelfHostedExportSource
+		}
+		return runServingExportSelfHosted(ctx, args[1:], openSource, dependencies.writeOutput)
+	}
 	if replacement, removed := removedServingVerbs[command]; removed {
 		return fmt.Errorf("serving %s was removed; use `policyctl serving %s`", command, replacement)
 	}

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"net/http"
 
 	"weave-os/router/internal/policyregistry"
@@ -10,20 +11,33 @@ import (
 )
 
 type versionResponse struct {
-	Commit          string `json:"commit"`
-	CommitShort     string `json:"commit_short"`
-	PR              string `json:"pr"`
-	Display         string `json:"display"`
-	BuildTime       string `json:"build_time"`
-	PolicyReleaseID string `json:"policy_release_id,omitempty"`
-	PolicySHA256    string `json:"policy_sha256,omitempty"`
+	Commit              string         `json:"commit"`
+	CommitShort         string         `json:"commit_short"`
+	PR                  string         `json:"pr"`
+	Display             string         `json:"display"`
+	BuildTime           string         `json:"build_time"`
+	PolicyReleaseID     string         `json:"policy_release_id,omitempty"`
+	PolicySHA256        string         `json:"policy_sha256,omitempty"`
+	RouterSchemaVersion *int64         `json:"router_schema_version,omitempty"`
+	ServingSource       *ServingSource `json:"serving_source,omitempty"`
+}
+
+type ServingSource struct {
+	Target             string `json:"target"`
+	ActivationID       string `json:"activation_id"`
+	SelectionSetSHA256 string `json:"selection_set_sha256"`
+}
+
+type VersionDetails struct {
+	SchemaVersion func(context.Context) (int64, error)
+	ServingSource *ServingSource
 }
 
 type PolicyStatusSource interface {
 	Status() policyregistry.ManagerStatus
 }
 
-func VersionHandler(policy PolicyStatusSource) gin.HandlerFunc {
+func VersionHandler(policy PolicyStatusSource, details VersionDetails) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		response := versionResponse{
 			Commit:      version.Commit,
@@ -37,6 +51,13 @@ func VersionHandler(policy PolicyStatusSource) gin.HandlerFunc {
 			response.PolicyReleaseID = status.ActiveReleaseID
 			response.PolicySHA256 = status.ActivePolicySHA256
 		}
+		if details.SchemaVersion != nil {
+			schemaVersion, err := details.SchemaVersion(c.Request.Context())
+			if err == nil {
+				response.RouterSchemaVersion = &schemaVersion
+			}
+		}
+		response.ServingSource = details.ServingSource
 		c.JSON(http.StatusOK, response)
 	}
 }

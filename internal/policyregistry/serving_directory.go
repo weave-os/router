@@ -131,3 +131,10 @@ func (s *DirectoryServingStore) readPinned(ref ObjectRef, namespace string) ([]b
 	}
 	return readDirectoryObject(s.dir, s.rootURI, ref, namespace)
 }
+
+func ReadDirectoryPolicyPayload(dir, rootURI string, ref ObjectRef) ([]byte, error) {
+	if ref.Generation != directoryServingGeneration {
+		return nil, fmt.Errorf("local serving registry holds generation %d, not %d", directoryServingGeneration, ref.Generation)
+	}
+	return readDirectoryObject(dir, rootURI, ref, PolicyObjectPrefix)
+}

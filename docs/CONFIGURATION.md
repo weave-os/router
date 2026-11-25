@@ -573,11 +573,25 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | ------------------------ | ------------ | ------- |
 | `PORT`                   | `8080`       | HTTP listen port. |
 | `ROUTER_DEPLOYMENT_MODE` | `selfhosted` | `selfhosted` mounts `/ui/*` and `/admin/v1/*`. `managed` skips both (for SaaS deployments with a separate admin UI). |
+| `ROUTER_UI_ENABLED`      | *(auto)*     | A boolean: `true`/`yes`/`on`/`1` or `false`/`no`/`off`/`0`, any case. Off stops a `selfhosted` router from mounting `/`, `/ui/*` and `/admin/v1/*`. `/v1/*`, `/internal/v1/*`, the health probes and `/v1/version` stay mounted. Any other non-empty value also turns it off, so a misspelling never leaves the console exposed. Unset or empty, the dashboard is on unless `ROUTER_INTERNAL_SERVICE_TOKEN` is set, which means a self-hosted Weave app owns the router's keys and settings (see [`SELF_HOSTED.md`](SELF_HOSTED.md)). Has no effect in `managed` mode, which never mounts the dashboard. |
 | `ROUTER_ADMIN_PASSWORD`  | *(none)*     | Dashboard password. When unset, inference stays available but dashboard login and management endpoints return `admin_login_disabled`. |
 | `ROUTER_COOKIE_INSECURE` | `false`      | Set to `true` only for plain-HTTP local development; otherwise the admin session cookie is always `Secure`, `HttpOnly` and `SameSite=Lax`. |
 | `ROUTER_RESTRICT_UPSTREAM_EGRESS` | follows `ROUTER_DEPLOYMENT_MODE` | When true, provider adapters refuse to dial an upstream that resolves outside the public internet (loopback, private, link-local, CGNAT). Defaults to true in `managed` mode and false in `selfhosted`, where pointing a provider at an in-cluster or loopback gateway is normal. While on, provider adapters also ignore `HTTP_PROXY`/`HTTPS_PROXY`, since a proxied connection makes the destination unverifiable. |
 | `ROUTER_INFERENCE_ORGANIZATION_ALLOWLIST` | *(none)* | Comma-separated organization IDs (installation external IDs) allowed to authenticate. When set, router keys and session tokens for any other organization get `403 organization_not_allowed` before routing or dispatch. Signed internal test plans are exempt. Use it on shared non-production deployments so self-serve signups cannot spend provider keys. |
 | `ROUTER_MODEL_DISCOVERY_PRIVATE_ORIGINS` | *(none)* | Comma-separated exact origins allowed to use private addresses for model discovery (for example, `https://gateway.internal:8443`). Discovery always blocks non-public destinations otherwise and always ignores ambient proxies, regardless of `ROUTER_RESTRICT_UPSTREAM_EGRESS`. Entries may contain only scheme, host, and port; paths, wildcards, and CIDRs are rejected at startup. |
+
+### Version endpoint
+
+`GET /v1/version` needs no key. Besides the build fields it reports:
+
+- `router_schema_version`: the highest applied router migration, read from
+  `router.schema_migrations` on each request. It is omitted when the database is
+  unreachable or the migration row is dirty, so callers treat a missing value as
+  unknown.
+- `serving_source`: `{target, activation_id, selection_set_sha256}` of the managed
+  activation a self-hosted serving registry was exported from (see
+  [`SERVING_CONTROL.md`](SERVING_CONTROL.md#self-hosted-export)). It is omitted
+  for managed workers and for registries without export provenance.
 
 ### Admin authentication
 
@@ -605,7 +619,9 @@ Every value is whole seconds (or a count); an unset, unparsable or non-positive 
 
 ## Managed serving (`ROUTER_SERVING_*`)
 
-These variables apply to managed workers that admit and serve requests directly.
+These variables apply to managed workers that admit and serve requests directly,
+and to self-hosted routers serving an exported registry: `policyctl serving
+export-selfhosted` prints the exact values under `router_env`.
 The public hostname selects the stable fleet (Default, Boost and Max); a separate
 internal hostname selects the isolated internal fleet. Self-hosted deployments
 leave them unset.
@@ -622,7 +638,7 @@ kept out of revision-specific stamping.
 
 | Variable | Read by | Source | Absent or invalid |
 | --- | --- | --- | --- |
-| `ROUTER_SERVING_REGISTRY_URI` | Worker | Terraform and deploy script (worker) | Falls back to `WEAVE_REGISTRY_URI`, then `gs://weave_ml/weave_registry`; set it explicitly. A local path instead serves a read-only serving registry directory, which the local compose stack bakes from `smoke/hmmstub`. A local directory's classifier runtime bindings get the same schema, environment, release, revision and digest checks as GCS, but skip the managed project and https Cloud Run origin checks, because the local stub classifier is a plain-http compose container. |
+| `ROUTER_SERVING_REGISTRY_URI` | Worker | Terraform and deploy script (worker) | Falls back to `WEAVE_REGISTRY_URI`, then `gs://weave_ml/weave_registry`; set it explicitly. A local path instead serves a read-only serving registry directory, which the local compose stack bakes from `smoke/hmmstub` and a self-hosted install receives from `policyctl serving export-selfhosted`. A local directory's classifier runtime bindings get the same schema, environment, release, revision and digest checks as GCS, but skip the managed project and https Cloud Run origin checks, because the local stub classifier is a plain-http compose container. |
 | `ROUTER_ALLOW_LOCAL_SERVING_REGISTRY` | Worker | Local compose and smoke only | `true` lets `ROUTER_DEPLOYMENT_MODE=managed` serve from a local `ROUTER_SERVING_REGISTRY_URI` directory and logs a startup warning. Unset, a managed worker refuses a non-`gs://` serving registry. Never set it on a deployed worker. |
 | `ROUTER_SERVING_TARGET` | Worker | Deploy script and Terraform | Boot fails. Must name a known target (`staging`, `prod/stable`, `prod/weave-internal`). |
 | `ROUTER_SERVING_PROJECT` | Worker | Deploy script and Terraform | Boot fails. |

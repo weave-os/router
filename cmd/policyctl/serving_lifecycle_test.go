@@ -493,5 +493,5 @@ func TestServingCLIRemovedVerbsPointToTheirReplacement(t *testing.T) {
 	}
 	require.Zero(t, opened)
 	require.ErrorContains(t, runServingWith(context.Background(), []string{"promote"}, dependencies), `unsupported serving command "promote"`)
-	require.ErrorContains(t, runServingWith(context.Background(), nil, dependencies), "usage: policyctl serving <publish|publish-release|apply|status>")
+	require.ErrorContains(t, runServingWith(context.Background(), nil, dependencies), "usage: policyctl serving <publish|publish-release|apply|status|export-selfhosted>")
 }

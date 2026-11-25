@@ -6,6 +6,7 @@ Start with the task you need to complete:
 |---|---|
 | Connect a coding tool to the hosted router | [Hosted setup](../README.md#get-started) and [installer flags](../install/npm/README.md) |
 | Run the router and database yourself | [Self-hosted setup](../README.md#run-it-yourself) |
+| Run the managed router and classifier on your own host | [Self-hosted production router](SELF_HOSTED.md) |
 | Configure a client, choose models, or switch routing off | [Installation guide](../install/README.md) |
 | Find API endpoints | [API overview](../README.md#api) and [endpoint reference](ENDPOINTS.md) |
 | Understand per-action routing | [Canonical semantics](SEMANTICS.md) |
@@ -35,6 +36,7 @@ Index of Markdown documentation in the `router/` repo.
 | [SESSION_COST.md](SESSION_COST.md) | `GET /v1/sessions/:session_id/cost`: `rk_`/`ra_` auth, installation scope, response fields, errors, rate limit. |
 | [POLICY_ROUTER_HARNESS.md](POLICY_ROUTER_HARNESS.md) | Contract for out-of-process policy sidecars. |
 | [LLM_CLASSIFIER_CONTEXT.md](LLM_CLASSIFIER_CONTEXT.md) | Staged atomic-response classifier input contract and unresolved admission/recovery requirements; not serving-enabled. |
+| [SELF_HOSTED.md](SELF_HOSTED.md) | Production self-hosted compose: exported prod/stable serving graph, standalone and Weave-linked modes, verification, upgrade and rollback. |
 | [SERVING_CONTROL.md](SERVING_CONTROL.md) | Immutable managed releases, gateway admission, activation, rollback, and deployment prerequisites. |
 | [HMM_GO_SELECTION.md](HMM_GO_SELECTION.md) | Architecture, classifier-facts (`policy_router_v5`) split, and rollback story for Go-owned HMM roster ownership and deterministic arm selection. |
 | [FAILOVER.md](FAILOVER.md) | Proxy rescue chain, strikes and cooldowns, overload circuit, context overflow and dispatch error classification. |
