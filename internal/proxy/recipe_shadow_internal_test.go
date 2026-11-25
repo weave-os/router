@@ -58,6 +58,17 @@ func recipeShadowEnabled() context.Context {
 	return flags.WithOverrides(managed, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyRecipeShadow: true}})
 }
 
+func TestRecipeShadowIgnoresACallerSuppliedFlagOverlay(t *testing.T) {
+	managed := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: "prod/stable"})
+	overlay := flags.Overrides{Bools: map[flags.Key]bool{flags.KeyRecipeShadow: true}}
+
+	callerEnabled := flags.WithRequestOverlay(managed, flags.Overrides{}, overlay)
+	assert.False(t, recipeShadowFired(callerEnabled), "a caller's x-weave-flag-overrides overlay cannot enrol an installation the operator did not")
+
+	operatorEnabled := flags.WithRequestOverlay(managed, overlay, flags.Overrides{})
+	assert.True(t, recipeShadowFired(operatorEnabled), "the operator's stored override still enables the shadow")
+}
+
 func TestRecipeShadowIsOffUnlessFlagged(t *testing.T) {
 	assert.False(t, recipeShadowFired(requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: "prod/stable"})))
 }

@@ -369,6 +369,19 @@ func (o Overrides) MarshalJSON() (data []byte, err error) {
 
 type overridesContextKey struct{}
 
+type storedOverridesContextKey struct{}
+
+func WithRequestOverlay(ctx context.Context, stored, effective Overrides) context.Context {
+	return WithOverrides(context.WithValue(ctx, storedOverridesContextKey{}, stored), effective)
+}
+
+func StoredOverridesFromContext(ctx context.Context) (o Overrides, ok bool) {
+	if stored, overlaid := ctx.Value(storedOverridesContextKey{}).(Overrides); overlaid {
+		return stored, !stored.IsEmpty()
+	}
+	return OverridesFromContext(ctx)
+}
+
 func WithOverrides(ctx context.Context, o Overrides) context.Context {
 	if o.IsEmpty() {
 		return ctx

@@ -134,7 +134,6 @@ func TestRecipeShadowRecordsReplayErrorAsAReasonCode(t *testing.T) {
 		want string
 	}{
 		{err: fmt.Errorf("picked arm: %w", router.ErrRecipeShadowNoEligibleArm), want: "no_eligible_arm"},
-		{err: router.ErrRecipeShadowNoClassifierFacts, want: "no_classifier_facts"},
 		{err: errors.New("read gs://registry-bucket/objects/policy: not found"), want: "replay_failed"},
 	} {
 		t.Run(tc.want, func(t *testing.T) {

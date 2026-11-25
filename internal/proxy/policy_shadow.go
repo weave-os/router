@@ -22,7 +22,7 @@ func (s *Service) firePolicyShadowForServingDecision(ctx context.Context, strate
 }
 
 func fireRecipeShadow(ctx context.Context, turns turnTelemetry, clock auth.Clock, installationID string, strategy router.Strategy, serving router.Decision, req router.Request) {
-	if turns.recipe.Replayer == nil || !flags.BoolOr(ctx, flags.KeyRecipeShadow, false) {
+	if stored, found := flags.StoredOverridesFromContext(ctx); turns.recipe.Replayer == nil || !found || !stored.Bools[flags.KeyRecipeShadow] {
 		return
 	}
 	if model := router.StrategySelectionFromContext(ctx).RoutingModel; model != "" && model != router.ModelAutomatic {

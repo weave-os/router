@@ -32,7 +32,7 @@ type RecipeTurn struct {
 }
 
 func (r RecipeRecorder) Fire(ctx context.Context, turn RecipeTurn) {
-	if r.Store == nil || r.Profiles == nil || r.ShadowModel == "" || turn.InstallationID == "" {
+	if r.Store == nil || turn.InstallationID == "" {
 		return
 	}
 	servedFacts, scored := r.Replayer.ServedFacts(turn.Served)
@@ -93,17 +93,14 @@ func (r RecipeRecorder) Fire(ctx context.Context, turn RecipeTurn) {
 type recipeShadowFailure string
 
 const (
-	recipeShadowNoEligibleArm     recipeShadowFailure = "no_eligible_arm"
-	recipeShadowNoClassifierFacts recipeShadowFailure = "no_classifier_facts"
-	recipeShadowReplayFailed      recipeShadowFailure = "replay_failed"
+	recipeShadowNoEligibleArm recipeShadowFailure = "no_eligible_arm"
+	recipeShadowReplayFailed  recipeShadowFailure = "replay_failed"
 )
 
 func recipeShadowFailureFor(err error) recipeShadowFailure {
 	switch {
 	case errors.Is(err, router.ErrRecipeShadowNoEligibleArm):
 		return recipeShadowNoEligibleArm
-	case errors.Is(err, router.ErrRecipeShadowNoClassifierFacts):
-		return recipeShadowNoClassifierFacts
 	default:
 		return recipeShadowReplayFailed
 	}
