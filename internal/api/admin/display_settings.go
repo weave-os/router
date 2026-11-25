@@ -9,8 +9,8 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials/usage"
-	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -65,7 +65,7 @@ func DisplaySettingsHandler(accounts SubscriptionAccountLister, resolveCaller Ca
 			}
 		}
 		if hide {
-			ingress.StripServingReleaseHeaders(c.Writer.Header())
+			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), requestcontext.InstallationHideTerminalSurfacesContextKey{}, true))
 		}
 		c.JSON(http.StatusOK, displaySettingsResponse{
 			HideTerminalSurfaces: hide,

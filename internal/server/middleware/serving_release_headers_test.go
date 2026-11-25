@@ -91,6 +91,12 @@ func TestServingAdmissionReleaseHeadersFollowTheFinalResponse(t *testing.T) {
 		"refusal never names a release": {
 			handler: func(c *gin.Context) { c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "refused"}) },
 		},
+		"handler that marks terminal surfaces hidden hides the release": {
+			handler: func(c *gin.Context) {
+				c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), requestcontext.InstallationHideTerminalSurfacesContextKey{}, true))
+				c.JSON(http.StatusOK, gin.H{"hide_terminal_surfaces": true})
+			},
+		},
 		"blind experiment resolved after admission hides the release": {
 			handler: func(c *gin.Context) {
 				blind := auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}

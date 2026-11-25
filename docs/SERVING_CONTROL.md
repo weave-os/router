@@ -761,7 +761,7 @@ turn therefore records the recipe that ran, in nullable columns on
 | `serving_policy_sha256` | The selection policy that scored the turn. Turns without a classifier decision use the admitted snapshot's policy |
 | `effective_strategy` | The strategy that won precedence (plan, then installation, then managed default). Unscored and passthrough turns record the resolved request strategy |
 | `classifier_release_id`, `classifier_enabled_variants` | The classifier release and its enabled variants (sorted, comma-joined). Both come from the admitted snapshot |
-| `flag_overrides_sha256` | Content digest of the installation's flag overrides; NULL when it has none. Deployment defaults are covered by `worker_configuration_sha256` |
+| `flag_overrides_sha256` | Content digest of the installation's stored flag overrides; NULL when it has none. A per-request `x-weave-flag-overrides` overlay is not included. Deployment defaults are covered by `worker_configuration_sha256` |
 
 Every column is NULL outside managed serving. Beta-versus-stable comparisons
 group by these columns together with `serving_target` and `requested_model`,
