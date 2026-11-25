@@ -1,0 +1,31 @@
+docs/SUBSCRIPTION_ROUTING.md
+  s_a99d205152f882::t_6bb66e8bf3eb15 84-85,89-97
+internal/providers/openai/codex_quota.go
+  s_a99d205152f882::t_de839c38a0e5fa 9,40,53,62,67-70,88,103,164,167,177,191,200-214
+internal/providers/openai/codex_quota_test.go
+  s_a99d205152f882::t_ef34e7874744f0 67-74,137-140,144-145,177-185,195-303
+internal/providers/provider.go
+  s_a99d205152f882::t_13f255373c6444 391-409
+internal/proxy/quota_verification_safety_internal_test.go
+  s_a99d205152f882::t_7b5e3f95951b50 1-228
+internal/proxy/subscription_funding.go
+  s_a99d205152f882::t_70ab2030e057b9 176,185-188
+internal/proxy/subscription_overload_rescue_internal_test.go
+  s_a99d205152f882::t_90464d8e966643 5,17,119-124,132-137,142-143,149,153-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f656f8afc47ad3287b9ed3951af788737fab5381",
+  "prompts": {},
+  "sessions": {
+    "s_a99d205152f882": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17a00-e308-7661-b48a-78bf0cd22690",
+        "model": "weave-hmm-20261019-0001v1"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

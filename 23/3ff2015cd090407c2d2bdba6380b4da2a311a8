@@ -1,0 +1,33 @@
+internal/proxy/subscription_state_models.go
+  s_54f3fae2e86b5f::t_b01729fb409301 228-236
+  s_54f3fae2e86b5f::t_ebe2c29c74348b 246
+internal/proxy/subscription_state_models_internal_test.go
+  s_54f3fae2e86b5f::t_fd877817ce4c6e 306,319-321,325,358-359
+internal/proxy/linked_first.go
+  s_54f3fae2e86b5f::t_221cd97c8fec5d 27-37
+  s_54f3fae2e86b5f::t_1ef4e184a67c38 47-55
+internal/proxy/fallback.go
+  s_54f3fae2e86b5f::t_9179d14572bd35 257
+  s_54f3fae2e86b5f::t_e22074e4f09bfa 249-256
+internal/proxy/service.go
+  s_54f3fae2e86b5f::t_e7b44b24116968 7638,7645,7654,7768,7814,7872,7954
+  s_54f3fae2e86b5f::t_2f9c117c48cb64 7622-7623
+  s_54f3fae2e86b5f::t_c0b04dd6d49939 4541,4572,4587,4650
+  s_54f3fae2e86b5f::t_c350dc444aac68 4648-4649,4651-4654
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "233ff2015cd090407c2d2bdba6380b4da2a311a8",
+  "prompts": {},
+  "sessions": {
+    "s_54f3fae2e86b5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11490-fa25-73a2-84d7-c8dee0aed02d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+internal/proxy/force_model.go
+  s_280e2165224216::t_63fd6e57a6a76f 87
+internal/proxy/force_model_internal_test.go
+  s_280e2165224216::t_7e141284dc8cc0 457-464
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3a6bde45b62c8f87a617cbaf78e2403a92851960",
+  "prompts": {},
+  "sessions": {
+    "s_280e2165224216": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1d643-037f-7471-9d63-2cfe011d5262",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

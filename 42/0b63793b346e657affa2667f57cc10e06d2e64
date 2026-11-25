@@ -1,0 +1,62 @@
+internal/proxy/CLAUDE.md
+  s_8697acb4176b05::t_370bc40fd3da28 56,111-117
+  s_786ca150003cb8::t_6d15fa150729b7 118
+internal/proxy/service.go
+  s_8697acb4176b05::t_3aea1908c51071 363-366,975-977,2143-2146
+  s_786ca150003cb8::t_62f9d27dfaadb5 2147-2149
+internal/proxy/managed_subscriptions_test.go
+  s_8697acb4176b05::t_46a274b0eb335e 131-152
+internal/proxy/plan_aware_routing.go
+  s_8697acb4176b05::t_cd69bd14962a0a 155,185-200
+  s_8697acb4176b05::t_80fed82e665b39 1-154,156-184,201-213
+internal/proxy/gemini.go
+  s_8697acb4176b05::t_8c28d960a27d48 41
+internal/proxy/AGENTS.md
+  s_8697acb4176b05::t_370bc40fd3da28 56,111-117
+  s_786ca150003cb8::t_a8308bcf696101 118
+docs/CONFIGURATION.md
+  s_8697acb4176b05::t_baad271c5601e6 38
+internal/proxy/subsidy.go
+  s_8697acb4176b05::t_ad6bf647df3d8d 185
+internal/server/middleware/auth.go
+  s_8697acb4176b05::t_5414ba7920c02f 115
+  s_8697acb4176b05::t_f286fc433d094e 116-117
+  s_786ca150003cb8::t_d444a828114ab7 118
+internal/proxy/usage/AGENTS.md
+  s_8697acb4176b05::t_370bc40fd3da28 21
+internal/proxy/plan_aware_routing_internal_test.go
+  s_8697acb4176b05::t_c2e57c4afafee7 1-16,20-49,51-63,65-81,83-95,97-109,111-124
+  s_786ca150003cb8::t_08773dc9a8c758 17-19,50,64,82,96,110
+internal/auth/service.go
+  s_8697acb4176b05::t_5414ba7920c02f 111-115
+internal/proxy/usage/CLAUDE.md
+  s_8697acb4176b05::t_370bc40fd3da28 21
+cmd/router/main.go
+  s_8697acb4176b05::t_15a27167962dd9 1145-1146,1246-1247
+internal/proxy/managed_subscriptions.go
+  s_8697acb4176b05::t_bc7deb830a0aef 104-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "420b63793b346e657affa2667f57cc10e06d2e64",
+  "prompts": {},
+  "sessions": {
+    "s_786ca150003cb8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a068bd-b05d-7a42-bf65-794c0e3a8ba1",
+        "model": "unknown"
+      },
+      "human_author": null
+    },
+    "s_8697acb4176b05": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a068bd-b05d-7a42-bf65-794c0e3a8ba1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

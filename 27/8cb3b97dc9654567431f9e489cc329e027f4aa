@@ -1,0 +1,29 @@
+db/queries/model_router_subscription_accounts.sql
+  s_d632eaeadae7dc::t_8bb5b0f23f367f 341-343
+docs/SUBSCRIPTION_ROUTING.md
+  s_d632eaeadae7dc::t_82969a2f1d08b2 11-13
+internal/postgres/subscription_repo.go
+  s_d632eaeadae7dc::t_b7b574146bfea8 439-446,448
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_d632eaeadae7dc::t_f2f8d3e49c3bc0 381-383,436-438
+scripts/subscription_verification_check/identity_subscription_verification_test.go
+  s_d632eaeadae7dc::t_481908cb949e18 133-135
+scripts/subscription_verification_check/ownership_subscription_verification_test.go
+  s_d632eaeadae7dc::t_0cef9533923191 124,126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "278cb3b97dc9654567431f9e489cc329e027f4aa",
+  "prompts": {},
+  "sessions": {
+    "s_d632eaeadae7dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e86-de05-7d62-bbcb-696c6ad54cc8",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

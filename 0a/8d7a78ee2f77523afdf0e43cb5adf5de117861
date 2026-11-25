@@ -1,0 +1,19 @@
+internal/translate/emit_openai.go
+  s_7597b41f89257c::t_99637c454a07c1 61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0a8d7a78ee2f77523afdf0e43cb5adf5de117861",
+  "prompts": {},
+  "sessions": {
+    "s_7597b41f89257c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11859-0d8f-79d2-b65c-7f5de75d27f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

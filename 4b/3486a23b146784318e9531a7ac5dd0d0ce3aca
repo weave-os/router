@@ -1,0 +1,19 @@
+internal/translate/force_model.go
+  s_799f504049b9af::t_f3a479b1df6832 125-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "4b3486a23b146784318e9531a7ac5dd0d0ce3aca",
+  "prompts": {},
+  "sessions": {
+    "s_799f504049b9af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5842e58e-0d13-4901-addd-8afb5b31965d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

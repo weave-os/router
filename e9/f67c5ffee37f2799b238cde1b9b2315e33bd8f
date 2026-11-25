@@ -1,0 +1,37 @@
+internal/proxy/turnloop.go
+  s_4c61613b7e2c61::t_95a3c6c9884b4d 38-65
+  s_4c61613b7e2c61::t_36f2f5394b37d6 466-470
+internal/proxy/service.go
+  s_4c61613b7e2c61::t_b8a696635ed528 3182-3184
+  s_4c61613b7e2c61::t_0422c42514f51b 4857
+  s_4c61613b7e2c61::t_790aae7d21d12b 3186
+internal/proxy/failover_integration_test.go
+  s_4c61613b7e2c61::t_640d8460a73ec6 438-440
+internal/proxy/provider_overload.go
+  s_4c61613b7e2c61::t_9fdedefb3f246a 25-33,43,90-100
+internal/proxy/provider_overload_internal_test.go
+  s_4c61613b7e2c61::t_5c4701d5358f79 113,140,173,243,264,285,306
+  s_4c61613b7e2c61::t_5eecb5c103b0e9 145,149-150
+  s_4c61613b7e2c61::t_810a20e9fa3d38 197,221
+internal/proxy/service_session_pin_test.go
+  s_4c61613b7e2c61::t_2a84b83c2e9c8f 128-129
+internal/proxy/gemini.go
+  s_4c61613b7e2c61::t_d59df2301750ee 299
+  s_4c61613b7e2c61::t_1fc21dce1fd8b7 297-298
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "e9f67c5ffee37f2799b238cde1b9b2315e33bd8f",
+  "prompts": {},
+  "sessions": {
+    "s_4c61613b7e2c61": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "492210c9-6bab-4a94-875c-30c060355ebf",
+        "model": "deepseek/deepseek-v4-pro"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+scripts/subscription_verification_check/claude_overage_refresh_test.go
+  s_076d574238ec31::t_32216423780481 56
+  s_076d574238ec31::t_6d4e2561ad0d16 45,51,58,60,63,67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3537f9e5199249b6033fdf8256f650bffd3d4df0",
+  "prompts": {},
+  "sessions": {
+    "s_076d574238ec31": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ad02-88ea-74f0-b7fc-51e661cc98ca",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+cmd/router-gateway/main.go
+  s_8a02447f80f56f::t_e1327b91223640 82
+docs/SERVING_CONTROL.md
+  s_8a02447f80f56f::t_e1327b91223640 123-129
+  s_8a02447f80f56f::t_548ae40bd9aac2 121
+  s_8a02447f80f56f::t_e58ceb321fcd6a 122
+internal/policyregistry/serving_validator.go
+  s_8a02447f80f56f::t_a81123909bc99c 56
+internal/gateway/products.go
+  s_8a02447f80f56f::t_e1327b91223640 161-171,179,181,183
+internal/gateway/gateway_test.go
+  s_8a02447f80f56f::t_e1327b91223640 86-91,94,97
+internal/gateway/readiness.go
+  s_8a02447f80f56f::t_e1327b91223640 1-43
+db/migrations/0095_managed-serving-foundation.up.sql
+  s_8a02447f80f56f::t_548ae40bd9aac2 66-77
+internal/policyregistry/serving_test.go
+  s_8a02447f80f56f::t_a81123909bc99c 365-389
+internal/gateway/readiness_test.go
+  s_8a02447f80f56f::t_f3082340763adc 1-91
+docs/README.md
+  s_8a02447f80f56f::t_548ae40bd9aac2 13
+db/migrations/0095_managed-serving-foundation.down.sql
+  s_8a02447f80f56f::t_548ae40bd9aac2 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cc9424425dbcedca10f688036e58b471e5a2e671",
+  "prompts": {},
+  "sessions": {
+    "s_8a02447f80f56f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b21d-11cd-7991-b037-e545c68b7062",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

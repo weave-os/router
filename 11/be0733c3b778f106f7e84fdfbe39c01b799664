@@ -1,0 +1,21 @@
+internal/proxy/subscription_state_models.go
+  s_54f3fae2e86b5f::t_6753ec9f1546fc 253-255
+internal/proxy/subscription_state_models_internal_test.go
+  s_54f3fae2e86b5f::t_6753ec9f1546fc 364
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "11be0733c3b778f106f7e84fdfbe39c01b799664",
+  "prompts": {},
+  "sessions": {
+    "s_54f3fae2e86b5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11490-fa25-73a2-84d7-c8dee0aed02d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

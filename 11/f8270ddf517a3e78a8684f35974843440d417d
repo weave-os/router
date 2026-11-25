@@ -1,0 +1,23 @@
+install/install.sh
+  s_980914d43580db::t_75ed15e80b5dc3 1051-1054
+install/opencode-weave/src/index.ts
+  s_980914d43580db::t_86f7a5efe13772 76-78,101-112,486-495,505-508,639-644,794-798
+install/opencode-weave/test/capture.test.ts
+  s_980914d43580db::t_7e5747b8414320 750-812
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "11f8270ddf517a3e78a8684f35974843440d417d",
+  "prompts": {},
+  "sessions": {
+    "s_980914d43580db": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae5ab8c5-50a9-4ae6-930a-ff22188bfb75",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

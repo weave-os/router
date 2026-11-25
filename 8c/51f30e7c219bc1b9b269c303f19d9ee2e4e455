@@ -1,0 +1,43 @@
+internal/gateway/routing_discovery.go
+  s_ac30472d062965::t_86ab33663d804a 1-35,38-87
+  s_ac30472d062965::t_c0576221c66398 36-37
+internal/api/admin/internal_routing_discovery.go
+  s_ac30472d062965::t_73dc3a0ebe8bc0 58,107-111
+  s_ac30472d062965::t_cb428326faac7a 112
+internal/gateway/routing_discovery_test.go
+  s_ac30472d062965::t_01305952c5f70a 65,76
+  s_ac30472d062965::t_55a17b90667ee5 59,63,66,72,75
+  s_ac30472d062965::t_bbc08e43fb5a86 1-58,60-62,64,67-71,73-74,77-120
+internal/gateway/products.go
+  s_ac30472d062965::t_00dbf77118f1dd 40
+  s_ac30472d062965::t_26f02cf58a444d 39,41-44
+internal/policyregistry/serving_discovery.go
+  s_ac30472d062965::t_73dc3a0ebe8bc0 22,77
+internal/api/admin/internal_routing_discovery_test.go
+  s_ac30472d062965::t_01305952c5f70a 238-269
+  s_ac30472d062965::t_73dc3a0ebe8bc0 43
+internal/server/server.go
+  s_ac30472d062965::t_73dc3a0ebe8bc0 235-239
+cmd/router-gateway/main.go
+  s_ac30472d062965::t_00dbf77118f1dd 86
+internal/gateway/gateway.go
+  s_ac30472d062965::t_00dbf77118f1dd 68-71
+docs/SERVING_CONTROL.md
+  s_ac30472d062965::t_013db03bcae8fa 21-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8c51f30e7c219bc1b9b269c303f19d9ee2e4e455",
+  "prompts": {},
+  "sessions": {
+    "s_ac30472d062965": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ef7e-50e2-7d00-8ec8-8a5d4bdb5991",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+internal/translate/responses.go
+  s_4cd249a6e2e116::t_52b2102816c3a1 1196
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "3ff6bcd7437ff9ecdb5d727d056c4dc8694c6d6d",
+  "prompts": {},
+  "sessions": {
+    "s_4cd249a6e2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aa67b391-849b-473c-8bd2-f1c2b633482d",
+        "model": "minimax/minimax-m3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
