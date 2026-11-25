@@ -11,7 +11,7 @@ import (
 )
 
 func rejectMisdirectedChannelModel(c *gin.Context, cfg *ServingAdmissionConfig, body []byte) bool {
-	if router.RoutingModel(requestedChannelModel(c, body)) != router.ModelAutoBeta || servesBetaChannel(cfg.Identity.Target) {
+	if c.Request.Method != http.MethodPost || !router.IsAutoBetaRoutingModel(requestedModel(c, body)) || servesBetaChannel(cfg.Identity.Target) {
 		return false
 	}
 	abortMisdirectedChannelModel(c, cfg.BetaBaseURL)
@@ -29,13 +29,6 @@ func abortMisdirectedChannelModel(c *gin.Context, betaBaseURL string) {
 		response["base_url"] = betaBaseURL
 	}
 	c.AbortWithStatusJSON(http.StatusMisdirectedRequest, response)
-}
-
-func requestedChannelModel(c *gin.Context, body []byte) string {
-	if c.Request.Method != http.MethodPost {
-		return ""
-	}
-	return requestedModel(c, body)
 }
 
 func servingChannelAdmissionError(cfg *ServingAdmissionConfig, err error) (int, gin.H, bool) {

@@ -92,7 +92,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		scope = policyregistry.AdmissionScope{InstallationID: installationID, CredentialIdentity: identity, ConversationDigest: digest, Persistent: persistent}
 		timing.persistent = persistent
 		recordProjection()
-		previous, err := lockSessionBinding(ctx, queries, scope, &timing)
+		previous, err := lockSessionBinding(ctx, queries, installationUUID, scope, &timing)
 		if err != nil {
 			return err
 		}
@@ -124,7 +124,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		if inherited && previous.Target == admitted.Target {
 			admitted.RoutingModel = routingModel
 		}
-		return persistSessionBinding(ctx, queries, scope, previous, admitted)
+		return persistSessionBinding(ctx, queries, installationUUID, scope, previous, admitted)
 	})
 	timing.transaction = time.Since(transactionStart)
 	if err != nil {

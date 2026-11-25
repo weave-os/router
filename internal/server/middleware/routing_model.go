@@ -20,7 +20,7 @@ const ModelPassthroughHeader = "X-Weave-Model-Passthrough"
 func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailability) bool {
 	requested := requestedModel(c, body)
 	identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context())
-	if router.RoutingModel(requested) == router.ModelAutoBeta && !servesBetaChannel(policyregistry.ServingTarget(identity.Target)) {
+	if router.IsAutoBetaRoutingModel(requested) && !servesBetaChannel(policyregistry.ServingTarget(identity.Target)) {
 		observability.FromGin(c).Debug("Beta channel routing model refused off the beta channel", "serving_target", identity.Target)
 		abortMisdirectedChannelModel(c, "")
 		return false

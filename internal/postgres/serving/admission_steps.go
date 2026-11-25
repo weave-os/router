@@ -76,7 +76,7 @@ func channelPermissions(rows []sqlc.ListServingInstallationChannelPermissionsRow
 	return permissions, nil
 }
 
-func lockSessionBinding(ctx context.Context, queries *sqlc.Queries, scope policyregistry.AdmissionScope, timing *admissionTiming) (*policyregistry.SessionReleaseBinding, error) {
+func lockSessionBinding(ctx context.Context, queries *sqlc.Queries, installationUUID uuid.UUID, scope policyregistry.AdmissionScope, timing *admissionTiming) (*policyregistry.SessionReleaseBinding, error) {
 	if !scope.Persistent {
 		return nil, nil
 	}
@@ -84,10 +84,6 @@ func lockSessionBinding(ctx context.Context, queries *sqlc.Queries, scope policy
 	lockStart := time.Now()
 	err := queries.GetServingConversationLock(ctx, lockKey)
 	timing.lockWait += time.Since(lockStart)
-	if err != nil {
-		return nil, err
-	}
-	installationUUID, err := uuid.Parse(scope.InstallationID)
 	if err != nil {
 		return nil, err
 	}
@@ -105,12 +101,8 @@ func lockSessionBinding(ctx context.Context, queries *sqlc.Queries, scope policy
 	return previous, nil
 }
 
-func persistSessionBinding(ctx context.Context, queries *sqlc.Queries, scope policyregistry.AdmissionScope, previous *policyregistry.SessionReleaseBinding, admitted policyregistry.SessionReleaseBinding) error {
+func persistSessionBinding(ctx context.Context, queries *sqlc.Queries, installationUUID uuid.UUID, scope policyregistry.AdmissionScope, previous *policyregistry.SessionReleaseBinding, admitted policyregistry.SessionReleaseBinding) error {
 	encoded, err := json.Marshal(admitted)
-	if err != nil {
-		return err
-	}
-	installationUUID, err := uuid.Parse(scope.InstallationID)
 	if err != nil {
 		return err
 	}
@@ -127,8 +119,7 @@ func persistSessionBinding(ctx context.Context, queries *sqlc.Queries, scope pol
 			return err
 		}
 	}
-	digest := scope.ConversationDigest
-	updated, err := queries.UpsertSessionReleaseBinding(ctx, sqlc.UpsertSessionReleaseBindingParams{InstallationID: installationUUID, CredentialScope: scope.CredentialIdentity, ConversationDigest: digest[:], Target: string(admitted.Target), ActivationID: activationUUID, ReleaseSha256: admitted.Selection.Release.SHA256, BindingSha256: admitted.Selection.Binding.SHA256, ProfileKey: profileUUID, ProfileRevisionSha256: profileRevision, EnrollmentGeneration: admitted.EnrollmentGeneration, AssignmentGeneration: admitted.AssignmentGeneration, BindingGeneration: admitted.BindingGeneration, Binding: encoded, CreatedAt: pgtype.Timestamptz{Time: admitted.CreatedAt, Valid: true}, LastAdmittedAt: pgtype.Timestamptz{Time: admitted.LastAdmittedAt, Valid: true}})
+	updated, err := queries.UpsertSessionReleaseBinding(ctx, sqlc.UpsertSessionReleaseBindingParams{InstallationID: installationUUID, CredentialScope: scope.CredentialIdentity, ConversationDigest: scope.ConversationDigest[:], Target: string(admitted.Target), ActivationID: activationUUID, ReleaseSha256: admitted.Selection.Release.SHA256, BindingSha256: admitted.Selection.Binding.SHA256, ProfileKey: profileUUID, ProfileRevisionSha256: profileRevision, EnrollmentGeneration: admitted.EnrollmentGeneration, AssignmentGeneration: admitted.AssignmentGeneration, BindingGeneration: admitted.BindingGeneration, Binding: encoded, CreatedAt: pgtype.Timestamptz{Time: admitted.CreatedAt, Valid: true}, LastAdmittedAt: pgtype.Timestamptz{Time: admitted.LastAdmittedAt, Valid: true}})
 	if err != nil {
 		return err
 	}

@@ -52,6 +52,21 @@ func TestServingAdmissionSendsBetaModelToBetaHostBeforeAdmission(t *testing.T) {
 	}
 }
 
+func TestServingAdmissionSendsCaseVariantBetaModelToBetaHostBeforeAdmission(t *testing.T) {
+	for _, model := range []string{"WEAVE-AUTO-BETA", "Weave-Auto-Beta"} {
+		t.Run(model, func(t *testing.T) {
+			cfg, _, store := channelTestConfig(t, policyregistry.TargetStable, nil)
+			body := `{"model":"` + model + `","messages":[{"role":"user","content":"hello"}]}`
+			response := runAdmissionMiddlewareWithBody(t, cfg, policyregistry.ServingAssertion{}, body, func(*gin.Context) {
+				t.Fatal("case-variant beta model reached inference")
+			})
+			require.Equal(t, http.StatusMisdirectedRequest, response.Code, response.Body.String())
+			assert.Contains(t, response.Body.String(), "misdirected_serving_channel")
+			assert.Zero(t, store.calls, "a misdirected request must not create or refresh a session binding")
+		})
+	}
+}
+
 func TestServingAdmissionAdmitsBetaModelOnBetaWorker(t *testing.T) {
 	cfg, admitted, store := channelTestConfig(t, policyregistry.TargetBeta, nil)
 	require.Equal(t, policyregistry.TargetBeta, admitted.Admission.Target)

@@ -156,8 +156,7 @@ func buildManagedServingRuntime(ctx context.Context, mode server.DeploymentMode,
 		closeRegistry()
 		return nil, nil, nil, err
 	}
-	channels := config.ServingChannelBaseURLs()
-	return &middleware.ServingAdmissionConfig{Store: registry, Identity: identity, Cache: cache, StableBaseURL: channels.Stable, BetaBaseURL: channels.Beta}, baseline, closeRegistry, nil
+	return &middleware.ServingAdmissionConfig{Store: registry, Identity: identity, Cache: cache, StableBaseURL: strings.TrimSpace(config.GetOr("ROUTER_STABLE_BASE_URL", "")), BetaBaseURL: strings.TrimSpace(config.GetOr("ROUTER_BETA_BASE_URL", ""))}, baseline, closeRegistry, nil
 }
 
 func openServingStore(ctx context.Context, mode server.DeploymentMode, registryURI string) (policyregistry.ServingStore, func(), error) {

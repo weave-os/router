@@ -1,5 +1,7 @@
 package router
 
+import "strings"
+
 type RoutingModel string
 
 const (
@@ -35,11 +37,14 @@ func RoutingModelPolicyFor(model RoutingModel) (RoutingModelPolicy, bool) {
 }
 
 func CanonicalRoutingModel(model string) RoutingModel {
-	switch model {
-	case ModelAutomaticDisplayName, string(ModelAutoBeta):
+	if model == ModelAutomaticDisplayName || IsAutoBetaRoutingModel(model) {
 		return ModelAutomatic
 	}
 	return RoutingModel(model)
+}
+
+func IsAutoBetaRoutingModel(model string) bool {
+	return strings.EqualFold(model, string(ModelAutoBeta))
 }
 
 func UsesAssignedProfile(model RoutingModel) bool {

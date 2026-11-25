@@ -100,15 +100,3 @@ func CodexExtraCreditsAllowed() (bool, error) {
 		return false, fmt.Errorf("invalid ROUTER_CODEX_ALLOW_EXTRA_CREDITS %q (expected true or false)", raw)
 	}
 }
-
-type ChannelBaseURLs struct {
-	Stable string
-	Beta   string
-}
-
-func ServingChannelBaseURLs() ChannelBaseURLs {
-	return ChannelBaseURLs{
-		Stable: strings.TrimSpace(GetOr("ROUTER_STABLE_BASE_URL", "")),
-		Beta:   strings.TrimSpace(GetOr("ROUTER_BETA_BASE_URL", "")),
-	}
-}

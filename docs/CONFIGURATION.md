@@ -706,8 +706,10 @@ Admission resolves the target from the worker's channel and
   always has.
 
 Writers of `installation_channel_permissions` take the installation row's
-exclusive lock and publish an installation invalidation, which drops that
-installation's cached admissions (the 30-second TTL recovers a lost message).
+exclusive lock. A write reaches the next uncached admission at once; a cached
+admission decision keeps serving for up to its 30-second TTL. A writer that
+must cut access sooner publishes an installation invalidation, which drops that
+installation's cached admissions on every replica.
 
 Cache invalidation is a broadcast: each replica creates its own subscription
 (with an expiration TTL that reclaims subscriptions leaked by a crashed replica)

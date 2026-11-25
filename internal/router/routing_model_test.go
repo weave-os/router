@@ -37,6 +37,10 @@ func TestAutoEfficientIsAnAutomaticRoutingModel(t *testing.T) {
 func TestAutoBetaIsTheAutomaticRouterOnTheBetaChannel(t *testing.T) {
 	require.True(t, IsRoutingModel("weave-auto-beta"), "a routing model name must never be dispatched upstream")
 	require.Equal(t, ModelAutomatic, CanonicalRoutingModel("weave-auto-beta"))
+	for _, variant := range []string{"WEAVE-AUTO-BETA", "Weave-Auto-Beta"} {
+		require.True(t, IsAutoBetaRoutingModel(variant), variant)
+		require.Equal(t, ModelAutomatic, CanonicalRoutingModel(variant), variant)
+	}
 	require.False(t, UsesAssignedProfile(CanonicalRoutingModel("weave-auto-beta")), "beta serves the default role's profile")
 	for _, near := range []string{"weave-auto-betas", "Weave Auto Beta", "weave-auto-beta "} {
 		require.False(t, IsRoutingModel(near), near)
