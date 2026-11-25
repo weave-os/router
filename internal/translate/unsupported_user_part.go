@@ -409,19 +409,14 @@ func openAIPartFromAnthropicBlock(c *userPartCollector, toolResultRaws *[]string
 	case "tool_result":
 		*toolResultRaws = append(*toolResultRaws, buildOpenAIToolResultMessage(block))
 		block.Get("content").ForEach(func(_, inner gjson.Result) bool {
-			switch inner.Get("type").String() {
-			case "image":
+			if inner.Get("type").String() == "image" {
 				if part := buildOpenAIImagePart(inner); part != "" {
 					c.parts = append(c.parts, part)
-					return true
 				}
-				return c.skip("image")
-			case "document":
-				return c.add(buildOpenAIFilePartFromAnthropicDocument(inner))
 			}
 			return true
 		})
-		return c.err == nil
+		return true
 	case "text":
 		return c.add(buildOpenAITextPart(block.Get("text").String()), nil)
 	case "image":
