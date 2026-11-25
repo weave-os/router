@@ -11,10 +11,10 @@
 -- matching rows recorded before serving_target existed. The UPDATE scans the
 -- table without an index (CREATE INDEX CONCURRENTLY cannot run inside a
 -- migration transaction) but holds only ROW EXCLUSIVE, so writes continue; it
--- runs only on a manual rollback. Each transaction gives up after lock_timeout.
+-- runs only on a manual rollback. Each transaction gives up after 250ms, below the application pool's 1s lock_timeout, and is retried.
 BEGIN;
 
-SET LOCAL lock_timeout = '5s';
+SET LOCAL lock_timeout = '250ms';
 
 ALTER TABLE router.session_release_bindings
     DROP CONSTRAINT session_release_bindings_target_check;
@@ -34,7 +34,7 @@ COMMIT;
 
 BEGIN;
 
-SET LOCAL lock_timeout = '5s';
+SET LOCAL lock_timeout = '250ms';
 
 DELETE FROM router.session_release_bindings WHERE target = 'prod/beta';
 
