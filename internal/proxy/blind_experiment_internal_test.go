@@ -690,6 +690,23 @@ func TestBlindPassthroughControlModelKeepsTheEfficientAliasBaseline(t *testing.T
 	assert.Equal(t, "claude-sonnet-5-5", decision.Model, "a caller who asks for the cost-saving alias is never moved to an experiment control model")
 }
 
+func TestBlindPassthroughControlModelKeepsAnExplicitStrategyModel(t *testing.T) {
+	for _, requested := range []router.RoutingModel{router.ModelHMM, router.ModelQwen, router.ModelDecision} {
+		assert.False(t, controlModelApplies(string(requested)), "%s keeps its own behaviour, never the control model", requested)
+	}
+	assert.True(t, controlModelApplies(string(router.ModelAutomatic)))
+	assert.True(t, controlModelApplies(router.ModelAutomaticDisplayName))
+	assert.False(t, controlModelApplies(string(router.ModelAutoEfficient)))
+
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	decision, _, err := service.blindExperimentPassthroughDecision(
+		blindExperimentControlContext("claude-haiku-4-5", ""),
+		router.Request{RequestedModel: string(router.ModelHMM), EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}})
+	var unknown *PassthroughModelUnknownError
+	require.ErrorAs(t, err, &unknown, "an explicit weave-hmm request keeps its own passthrough behaviour instead of being served the control model")
+	assert.Empty(t, decision.Model)
+}
+
 func TestBlindPassthroughControlModelKeepsAnExplicitCatalogModel(t *testing.T) {
 	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}}

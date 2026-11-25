@@ -224,7 +224,7 @@ func passthroughServedModel(ctx context.Context, req router.Request) string {
 }
 
 func controlModelApplies(requestedModel string) bool {
-	return router.IsRoutingModel(requestedModel) && !router.UsesAssignedProfile(router.CanonicalRoutingModel(requestedModel))
+	return router.CanonicalRoutingModel(requestedModel) == router.ModelAutomatic
 }
 
 func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router.Request) (router.Decision, error) {
