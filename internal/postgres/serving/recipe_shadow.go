@@ -20,11 +20,11 @@ func NewRoutingModelProfileRepo(pool *pgxpool.Pool) *RoutingModelProfileRepo {
 }
 
 func (r *RoutingModelProfileRepo) ProfileKey(ctx context.Context, installationID string, model router.RoutingModel) (string, bool, error) {
-	installation, err := uuid.Parse(installationID)
+	installationUUID, err := uuid.Parse(installationID)
 	if err != nil {
 		return "", false, err
 	}
-	assignment, err := r.queries.GetServingRoutingModelProfileAssignment(ctx, sqlc.GetServingRoutingModelProfileAssignmentParams{InstallationID: installation, RoutingModel: string(model)})
+	assignment, err := r.queries.GetServingRoutingModelProfileAssignment(ctx, sqlc.GetServingRoutingModelProfileAssignmentParams{InstallationID: installationUUID, RoutingModel: string(model)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}

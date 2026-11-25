@@ -50,7 +50,7 @@ func (s *RecipePolicySource) ProfilePolicy(ctx context.Context, profileKey strin
 	if _, inactive := s.inactiveProfiles.Get(profileKey); inactive {
 		return RecipePolicy{}, router.ErrRecipeShadowProfileInactive
 	}
-	loaded, err, _ := s.flights.Do(profileKey, func() (any, error) {
+	flightResult, err, _ := s.flights.Do(profileKey, func() (any, error) {
 		return s.readProfilePolicy(ctx, profileKey)
 	})
 	if errors.Is(err, router.ErrRecipeShadowProfileInactive) {
@@ -59,7 +59,7 @@ func (s *RecipePolicySource) ProfilePolicy(ctx context.Context, profileKey strin
 	if err != nil {
 		return RecipePolicy{}, err
 	}
-	recipe, _ := loaded.(RecipePolicy)
+	recipe, _ := flightResult.(RecipePolicy)
 	s.cache.Add(profileKey, recipe)
 	return recipe, nil
 }
@@ -72,10 +72,7 @@ func (s *RecipePolicySource) readProfilePolicy(ctx context.Context, profileKey s
 	if err := snapshot.State.Validate(s.store.RootURI(), s.target); err != nil {
 		return RecipePolicy{}, err
 	}
-	current, exists := snapshot.State.Activations[snapshot.State.CurrentActivationID]
-	if !exists {
-		return RecipePolicy{}, errors.New("target has no current activation")
-	}
+	current := snapshot.State.Activations[snapshot.State.CurrentActivationID]
 	selectionSet, err := readSelectionSetView(ctx, s.store, current.SelectionSet)
 	if err != nil {
 		return RecipePolicy{}, err

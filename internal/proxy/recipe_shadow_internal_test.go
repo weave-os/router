@@ -41,10 +41,10 @@ func (recipeProfilesStub) ProfileKey(context.Context, string, router.RoutingMode
 
 func recipeShadowFired(ctx context.Context) bool {
 	spy := recipeShadowSpy{fired: make(chan struct{}, 1)}
-	turns := turnTelemetry{repo: recipeShadowStoreStub{}, recipe: policyshadow.RecipeRecorder{
+	tel := turnTelemetry{repo: recipeShadowStoreStub{}, recipe: policyshadow.RecipeRecorder{
 		Profiles: recipeProfilesStub{}, Replayer: spy, ShadowModel: router.ModelAutoEfficient,
 	}}
-	fireRecipeShadow(ctx, turns, auth.Clock(time.Now), "11111111-1111-4111-8111-111111111111", router.StrategyHMM, router.Decision{}, router.Request{})
+	fireRecipeShadow(ctx, tel, auth.Clock(time.Now), "11111111-1111-4111-8111-111111111111", router.StrategyHMM, router.Decision{}, router.Request{})
 	select {
 	case <-spy.fired:
 		return true

@@ -21,8 +21,8 @@ func (s *Service) firePolicyShadowForServingDecision(ctx context.Context, strate
 	fireRecipeShadow(ctx, s.turnTelemetry, s.clock, installationID, strategy, serving, req)
 }
 
-func fireRecipeShadow(ctx context.Context, turns turnTelemetry, clock auth.Clock, installationID string, strategy router.Strategy, serving router.Decision, req router.Request) {
-	if stored, found := flags.StoredOverridesFromContext(ctx); turns.recipe.Replayer == nil || !found || !stored.Bools[flags.KeyRecipeShadow] {
+func fireRecipeShadow(ctx context.Context, tel turnTelemetry, clock auth.Clock, installationID string, strategy router.Strategy, serving router.Decision, req router.Request) {
+	if stored, found := flags.StoredOverridesFromContext(ctx); tel.recipe.Replayer == nil || !found || !stored.Bools[flags.KeyRecipeShadow] {
 		return
 	}
 	if model := router.StrategySelectionFromContext(ctx).RoutingModel; model != "" && model != router.ModelAutomatic {
@@ -32,8 +32,8 @@ func fireRecipeShadow(ctx context.Context, turns turnTelemetry, clock auth.Clock
 	if !managed {
 		return
 	}
-	recorder := turns.recipe
-	recorder.Store, _ = turns.repo.(telemetry.PolicyShadowStore)
+	recorder := tel.recipe
+	recorder.Store, _ = tel.repo.(telemetry.PolicyShadowStore)
 	recorder.Now = clock.Now
 	recorder.Fire(ctx, policyshadow.RecipeTurn{InstallationID: installationID, ServingStrategy: strategy, ServingProfileKey: identity.ProfileKey, Served: serving, Request: req})
 }
