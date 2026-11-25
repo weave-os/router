@@ -17,7 +17,7 @@ type SubscriptionQuota struct {
 }
 
 type includedUsageWindow struct {
-	Utilization float64    `json:"utilization"`
+	Utilization *float64   `json:"utilization"`
 	ResetsAt    *time.Time `json:"resets_at"`
 }
 
@@ -46,12 +46,12 @@ func (c *Client) SubscriptionQuota(ctx context.Context, token []byte) (Subscript
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&windows); err != nil {
 		return SubscriptionQuota{}, fmt.Errorf("invalid subscription usage: %w", err)
 	}
-	if windows.FiveHour == nil && windows.SevenDay == nil {
-		return SubscriptionQuota{}, errors.New("subscription usage reported no included windows")
-	}
 	quota := SubscriptionQuota{Available: true}
 	for _, window := range []*includedUsageWindow{windows.FiveHour, windows.SevenDay} {
-		if window == nil || window.Utilization < 100 {
+		if window == nil || window.Utilization == nil || *window.Utilization < 0 {
+			return SubscriptionQuota{}, errors.New("subscription usage reported an incomplete included window")
+		}
+		if *window.Utilization < 100 {
 			continue
 		}
 		quota.Available = false

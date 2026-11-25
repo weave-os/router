@@ -23,6 +23,10 @@ func TestSubscriptionQuotaReadsIncludedWindows(t *testing.T) {
 		{"model_window_spent_is_ignored", `{"five_hour":{"utilization":5},"seven_day":{"utilization":5},"seven_day_opus":{"utilization":100}}`, SubscriptionQuota{Available: true}, false},
 		{"extra_usage_spent_is_ignored", `{"five_hour":{"utilization":5},"seven_day":{"utilization":5},"extra_usage":{"is_enabled":true,"utilization":100}}`, SubscriptionQuota{Available: true}, false},
 		{"no_windows", `{}`, SubscriptionQuota{}, true},
+		{"weekly_window_missing", `{"five_hour":{"utilization":5}}`, SubscriptionQuota{}, true},
+		{"utilization_missing", `{"five_hour":{},"seven_day":{"utilization":5}}`, SubscriptionQuota{}, true},
+		{"utilization_null", `{"five_hour":{"utilization":null},"seven_day":{"utilization":5}}`, SubscriptionQuota{}, true},
+		{"utilization_negative", `{"five_hour":{"utilization":-1},"seven_day":{"utilization":5}}`, SubscriptionQuota{}, true},
 		{"malformed", `not json`, SubscriptionQuota{}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

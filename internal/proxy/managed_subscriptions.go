@@ -188,7 +188,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue
 		}
-		if observed && snapshot.OverageInUse && !allowClaudeOverage {
+		if observed && snapshot.ObservedSince(lease.QuotaReactivatedAt).OverageInUse && !allowClaudeOverage {
 			diagnostics.skip(lease, subscriptionSkipPaidOverage)
 			lease.Release()
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
