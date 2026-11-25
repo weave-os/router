@@ -45,7 +45,12 @@ func provisionManagedFixture(ctx context.Context, databaseURL, installationID, e
 		return fixtureBinding{}, errors.New("unsupported fixture serving target")
 	}
 	queries := dbbudget.Queries(pool)
-	admissions, err := serving.NewServingAdmissionRepo(pool, policyregistry.EnvironmentProd)
+	unscoped, err := serving.NewServingAdmissionRepo(pool, policyregistry.EnvironmentProd)
+	if err != nil {
+		return fixtureBinding{}, err
+	}
+	channel, _ := target.Channel()
+	admissions, err := unscoped.ForWorker(target, channel)
 	if err != nil {
 		return fixtureBinding{}, err
 	}

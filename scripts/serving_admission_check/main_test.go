@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/postgres/serving"
 )
 
 func TestFixtureDSNRequiresLoopback(t *testing.T) {
@@ -62,7 +61,7 @@ func TestAdmissionPoolAcquisitionHasDatabaseDeadline(t *testing.T) {
 	}
 	defer occupied.Release()
 
-	admissions, err := serving.NewServingAdmissionRepo(pool, policyregistry.EnvironmentProd)
+	admissions, err := scopedAdmissionRepo(pool, policyregistry.TargetStable)
 	if err != nil {
 		t.Fatalf("create serving admission repo: %v", err)
 	}

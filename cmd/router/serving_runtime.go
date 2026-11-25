@@ -57,10 +57,12 @@ func buildAdmissionDecisions(pool *pgxpool.Pool) (*policyregistry.AdmissionDecis
 	if err != nil {
 		return nil, err
 	}
-	if channel, hasChannel := target.Channel(); hasChannel {
-		admissions = admissions.ForWorker(target, channel)
+	channel, _ := target.Channel()
+	scoped, err := admissions.ForWorker(target, channel)
+	if err != nil {
+		return nil, err
 	}
-	return policyregistry.NewAdmissionDecisionCache(admissions, 10000, 30*time.Second, time.Now)
+	return policyregistry.NewAdmissionDecisionCache(scoped, 10000, 30*time.Second, time.Now)
 }
 
 func servingTargetConfigured() bool {

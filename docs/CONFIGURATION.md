@@ -685,7 +685,9 @@ supported channel for running a release ahead of stable, and is not scheduled fo
 | `ROUTER_BETA_BASE_URL` | *(none)* | Beta client base URL, named in the `421 misdirected_serving_channel` body. |
 
 Admission resolves the target from the worker's channel and
-`router.installation_channel_permissions`:
+`router.installation_channel_permissions`. A managed worker refuses to start
+unless its admission is scoped to its own target and channel, and admission
+with no worker identity fails closed rather than skipping the permission check:
 
 - **Stable and internal** keep the enrollment-decided target
   (`installation_lane_enrollments.internal_enrolled` and credential-subject

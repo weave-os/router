@@ -89,3 +89,27 @@ func TestAdmissionRefusalsAreDeniedNotFailed(t *testing.T) {
 	assert.Equal(t, admissionDenied, admissionOutcomeFor(policyregistry.ErrServingChannelNotPermitted))
 	assert.Equal(t, admissionDenied, admissionOutcomeFor(policyregistry.ErrServingChannelChanged))
 }
+
+func TestServingAdmissionRepoRefusesAWorkerWithoutIdentityOrChannel(t *testing.T) {
+	t.Parallel()
+
+	unscoped := &ServingAdmissionRepo{environment: policyregistry.EnvironmentProd}
+	for _, test := range []struct {
+		name    string
+		worker  policyregistry.ServingTarget
+		channel policyregistry.ServingChannel
+	}{
+		{name: "no worker identity"},
+		{name: "beta worker without its channel", worker: policyregistry.TargetBeta},
+		{name: "beta worker on another channel", worker: policyregistry.TargetBeta, channel: policyregistry.ChannelStable},
+	} {
+		_, err := unscoped.ForWorker(test.worker, test.channel)
+		require.ErrorIs(t, err, policyregistry.ErrServingWorkerUnscoped, test.name)
+	}
+
+	for _, worker := range []policyregistry.ServingTarget{policyregistry.TargetStable, policyregistry.TargetInternal, policyregistry.TargetBeta, policyregistry.TargetStaging} {
+		channel, _ := worker.Channel()
+		_, err := unscoped.ForWorker(worker, channel)
+		require.NoError(t, err, worker)
+	}
+}

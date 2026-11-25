@@ -17,6 +17,8 @@ var ErrServingChannelNotPermitted = errors.New("installation is not permitted on
 
 var ErrServingChannelChanged = errors.New("start a new conversation to change serving channel")
 
+var ErrServingWorkerUnscoped = errors.New("serving admission has no worker identity or channel")
+
 func ParseServingChannel(value string) (ServingChannel, error) {
 	if ServingChannel(value) == ChannelBeta {
 		return ChannelBeta, nil
@@ -53,8 +55,14 @@ type ChannelResolution struct {
 }
 
 func (a ChannelAdmission) ResolveTarget() (ChannelResolution, error) {
-	if a.WorkerChannel == "" || EnrollmentDecidesTarget(a.Worker) {
+	if a.Worker == "" {
+		return ChannelResolution{}, ErrServingWorkerUnscoped
+	}
+	if EnrollmentDecidesTarget(a.Worker) {
 		return ChannelResolution{Target: a.EnrolledTarget}, nil
+	}
+	if a.WorkerChannel == "" {
+		return ChannelResolution{}, ErrServingWorkerUnscoped
 	}
 	for _, permission := range a.Permissions {
 		if permission.Channel == a.WorkerChannel {
@@ -62,6 +70,20 @@ func (a ChannelAdmission) ResolveTarget() (ChannelResolution, error) {
 		}
 	}
 	return ChannelResolution{}, ErrServingChannelNotPermitted
+}
+
+func ValidateWorkerChannel(worker ServingTarget, channel ServingChannel) error {
+	if worker == "" {
+		return ErrServingWorkerUnscoped
+	}
+	expected, hasChannel := worker.Channel()
+	if !hasChannel && EnrollmentDecidesTarget(worker) {
+		return nil
+	}
+	if !hasChannel || channel != expected {
+		return fmt.Errorf("%w: worker %q needs channel %q, got %q", ErrServingWorkerUnscoped, worker, expected, channel)
+	}
+	return nil
 }
 
 func EnrollmentDecidesTarget(target ServingTarget) bool {

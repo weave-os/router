@@ -25,11 +25,14 @@ type ServingAdmissionRepo struct {
 	workerChannel policyregistry.ServingChannel
 }
 
-func (r *ServingAdmissionRepo) ForWorker(worker policyregistry.ServingTarget, channel policyregistry.ServingChannel) *ServingAdmissionRepo {
+func (r *ServingAdmissionRepo) ForWorker(worker policyregistry.ServingTarget, channel policyregistry.ServingChannel) (*ServingAdmissionRepo, error) {
+	if err := policyregistry.ValidateWorkerChannel(worker, channel); err != nil {
+		return nil, err
+	}
 	scoped := *r
 	scoped.worker = worker
 	scoped.workerChannel = channel
-	return &scoped
+	return &scoped, nil
 }
 
 func NewServingAdmissionRepo(pool *pgxpool.Pool, environment policyregistry.Environment) (*ServingAdmissionRepo, error) {

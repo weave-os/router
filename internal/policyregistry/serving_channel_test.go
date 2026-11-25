@@ -18,7 +18,6 @@ func TestChannelAdmissionKeepsEnrollmentTargetForStableAndInternal(t *testing.T)
 		enrolledTarget ServingTarget
 		permissions    []ChannelPermission
 	}{
-		{name: "unscoped tooling", enrolledTarget: TargetInternal},
 		{name: "stable worker, default access", worker: TargetStable, enrolledTarget: TargetStable},
 		{name: "stable worker, beta holder", worker: TargetStable, enrolledTarget: TargetStable, permissions: betaPermissions},
 		{name: "stable worker, staff enrollment", worker: TargetStable, enrolledTarget: TargetInternal},
@@ -91,4 +90,15 @@ func TestBetaTargetIsAProductionCohortOnTheBetaChannel(t *testing.T) {
 		Target: TargetBeta, Project: "prod-01", Region: "us-central1", Revision: "router-worker-beta-00001",
 		ImageDigest: "sha256:" + strings.Repeat("a", 64), Configuration: ObjectRef{URI: "gs://registry-example/configuration.json", SHA256: strings.Repeat("b", 64), Generation: 1},
 	}.Validate(), "worker startup accepts the beta target")
+}
+
+func TestChannelAdmissionRejectsAnUnscopedWorker(t *testing.T) {
+	t.Parallel()
+
+	betaPermissions := []ChannelPermission{{Channel: ChannelBeta, Generation: 1}}
+	_, err := ChannelAdmission{EnrolledTarget: TargetStable, Permissions: betaPermissions}.ResolveTarget()
+	require.ErrorIs(t, err, ErrServingWorkerUnscoped, "admission with no worker identity must fail closed, never fall back to the enrolled target")
+
+	_, err = ChannelAdmission{Worker: TargetBeta, EnrolledTarget: TargetStable, Permissions: betaPermissions}.ResolveTarget()
+	require.ErrorIs(t, err, ErrServingWorkerUnscoped, "a beta worker with no channel must not skip the permission check")
 }
