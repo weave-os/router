@@ -7,21 +7,28 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/router"
 )
 
 func rejectMisdirectedChannelModel(c *gin.Context, cfg *ServingAdmissionConfig, body []byte) bool {
-	if requestedChannelModel(c, body) != policyregistry.BetaChannelModel {
+	if router.RoutingModel(requestedChannelModel(c, body)) != router.ModelAutoBeta || servesBetaChannel(cfg.Identity.Target) {
 		return false
 	}
-	if channel, _ := cfg.Identity.Target.Channel(); channel == policyregistry.ChannelBeta {
-		return false
-	}
-	response := gin.H{"error": "misdirected_serving_channel", "message": "weave-auto-beta is served only by the beta router host."}
-	if cfg.BetaBaseURL != "" {
-		response["base_url"] = cfg.BetaBaseURL
+	abortMisdirectedChannelModel(c, cfg.BetaBaseURL)
+	return true
+}
+
+func servesBetaChannel(target policyregistry.ServingTarget) bool {
+	channel, _ := target.Channel()
+	return channel == policyregistry.ChannelBeta
+}
+
+func abortMisdirectedChannelModel(c *gin.Context, betaBaseURL string) {
+	response := gin.H{"error": "misdirected_serving_channel", "message": string(router.ModelAutoBeta) + " is served only by the beta router host."}
+	if betaBaseURL != "" {
+		response["base_url"] = betaBaseURL
 	}
 	c.AbortWithStatusJSON(http.StatusMisdirectedRequest, response)
-	return true
 }
 
 func requestedChannelModel(c *gin.Context, body []byte) string {

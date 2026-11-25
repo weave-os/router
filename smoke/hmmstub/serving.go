@@ -90,6 +90,10 @@ type ServingGraph struct {
 }
 
 func NewServingGraph(classifierURL string) (ServingGraph, error) {
+	return NewServingGraphForTarget(classifierURL, ServingTarget)
+}
+
+func NewServingGraphForTarget(classifierURL string, target policyregistry.ServingTarget) (ServingGraph, error) {
 	policyPayload := []byte(policyJSON)
 	policySHA := policyregistry.Digest(policyPayload)
 	policyRelative := "router_policy/v1/policies/sha256/" + policySHA + ".json"
@@ -110,7 +114,7 @@ func NewServingGraph(classifierURL string) (ServingGraph, error) {
 	}
 	selection, err := canonicalArtifact(policyregistry.SelectionSetV4{
 		SchemaVersion: policyregistry.ServingSelectionSetV4,
-		Target:        ServingTarget,
+		Target:        target,
 		Code: policyregistry.CandidateCodeV4{
 			Candidate: candidate.ref, Project: ServingProject, Region: ServingRegion,
 			Router:      policyregistry.RevisionBinding{Name: ServingRevision, URL: servingRouterOrigin, Audience: servingRouterOrigin, ImageDigest: ServingImageDigest, Configuration: ServingConfiguration()},
@@ -125,7 +129,7 @@ func NewServingGraph(classifierURL string) (ServingGraph, error) {
 		return ServingGraph{}, fmt.Errorf("encode stub selection set: %w", err)
 	}
 	state, err := json.Marshal(policyregistry.ServingControlState{
-		SchemaVersion: policyregistry.ServingControlStateV1, Target: ServingTarget, CurrentActivationID: servingActivationID, Sequence: 1,
+		SchemaVersion: policyregistry.ServingControlStateV1, Target: target, CurrentActivationID: servingActivationID, Sequence: 1,
 		Activations: map[string]policyregistry.Activation{servingActivationID: {
 			ID: servingActivationID, Sequence: 1, SelectionSet: selection.ref, ActivatedAt: servingCreatedAt,
 			Proposal: artifactRef("hmm-stub-proposal"), RequestID: "hmm-stub", Actor: "hmm-stub", WorkflowActor: "hmm-stub",
@@ -134,7 +138,7 @@ func NewServingGraph(classifierURL string) (ServingGraph, error) {
 	if err != nil {
 		return ServingGraph{}, fmt.Errorf("encode stub serving state: %w", err)
 	}
-	environment, err := ServingTarget.Environment()
+	environment, err := target.Environment()
 	if err != nil {
 		return ServingGraph{}, err
 	}
@@ -146,7 +150,7 @@ func NewServingGraph(classifierURL string) (ServingGraph, error) {
 	if err != nil {
 		return ServingGraph{}, fmt.Errorf("encode stub runtime binding: %w", err)
 	}
-	statePath, err := policyregistry.DirectoryServingStatePath(ServingTarget)
+	statePath, err := policyregistry.DirectoryServingStatePath(target)
 	if err != nil {
 		return ServingGraph{}, err
 	}

@@ -13,8 +13,6 @@ const (
 	ChannelInternal ServingChannel = "internal"
 )
 
-const BetaChannelModel = "weave-auto-beta"
-
 var ErrServingChannelNotPermitted = errors.New("installation is not permitted on this serving channel")
 
 var ErrServingChannelChanged = errors.New("start a new conversation to change serving channel")
@@ -30,6 +28,7 @@ func ParseServingChannel(value string) (ServingChannel, error) {
 var targetChannels = map[ServingTarget]ServingChannel{
 	TargetStable:   ChannelStable,
 	TargetInternal: ChannelInternal,
+	TargetBeta:     ChannelBeta,
 }
 
 func (t ServingTarget) Channel() (ServingChannel, bool) {

@@ -26,6 +26,7 @@ func TestValidateManagedServingBoot(t *testing.T) {
 		{"stable", "prod/stable", "hmm_embedding", true},
 		{"internal", "prod/weave-internal", "hmm", true},
 		{"staging", "staging", "hmm_embedding", true},
+		{"beta", "prod/beta", "hmm_embedding", true},
 		{"missing target", "", "hmm_embedding", false},
 		{"unknown fleet", "beta", "hmm_embedding", false},
 		{"missing strategy", "prod/stable", "", false},

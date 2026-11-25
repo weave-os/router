@@ -180,11 +180,11 @@ func storedViews(t *testing.T, store *servingMemoryStore, refs ...policyregistry
 }
 
 func TestServingContractsRejectMutableTargetsAndReferences(t *testing.T) {
-	for _, target := range []policyregistry.ServingTarget{"beta", "prod/beta", "stable", "staging/weave-internal", "../stable"} {
+	for _, target := range []policyregistry.ServingTarget{"beta", "stable", "prod/stable/beta", "staging/weave-internal", "../stable"} {
 		_, err := target.Environment()
 		require.Error(t, err)
 	}
-	for target, environment := range map[policyregistry.ServingTarget]policyregistry.Environment{policyregistry.TargetStaging: policyregistry.EnvironmentStaging, policyregistry.TargetStable: policyregistry.EnvironmentProd, policyregistry.TargetInternal: policyregistry.EnvironmentProd} {
+	for target, environment := range map[policyregistry.ServingTarget]policyregistry.Environment{policyregistry.TargetStaging: policyregistry.EnvironmentStaging, policyregistry.TargetStable: policyregistry.EnvironmentProd, policyregistry.TargetInternal: policyregistry.EnvironmentProd, policyregistry.TargetBeta: policyregistry.EnvironmentProd} {
 		actual, err := target.Environment()
 		require.NoError(t, err)
 		assert.Equal(t, environment, actual)

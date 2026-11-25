@@ -89,6 +89,11 @@ func (admittedModelRouter) Route(context.Context, router.Request) (router.Decisi
 
 func admissionMiddlewareFixture(t *testing.T) (*ServingAdmissionConfig, policyregistry.ServingAssertion, *admissionManifestStore, *int) {
 	t.Helper()
+	return admissionMiddlewareFixtureForTarget(t, policyregistry.TargetStable)
+}
+
+func admissionMiddlewareFixtureForTarget(t *testing.T, target policyregistry.ServingTarget) (*ServingAdmissionConfig, policyregistry.ServingAssertion, *admissionManifestStore, *int) {
+	t.Helper()
 	policy := &rosterdata.Roster{
 		SchemaVersion: rosterdata.SchemaVersionPolicyV1, ClassOrder: []string{admissionTestClass},
 		Ranking:  rosterdata.Ranking{Alpha: map[string]float64{admissionTestClass: .4}, AlphaMin: map[string]float64{admissionTestClass: .1}, AlphaMax: map[string]float64{admissionTestClass: .8}, QualityBiasNeutral: .7, WIIScoreVersion: "wii-v1", WIINormalizationSHA256: "wii", WPIScoreVersion: "wpi-v1", WPINormalizationSHA256: "wpi"},
@@ -116,7 +121,7 @@ func admissionMiddlewareFixture(t *testing.T) (*ServingAdmissionConfig, policyre
 	}
 	releaseRef := store.put(t, policyregistry.ServingReleases, release)
 	binding := &policyregistry.DeploymentBinding{
-		SchemaVersion: policyregistry.ServingBindingV1, Target: policyregistry.TargetStable, Project: "fixture-project", Region: "fixture-region", Release: releaseRef,
+		SchemaVersion: policyregistry.ServingBindingV1, Target: target, Project: "fixture-project", Region: "fixture-region", Release: releaseRef,
 		Router:                 policyregistry.RevisionBinding{Name: "worker-0001", URL: "https://worker-0001.example", Audience: "https://worker.example", ImageDigest: release.RouterImageDigest, Configuration: artifact("worker-config")},
 		Classifier:             policyregistry.RevisionBinding{Name: "classifier-0001", URL: "https://classifier-0001.example", Audience: "https://classifier.example", ImageDigest: bundle.Identity.ImageDigest, Configuration: bundle.Configuration},
 		ClassifierBundleSHA256: bundleRef.SHA256, Attestation: artifact("binding-attestation"),

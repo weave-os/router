@@ -641,7 +641,7 @@ kept out of revision-specific stamping.
 | --- | --- | --- | --- |
 | `ROUTER_SERVING_REGISTRY_URI` | Worker | Terraform and deploy script (worker) | Falls back to `WEAVE_REGISTRY_URI`, then `gs://weave_ml/weave_registry`; set it explicitly. A local path instead serves a read-only serving registry directory, which the local compose stack bakes from `smoke/hmmstub` and a self-hosted install receives from `policyctl serving export-selfhosted`. A local directory's classifier runtime bindings get the same schema, environment, release, revision and digest checks as GCS, but skip the managed project and https Cloud Run origin checks, because the local stub classifier is a plain-http compose container. |
 | `ROUTER_ALLOW_LOCAL_SERVING_REGISTRY` | Worker | Local compose and smoke only | `true` lets `ROUTER_DEPLOYMENT_MODE=managed` serve from a local `ROUTER_SERVING_REGISTRY_URI` directory and logs a startup warning. Unset, a managed worker refuses a non-`gs://` serving registry. Never set it on a deployed worker. |
-| `ROUTER_SERVING_TARGET` | Worker | Deploy script and Terraform | Boot fails. Must name a known target (`staging`, `prod/stable`, `prod/weave-internal`). The target's channel scopes admission; see [Serving channels](#serving-channels-and-channel-permission). |
+| `ROUTER_SERVING_TARGET` | Worker | Deploy script and Terraform | Boot fails. Must name a known target (`staging`, `prod/stable`, `prod/weave-internal`, `prod/beta`). The target's channel scopes admission; see [Serving channels](#serving-channels-and-channel-permission). |
 | `ROUTER_SERVING_PROJECT` | Worker | Deploy script and Terraform | Boot fails. |
 | `ROUTER_SERVING_REGION` | Worker | Deploy script and Terraform | Boot fails. |
 | `ROUTER_SERVING_IMAGE_DIGEST` | Worker | Deploy script | Boot fails. Must be an exact image digest. |
@@ -675,8 +675,7 @@ the admission caches using the same Pub/Sub project and topic.
 ### Serving channels and channel permission
 
 A worker serves one channel: `prod/stable` is `stable`, `prod/weave-internal`
-is `internal`, and `beta` is a recognized channel value reserved for a beta
-cohort. The host a client calls decides the channel; the alias decides the role.
+is `internal`, and `prod/beta` is `beta`. The host a client calls decides the channel; the alias decides the role.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
