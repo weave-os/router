@@ -39,11 +39,6 @@ func SetServingReleaseHeaders(ctx context.Context, h http.Header) {
 	}
 }
 
-func StripServingReleaseHeaders(h http.Header) {
-	h.Del(requestcontext.HeaderServingReleaseSHA)
-	h.Del(requestcontext.HeaderServingPolicySHA)
-}
-
 func shortServingDigest(digest string) string {
 	if len(digest) < servingReleaseHeaderLen {
 		return digest
