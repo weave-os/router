@@ -225,7 +225,7 @@ export function providerHeaders(role: Role, key: string): Record<string, string>
  * request from the organization's enabled set, so concrete entries here only
  * advertised choices that were never honored, and went stale. /fm pins a model.
  * Deliberately not `weave-auto`: the router reads that as a routing-strategy
- * selector, which turns /beta off.
+ * selector.
  */
 export const WEAVE_AUTO_MODEL_ID = "auto";
 

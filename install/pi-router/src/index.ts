@@ -23,7 +23,6 @@
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerAutoModel } from "./auto-model.js";
-import { registerBetaCommand } from "./beta.js";
 import { registerClassifierThread } from "./classifier-thread.js";
 import { isSubagent } from "./config.js";
 import { registerCompaction } from "./compaction.js";
@@ -50,7 +49,6 @@ export default function (pi: ExtensionAPI): void {
 	registerAutoModel(pi);
 	registerMetadata(pi);
 	const classifierThreadActive = registerClassifierThread(pi);
-	registerBetaCommand(pi);
 	registerForceModelCommands(pi);
 	registerRoutedModel(pi);
 	if (!isSubagent()) registerWooly(pi);

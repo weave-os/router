@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/providers"
@@ -16,7 +14,6 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
-	"weave-os/router/internal/router/sessionstrategy"
 )
 
 const goldenConversationPrefix = ingressAnthropic + "_conversation_"
@@ -107,11 +104,9 @@ func conversationCmd(messages ...string) goldenRequest {
 	return goldenRequest{body: conversationBody(false, messages...), noTelemetry: true}
 }
 
-func withConvStores(sc goldenScenario, seed bool) goldenScenario {
+func withConvStores(sc goldenScenario) goldenScenario {
 	sc.configure = func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-		store := &goldenConversationStore{rec: h.rec, enabled: seed}
-		return svc.WithRouterFeedbackStore(store).
-			WithSessionStrategyStore(store)
+		return svc.WithRouterFeedbackStore(&goldenConversationStore{rec: h.rec})
 	}
 	return sc
 }
@@ -141,23 +136,23 @@ func goldenCommandScenarios() []goldenScenario {
 	sessionWithID := conversationScenario("router_session_command_with_client_session", inSession(conversationCmd(first, reply, conversationUser("/router-session"))))
 	models := conversationScenario("router_models_command", conversationCmd(first, reply, conversationUser("/router-models")))
 	feedback := withConvStores(conversationScenario("router_feedback_command_records_event",
-		conversationCmd(first, reply, conversationUser("/router-feedback the parser plan was a great pick"))), false)
+		conversationCmd(first, reply, conversationUser("/router-feedback the parser plan was a great pick"))))
 	feedbackEmpty := withConvStores(conversationScenario("router_feedback_command_without_text",
-		conversationCmd(first, reply, conversationUser("/router-feedback"))), false)
+		conversationCmd(first, reply, conversationUser("/router-feedback"))))
 	openAIFeedback := withConvStores(goldenScenario{
 		name: ingressOpenAI + "_conversation_router_feedback_command", ingress: ingressOpenAI,
 		decisions: []router.Decision{decision(providers.ProviderAnthropic, goldenAnthropicModel)},
 		upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "never")}},
 		requests: []goldenRequest{{body: conversationOpenAIBody(conversationOpenAIUser(goldenConversationOpening),
 			conversationOpenAIAssistant("plan"), conversationOpenAIUser("/router-feedback wrong model for this task")), noTelemetry: true}},
-	}, false)
-	betaNoStore := conversationScenario("beta_command_without_store", conversationCmd(first, reply, conversationUser("/beta")))
-	betaDisable := withConvStores(conversationScenario("beta_command_disables_unavailable_strategy",
-		inSession(conversationCmd(first, reply, conversationUser("/beta")))), true)
+	})
+	betaPrompt := conversationScenario("retired_beta_command_reaches_upstream", inSession(conversationReq(first, reply, conversationUser("/beta"))))
+	legacyBeta := conversationScenario("legacy_beta_history_stripped_from_upstream",
+		conversationReq(first, reply, conversationUser("/beta"), conversationAssistant("✦ **Weave Router** → Beta enabled. Type /beta again to turn it off.\n\n"), conversationUser("now add tests")))
 	historical := conversationScenario("historical_command_stripped_from_upstream",
 		conversationReq(first, reply, conversationUser("/router-session"), conversationAssistant("session details"), conversationUser("now add tests")))
 	return []goldenScenario{forced, forcedStream, unforce, unknown, openAIForce, session, sessionWithID, models,
-		feedback, feedbackEmpty, openAIFeedback, betaNoStore, betaDisable, historical}
+		feedback, feedbackEmpty, openAIFeedback, betaPrompt, legacyBeta, historical}
 }
 
 func goldenContinuationScenarios() []goldenScenario {
@@ -313,8 +308,7 @@ func goldenToolResultScenarios() []goldenScenario {
 
 // goldenConversationStore records lifecycle store writes in trace order.
 type goldenConversationStore struct {
-	rec     *goldenRecorder
-	enabled bool
+	rec *goldenRecorder
 }
 
 func (s *goldenConversationStore) record(op string, detail any) {
@@ -326,24 +320,4 @@ func (s *goldenConversationStore) record(op string, detail any) {
 func (s *goldenConversationStore) InsertRouterFeedback(_ context.Context, p feedback.RouterFeedbackEvent) error {
 	s.record("router_feedback.insert", p)
 	return nil
-}
-
-func (s *goldenConversationStore) Get(_ context.Context, installationID uuid.UUID, key [sessionstrategy.SessionKeyLen]byte) (sessionstrategy.Preference, bool, error) {
-	if !s.enabled {
-		return sessionstrategy.Preference{}, false, nil
-	}
-	return sessionstrategy.Preference{InstallationID: installationID, SessionKey: key, Strategy: router.StrategyHMMBeta}, true, nil
-}
-
-func (s *goldenConversationStore) Toggle(_ context.Context, p sessionstrategy.Preference) (bool, error) {
-	s.record("session_strategy.toggle", p.Strategy)
-	s.enabled = !s.enabled
-	return s.enabled, nil
-}
-
-func (s *goldenConversationStore) Disable(_ context.Context, _ uuid.UUID, _ [sessionstrategy.SessionKeyLen]byte, strategy router.Strategy) (bool, error) {
-	s.record("session_strategy.disable", strategy)
-	was := s.enabled
-	s.enabled = false
-	return was, nil
 }

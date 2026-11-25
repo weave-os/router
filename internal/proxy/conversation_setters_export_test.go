@@ -6,16 +6,7 @@ import (
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/handover"
-	"weave-os/router/internal/router/sessionstrategy"
 )
-
-func (s *Service) WithSessionStrategyStore(store sessionstrategy.Store) *Service {
-	if s.lifecycle == nil {
-		s.lifecycle = &conversation.Lifecycle{}
-	}
-	s.lifecycle.SetSessionStrategies(store)
-	return s
-}
 
 func (s *Service) WithRouterFeedbackStore(store feedback.RouterFeedbackStore) *Service {
 	if s.lifecycle == nil {

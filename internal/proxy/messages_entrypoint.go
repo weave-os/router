@@ -103,18 +103,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	promptText, embedInput := conversation.TurnPromptText(feats)
 	conversation.LogTurnStart(log, "ProxyMessages start", env.Stream(), feats, s.zdrLogField(ctx, observability.Preview(promptText, 200)))
 
-	if !agentShadowMode {
-		betaSessionKey := deriveBetaSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
-		if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
-			log.Info("ProxyMessages beta command")
-			return (betaCommands{s, strategy}).handle(ctx, w, env, cmd, facts.InstallationID, sessionKey, betaSessionKey, feats.Tokens)
-		}
-		ctx, strategy, err = s.applySessionStrategy(ctx, strategy, facts.InstallationID, betaSessionKey)
-		if err != nil {
-			return err
-		}
-		*r = *r.WithContext(ctx)
-	}
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 	if conversation.PreparingHandoff(ctx) && !s.authoritativePerTurnSelection(ctx, strategy) {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})

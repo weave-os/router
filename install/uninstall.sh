@@ -57,7 +57,6 @@ router-session||prompt|yes|yes|no|no|manual|command,skill
 list-models||prompt|yes|yes|no|no|manual|command,skill
 router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
-beta||prompt|yes|no|no|yes|manual|command
 WEAVE_REGISTRY_EOF
 )
 
@@ -261,6 +260,45 @@ weave_command_router_owned() {
     [ "$(cat "$command_file")" = "$expected" ] && return 0
   done
   return 1
+}
+
+# Directives the router no longer serves. Earlier installers wrote wrappers for
+# them; each is listed with the exact body it shipped, because its canonical
+# source is gone. Ownership is proven by that body, the legacy in-file marker
+# or the ownership sidecar.
+weave_retired_command_names() {
+  printf '%s\n' beta
+}
+
+weave_retired_command_body() {
+  case "$1" in
+    beta) printf '%s\n' '---' 'description: Toggle beta HMM routing for this session.' '---' '' '/beta $ARGUMENTS' ;;
+    *) return 1 ;;
+  esac
+}
+
+# remove_retired_commands deletes router-owned wrappers for retired directives
+# from a commands directory and leaves a same-named user command alone.
+remove_retired_commands() {
+  local commands_dir="$1" client="$2" name command_file body
+  [ -d "$commands_dir" ] || return 0
+  refuse_if_symlink "$commands_dir"
+  while IFS= read -r name; do
+    command_file="$commands_dir/$name.md"
+    [ -f "$command_file" ] || continue
+    refuse_if_symlink "$command_file"
+    refuse_if_symlink "$command_file.weave-router"
+    body="$(weave_retired_command_body "$name")"
+    if [ "$(sed '/^<!-- weave-router managed command: .* -->$/d' "$command_file")" = "$body" ] \
+       || weave_command_router_owned "$command_file" "$name"; then
+      rm -f "$command_file" "$command_file.weave-router"
+      ok "Removed retired $client command $command_file"
+    else
+      warn "Leaving user-owned $client command at $command_file untouched."
+    fi
+  done <<EOF
+$(weave_retired_command_names)
+EOF
 }
 
 # Git Bash rewrites $HOME's /c/... form to C:/... in arguments to native
@@ -1546,6 +1584,7 @@ fi
 # files in commands/ alone. The directory itself stays if it still contains
 # unrelated user commands.
 commands_dir="$(dirname "$settings_file")/commands"
+remove_retired_commands "$commands_dir" Claude
 if [ -d "$commands_dir" ]; then
   refuse_if_symlink "$commands_dir"
   while IFS= read -r cmd; do

@@ -122,11 +122,10 @@ func validateHandoffEnvelope(ctx context.Context, env *translate.RequestEnvelope
 	if session := conversation.PiSessionFromContext(ctx); session != nil && claims.Route.SessionKey != ([sessionpin.SessionKeyLen]byte{}) && session.SessionKey != claims.Route.SessionKey {
 		return conversation.ErrHandoffInvalid
 	}
-	_, beta := env.ExtractBetaCommand()
 	_, force := env.ExtractForceModelCommand()
 	_, feedback := env.ExtractRouterFeedbackCommand()
 	_, serverTool := websearch.FindServerTool(body)
-	if beta || force || feedback || serverTool || headers.Get(requestcontext.ForceModelHeader) != "" ||
+	if force || feedback || serverTool || headers.Get(requestcontext.ForceModelHeader) != "" ||
 		claims.SessionID != clientSessionIDForRequest(ctx, env) || claims.RequestedModel != env.Model() {
 		return conversation.ErrHandoffInvalid
 	}
@@ -135,12 +134,11 @@ func validateHandoffEnvelope(ctx context.Context, env *translate.RequestEnvelope
 
 func (s *Service) canPrepareHandoff(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures, headers http.Header, body []byte) bool {
 	_, shadow := requestcontext.AgentShadowEvalFromContext(ctx)
-	_, betaCommand := env.ExtractBetaCommand()
 	_, forceCommand := env.ExtractForceModelCommand()
 	_, feedbackCommand := env.ExtractRouterFeedbackCommand()
 	_, serverTool := websearch.FindServerTool(body)
 	return !shadow && !billing.SubscriptionOnlyFromContext(ctx) &&
 		strings.HasPrefix(env.MetadataUserID(), "pi:") && headers.Get(requestcontext.ForceModelHeader) == "" &&
-		!betaCommand && !forceCommand && !feedbackCommand && !serverTool &&
+		!forceCommand && !feedbackCommand && !serverTool &&
 		authoritativePolicyTurn(turntype.DetectFromEnvelope(env, feats, ""))
 }

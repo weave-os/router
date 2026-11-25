@@ -5,22 +5,19 @@ import (
 
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/router/handover"
-	"weave-os/router/internal/router/sessionstrategy"
 )
 
 type Lifecycle struct {
-	compaction        *CompactionTracker
-	summarizer        handover.Summarizer
-	routerFeedback    feedback.RouterFeedbackStore
-	sessionStrategies sessionstrategy.Store
-	piHandoffSecret   []byte
-	feedbackLinks     *feedback.Links
+	compaction      *CompactionTracker
+	summarizer      handover.Summarizer
+	routerFeedback  feedback.RouterFeedbackStore
+	piHandoffSecret []byte
+	feedbackLinks   *feedback.Links
 }
 
 type Config struct {
 	Summarizer          handover.Summarizer
 	RouterFeedbackStore feedback.RouterFeedbackStore
-	SessionStrategies   sessionstrategy.Store
 	FeedbackLinks       *feedback.Links
 	PiHandoffSecret     string
 }
@@ -28,7 +25,6 @@ type Config struct {
 func (l *Lifecycle) Configure(cfg Config) {
 	l.summarizer = cfg.Summarizer
 	l.routerFeedback = cfg.RouterFeedbackStore
-	l.sessionStrategies = cfg.SessionStrategies
 	l.feedbackLinks = cfg.FeedbackLinks
 	if len(cfg.PiHandoffSecret) >= 32 {
 		l.piHandoffSecret = []byte(cfg.PiHandoffSecret)
@@ -66,17 +62,6 @@ func (l *Lifecycle) RouterFeedbackStore() feedback.RouterFeedbackStore {
 
 func (l *Lifecycle) SetRouterFeedbackStore(store feedback.RouterFeedbackStore) {
 	l.routerFeedback = store
-}
-
-func (l *Lifecycle) SessionStrategies() sessionstrategy.Store {
-	if l == nil {
-		return nil
-	}
-	return l.sessionStrategies
-}
-
-func (l *Lifecycle) SetSessionStrategies(store sessionstrategy.Store) {
-	l.sessionStrategies = store
 }
 
 func (l *Lifecycle) PiHandoff(now func() time.Time) PiHandoff {

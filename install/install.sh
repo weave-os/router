@@ -2248,7 +2248,6 @@ router-session||prompt|yes|yes|no|no|manual|command,skill
 list-models||prompt|yes|yes|no|no|manual|command,skill
 router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
-beta||prompt|yes|no|no|yes|manual|command
 WEAVE_REGISTRY_EOF
 )
 
@@ -5035,6 +5034,52 @@ EOF
   done
   seed_command_baseline "$commands_src_dir" "$cmds"
   ok "Slash commands written to $dst_dir ($installed)"
+}
+
+# Directives the router no longer serves. Earlier installers wrote wrappers for
+# them; each is listed with the exact body it shipped, because its canonical
+# source is gone. install/uninstall.sh carries the same list.
+weave_retired_command_names() {
+  printf '%s\n' beta
+}
+
+weave_retired_command_body() {
+  case "$1" in
+    beta) printf '%s\n' '---' 'description: Toggle beta HMM routing for this session.' '---' '' '/beta $ARGUMENTS' ;;
+    *) return 1 ;;
+  esac
+}
+
+# remove_retired_commands deletes router-owned wrappers for retired directives
+# so an update drops them from the slash menu. A wrapper is ours when its body,
+# minus the legacy marker, is the shipped body or its ownership sidecar still
+# matches it; anything else is a user command and stays.
+remove_retired_commands() {
+  local commands_dir="$1" name command_file ownership_file body installed
+  [ -d "$commands_dir" ] || return 0
+  if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+    refuse_if_symlink "$commands_dir"
+  fi
+  while IFS= read -r name; do
+    command_file="$commands_dir/$name.md"
+    ownership_file="$command_file.weave-router"
+    [ -f "$command_file" ] || continue
+    refuse_if_symlink "$command_file"
+    refuse_if_symlink "$ownership_file"
+    body="$(weave_retired_command_body "$name")"
+    installed="$(sed '/^<!-- weave-router managed command: .* -->$/d' "$command_file")"
+    if [ "$installed" = "$body" ] \
+       || { [ -f "$ownership_file" ] \
+            && [ "$(sed -n '1p' "$ownership_file")" = "weave-router managed command: $name" ] \
+            && [ "$(sed '1d' "$ownership_file")" = "$(cat "$command_file")" ]; }; then
+      rm -f "$command_file" "$ownership_file"
+      ok "Removed retired /$name command from $commands_dir"
+    else
+      warn "A user-owned $target command exists at $command_file; leaving it untouched."
+    fi
+  done <<EOF
+$(weave_retired_command_names)
+EOF
 }
 
 # seed_command_baseline records the canonical (unrendered) wrapper bodies this
@@ -8551,6 +8596,7 @@ if [ "$target" = "claude" ] && [ -f "$settings_dir/.weave-parked.json" ]; then
 fi
 
 # Slash command wrappers — see install_slash_commands() below for the why.
+remove_retired_commands "$settings_dir/commands"
 install_slash_commands "$settings_dir/commands"
 install_build_skill "$settings_dir/skills" "$settings_dir/agents"
 

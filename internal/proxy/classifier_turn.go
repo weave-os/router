@@ -53,10 +53,9 @@ func (s *Service) withClassifierInput(ctx context.Context, strategy router.Strat
 		return ctx, router.ErrClassifierThreadInvalid
 	}
 	if err == nil && env != nil {
-		_, beta := env.ExtractBetaCommand()
 		_, forced := env.ExtractForceModelCommand()
 		_, feedback := env.ExtractRouterFeedbackCommand()
-		if beta || forced || feedback || env.ExtractRouterSessionCommand() || env.ExtractRouterModelsCommand() || env.ExtractListModelsCommand() {
+		if forced || feedback || env.ExtractRouterSessionCommand() || env.ExtractRouterModelsCommand() || env.ExtractListModelsCommand() {
 			return ctx, router.ErrClassifierHistoryUnavailable
 		}
 		if !captured {

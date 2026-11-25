@@ -18,7 +18,6 @@ var notRouterHandled = map[string]string{
 	"router-off":      "client-side toggle of the local router config",
 	"router-status":   "client-side read of the local router config",
 	"disable-routing": "client-side toggle of the local router config",
-	"beta":            "stripped from history by StripBetaArtifacts",
 }
 
 // directiveSampleArgs are arguments a directive needs before its parser

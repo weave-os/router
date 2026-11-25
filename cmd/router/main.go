@@ -62,7 +62,6 @@ import (
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
@@ -952,8 +951,6 @@ func main() {
 		flags.KeyAnthropicServerFallback:              boolDefault(anthropicServerSideFallback),
 	}, hardPinExplore, ccOrchToolsCrossVendor, escapeNormalize, continuityConfig.Planner))
 
-	var sessionStrategyStore sessionstrategy.Store = postgres.NewSessionStrategyRepo(pool)
-
 	escalationStore := postgres.NewEscalationRepo(pool)
 	escalationDashboardStore := postgres.NewEscalationDashboardRepo(pool)
 	safeGo(logger, "escalation-state-sweep", func() { runEscalationSweep(context.Background(), escalationStore) })
@@ -1001,7 +998,7 @@ func main() {
 	proxySvc := proxy.WithDeps(proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(providerMap), telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry), hmm.ServingPorts()), proxy.Deps{
 		Telemetry: proxy.TelemetryDeps{Clock: time.Now, SessionTurnClock: sessionTurnClock, ContentCapture: captureMode, ContentCaptureMaxBytes: captureMaxBytes, Billing: billingSvc, Flags: &proxy.TelemetryFlags{
 			TurnSignalCapture: turnSignalCaptureEnabled, NativeAnthropicResponseSignals: nativeAnthropicResponseSignals, NativeOpenAIResponseSignals: nativeOpenAIResponseSignals}},
-		Conversation: conversation.Config{Summarizer: summarizer, RouterFeedbackStore: repo.Telemetry, SessionStrategies: sessionStrategyStore,
+		Conversation: conversation.Config{Summarizer: summarizer, RouterFeedbackStore: repo.Telemetry,
 			FeedbackLinks: feedbackLinks, PiHandoffSecret: config.GetOr("ROUTER_PI_HANDOFF_SECRET", "")},
 		Routing: &proxy.RoutingDeps{PrefixTrimFreeSwitch: &prefixTrimFreeSwitch, EffortEscalation: effortEscalation, AvailableModels: servedModels, DefaultBaselineModel: resolveDefaultBaselineModel(), ExcludedModels: excludedModels,
 			HardPinResolver: hardPinResolver, ExplicitUtilityHardPin: hardPinOverrideConfigured, SubAgentProvider: subAgentProvider, SubAgentModel: subAgentModel,

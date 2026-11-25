@@ -104,7 +104,7 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 	const smallModel catalog.ModelID = "gpt-5.6-luna"
 	const largeModel catalog.ModelID = "gpt-5.6-sol"
 	upstream := &classifierResponseProvider{}
-	baseline := &betaTestRouter{}
+	baseline := &captureTestRouter{}
 	svc := withHMMPorts(NewService(baseline, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}), nil, nil, false, providers.ProviderOpenAI, smallModel.String(), nil))
 	require.NoError(t, svc.WithClassifierSessions(config, store, classifier))
 	roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: config.SelectionPolicySHA256,

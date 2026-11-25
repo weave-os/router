@@ -42,9 +42,6 @@ Plain `pi` then connects to the installed endpoint, normally
   a completed acknowledgment. This is reachable branch history, not a query
   of the router's current pin. Structured response headers drive new history;
   older transcripts retain explicit force/clear command acknowledgment support.
-- **Beta routing toggle.** `/beta` toggles the router's beta HMM strategy for
-  the current session. The router confirms whether beta routing is enabled or
-  disabled; run `/beta` again to switch back.
 - **Per-process routing bias.** Static `x-weave-routing-*` knob headers bias the
   router: quality on the main loop and speed + cheap on subagents.
 - **Long tool-loop compaction.** Pi can cross its context threshold inside an

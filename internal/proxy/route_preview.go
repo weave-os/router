@@ -13,7 +13,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/policy"
-	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry/spans"
 	"weave-os/router/internal/translate"
 )
@@ -60,18 +59,14 @@ func (s *Service) anthropicRoutingRequest(
 	ctx = requestcontext.WithClientBudget(ctx, resolveClientBudget(clientIdentity, headers, env.Model(), modelVariant1M))
 
 	apiKeyID, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
-	var sessionKey [sessionpin.SessionKeyLen]byte
-	ctx, log, sessionKey = bindRequestLogger(ctx, env, apiKeyID, "", ingress)
+	ctx, log, _ = bindRequestLogger(ctx, env, apiKeyID, "", ingress)
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
 		log.Info("Stripped router-feedback artifacts from route preview", "removed_messages", removed)
 	}
-	if removed := env.StripBetaArtifacts(); removed > 0 {
-		log.Info("Stripped beta artifacts from route preview", "removed_messages", removed)
+	if removed := env.StripRetiredBetaHistory(); removed > 0 {
+		log.Info("Stripped retired beta history from route preview", "removed_messages", removed)
 	}
-	ctx, strategy, err := s.applySessionStrategy(ctx, router.StrategyFromContext(ctx), requestcontext.InstallationIDFromContext(ctx), deriveBetaSessionKeyForRequest(ctx, env, apiKeyID, sessionKey))
-	if err != nil {
-		return ctx, "", router.Request{}, err
-	}
+	strategy := router.StrategyFromContext(ctx)
 	features := env.RoutingFeatures()
 	ctx = requestcontext.WithRequestImageCount(ctx, features.ImageCount)
 	promptText := features.PromptText

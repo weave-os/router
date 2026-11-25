@@ -35,7 +35,7 @@ Operator-facing behavior of the same features is in [CONFIGURATION.md](CONFIGURA
   turn (which carries the unstripped message in history) never reads.
   `TestForceModelCommand_PinKeyIsDerivedFromUnstrippedOpeningMessage` pins this
   on both the Anthropic and OpenAI chat paths.
-- Force-model and `/beta` keys omit the opening message so they cover every
+- Force-model keys omit the opening message so they cover every
   thread in one client session. Codex full-history forks are re-keyed by agent
   path so they do not share the parent's automatic pin.
 - `bindRequestLogger` promotes the request logger (not just attaches it) so the

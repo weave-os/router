@@ -88,15 +88,22 @@ is kept.
 
 ### Router directives
 
-Directives (`/fm`, `/rf`, `/beta`, router-models, router-session, list-models)
+Directives (`/fm`, `/rf`, router-models, router-session, list-models)
 are recognized only on the first non-empty line of the trailing user message,
 including inside client wrappers such as a pasted-file header, and are stripped
 so no upstream sees them. Listing directives accept only the bare form: the
 router answers a read from the request it holds, while mutations need the
 argument-taking commands. Earlier-turn directives come back on replay as plain
 user text; `stripHistoricalDirective` removes them while keeping any text the
-user wrote alongside. Beta acks, and empty assistant turns that directly follow
-a removed command, are dropped; other empty assistant turns are kept.
+user wrote alongside.
+
+The in-session `/beta` and `/beta-llm` commands are retired, but sessions that
+predate the retirement still replay them. `StripRetiredBetaHistory` drops the
+router's old beta acknowledgements, and drops an earlier `/beta` or `/beta-llm`
+turn only together with the reply it got from the router (an ack, or an empty
+assistant turn). That keeps the old toggle out of upstream bodies and
+classifier input. A `/beta` typed now is an ordinary prompt: it reaches the
+model, and once a model has answered it the pair stays in history.
 
 ### Reasoning, effort and tier
 
