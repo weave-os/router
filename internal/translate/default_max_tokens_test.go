@@ -210,6 +210,32 @@ func TestCrossFormat_OpenAIToAnthropic_DefaultMaxTokensInjectedWhenAbsent(t *tes
 	assert.InDelta(t, float64(64000), out["max_tokens"], 1e-9)
 }
 
+func TestCrossFormat_OpenAIToAnthropic_NullMaxTokenFieldsAreUnset(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		fields string
+		want   float64
+	}{
+		{name: "null max_tokens", fields: `"max_tokens":null`, want: 64000},
+		{name: "null max_completion_tokens", fields: `"max_completion_tokens":null`, want: 64000},
+		{name: "null max_tokens beside max_completion_tokens", fields: `"max_tokens":null,"max_completion_tokens":2048`, want: 2048},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],` + tc.fields + `}`)
+			env, err := translate.ParseOpenAI(body)
+			require.NoError(t, err)
+			prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+				TargetModel:  "claude-opus-4-7",
+				Capabilities: router.Lookup("claude-opus-4-7"),
+			})
+			require.NoError(t, err)
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(prep.Body, &out))
+			assert.InDelta(t, tc.want, out["max_tokens"], 1e-9)
+		})
+	}
+}
+
 // Source omits max_tokens, non-reasoning target: injection populates max_tokens.
 func TestCrossFormat_AnthropicToOpenAI_DefaultMaxTokensInjectedWhenAbsent(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`)
