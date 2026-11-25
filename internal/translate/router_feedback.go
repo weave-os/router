@@ -140,9 +140,13 @@ func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bo
 }
 
 func isRouterFeedbackCommandOnlyContent(content gjson.Result) bool {
+	return commandOnlyContent(content, parseRouterFeedbackCommand)
+}
+
+func commandOnlyContent[T any](content gjson.Result, parse func(string) (T, bool, string)) bool {
 	switch {
 	case content.Type == gjson.String:
-		_, found, stripped := parseInCursorQuery(content.String(), parseRouterFeedbackCommand)
+		_, found, stripped := parseInCursorQuery(content.String(), parse)
 		return found && isOnlyInjectedCommandText(stripped)
 	case content.Type == gjson.JSON && content.IsArray():
 		seenCommand := false
@@ -153,7 +157,7 @@ func isRouterFeedbackCommandOnlyContent(content gjson.Result) bool {
 				return false
 			}
 			text := block.Get("text").String()
-			if _, found, stripped := parseInCursorQuery(text, parseRouterFeedbackCommand); found && isOnlyInjectedCommandText(stripped) {
+			if _, found, stripped := parseInCursorQuery(text, parse); found && isOnlyInjectedCommandText(stripped) {
 				seenCommand = true
 				return true
 			}
@@ -175,9 +179,13 @@ func isOnlyInjectedCommandText(text string) bool {
 }
 
 func isRouterFeedbackAckOnlyContent(content gjson.Result) bool {
+	return syntheticTextOnlyContent(content, isRouterFeedbackAckText)
+}
+
+func syntheticTextOnlyContent(content gjson.Result, isSynthetic func(string) bool) bool {
 	switch {
 	case content.Type == gjson.String:
-		return isRouterFeedbackAckText(content.String())
+		return isSynthetic(content.String())
 	case content.Type == gjson.JSON && content.IsArray():
 		seenAck := false
 		allSynthetic := true
@@ -190,7 +198,7 @@ func isRouterFeedbackAckOnlyContent(content gjson.Result) bool {
 			if strings.TrimSpace(text) == "" {
 				return true
 			}
-			if isRouterFeedbackAckText(text) {
+			if isSynthetic(text) {
 				seenAck = true
 				return true
 			}

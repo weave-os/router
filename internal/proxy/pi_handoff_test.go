@@ -27,12 +27,12 @@ import (
 
 const handoffTestBody = `{"model":"claude-sonnet-4-6","max_tokens":1024,"stream":false,"metadata":{"user_id":"pi:handoff-test"},"messages":[{"role":"user","content":"Implement the parser and verify its behavior."}]}`
 
-func handoffTestService() (*Service, *betaTestRouter, *betaCaptureProvider, context.Context) {
-	classifier := &betaTestRouter{decision: router.Decision{
+func handoffTestService() (*Service, *captureTestRouter, *captureTestProvider, context.Context) {
+	classifier := &captureTestRouter{decision: router.Decision{
 		Model: "claude-opus-4-7", Provider: providers.ProviderAnthropic,
 		Metadata: &router.RoutingMetadata{PolicyGroup: "high", AuthoritativePerTurnSelection: true},
 	}}
-	upstream := &betaCaptureProvider{}
+	upstream := &captureTestProvider{}
 	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPiHandoffSecret(strings.Repeat("test-secret-", 4)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: classifier, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
@@ -143,7 +143,7 @@ func TestPiHandoffRevalidatesSessionConfigurationAndEligibility(t *testing.T) {
 
 func TestPiHandoffDisabledAndUtilityTurnsDoNotDispatch(t *testing.T) {
 	svc, classifier, upstream, ctx := handoffTestService()
-	for _, prompt := range []string{"/beta", "/force-model claude-opus-4-7", "/unforce-model"} {
+	for _, prompt := range []string{"/force-model claude-opus-4-7", "/unforce-model"} {
 		body, err := sjson.Set(handoffTestBody, "messages.0.content", prompt)
 		require.NoError(t, err)
 		recorder := httptest.NewRecorder()
@@ -186,7 +186,7 @@ func TestPiHandoffSummaryUsesPreviousModelWithoutReclassifyingOrWritingUsageToIt
 func TestPiHandoffRecordsEscalationOutcomeOnlyAfterContinuation(t *testing.T) {
 	store := newEscalationTestStore()
 	observer := &escalationTestObserver{}
-	upstream := &betaCaptureProvider{}
+	upstream := &captureTestProvider{}
 	svc := newEscalationCompletionService(store, observer, map[string]providers.Client{providers.ProviderAnthropic: upstream}).
 		WithPiHandoffSecret(strings.Repeat("test-secret-", 4))
 	ctx := escalationCompletionContext()
@@ -218,7 +218,7 @@ func TestPiHandoffRejectsConcurrentForceAndCrossSessionCommandsBeforeMutation(t 
 	svc.pinStore = store
 	err = svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil))
 	require.ErrorIs(t, err, conversation.ErrHandoffInvalid)
-	for _, prompt := range []string{"/beta", "/force-model claude-opus-4-7", "/unforce-model"} {
+	for _, prompt := range []string{"/force-model claude-opus-4-7", "/unforce-model"} {
 		changed, err := sjson.Set(body, "messages.0.content", prompt)
 		require.NoError(t, err)
 		err = svc.ProxyMessages(ctx, []byte(changed), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil))

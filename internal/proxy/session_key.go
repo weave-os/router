@@ -88,10 +88,7 @@ func deriveSessionKeyForRequest(ctx context.Context, env *translate.RequestEnvel
 	return key
 }
 
-const (
-	forceModelSessionKeyDomain = requestcontext.ForceModelConversationKey
-	betaSessionKeyDomain       = requestcontext.LegacyBetaConversationKey
-)
+const forceModelSessionKeyDomain = requestcontext.ForceModelConversationKey
 
 func deriveForceModelSessionKeyForRequest(
 	ctx context.Context,
@@ -100,15 +97,6 @@ func deriveForceModelSessionKeyForRequest(
 	threadSessionKey [sessionpin.SessionKeyLen]byte,
 ) [sessionpin.SessionKeyLen]byte {
 	return deriveConversationSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey, forceModelSessionKeyDomain)
-}
-
-func deriveBetaSessionKeyForRequest(
-	ctx context.Context,
-	env *translate.RequestEnvelope,
-	apiKeyID string,
-	threadSessionKey [sessionpin.SessionKeyLen]byte,
-) [sessionpin.SessionKeyLen]byte {
-	return deriveConversationSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey, betaSessionKeyDomain)
 }
 
 func deriveConversationSessionKeyForRequest(

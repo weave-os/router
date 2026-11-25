@@ -57,7 +57,6 @@ router-session||prompt|yes|yes|no|no|manual|command,skill
 list-models||prompt|yes|yes|no|no|manual|command,skill
 router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
-beta||prompt|yes|no|no|yes|manual|command
 WEAVE_REGISTRY_EOF
 )
 
@@ -261,6 +260,28 @@ weave_command_router_owned() {
     [ "$(cat "$command_file")" = "$expected" ] && return 0
   done
   return 1
+}
+
+# remove_retired_commands deletes the router-owned /beta wrapper an earlier
+# installer wrote and leaves a same-named user command alone. Ownership is
+# proven by the shipped body, the legacy in-file marker or the ownership sidecar.
+remove_retired_commands() {
+  local commands_dir="$1" client="$2" command_file shipped_body
+  [ -d "$commands_dir" ] || return 0
+  refuse_if_symlink "$commands_dir"
+  command_file="$commands_dir/beta.md"
+  [ -f "$command_file" ] || return 0
+  refuse_if_symlink "$command_file"
+  refuse_if_symlink "$command_file.weave-router"
+  # shellcheck disable=SC2016 # the shipped body holds a literal $ARGUMENTS
+  shipped_body="$(printf '%s\n' '---' 'description: Toggle beta HMM routing for this session.' '---' '' '/beta $ARGUMENTS')"
+  if [ "$(sed '/^<!-- weave-router managed command: .* -->$/d' "$command_file")" = "$shipped_body" ] \
+     || weave_command_router_owned "$command_file" beta; then
+    rm -f "$command_file" "$command_file.weave-router"
+    ok "Removed retired $client command $command_file"
+  else
+    warn "Leaving user-owned $client command at $command_file untouched."
+  fi
 }
 
 # Git Bash rewrites $HOME's /c/... form to C:/... in arguments to native
@@ -1546,6 +1567,7 @@ fi
 # files in commands/ alone. The directory itself stays if it still contains
 # unrelated user commands.
 commands_dir="$(dirname "$settings_file")/commands"
+remove_retired_commands "$commands_dir" Claude
 if [ -d "$commands_dir" ]; then
   refuse_if_symlink "$commands_dir"
   while IFS= read -r cmd; do

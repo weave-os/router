@@ -212,10 +212,38 @@ check "update on an uninstalled target errors on the key" "$?" 1
 
 # Update uses the same canonical command roster as install, so it must add a
 # newly shipped wrapper to an existing installation.
-rm -f "$upd_home/.claude/commands/beta.md"
+rm -f "$upd_home/.claude/commands/router-session.md"
 run "$upd_home" -- update --claude --quiet
-check "update installs the beta slash command" \
-  "$(sed -n '5p' "$upd_home/.claude/commands/beta.md" 2>/dev/null)" "/beta \$ARGUMENTS"
+check "update installs a missing slash command" \
+  "$([ -f "$upd_home/.claude/commands/router-session.md" ] && echo present || echo absent)" present
+
+# An update removes the router-owned wrapper of a retired directive, in both
+# the legacy marker form and the current sidecar form, and keeps a user's own
+# command of the same name.
+# shellcheck disable=SC2016 # the shipped body holds a literal $ARGUMENTS
+retired_body="$(printf '%s\n' '---' 'description: Toggle beta HMM routing for this session.' '---' '' '/beta $ARGUMENTS')"
+printf '%s\n<!-- weave-router managed command: beta -->' "$retired_body" >"$upd_home/.claude/commands/beta.md"
+run "$upd_home" -- update --claude --quiet
+check "update removes a legacy-marker retired /beta wrapper" \
+  "$([ -e "$upd_home/.claude/commands/beta.md" ] && echo present || echo absent)" absent
+printf '%s\n' "$retired_body" >"$upd_home/.claude/commands/beta.md"
+printf 'weave-router managed command: beta\n%s\n' "$retired_body" >"$upd_home/.claude/commands/beta.md.weave-router"
+run "$upd_home" -- update --claude --quiet
+check "update removes a sidecar-owned retired /beta wrapper" \
+  "$([ -e "$upd_home/.claude/commands/beta.md" ] || [ -e "$upd_home/.claude/commands/beta.md.weave-router" ] && echo present || echo absent)" absent
+printf '%s\n' '---' 'description: my own beta notes' '---' '' 'summarize the beta plan' >"$upd_home/.claude/commands/beta.md"
+run "$upd_home" -- update --claude --quiet
+check "update keeps a user-owned /beta command" \
+  "$(sed -n '5p' "$upd_home/.claude/commands/beta.md" 2>/dev/null)" "summarize the beta plan"
+mv "$upd_home/.claude/commands/beta.md" "$upd_home/my-beta.md"
+ln -s "$upd_home/my-beta.md" "$upd_home/.claude/commands/beta.md"
+rm -f "$upd_home/.claude/commands/router-session.md"
+run "$upd_home" -- update --claude --quiet
+check "update continues past a symlinked /beta command" \
+  "$([ -f "$upd_home/.claude/commands/router-session.md" ] && echo present || echo absent)" present
+check "update leaves a symlinked /beta command in place" \
+  "$([ -L "$upd_home/.claude/commands/beta.md" ] && sed -n '5p' "$upd_home/my-beta.md")" "summarize the beta plan"
+rm -f "$upd_home/.claude/commands/beta.md" "$upd_home/my-beta.md"
 
 # ---------- command baseline seeding ----------
 #
@@ -226,13 +254,13 @@ check "update installs the beta slash command" \
 # mktemp hands back /var/... for /private/var/....
 cmd_dir_real="$(cd "$upd_home/.claude/commands" && pwd -P)"
 baseline="$upd_home/.cache/weave-router/commands$(printf '%s' "$cmd_dir_real" | tr -c 'A-Za-z0-9._-' '_')"
-if [ -f "$baseline/force-model.md" ] && [ -f "$baseline/beta.md" ] && [ -f "$baseline/router-off.md" ]; then
+if [ -f "$baseline/force-model.md" ] && [ -f "$baseline/router-off.md" ]; then
   ok "install seeds the slash-command baseline"
 else
   no "install seeds the slash-command baseline" "canonical wrappers cached" "missing under $baseline"
 fi
-check "install writes the beta slash command" \
-  "$(sed -n '5p' "$upd_home/.claude/commands/beta.md" 2>/dev/null)" "/beta \$ARGUMENTS"
+check "install does not write the retired beta slash command" \
+  "$([ -e "$upd_home/.claude/commands/beta.md" ] && echo present || echo absent)" absent
 # Baselines are the UNRENDERED canonical files: the refresh renders {{SCOPE}}
 # per install, and a pre-rendered baseline would never match upstream.
 if grep -q '{{SCOPE}}' "$baseline/router-off.md" 2>/dev/null; then
@@ -241,15 +269,18 @@ else
   no "seeded baseline keeps the {{SCOPE}} placeholder" "unrendered copy" "placeholder substituted"
 fi
 
-# Claude uninstall removes only installer-owned wrappers, including /beta.
+# Claude uninstall removes only installer-owned wrappers, including the
+# retired /beta wrapper an earlier installer wrote.
 uninstall_home="$work/uninstall"; mkdir -p "$uninstall_home"
 run "$uninstall_home" rk_uninstall -- --claude --scope user --quiet --non-interactive
+printf '%s\n' "$retired_body" >"$uninstall_home/.claude/commands/beta.md"
+printf 'weave-router managed command: beta\n%s\n' "$retired_body" >"$uninstall_home/.claude/commands/beta.md.weave-router"
 HOME="$uninstall_home" XDG_CACHE_HOME="$uninstall_home/.cache" PATH="$test_path" NO_COLOR=1 \
   bash "$uninstaller" --claude --scope user >/dev/null 2>&1
-if [ ! -e "$uninstall_home/.claude/commands/beta.md" ]; then
-  ok "uninstall removes the beta slash command"
+if [ ! -e "$uninstall_home/.claude/commands/beta.md" ] && [ ! -e "$uninstall_home/.claude/commands/beta.md.weave-router" ]; then
+  ok "uninstall removes the retired beta slash command"
 else
-  no "uninstall removes the beta slash command" "file absent" "file remains"
+  no "uninstall removes the retired beta slash command" "file absent" "file remains"
 fi
 
 # ---------- update after `off`: parked sidecar key + base URL carry-over ----------

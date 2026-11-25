@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,48 +10,12 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
-	"weave-os/router/internal/router/sessionpin"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
 
-func TestRoutingModelDoesNotReadLegacyBetaPreference(t *testing.T) {
-	svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: errors.New("legacy preference must not be read")})
-	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
-	key := [sessionpin.SessionKeyLen]byte{1}
-	installation := uuid.New()
-	_, _, err := svc.applySessionStrategy(ctx, router.StrategyFromContext(ctx), installation, key)
-	require.Error(t, err)
-	ctx = router.WithStrategySelection(ctx, router.StrategySelection{Strategy: router.StrategyHMMEmbedding, RoutingModel: router.ModelAutomatic})
-	selected, _, err := svc.applySessionStrategy(ctx, router.StrategyFromContext(ctx), installation, key)
-	require.NoError(t, err)
-	require.Equal(t, router.StrategyHMMEmbedding, router.StrategyFromContext(selected))
-}
-
-func TestRoutingModelRedirectsLegacyBetaCommandsWithoutChangingPreferences(t *testing.T) {
-	for _, model := range []router.RoutingModel{router.ModelAutomatic, router.ModelHMM, router.ModelQwen} {
-		for _, commandText := range []string{"/beta", "/beta-llm"} {
-			t.Run(string(model)+commandText, func(t *testing.T) {
-				store := &betaTestPreferenceStore{}
-				svc := (&Service{engine: dispatch.NewEngine(nil), strategyServing: hmmPorts()}).WithSessionStrategyStore(store)
-				ctx := router.WithStrategySelection(context.Background(), router.StrategySelection{RoutingModel: model})
-				envelope := betaTestEnvelope(t, commandText, true)
-				command, found := envelope.ExtractBetaCommand()
-				require.True(t, found)
-				response := httptest.NewRecorder()
-				key := [sessionpin.SessionKeyLen]byte{1}
-				require.NoError(t, (betaCommands{svc, router.StrategyFromContext(ctx)}).handle(ctx, response, envelope, command, uuid.New(), key, key, 1))
-				require.Contains(t, response.Body.String(), "wv router set-model")
-				require.Zero(t, store.toggles)
-				require.False(t, store.found)
-			})
-		}
-	}
-}
-
-type routingModelCaptureProvider struct{ betaCaptureProvider }
+type routingModelCaptureProvider struct{ captureTestProvider }
 
 func (p *routingModelCaptureProvider) Proxy(ctx context.Context, _ router.Decision, prepared providers.PreparedRequest, w http.ResponseWriter, request *http.Request) error {
 	return p.Passthrough(ctx, prepared, w, request)
@@ -84,8 +47,8 @@ func TestRoutingModelDispatchesConcreteModelAcrossClientProtocols(t *testing.T) 
 		} {
 			t.Run(string(choice.model)+tc.path, func(t *testing.T) {
 				const completionModel = "claude-haiku-4-5"
-				defaultRouter := &betaTestRouter{}
-				hmmRouter := &betaTestRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: completionModel}}
+				defaultRouter := &captureTestRouter{}
+				hmmRouter := &captureTestRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: completionModel}}
 				provider := &routingModelCaptureProvider{}
 				svc := withHMMPorts(NewService(defaultRouter, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: provider}), nil, nil, false, providers.ProviderAnthropic, completionModel, nil)).
 					WithPolicyStrategy(policy.StrategySpec{Strategy: choice.strategy, Router: hmmRouter})

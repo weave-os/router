@@ -91,9 +91,9 @@ func TestStripRouterFeedbackArtifacts_CursorHistory(t *testing.T) {
 	assert.Contains(t, string(prep.Body), "continue with the implementation")
 }
 
-func TestStripBetaArtifacts_CursorHistory(t *testing.T) {
+func TestStripRetiredBetaHistory_CursorHistory(t *testing.T) {
 	env := cursorHistoryEnv(t, "/beta", "✦ **Weave Router** → Beta is unavailable for this session.\n\n")
-	assert.Equal(t, 2, env.StripBetaArtifacts())
+	assert.Equal(t, 2, env.StripRetiredBetaHistory())
 	prep, err := env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-4o"})
 	require.NoError(t, err)
 	assert.NotContains(t, string(prep.Body), "/beta")

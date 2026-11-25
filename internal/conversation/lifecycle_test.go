@@ -9,7 +9,6 @@ import (
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/router/sessionstrategy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -35,12 +34,9 @@ type configSummarizer struct{ handover.Summarizer }
 
 type configFeedbackStore struct{ feedback.RouterFeedbackStore }
 
-type configStrategies struct{ sessionstrategy.Store }
-
 func TestConfigureSetsConversationDependencies(t *testing.T) {
 	summarizer := &configSummarizer{}
 	feedbackStore := &configFeedbackStore{}
-	strategies := &configStrategies{}
 	links := feedback.NewLinks(nil, nil, "https://feedback.example", nil, nil)
 	secret := strings.Repeat("s", 32)
 
@@ -48,14 +44,12 @@ func TestConfigureSetsConversationDependencies(t *testing.T) {
 	lifecycle.Configure(conversation.Config{
 		Summarizer:          summarizer,
 		RouterFeedbackStore: feedbackStore,
-		SessionStrategies:   strategies,
 		FeedbackLinks:       links,
 		PiHandoffSecret:     secret,
 	})
 
 	assert.Same(t, summarizer, lifecycle.Summarizer())
 	assert.Same(t, feedbackStore, lifecycle.RouterFeedbackStore())
-	assert.Same(t, strategies, lifecycle.SessionStrategies())
 	assert.Same(t, links, lifecycle.FeedbackLinks())
 	assert.Equal(t, []byte(secret), lifecycle.PiHandoff(time.Now).Secret)
 }

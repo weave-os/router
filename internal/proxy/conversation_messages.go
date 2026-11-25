@@ -24,7 +24,8 @@ func withResponsesRoutingEnvelope(ctx context.Context, body []byte) (context.Con
 		return ctx, fmt.Errorf("strip Responses routing directives: %w", err)
 	}
 	env.StripRouterFeedbackArtifacts()
-	env.StripBetaArtifacts()
+	env.StripRetiredBetaHistory()
+	env.StripRetiredBetaNotices()
 	return context.WithValue(ctx, responsesRoutingEnvelopeContextKey{}, env), nil
 }
 

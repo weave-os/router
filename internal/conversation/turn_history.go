@@ -31,9 +31,12 @@ func StripClientHistory(ctx context.Context, log *slog.Logger, env *translate.Re
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
 		log.Info("Stripped router-feedback artifacts from "+provider+" history", "removed_messages", removed)
 	}
-	if removed := env.StripBetaArtifacts(); removed > 0 {
+	if removed := env.StripRetiredBetaHistory(); removed > 0 {
 		ctx = withBetaArtifactHistory(ctx)
-		log.Info("Stripped beta artifacts from "+provider+" history", "removed_messages", removed)
+		log.Info("Stripped retired beta history from "+provider+" history", "removed_messages", removed)
+	}
+	if removed := env.StripRetiredBetaNotices(); removed > 0 {
+		log.Info("Stripped retired beta notices from "+provider+" history", "removed_messages", removed)
 	}
 	return ctx, nil
 }

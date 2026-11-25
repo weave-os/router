@@ -2248,7 +2248,6 @@ router-session||prompt|yes|yes|no|no|manual|command,skill
 list-models||prompt|yes|yes|no|no|manual|command,skill
 router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
-beta||prompt|yes|no|no|yes|manual|command
 WEAVE_REGISTRY_EOF
 )
 
@@ -5035,6 +5034,39 @@ EOF
   done
   seed_command_baseline "$commands_src_dir" "$cmds"
   ok "Slash commands written to $dst_dir ($installed)"
+}
+
+# remove_retired_commands deletes the router-owned /beta wrapper an earlier
+# installer wrote, so an update drops the retired directive from the slash menu.
+# The wrapper is ours when its body, minus the legacy marker, is the shipped
+# body or its ownership sidecar still matches it; anything else is a user
+# command and stays. install/uninstall.sh carries the same shipped body.
+remove_retired_commands() {
+  local commands_dir="$1" command_file ownership_file shipped_body installed
+  [ -d "$commands_dir" ] || return 0
+  if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+    refuse_if_symlink "$commands_dir"
+  fi
+  command_file="$commands_dir/beta.md"
+  ownership_file="$command_file.weave-router"
+  [ -f "$command_file" ] || return 0
+  # Symlinked commands or ownership files are not safe for retirement cleanup.
+  if [ -L "$command_file" ] || [ -L "$ownership_file" ]; then
+    warn "Leaving symlinked $target command or ownership file at $command_file untouched."
+    return 0
+  fi
+  # shellcheck disable=SC2016 # the shipped body holds a literal $ARGUMENTS
+  shipped_body="$(printf '%s\n' '---' 'description: Toggle beta HMM routing for this session.' '---' '' '/beta $ARGUMENTS')"
+  installed="$(sed '/^<!-- weave-router managed command: .* -->$/d' "$command_file")"
+  if [ "$installed" = "$shipped_body" ] \
+     || { [ -f "$ownership_file" ] \
+          && [ "$(sed -n '1p' "$ownership_file")" = "weave-router managed command: beta" ] \
+          && [ "$(sed '1d' "$ownership_file")" = "$(cat "$command_file")" ]; }; then
+    rm -f "$command_file" "$ownership_file"
+    ok "Removed retired /beta command from $commands_dir"
+  else
+    warn "A user-owned $target command exists at $command_file; leaving it untouched."
+  fi
 }
 
 # seed_command_baseline records the canonical (unrendered) wrapper bodies this
@@ -8551,6 +8583,7 @@ if [ "$target" = "claude" ] && [ -f "$settings_dir/.weave-parked.json" ]; then
 fi
 
 # Slash command wrappers — see install_slash_commands() below for the why.
+remove_retired_commands "$settings_dir/commands"
 install_slash_commands "$settings_dir/commands"
 install_build_skill "$settings_dir/skills" "$settings_dir/agents"
 

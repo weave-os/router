@@ -29,7 +29,7 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-type classifierResponseProvider struct{ betaCaptureProvider }
+type classifierResponseProvider struct{ captureTestProvider }
 
 func (p *classifierResponseProvider) Proxy(_ context.Context, decision router.Decision, request providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	p.body = append([]byte(nil), request.Body...)
@@ -85,7 +85,7 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 				return classifierMedium(ctx, input)
 			})
 			upstream := &classifierResponseProvider{}
-			baseline := &betaTestRouter{}
+			baseline := &captureTestRouter{}
 			svc := withHMMPorts(NewService(baseline, dispatch.NewClients(map[string]providers.Client{test.provider: upstream}), nil, nil, false, test.provider, test.model, nil))
 			require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
 			escalationClasses := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
@@ -200,7 +200,7 @@ func TestClassifierRecapServesWithoutAnchoringPin(t *testing.T) {
 	fixtureService, principal, store := classifierSessionFixture(t, classifierMedium)
 	upstream := &classifierResponseProvider{}
 	pins := newStubPinStore()
-	svc := withHMMPorts(NewService(&betaTestRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, pins, false, providers.ProviderAnthropic, model, nil))
+	svc := withHMMPorts(NewService(&captureTestRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, pins, false, providers.ProviderAnthropic, model, nil))
 	require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
 	escalationClasses := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
 	roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: strings.Repeat("b", 64), ClassOrder: escalationClasses, Clusters: map[string]rosterdata.Cluster{}}
@@ -240,7 +240,6 @@ func TestClassifierInputRejectsControlBypasses(t *testing.T) {
 	svc, ctx, _ := classifierSessionFixture(t, classifierMedium)
 	ctx = classifierAdmit(t, svc, ctx)
 	for _, body := range []string{
-		`{"messages":[{"role":"user","content":"/beta"}]}`,
 		`{"messages":[{"role":"user","content":"/force-model example"}]}`,
 		`{"messages":[{"role":"user","content":"first"}],"weave_handoff":"ticket"}`,
 		`{"messages":[{"role":"user","content":"first"}],"weave_session":"ticket"}`,
@@ -248,7 +247,7 @@ func TestClassifierInputRejectsControlBypasses(t *testing.T) {
 		_, err := svc.withClassifierInput(ctx, router.StrategyFromContext(ctx), []byte(body), router.EndpointAnthropicMessages)
 		require.Error(t, err, gjson.Get(body, "messages.0.content").String())
 	}
-	for _, command := range []string{"/beta", "/force-model example", "/router-session", "/router-models"} {
+	for _, command := range []string{"/force-model example", "/router-session", "/router-models"} {
 		body := fmt.Sprintf(`{"model":"auto","input":[{"role":"user","content":%q}]}`, command)
 		err := svc.ProxyOpenAIResponses(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 		require.Error(t, err, command)
@@ -266,7 +265,7 @@ func TestClassifierUtilityRequestsDoNotEstablishThreadRoot(t *testing.T) {
 	const utilityModel catalog.ModelID = "claude-sonnet-4-6"
 	fixture, principal, store := classifierSessionFixture(t, classifierMedium)
 	upstream := &classifierResponseProvider{}
-	baseline := &betaTestRouter{}
+	baseline := &captureTestRouter{}
 	pins := newStubPinStore()
 	svc := withHMMPorts(NewService(baseline, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, pins, false, providers.ProviderAnthropic, utilityModel.String(), nil))
 	require.NoError(t, svc.WithClassifierSessions(fixture.classifierSessions.config, store, fixture.classifierSessions.classifier))

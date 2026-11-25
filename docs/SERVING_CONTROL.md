@@ -186,9 +186,10 @@ organization admission without a subscriber plan. Classifier variants use the
 existing classifier sidecar.
 
 `GET /v1/router/models?scope=selection` lists these IDs and upstream model IDs
-with a description and a `kind` of `router` or `direct`. Explicit router IDs take
-precedence over legacy session beta preferences. Legacy beta commands in those
-sessions direct clients to the model selector instead of changing hidden state.
+with a description and a `kind` of `router` or `direct`. These IDs are the only
+way to select an alternate router: the in-session `/beta` and `/beta-llm`
+commands are retired, a `/beta` typed now is an ordinary prompt, and stored
+session beta preferences are no longer read.
 Signed atomic-classifier thread enrollment remains authoritative for `weave-auto`;
 selecting an alternate router requires a fresh thread.
 

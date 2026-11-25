@@ -66,7 +66,7 @@ func TestForcedModelBinding_UnfundedProviderReturnsCreditsError(t *testing.T) {
 }
 
 func TestOpenAIPaidCredential_IgnoresDeploymentKeyWhenCreditsDenied(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: &betaCaptureProvider{}}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: &captureTestProvider{}}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	assert.True(t, svc.openAIPaidCredentialAvailable(context.Background(), http.Header{}))
 	assert.False(t, svc.openAIPaidCredentialAvailable(deniedCtxWithKeys(), http.Header{}))

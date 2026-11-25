@@ -11,8 +11,7 @@
       "internal/policyregistry": 5,
       "internal/proxy": 7,
       "internal/server": 2,
-      "internal/subscriptions/entitlement": 1,
-      "internal/translate": 2
+      "internal/subscriptions/entitlement": 1
     },
     "serving_strategy_internal_imports": {},
     "strategy_from_context_callers": {
