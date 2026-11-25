@@ -1,0 +1,40 @@
+internal/proxy/upstream_telemetry_row.go
+  s_ce9e4105348e97::t_921eadd7d439b5 8,21-23
+internal/policyregistry/serving_snapshot.go
+  s_ce9e4105348e97::t_5f32d8f19c9383 72-74,76-79
+internal/server/middleware/serving_release_headers_test.go
+  s_ce9e4105348e97::t_90f13c8811e9bc 12,78-106,117
+  s_ce9e4105348e97::t_7dc0f0069c5fd7 107-116,118
+docs/SERVING_CONTROL.md
+  s_ce9e4105348e97::t_e72eef6b3a5e74 748,754-755,774-775
+internal/server/middleware/serving_release_headers.go
+  s_ce9e4105348e97::t_90f13c8811e9bc 1-50
+internal/flags/flags_test.go
+  s_ce9e4105348e97::t_6fb2665bae29af 315-324
+internal/flags/flags.go
+  s_ce9e4105348e97::t_6fb2665bae29af 372,374,378,381
+internal/proxy/subscriber_telemetry.go
+  s_ce9e4105348e97::t_6fb2665bae29af 8-9,12,29-47
+internal/server/middleware/serving_admission.go
+  s_ce9e4105348e97::t_90f13c8811e9bc 122
+internal/proxy/serving_recipe_internal_test.go
+  s_ce9e4105348e97::t_dae9cb3654b0a7 19,35,39,60,71
+  s_ce9e4105348e97::t_2ab41b8ad58c77 7,11-12,44,55,63,67-70,72-77,83-84
+  s_ce9e4105348e97::t_40674a0a69412f 40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "23cee86a6e7c14fbb973f095eead4937d251ad1b",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
