@@ -6,10 +6,13 @@ import (
 	"maps"
 	"slices"
 
+	"strings"
+
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
 )
 
 type servingSnapshotContextKey struct{}
@@ -54,6 +57,24 @@ func WithServingAssertion(ctx context.Context, assertion ServingAssertion) conte
 	}
 	if !assertion.Scope.Persistent {
 		identity.StateNamespace = uuid.NewString()
+	}
+	return requestcontext.WithServingIdentity(ctx, identity)
+}
+
+func WithServingRecipe(ctx context.Context, worker WorkerIdentity, snapshot *Snapshot) context.Context {
+	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
+	if !managed {
+		return ctx
+	}
+	identity.Recipe = requestcontext.ServingRecipe{
+		WorkerRevision:            worker.Revision,
+		WorkerImageDigest:         worker.ImageDigest,
+		WorkerConfigurationSHA256: worker.Configuration.SHA256,
+	}
+	if snapshot != nil {
+		identity.Recipe.PolicySHA256 = snapshot.Release.Policy.SHA256
+		identity.Recipe.ClassifierReleaseID = snapshot.ClassifierReleaseID
+		identity.Recipe.ClassifierEnabledVariants = joinClassifierVariants(snapshot.ClassifierEnabledVariants)
 	}
 	return requestcontext.WithServingIdentity(ctx, identity)
 }
@@ -161,4 +182,13 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 		return existing, nil
 	}
 	return snapshot, nil
+}
+
+func joinClassifierVariants(variants []policy.ClassifierVariantID) string {
+	names := make([]string, 0, len(variants))
+	for _, variant := range variants {
+		names = append(names, string(variant))
+	}
+	slices.Sort(names)
+	return strings.Join(names, ",")
 }

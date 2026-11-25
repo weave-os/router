@@ -17,6 +17,7 @@ func applyServedTurnTelemetry(ctx context.Context, ports continuity.StrategyPort
 	applyAuthorityShadowTelemetry(tel, routeRes)
 	applyBlindExperimentTelemetry(ctx, tel, &routeRes)
 	applyPolicyPinTelemetry(ctx, tel, decision.Metadata)
+	applyServedPolicyTelemetry(ctx, tel, decision)
 	applySubscriberTelemetry(ctx, tel)
 	applyAgreementShadowTelemetry(ports, ctx, tel, routeRes)
 }

@@ -45,8 +45,7 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p turnrecord
 	if err != nil {
 		return err
 	}
-	q := dbbudget.Queries(r.tx)
-	return q.InsertRequestTelemetry(ctx, sqlc.InsertRequestTelemetryParams{
+	params := sqlc.InsertRequestTelemetryParams{
 		InstallationID:                           id,
 		APIKeyID:                                 uuidOrNil(p.APIKeyID),
 		RequestID:                                p.RequestID,
@@ -217,11 +216,6 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p turnrecord
 		LinkedUsageUsdMicros:                     p.LinkedUsageMicros,
 		PrepaidUsageUsdMicros:                    p.PrepaidUsageMicros,
 		SettlementFailed:                         p.SettlementFailed,
-		ServingProfileID:                         stringPtrOrNil(p.ServingProfileID),
-		ServingProfileVersion:                    stringPtrOrNil(p.ServingProfileVersion),
-		ServingReleaseID:                         stringPtrOrNil(p.ServingReleaseID),
-		ServingBindingID:                         stringPtrOrNil(p.ServingBindingID),
-		ServingTarget:                            stringPtrOrNil(p.ServingTarget),
 		BoostOptimizerVersion:                    stringPtrOrNil(p.BoostOptimizerVersion),
 		UserPrompt:                               p.UserPrompt,
 		UserPromptGapMs:                          p.UserPromptGapMs,
@@ -229,7 +223,9 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p turnrecord
 		ErrorClass:                               stringPtrOrNil(string(p.ErrorClass)),
 		FailureOwner:                             stringPtrOrNil(string(p.FailureOwner)),
 		LatestToolCallCounts:                     p.LatestToolCallCounts,
-	})
+	}
+	applyServingTelemetryParams(&params, p)
+	return dbbudget.Queries(r.tx).InsertRequestTelemetry(ctx, params)
 }
 
 func inferenceSummaryString(summary *inference.OperationSummary, field func(inference.OperationSummary) string) *string {

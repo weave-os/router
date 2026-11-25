@@ -23,6 +23,7 @@ func applyServingTelemetry(ctx context.Context, telemetry *turnrecord.InsertTele
 	telemetry.ServingProfileVersion = identity.ProfileRevision
 	telemetry.ServingReleaseID = identity.ReleaseID
 	telemetry.ServingBindingID = identity.BindingID
+	applyServingWorkerTelemetry(ctx, identity, telemetry)
 }
 
 func applySubscriberTelemetry(ctx context.Context, telemetry *turnrecord.InsertTelemetryParams) {

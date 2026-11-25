@@ -748,6 +748,41 @@ classifier API bounds inference by it, answering 503 `classifier_unavailable`
 when it expires, and rejects a malformed or out-of-range budget with 422 before
 inference.
 
+### Per-turn recipe telemetry
+
+A release ID alone does not say what served a turn. A retained conversation runs
+the current worker code with its historical policy and classifier. Each managed
+turn therefore records the recipe that ran, in nullable columns on
+`model_router_request_telemetry` (migration `0166`):
+
+| Column | Source |
+| --- | --- |
+| `worker_revision`, `worker_image_digest`, `worker_configuration_sha256` | The attested identity of the worker that admitted the request |
+| `serving_policy_sha256` | The selection policy that scored the turn. Turns without a classifier decision use the admitted snapshot's policy |
+| `effective_strategy` | The strategy that won precedence (plan, then installation, then managed default) |
+| `classifier_release_id`, `classifier_variant` | The classifier release and variant echoed by the decision that served the turn |
+| `flag_overrides_sha256` | Content digest of the installation's flag overrides; NULL when it has none. Deployment defaults are covered by `worker_configuration_sha256` |
+
+Every column is NULL outside managed serving. Beta-versus-stable comparisons
+group by these columns together with `serving_target` and `requested_model`,
+because the host decides the channel and a model name alone does not.
+
+`policy_shadow_decisions` gains nullable `serving_target`, `requested_model` and
+`serving_release_id` columns in the same migration. Shadowing behavior is
+unchanged.
+
+### Release response headers
+
+An admitted managed request may answer with `X-Weave-Release-SHA` and
+`X-Weave-Policy-SHA`: the first 12 hex characters of the admitted release and
+policy digests. The installer status line shows them next to its channel badge so
+a user can quote what served them. The headers appear only when the installation
+has `serving_release_headers_enabled` set (default false) and terminal surfaces
+are not hidden: a blind experiment or `hide_terminal_surfaces` removes them, as
+it removes `X-Router-*` headers. Upstream-gateway mode must hide them too unless
+the installation opts in; `ServingReleaseHeadersVisible` in `internal/ingress/terminal_surfaces.go` is the one
+predicate to extend.
+
 ## Self-hosted export
 
 `policyctl serving export-selfhosted` turns one managed activation into a

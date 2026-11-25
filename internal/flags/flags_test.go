@@ -303,3 +303,17 @@ func TestOverridesOverlayReplacesOnlyLayeredKeys(t *testing.T) {
 	assert.Nil(t, layered.Floats)
 	assert.True(t, stored.Bools[flags.KeyPlannerEnabled], "overlay must not mutate the stored overrides")
 }
+
+func TestOverridesDigestIsContentAddressed(t *testing.T) {
+	first, err := flags.ParseOverrides([]byte(`{"turn_signal_capture_enabled":false,"task_arm_experiment_treatment_pct":25}`))
+	require.NoError(t, err)
+	reordered, err := flags.ParseOverrides([]byte(`{"task_arm_experiment_treatment_pct":25,"turn_signal_capture_enabled":false}`))
+	require.NoError(t, err)
+	changed, err := flags.ParseOverrides([]byte(`{"turn_signal_capture_enabled":false,"task_arm_experiment_treatment_pct":30}`))
+	require.NoError(t, err)
+
+	assert.Len(t, first.Digest(), 64)
+	assert.Equal(t, first.Digest(), reordered.Digest())
+	assert.NotEqual(t, first.Digest(), changed.Digest())
+	assert.Empty(t, flags.Overrides{}.Digest())
+}
