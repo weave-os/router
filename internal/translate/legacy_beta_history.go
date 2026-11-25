@@ -152,7 +152,12 @@ func isBetaAckOnlyContent(msg gjson.Result) bool {
 }
 
 func isBetaAckText(text string) bool {
-	switch strings.TrimSpace(text) {
+	text = strings.TrimSpace(text)
+	if strings.HasPrefix(text, "✦ **Weave Router** → Select a router with `wv router set-model ") &&
+		strings.HasSuffix(text, "then start a new session.") {
+		return true
+	}
+	switch text {
 	case "✦ **Weave Router** → Beta enabled. Type /beta again to turn it off.",
 		"✦ **Weave Router** → Qwen beta enabled. Type /beta-llm again to turn it off.",
 		"✦ **Weave Router** → Qwen beta disabled. Stable routing restored.",
@@ -160,6 +165,7 @@ func isBetaAckText(text string) bool {
 		"✦ **Weave Router** → Usage: /beta-llm",
 		"✦ **Weave Router** → Beta has been retired. Internal routing requires authenticated account enrollment.",
 		"✦ **Weave Router** → Beta disabled. Stable routing restored.",
+		"✦ **Weave Router** → Beta is always on for this installation; /beta has no effect.",
 		"✦ **Weave Router** → Beta is unavailable for this session.",
 		"✦ **Weave Router** → Usage: /beta":
 		return true

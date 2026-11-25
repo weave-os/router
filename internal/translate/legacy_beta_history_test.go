@@ -152,3 +152,25 @@ func TestStripRetiredBetaHistoryKeepsToolCallAnswerToBetaPrompt(t *testing.T) {
 	assert.Equal(t, 0, env.StripRetiredBetaHistory(),
 		"a model's tool-call answer to /beta is not a router reply and keeps its tool result paired")
 }
+
+func TestStripRetiredBetaHistoryRemovesPinnedAndRoutingModelReplies(t *testing.T) {
+	for name, reply := range map[string]string{
+		"pinned":        "✦ **Weave Router** → Beta is always on for this installation; /beta has no effect.\n\n",
+		"routing model": "✦ **Weave Router** → Select a router with `wv router set-model weave-hmm-beta`, or `wv router set-model weave-auto`, then start a new session.\n\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := mustMarshalJSON(t, map[string]any{
+				"model": "gpt-5.6-sol",
+				"messages": []any{
+					map[string]any{"role": "user", "content": "/beta"},
+					map[string]any{"role": "assistant", "content": reply},
+					map[string]any{"role": "user", "content": "continue with the implementation"},
+				},
+			})
+			env, err := translate.ParseOpenAI(body)
+			require.NoError(t, err)
+
+			assert.Equal(t, 2, env.StripRetiredBetaHistory())
+		})
+	}
+}
