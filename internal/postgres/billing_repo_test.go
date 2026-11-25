@@ -29,6 +29,20 @@ func TestBillingTablesExistDetectsMissingAutopayConfig(t *testing.T) {
 	assert.False(t, ok, "missing subscriber_autopay_config must fail billing readiness")
 }
 
+func TestBillingTablesExistDetectsMissingSpendGrants(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, "DROP TABLE router.model_router_user_spend_grants")
+	require.NoError(t, err)
+
+	ok, err := postgres.NewBillingRepo(tx).BillingTablesExist(ctx)
+	require.NoError(t, err)
+	assert.False(t, ok, "the user spend gate reads grants, so a missing grants table must fail billing readiness")
+}
+
 func TestMalformedSpendIDsEnforceNoCapWithoutError(t *testing.T) {
 	repo := postgres.NewBillingRepo(nil)
 	ctx := context.Background()

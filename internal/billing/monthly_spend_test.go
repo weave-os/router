@@ -54,10 +54,10 @@ func TestCheckOrgMonthlySpend_RepoError(t *testing.T) {
 }
 
 func TestMonthlySpendResult_GrantRaisesEffectiveLimit(t *testing.T) {
-	over := billing.MonthlySpendResult{SpentMicros: 1_200_000, LimitMicros: limitPtr(1_000_000), GrantedMicros: 500_000}
-	assert.False(t, over.LimitReached(), "over base but under base+grant is allowed")
-	require.NotNil(t, over.EffectiveLimitMicros())
-	assert.Equal(t, int64(1_500_000), *over.EffectiveLimitMicros())
+	overBaseCap := billing.MonthlySpendResult{SpentMicros: 1_200_000, LimitMicros: limitPtr(1_000_000), GrantedMicros: 500_000}
+	assert.False(t, overBaseCap.LimitReached(), "over base but under base+grant is allowed")
+	require.NotNil(t, overBaseCap.EffectiveLimitMicros())
+	assert.Equal(t, int64(1_500_000), *overBaseCap.EffectiveLimitMicros())
 
 	assert.True(t, billing.MonthlySpendResult{SpentMicros: 1_500_000, LimitMicros: limitPtr(1_000_000), GrantedMicros: 500_000}.LimitReached())
 	assert.Nil(t, billing.MonthlySpendResult{SpentMicros: 5, GrantedMicros: 500_000}.EffectiveLimitMicros(), "uncapped stays uncapped")

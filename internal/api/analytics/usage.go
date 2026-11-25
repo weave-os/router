@@ -11,9 +11,8 @@ import (
 	"weave-os/router/internal/observability"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
-
-const usageDateLayout = time.DateOnly
 
 type usageResponse struct {
 	Rows       []usageRowResponse `json:"rows"`
@@ -56,7 +55,11 @@ func UsageHandler(svc *analytics.UsageService) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, usageResponse{Rows: mapUsageRows(page.Rows), NextCursor: optionalString(page.NextCursor)})
+		var nextCursor *string
+		if page.NextCursor != "" {
+			nextCursor = &page.NextCursor
+		}
+		c.JSON(http.StatusOK, usageResponse{Rows: mapUsageRows(page.Rows), NextCursor: nextCursor})
 	}
 }
 
@@ -90,14 +93,21 @@ func parseUsageQuery(c *gin.Context) (analytics.UsageQuery, error) {
 
 	limit := analytics.UsageDefaultLimit
 	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
-		parsed, err := strconv.Atoi(raw)
+		parsed, err := strconv.ParseInt(raw, 10, 32)
 		if err != nil || parsed <= 0 {
 			return analytics.UsageQuery{}, errors.New("limit must be a positive integer")
 		}
 		if parsed > analytics.UsageMaxLimit {
 			return analytics.UsageQuery{}, errors.New("limit exceeds " + strconv.Itoa(analytics.UsageMaxLimit))
 		}
-		limit = parsed
+		limit = int(parsed)
+	}
+
+	apiKeyIDs := splitCommaList(c.Query("api_key_ids"))
+	for _, id := range apiKeyIDs {
+		if _, err := uuid.Parse(id); err != nil {
+			return analytics.UsageQuery{}, errors.New("api_key_ids must be a comma list of UUIDs")
+		}
 	}
 
 	return analytics.UsageQuery{
@@ -106,7 +116,7 @@ func parseUsageQuery(c *gin.Context) (analytics.UsageQuery, error) {
 		End:            end,
 		Groups:         groups,
 		Emails:         splitCommaList(c.Query("emails")),
-		APIKeyIDs:      splitCommaList(c.Query("api_key_ids")),
+		APIKeyIDs:      apiKeyIDs,
 		Cursor:         cursor,
 		Limit:          limit,
 	}, nil
@@ -117,7 +127,7 @@ func parseUsageDate(c *gin.Context, name string) (time.Time, error) {
 	if raw == "" {
 		return time.Time{}, errors.New(name + " is required (YYYY-MM-DD)")
 	}
-	parsed, err := time.ParseInLocation(usageDateLayout, raw, time.UTC)
+	parsed, err := time.ParseInLocation(time.DateOnly, raw, time.UTC)
 	if err != nil {
 		return time.Time{}, errors.New(name + " must be a YYYY-MM-DD UTC date")
 	}
@@ -181,11 +191,4 @@ func mapUsageRows(rows []analytics.UsageRow) []usageRowResponse {
 		})
 	}
 	return out
-}
-
-func optionalString(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }

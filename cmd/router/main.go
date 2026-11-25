@@ -1106,7 +1106,7 @@ func main() {
 	waitForKeepWarm := startSubscriptionKeepWarm(processCtx, subscriptionRuntime, logger)
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
-	serverFeatures := withContentCaptureMode(withTelemetryQueries(withVersionDetails(withCredentialPorts(withEnvServerConfig(withHMMAdminPorts(server.Features{
+	serverFeatures := withContentCaptureMode(withRepositoryQueries(withVersionDetails(withCredentialPorts(withEnvServerConfig(withHMMAdminPorts(server.Features{
 		SeatUsage:                seatUsage,
 		SubscriptionLogins:       subscriptionLogins,
 		SubscriptionRefresh:      subscriptionRuntime,
@@ -1118,8 +1118,7 @@ func main() {
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 		PolicyStatus:             policyStatus,
 		FeedbackLinks:            feedbackLinks,
-	}, servingAdmission, routingDistribution), defaultStrategy)), pool), repo.Telemetry), captureMode)
-	serverFeatures.UsageAnalytics = analytics.NewUsageService(repo.Usage)
+	}, servingAdmission, routingDistribution), defaultStrategy)), pool), repo), captureMode)
 	serverFeatures.EscalationAdmin = &floor.Admin{Dashboard: escalationDashboardStore, Sessions: llmEscalationStore, Configuration: llmEscalationStore, InvalidateSelection: authSvc.InvalidateInstallation, SwitchyardJudge: escalationJudge, QwenJudge: qwenEscalationJudge, SwitchyardActive: escalationJudgeActiveEnabled, Clock: time.Now}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture

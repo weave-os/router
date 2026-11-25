@@ -36,7 +36,7 @@ func (r *UsageRepo) GetUsageRows(ctx context.Context, q analytics.UsageQuery) ([
 		RowOffset:           int32(q.Cursor.Offset),
 		OrganizationID:      q.OrganizationID,
 		FromTime:            pgtype.Timestamptz{Time: q.Start, Valid: true},
-		ToTime:              pgtype.Timestamptz{Time: q.End.AddDate(0, 0, 1), Valid: true},
+		ToTime:              pgtype.Timestamptz{Time: usageWindowEnd(q), Valid: true},
 	}
 	if len(q.APIKeyIDs) > 0 {
 		params.APIKeyIds = make([]uuid.UUID, 0, len(q.APIKeyIDs))
@@ -64,14 +64,14 @@ func hasGroup(q analytics.UsageQuery, g analytics.UsageGroup) bool {
 func usageRowFromSQL(row sqlc.GetAnalyticsUsageRowsRow) analytics.UsageRow {
 	return analytics.UsageRow{
 		Date:                 row.UsageDate.Time.Format(time.DateOnly),
-		RouterUserID:         stringFromValue(row.RouterUserID),
-		Email:                stringFromValue(row.Email),
-		DisplayName:          stringFromValue(row.DisplayName),
-		APIKeyID:             stringFromValue(row.APIKeyID),
-		APIKeyName:           stringFromValue(row.APIKeyName),
-		ServedModel:          stringFromValue(row.ServedModel),
-		ServedProvider:       stringFromValue(row.ServedProvider),
-		RequestedModel:       stringFromValue(row.RequestedModel),
+		RouterUserID:         stringPtrOrNil(row.RouterUserID),
+		Email:                stringPtrOrNil(row.Email),
+		DisplayName:          stringPtrOrNil(row.DisplayName),
+		APIKeyID:             stringPtrOrNil(row.APIKeyID),
+		APIKeyName:           stringPtrOrNil(row.APIKeyName),
+		ServedModel:          stringPtrOrNil(row.ServedModel),
+		ServedProvider:       stringPtrOrNil(row.ServedProvider),
+		RequestedModel:       stringPtrOrNil(row.RequestedModel),
 		Requests:             row.Requests,
 		FailedRequests:       row.FailedRequests,
 		SubscriptionRequests: row.SubscriptionRequests,
@@ -84,9 +84,10 @@ func usageRowFromSQL(row sqlc.GetAnalyticsUsageRowsRow) analytics.UsageRow {
 	}
 }
 
-func stringFromValue(v string) *string {
-	if v == "" {
-		return nil
+func usageWindowEnd(q analytics.UsageQuery) time.Time {
+	dayAfterEnd := q.End.AddDate(0, 0, 1)
+	if !q.Cursor.IngestedBefore.IsZero() && q.Cursor.IngestedBefore.Before(dayAfterEnd) {
+		return q.Cursor.IngestedBefore
 	}
-	return &v
+	return dayAfterEnd
 }

@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	usageOrgID        = "usage-repo-test-org"
-	usageOtherOrgID   = "usage-repo-test-other"
-	usageInstallation = "7a000000-0000-0000-0000-000000000001"
-	usageOtherInst    = "7a000000-0000-0000-0000-000000000002"
-	usageUserID       = "7a000000-0000-0000-0000-0000000000a1"
-	usageAPIKeyID     = "7a000000-0000-0000-0000-0000000000b1"
+	usageOrgID             = "usage-repo-test-org"
+	usageOtherOrgID        = "usage-repo-test-other"
+	usageInstallation      = "7a000000-0000-0000-0000-000000000001"
+	usageOtherInstallation = "7a000000-0000-0000-0000-000000000002"
+	usageUserID            = "7a000000-0000-0000-0000-0000000000a1"
+	usageAPIKeyID          = "7a000000-0000-0000-0000-0000000000b1"
 )
 
 // seedUsageFixture inserts inside tx so the caller's rollback leaves no rows.
@@ -28,7 +28,7 @@ func seedUsageFixture(t *testing.T, ctx context.Context, tx pgx.Tx) {
 	statements := []string{
 		`INSERT INTO router.model_router_installations (id, external_id, name) VALUES
 			('` + usageInstallation + `', '` + usageOrgID + `', 'usage'),
-			('` + usageOtherInst + `', '` + usageOtherOrgID + `', 'other')`,
+			('` + usageOtherInstallation + `', '` + usageOtherOrgID + `', 'other')`,
 		`INSERT INTO router.model_router_users (id, installation_id, email, display_name) VALUES
 			('` + usageUserID + `', '` + usageInstallation + `', 'dev@example.com', 'Dev')`,
 		`INSERT INTO router.model_router_api_keys (id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, scope) VALUES
@@ -43,7 +43,7 @@ func seedUsageFixture(t *testing.T, ctx context.Context, tx pgx.Tx) {
 			('` + usageInstallation + `', 'u3', 't3', 'router.upstream', '2026-11-21 09:00+00', '2026-11-21 09:00+00', '` + usageUserID + `', NULL, 'm-b', 'p-b', 'req-b', 4, 0, 0, 0, 300000, 0, NULL, 500, 'upstream_error'),
 			('` + usageInstallation + `', 'u4', 't4', 'router.auxiliary_inference', '2026-11-20 12:00+00', '2026-11-20 12:00+00', NULL, NULL, 'm-x', 'p-x', 'req-x', 7, 7, 0, 0, 9999999, 0, NULL, 200, NULL),
 			('` + usageInstallation + `', 'u5', 't5', 'router.upstream', '2026-12-05 09:00+00', '2026-12-05 09:00+00', '` + usageUserID + `', NULL, 'm-a', 'p-a', 'req-a', 1, 1, 0, 0, 111, 0, NULL, 200, NULL),
-			('` + usageOtherInst + `', 'u6', 't6', 'router.upstream', '2026-11-20 13:00+00', '2026-11-20 13:00+00', NULL, NULL, 'm-o', 'p-o', 'req-o', 1, 1, 0, 0, 777777, 0, NULL, 200, NULL)`,
+			('` + usageOtherInstallation + `', 'u6', 't6', 'router.upstream', '2026-11-20 13:00+00', '2026-11-20 13:00+00', NULL, NULL, 'm-o', 'p-o', 'req-o', 1, 1, 0, 0, 777777, 0, NULL, 200, NULL)`,
 	}
 	for _, statement := range statements {
 		_, err := tx.Exec(ctx, statement)
@@ -129,4 +129,11 @@ func TestUsageRepoCollapsesUngroupedDimensionsAndFilters(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "2026-11-21", rows[0].Date)
+
+	frozen := usageQuery()
+	frozen.Cursor = analytics.UsageCursor{Offset: 0, IngestedBefore: time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)}
+	rows, err = repo.GetUsageRows(ctx, frozen)
+	require.NoError(t, err)
+	require.Len(t, rows, 1, "rows ingested after the cursor's cutoff stay out of later pages")
+	assert.Equal(t, "2026-11-20", rows[0].Date)
 }

@@ -208,9 +208,10 @@ SELECT (
         'organization_spend_limits',
         'model_router_user_spend_limits',
         'subscriber_autopay_config',
-        'delegated_token_spend'
+        'delegated_token_spend',
+        'model_router_user_spend_grants'
       )
-) = 9 AS billing_tables_exist;
+) = 10 AS billing_tables_exist;
 
 -- Fresh per-request read of a delegated session's and task's spend-to-date
 -- for the delegated spend-cap gate. A missing row is zero spend.

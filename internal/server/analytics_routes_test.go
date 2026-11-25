@@ -28,7 +28,7 @@ func registerUsageEngine(t *testing.T) *gin.Engine {
 	engine := gin.New()
 	server.RegisterWithFeatures(engine, nil, server.Services{}, nil, server.DeploymentModeManaged, nil, nil, nil, analytics.NewService(nil, nil), server.Features{
 		InternalServiceToken: usageTestToken,
-		UsageAnalytics:       analytics.NewUsageService(emptyUsageRepo{}),
+		UsageAnalytics:       analytics.NewUsageService(emptyUsageRepo{}, nil),
 	})
 	return engine
 }

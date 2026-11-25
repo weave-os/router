@@ -38,11 +38,13 @@ func serveUsage(t *testing.T, repo *capturingUsageRepo, rawQuery string) *httpte
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.GET("/usage", analyticsapi.UsageHandler(analytics.NewUsageService(repo)))
+	engine.GET("/usage", analyticsapi.UsageHandler(analytics.NewUsageService(repo, func() time.Time { return usageTestNow })))
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/usage?"+rawQuery, nil))
 	return rec
 }
+
+var usageTestNow = time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
 
 func stringPtr(s string) *string { return &s }
 
@@ -79,6 +81,8 @@ func TestUsageHandlerRejectsBadRequests(t *testing.T) {
 		"unknown group":        "organization_id=o&start=2026-11-01&end=2026-11-02&group_by=team",
 		"limit too large":      "organization_id=o&start=2026-11-01&end=2026-11-02&limit=10001",
 		"bad cursor":           "organization_id=o&start=2026-11-01&end=2026-11-02&cursor=!!",
+		"malformed api key id": "organization_id=o&start=2026-11-01&end=2026-11-02&api_key_ids=not-a-uuid",
+		"limit over int32":     "organization_id=o&start=2026-11-01&end=2026-11-02&limit=99999999999",
 	}
 	for name, rawQuery := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -116,6 +120,7 @@ func TestUsageHandlerPagesAndEncodesNulls(t *testing.T) {
 	next := serveUsage(t, repo, "organization_id=o&start=2026-11-01&end=2026-11-30&limit=2&cursor="+*body.NextCursor)
 	require.Equal(t, http.StatusOK, next.Code)
 	assert.Equal(t, 2, repo.query.Cursor.Offset)
+	assert.Equal(t, usageTestNow.Add(-analytics.Holdback), repo.query.Cursor.IngestedBefore, "every page reads the first page's ingest cutoff")
 	var last struct {
 		Rows       []map[string]any `json:"rows"`
 		NextCursor *string          `json:"next_cursor"`

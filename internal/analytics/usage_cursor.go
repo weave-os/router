@@ -5,21 +5,26 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var ErrUsageCursorInvalid = errors.New("malformed usage cursor")
 
+const usageCursorVersion = "v1"
+
 type UsageCursor struct {
-	Offset int
+	Offset         int
+	IngestedBefore time.Time
 }
 
-func (c UsageCursor) IsZero() bool { return c.Offset == 0 }
+func (c UsageCursor) IsZero() bool { return c.Offset == 0 && c.IngestedBefore.IsZero() }
 
 func (c UsageCursor) String() string {
 	if c.IsZero() {
 		return ""
 	}
-	return base64.RawURLEncoding.EncodeToString([]byte("o:" + strconv.Itoa(c.Offset)))
+	token := usageCursorVersion + ":" + strconv.Itoa(c.Offset) + ":" + strconv.FormatInt(c.IngestedBefore.UnixNano(), 10)
+	return base64.RawURLEncoding.EncodeToString([]byte(token))
 }
 
 func ParseUsageCursor(token string) (UsageCursor, error) {
@@ -30,13 +35,17 @@ func ParseUsageCursor(token string) (UsageCursor, error) {
 	if err != nil {
 		return UsageCursor{}, ErrUsageCursorInvalid
 	}
-	body, ok := strings.CutPrefix(string(raw), "o:")
-	if !ok {
+	parts := strings.Split(string(raw), ":")
+	if len(parts) != 3 || parts[0] != usageCursorVersion {
 		return UsageCursor{}, ErrUsageCursorInvalid
 	}
-	offset, err := strconv.Atoi(body)
+	offset, err := strconv.ParseInt(parts[1], 10, 32)
 	if err != nil || offset < 0 {
 		return UsageCursor{}, ErrUsageCursorInvalid
 	}
-	return UsageCursor{Offset: offset}, nil
+	ingestedBeforeNanos, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil || ingestedBeforeNanos <= 0 {
+		return UsageCursor{}, ErrUsageCursorInvalid
+	}
+	return UsageCursor{Offset: int(offset), IngestedBefore: time.Unix(0, ingestedBeforeNanos).UTC()}, nil
 }
