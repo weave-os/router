@@ -1,0 +1,72 @@
+Makefile
+  s_8960fd48237f12::t_562fd2c41ec2d9 67
+internal/proxy/baseline_failover_integration_test.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 5,120-125
+internal/proxy/telemetry.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 54,68-69
+internal/api/admin/session_cost.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 23-36,73-76,80
+install/codex-status.sh
+  s_8960fd48237f12::t_562fd2c41ec2d9 96-98,108,124,159-229,307-308,311,319-320,345-426,428-429,498-513,523-527,583-596,600,604,608,612-615
+db/migrations/0126_telemetry-context-snapshot.up.sql
+  s_8960fd48237f12::t_562fd2c41ec2d9 1-3
+internal/proxy/context_snapshot.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 1-97
+internal/proxy/usage_bypass.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 394,567
+internal/sqlc/models.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 701
+install/tests/context-status_test.sh
+  s_8960fd48237f12::t_562fd2c41ec2d9 1-118
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 543-551,576,595-603,624,2110-2111,2285-2286,2465,2699-2700,2874-2875,3053
+db/migrations/0126_telemetry-context-snapshot.down.sql
+  s_8960fd48237f12::t_562fd2c41ec2d9 1-3
+install/tests/codex-status_test.sh
+  s_8960fd48237f12::t_562fd2c41ec2d9 51,58,65,114-115,136-140,142-143,155-163,165,219,387,392,400,408,413,420
+internal/proxy/service_test.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 223,387,1350,1680-1687
+  s_8960fd48237f12::t_447c1b198b8fc3 1688
+install/install.sh
+  s_8960fd48237f12::t_562fd2c41ec2d9 921-925,4443-4445,4455,4471,4506-4576,4654-4655,4658,4666-4667,4692-4697,4699-4776,4845-4860,4870-4874,4930-4943,4947,4951,4955,4959-4962,5840-5847,5866,5874-5886,6330-6417,6450-6451
+internal/proxy/gemini.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 226,444
+internal/proxy/service.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 2716-2719,2755,4014,4041,5197,6445-6447,6982,7013,8303
+internal/proxy/headers.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 17-21
+install/tests/codex_install_test.sh
+  s_8960fd48237f12::t_562fd2c41ec2d9 95-96,101,311,580
+internal/proxy/context_snapshot_internal_test.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 1-85
+db/queries/model_router_request_telemetry.sql
+  s_8960fd48237f12::t_562fd2c41ec2d9 232-233,407-408,900-908
+docs/CONFIGURATION.md
+  s_8960fd48237f12::t_562fd2c41ec2d9 845-864
+internal/api/admin/session_cost_test.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 216-239
+install/README.md
+  s_8960fd48237f12::t_562fd2c41ec2d9 404,651-665
+internal/postgres/telemetry.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 114,837
+install/cc-statusline.sh
+  s_8960fd48237f12::t_562fd2c41ec2d9 422-429,448,456-468,912-999,1032-1033
+internal/proxy/gemini_test.go
+  s_8960fd48237f12::t_562fd2c41ec2d9 66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "40fd78aaad6f69c78c563c1d8c82b7285da72604",
+  "prompts": {},
+  "sessions": {
+    "s_8960fd48237f12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a113a0-b447-73d1-893e-09cd7017cdef",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}

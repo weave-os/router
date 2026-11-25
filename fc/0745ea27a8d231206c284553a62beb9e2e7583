@@ -1,0 +1,21 @@
+db/migrations/0061_external-key-deleted-by.up.sql
+  s_207247076ca5f3::t_e434d7a9dff927 1-12
+db/migrations/0061_external-key-deleted-by.down.sql
+  s_207247076ca5f3::t_2822e21a1eebee 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "fc0745ea27a8d231206c284553a62beb9e2e7583",
+  "prompts": {},
+  "sessions": {
+    "s_207247076ca5f3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9424eef5-fe6a-4eb5-b900-2449bf3c0301",
+        "model": "deepseek/deepseek-v4-flash"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

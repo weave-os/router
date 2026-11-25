@@ -1,0 +1,21 @@
+internal/sse/response_test.go
+  s_6e390844230ee6::t_917a83e9677658 36-56,96,98,100
+internal/sse/response.go
+  s_6e390844230ee6::t_3417b258e43303 4,10-21,38-39,43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "90b859e543e4b34a8c945ba9aeea7c0d548095a1",
+  "prompts": {},
+  "sessions": {
+    "s_6e390844230ee6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18f0b-b6e5-7f52-9e3b-aaec7c99f301",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+db/migrations/0146_session-issuer-subject.up.sql
+  s_4a2c66a824762c::t_42307647c8d238 1-8
+db/migrations/0146_session-issuer-subject.down.sql
+  s_4a2c66a824762c::t_42307647c8d238 1-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "16b54fdfeabea1e630ec377f14eb10fb1dbe521a",
+  "prompts": {},
+  "sessions": {
+    "s_4a2c66a824762c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ae57-6dd7-7f20-939b-e5078546d18e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

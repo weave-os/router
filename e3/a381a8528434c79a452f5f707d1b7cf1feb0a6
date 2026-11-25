@@ -1,0 +1,39 @@
+internal/proxy/stream_terminal_observer.go
+  s_eb4f32844b0b0e::t_8c4c978390de5c 45-56,86-89,111-116,152-160,167,189,191,193,197,199-214
+internal/proxy/stream_cut_internal_test.go
+  s_eb4f32844b0b0e::t_caa31cac8dbd3d 48
+  s_eb4f32844b0b0e::t_7b9ab2c32349fd 151-153
+internal/proxy/AGENTS.md
+  s_eb4f32844b0b0e::t_ad1f13fdc6088a 309
+internal/proxy/failover_attempted_internal_test.go
+  s_eb4f32844b0b0e::t_08d9a816741a43 60-63,104-106
+  s_eb4f32844b0b0e::t_cfccb41554e2d5 4,6-7,10-11,59,64-103,109
+  s_eb4f32844b0b0e::t_f9e91cf6dfe324 107-108,110
+internal/proxy/openai_responses_retry_internal_test.go
+  s_eb4f32844b0b0e::t_caa31cac8dbd3d 37,39
+  s_eb4f32844b0b0e::t_08d9a816741a43 5
+internal/proxy/native_stream_terminal_integration_test.go
+  s_eb4f32844b0b0e::t_caa31cac8dbd3d 52,54-55
+internal/proxy/stream_terminal_observer_internal_test.go
+  s_eb4f32844b0b0e::t_7b9ab2c32349fd 21-23,38-39,45-47,68-80,91-93
+internal/proxy/CLAUDE.md
+  s_eb4f32844b0b0e::t_ad1f13fdc6088a 309
+internal/proxy/responses_terminal_observer.go
+  s_eb4f32844b0b0e::t_67336671309f73 104,109-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e3a381a8528434c79a452f5f707d1b7cf1feb0a6",
+  "prompts": {},
+  "sessions": {
+    "s_eb4f32844b0b0e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1da55428-b9f4-4152-bae2-a6b4c2c17fc3",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

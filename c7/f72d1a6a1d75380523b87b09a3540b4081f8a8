@@ -1,0 +1,19 @@
+README.md
+  s_026b2a6b801bb6::t_c02a3aca82543e 32-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c7f72d1a6a1d75380523b87b09a3540b4081f8a8",
+  "prompts": {},
+  "sessions": {
+    "s_026b2a6b801bb6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ac2a-1312-71e1-a3c8-08079f774969",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

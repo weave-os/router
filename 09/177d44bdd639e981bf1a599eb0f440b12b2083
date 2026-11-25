@@ -1,0 +1,19 @@
+internal/proxy/force_model_aliases.go
+  s_280e2165224216::t_8262b816708999 1-175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "09177d44bdd639e981bf1a599eb0f440b12b2083",
+  "prompts": {},
+  "sessions": {
+    "s_280e2165224216": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1d643-037f-7471-9d63-2cfe011d5262",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

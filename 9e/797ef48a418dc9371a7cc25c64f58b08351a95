@@ -1,0 +1,25 @@
+install/tests/cc-statusline_test.sh
+  s_d3d78e624b1f05::t_578ca07b7f11b3 728-730,740
+install/cc-statusline.sh
+  s_d3d78e624b1f05::t_578ca07b7f11b3 1150,1162-1164
+install/install.sh
+  s_d3d78e624b1f05::t_578ca07b7f11b3 8022,8034-8036
+internal/api/admin/display_settings.go
+  s_d3d78e624b1f05::t_578ca07b7f11b3 71,91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9e797ef48a418dc9371a7cc25c64f58b08351a95",
+  "prompts": {},
+  "sessions": {
+    "s_d3d78e624b1f05": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b40a-800d-7ed0-b670-64eddd2dbd0d",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

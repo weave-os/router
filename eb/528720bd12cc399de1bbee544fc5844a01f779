@@ -1,0 +1,25 @@
+cmd/policyctl/serving.go
+  s_71e3fa757e743b::t_e37bbb5c46fd69 128
+internal/analytics/schema.go
+  s_71e3fa757e743b::t_901c13535a33d8 102
+internal/policyregistry/serving_contract_v4_test.go
+  s_71e3fa757e743b::t_49c8cf9c982f48 168-172
+internal/proxy/testdata/contracts/weave_contract.json
+  s_71e3fa757e743b::t_99ce65ab30ee11 785
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "eb528720bd12cc399de1bbee544fc5844a01f779",
+  "prompts": {},
+  "sessions": {
+    "s_71e3fa757e743b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6721a841-a3d2-4940-a839-a1e2ad28413d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

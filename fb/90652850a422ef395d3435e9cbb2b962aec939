@@ -1,0 +1,46 @@
+install/codex-skills/fm/SKILL.md
+  s_6d50bad16855bd::t_2d6b39d30db998 15-16
+internal/translate/command_history.go
+  s_6d50bad16855bd::t_1b78a72dc7f3cc 75,202
+  s_6d50bad16855bd::t_efeb4bad9f300c 1-55,57,65-74,76-183,185,192-201,203-224
+  s_6d50bad16855bd::t_eab9ced0efae99 56,58-64,184,186-191
+internal/translate/CLAUDE.md
+  s_6d50bad16855bd::t_ed5e2ad2e0726d 91-106
+install/codex-skills/ufm/SKILL.md
+  s_6d50bad16855bd::t_2d6b39d30db998 14-15
+internal/translate/AGENTS.md
+  s_6d50bad16855bd::t_2d6b39d30db998 91-106
+internal/translate/command_history_internal_test.go
+  s_6d50bad16855bd::t_5ac7177eb0226e 1-11,14-18,20,22,25-32,34,39-80
+  s_6d50bad16855bd::t_7b8544c6ab4416 12-13
+  s_6d50bad16855bd::t_3483eb8589bfdd 19
+  s_6d50bad16855bd::t_d34802120ae388 21,23-24,33,35-38
+install/codex-skills/router-feedback/SKILL.md
+  s_6d50bad16855bd::t_2d6b39d30db998 15-16
+internal/proxy/service.go
+  s_6d50bad16855bd::t_bb6db96d8ab1e9 3773-3775,7005-7007,8842-8845
+install/codex-skills/force-model/SKILL.md
+  s_6d50bad16855bd::t_2d6b39d30db998 15-16
+internal/translate/command_history_test.go
+  s_6d50bad16855bd::t_39f29006f9e801 1-138
+install/codex-skills/rf/SKILL.md
+  s_6d50bad16855bd::t_2d6b39d30db998 15-16
+install/codex-skills/unforce-model/SKILL.md
+  s_6d50bad16855bd::t_2d6b39d30db998 14-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fb90652850a422ef395d3435e9cbb2b962aec939",
+  "prompts": {},
+  "sessions": {
+    "s_6d50bad16855bd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1758a-0316-7981-8e61-a57c35537a18",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Sam Coutts <sam@workweave.ai>"
+    }
+  }
+}

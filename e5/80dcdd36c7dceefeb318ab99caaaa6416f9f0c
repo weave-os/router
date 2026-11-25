@@ -1,0 +1,33 @@
+internal/proxy/service_session_pin_test.go
+  s_09edbb821b9872::t_0e69ae6a0a658c 682-688,697-700,702-847
+  s_09edbb821b9872::t_c3689eb8900442 689-696,701
+cmd/router/main.go
+  s_09edbb821b9872::t_5ce7501f8e4fca 482-501
+  s_09edbb821b9872::t_3afb39d8f152c1 756
+internal/proxy/service.go
+  s_09edbb821b9872::t_71f76a427bb97c 1246-1257
+  s_09edbb821b9872::t_dc75ee32b70612 92-101
+docs/CONFIGURATION.md
+  s_09edbb821b9872::t_a9e57c16df9075 76-78
+.env.example
+  s_09edbb821b9872::t_86ccb5af3fa36f 132-138
+internal/proxy/turnloop.go
+  s_09edbb821b9872::t_18994bc643a974 343-353,359
+  s_09edbb821b9872::t_d1f5f9eb43d23a 177-179,188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "e580dcdd36c7dceefeb318ab99caaaa6416f9f0c",
+  "prompts": {},
+  "sessions": {
+    "s_09edbb821b9872": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "447128a0-53a8-407d-9e55-94b925e335bd",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

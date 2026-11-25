@@ -1,0 +1,37 @@
+internal/postgres/migration_0164_test.go
+  s_83f6ee3e20d2c7::t_393d66e682c34c 1-42
+db/queries/blind_experiment.sql
+  s_83f6ee3e20d2c7::t_85aca4460f9a1f 11,64
+internal/auth/blind_experiment.go
+  s_83f6ee3e20d2c7::t_8f57136e324eb7 69,93,159,172,188,197
+internal/auth/blind_experiment_test.go
+  s_83f6ee3e20d2c7::t_cc7d9c9043dbc0 692-703
+internal/postgres/blind_experiment_repo.go
+  s_83f6ee3e20d2c7::t_a0928ff407f2c9 51
+internal/postgres/blind_experiment_session_repo.go
+  s_83f6ee3e20d2c7::t_cecfd25962326e 40
+internal/proxy/blind_experiment.go
+  s_83f6ee3e20d2c7::t_d7857868fe2acc 87-89,102-109,207-208,210-220,222-226
+internal/proxy/blind_experiment_internal_test.go
+  s_83f6ee3e20d2c7::t_15f9ea86b063d4 625-707
+internal/sqlc/blind_experiment.sql.go
+  s_83f6ee3e20d2c7::t_59f9fa1e039618 68,79,90,102,115,174,197,252
+internal/sqlc/models.go
+  s_83f6ee3e20d2c7::t_62e279a79b8c4e 53-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8acbd4d3d09269341be2bb66f186758ea8552424",
+  "prompts": {},
+  "sessions": {
+    "s_83f6ee3e20d2c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4bab6a50-65f6-4d00-89f8-23853aa41e57",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
