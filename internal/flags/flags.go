@@ -79,6 +79,7 @@ const (
 	KeySwitchDecideShadow                   Key = "switch_decide_shadow"
 	KeyAuthorityCacheShadow                 Key = "authority_cache_shadow"
 	KeyAgreementShadowEpoch                 Key = "agreement_shadow_epoch"
+	KeyRecipeShadow                         Key = "recipe_shadow"
 	KeySiblingFailover                      Key = "sibling_failover"
 	KeyOwnSeatFirst                         Key = "own_seat_first"
 	KeyOwnOverageBeforePool                 Key = "own_overage_before_pool"

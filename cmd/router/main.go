@@ -991,7 +991,7 @@ func main() {
 		Routing: &proxy.RoutingDeps{PrefixTrimFreeSwitch: &prefixTrimFreeSwitch, EffortEscalation: effortEscalation, AvailableModels: servedModels, DefaultBaselineModel: resolveDefaultBaselineModel(), ExcludedModels: excludedModels,
 			HardPinResolver: hardPinResolver, ExplicitUtilityHardPin: hardPinOverrideConfigured, SubAgentProvider: subAgentProvider, SubAgentModel: subAgentModel,
 			Deadline: routingpolicy.PolicyDeadline{Fallback: policyDeadlineFallback, DefaultModel: policyDeadlineDefaultModel}, GlobalAutomaticExclusions: repo.GlobalAutomaticExclusions,
-			Plans: inferencePlans, Continuity: &continuityConfig, HMM: &hmmConfig, BandSwap: bandSwapEnabled, ClassifierSessions: classifierSessions,
+			Plans: inferencePlans, Continuity: &continuityConfig, HMM: &hmmConfig, BandSwap: bandSwapEnabled, ClassifierSessions: classifierSessions, RecipeShadow: recipeShadowFor(pool, servingAdmission, availableProviders),
 			Strategies: append(append([]policy.StrategySpec{
 				{Strategy: router.StrategyHMM, Router: hmmRouter, Unavailable: hmm.ErrHMMUnavailable, Capabilities: hmmCapabilities},
 				{Strategy: router.StrategyHMMEmbedding, Router: hmmEmbeddingRouter, Unavailable: hmm.ErrHMMUnavailable, Capabilities: hmmCapabilities},

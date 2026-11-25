@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 39
+const RegistryVersion = 40
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -135,6 +135,12 @@ var Registry = []Definition{
 		Key:            KeyAgreementShadowEpoch,
 		Kind:           KindInt,
 		Description:    "Observation-only internal agreement comparison: 0 disables; choose a fresh positive epoch for each activation/resumption. Compares 1-up/5-down with 2-up/5-down without affecting serving.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyRecipeShadow,
+		Kind:           KindBool,
+		Description:    "Experiment (owner steventohme, expires 2027-03-31): on default-recipe HMM turns, record what the installation's assigned weave-auto-efficient profile would have picked from the same classifier facts. No provider or classifier call; stores identifiers, model, arm and label only. Never changes what is served.",
 		OrgOverridable: true,
 	},
 	{

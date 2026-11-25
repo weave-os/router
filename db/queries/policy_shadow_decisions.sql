@@ -21,7 +21,15 @@ INSERT INTO router.policy_shadow_decisions (
     shadow_policy_artifact_sha256,
     shadow_latency_ms,
     shadow_error,
-    models_agree
+    models_agree,
+    shadow_routing_model,
+    serving_profile_key,
+    shadow_profile_key,
+    classifier_predicted_label,
+    serving_policy_group,
+    shadow_policy_group,
+    serving_roster_arm_id,
+    shadow_roster_arm_id
 ) VALUES (
     @installation_id::uuid,
     sqlc.narg('organization_id')::varchar,
@@ -44,5 +52,13 @@ INSERT INTO router.policy_shadow_decisions (
     sqlc.narg('shadow_policy_artifact_sha256')::varchar,
     @shadow_latency_ms::bigint,
     sqlc.narg('shadow_error')::varchar,
-    @models_agree::boolean
+    @models_agree::boolean,
+    sqlc.narg('shadow_routing_model')::varchar,
+    sqlc.narg('serving_profile_key')::varchar,
+    sqlc.narg('shadow_profile_key')::varchar,
+    sqlc.narg('classifier_predicted_label')::varchar,
+    sqlc.narg('serving_policy_group')::varchar,
+    sqlc.narg('shadow_policy_group')::varchar,
+    sqlc.narg('serving_roster_arm_id')::varchar,
+    sqlc.narg('shadow_roster_arm_id')::varchar
 );

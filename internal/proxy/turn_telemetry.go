@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/flags"
 
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/policyshadow"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
 
@@ -16,6 +17,7 @@ type turnTelemetry struct {
 	repo      turnrecord.TelemetryRepository
 	turnClock telemetry.SessionTurnClock
 	flags     TelemetryFlags
+	recipe    policyshadow.RecipeRecorder
 }
 
 type TelemetryFlags struct {

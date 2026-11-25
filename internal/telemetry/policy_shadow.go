@@ -31,4 +31,13 @@ type PolicyShadowDecision struct {
 	ShadowLatencyMs            int64
 	ShadowError                string
 	ModelsAgree                bool
+
+	ShadowRoutingModel       string
+	ServingProfileKey        string
+	ShadowProfileKey         string
+	ClassifierPredictedLabel string
+	ServingPolicyGroup       string
+	ShadowPolicyGroup        string
+	ServingRosterArmID       string
+	ShadowRosterArmID        string
 }

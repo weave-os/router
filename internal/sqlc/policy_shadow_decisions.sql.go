@@ -34,7 +34,15 @@ INSERT INTO router.policy_shadow_decisions (
     shadow_policy_artifact_sha256,
     shadow_latency_ms,
     shadow_error,
-    models_agree
+    models_agree,
+    shadow_routing_model,
+    serving_profile_key,
+    shadow_profile_key,
+    classifier_predicted_label,
+    serving_policy_group,
+    shadow_policy_group,
+    serving_roster_arm_id,
+    shadow_roster_arm_id
 ) VALUES (
     $1::uuid,
     $2::varchar,
@@ -57,7 +65,15 @@ INSERT INTO router.policy_shadow_decisions (
     $19::varchar,
     $20::bigint,
     $21::varchar,
-    $22::boolean
+    $22::boolean,
+    $23::varchar,
+    $24::varchar,
+    $25::varchar,
+    $26::varchar,
+    $27::varchar,
+    $28::varchar,
+    $29::varchar,
+    $30::varchar
 )
 `
 
@@ -84,6 +100,14 @@ type InsertPolicyShadowDecisionParams struct {
 	ShadowLatencyMs             int64
 	ShadowError                 *string
 	ModelsAgree                 bool
+	ShadowRoutingModel          *string
+	ServingProfileKey           *string
+	ShadowProfileKey            *string
+	ClassifierPredictedLabel    *string
+	ServingPolicyGroup          *string
+	ShadowPolicyGroup           *string
+	ServingRosterArmID          *string
+	ShadowRosterArmID           *string
 }
 
 // InsertPolicyShadowDecision
@@ -110,7 +134,15 @@ type InsertPolicyShadowDecisionParams struct {
 //	    shadow_policy_artifact_sha256,
 //	    shadow_latency_ms,
 //	    shadow_error,
-//	    models_agree
+//	    models_agree,
+//	    shadow_routing_model,
+//	    serving_profile_key,
+//	    shadow_profile_key,
+//	    classifier_predicted_label,
+//	    serving_policy_group,
+//	    shadow_policy_group,
+//	    serving_roster_arm_id,
+//	    shadow_roster_arm_id
 //	) VALUES (
 //	    $1::uuid,
 //	    $2::varchar,
@@ -133,7 +165,15 @@ type InsertPolicyShadowDecisionParams struct {
 //	    $19::varchar,
 //	    $20::bigint,
 //	    $21::varchar,
-//	    $22::boolean
+//	    $22::boolean,
+//	    $23::varchar,
+//	    $24::varchar,
+//	    $25::varchar,
+//	    $26::varchar,
+//	    $27::varchar,
+//	    $28::varchar,
+//	    $29::varchar,
+//	    $30::varchar
 //	)
 func (q *Queries) InsertPolicyShadowDecision(ctx context.Context, arg InsertPolicyShadowDecisionParams) error {
 	_, err := q.db.Exec(ctx, insertPolicyShadowDecision,
@@ -159,6 +199,14 @@ func (q *Queries) InsertPolicyShadowDecision(ctx context.Context, arg InsertPoli
 		arg.ShadowLatencyMs,
 		arg.ShadowError,
 		arg.ModelsAgree,
+		arg.ShadowRoutingModel,
+		arg.ServingProfileKey,
+		arg.ShadowProfileKey,
+		arg.ClassifierPredictedLabel,
+		arg.ServingPolicyGroup,
+		arg.ShadowPolicyGroup,
+		arg.ServingRosterArmID,
+		arg.ShadowRosterArmID,
 	)
 	return err
 }

@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/capture"
+	"weave-os/router/internal/telemetry/policyshadow"
 )
 
 type Deps struct {
@@ -65,6 +66,7 @@ type RoutingDeps struct {
 	Strategies                []policy.StrategySpec
 	Escalation                *RoutingEscalation
 	ClassifierSessions        *ClassifierSessions
+	RecipeShadow              *policyshadow.RecipeRecorder
 }
 
 type RoutingEscalation struct {
@@ -174,5 +176,8 @@ func applyRoutingDeps(s *Service, deps RoutingDeps) {
 	withBandSwap(s, deps.BandSwap)
 	if deps.ClassifierSessions != nil {
 		s.classifierSessions = deps.ClassifierSessions
+	}
+	if deps.RecipeShadow != nil {
+		s.turnTelemetry.recipe = *deps.RecipeShadow
 	}
 }
