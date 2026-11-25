@@ -1,0 +1,31 @@
+internal/proxy/codex_pinned_overload_rescue_internal_test.go
+  s_3668a18ba9d1cf::t_3672d2b2f37f2f 5,19
+  s_3668a18ba9d1cf::t_315dcbc0643c20 112-131
+  s_3668a18ba9d1cf::t_e4f7e7ca710f8e 1-4,6-18,20-111
+internal/proxy/CLAUDE.md
+  s_3668a18ba9d1cf::t_9b849a1a58d978 366
+internal/proxy/AGENTS.md
+  s_3668a18ba9d1cf::t_f9f689a8f81e4b 366
+internal/proxy/fallback.go
+  s_3668a18ba9d1cf::t_90cd53c5e319d1 292-302
+internal/proxy/service.go
+  s_3668a18ba9d1cf::t_f53ec1c029ad5a 8310,8385
+internal/translate/responses.go
+  s_3668a18ba9d1cf::t_1e860abc355f03 908-920
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "eb254e9b68016cff8ff6f571b3b1335781ba494c",
+  "prompts": {},
+  "sessions": {
+    "s_3668a18ba9d1cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a165a9-6782-7083-9eb9-09d676b8c37c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

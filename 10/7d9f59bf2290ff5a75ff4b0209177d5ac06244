@@ -1,0 +1,20 @@
+internal/proxy/classifier_session_internal_test.go
+  s_395fcfacea68ca::t_a173220189d2ba 42-44,162-175
+  s_395fcfacea68ca::t_e23d47c9dd04c2 176-177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "107d9f59bf2290ff5a75ff4b0209177d5ac06244",
+  "prompts": {},
+  "sessions": {
+    "s_395fcfacea68ca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bd20-5294-7431-af5a-fda13c268f77",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

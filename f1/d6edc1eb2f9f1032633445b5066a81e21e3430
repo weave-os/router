@@ -1,0 +1,23 @@
+install/cc-statusline.sh
+  s_b55f527534c3d8::t_0a9c1ad5d20b45 353,356-367
+install/tests/cc-statusline_test.sh
+  s_b55f527534c3d8::t_5bb983cd7b79a1 604-640
+install/install.sh
+  s_b55f527534c3d8::t_3ebe1c0f2c2018 3146,3149-3160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "f1d6edc1eb2f9f1032633445b5066a81e21e3430",
+  "prompts": {},
+  "sessions": {
+    "s_b55f527534c3d8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "57713722-adcc-4270-9d9e-5a10cf2cc300",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

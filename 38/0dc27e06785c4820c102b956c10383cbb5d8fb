@@ -1,0 +1,43 @@
+internal/proxy/fallback.go
+  s_54f3fae2e86b5f::t_737ea6f9b10fd9 268-269
+  s_54f3fae2e86b5f::t_ff50bcbf943ea2 284-285
+  s_54f3fae2e86b5f::t_cfd8b986a3ed9f 266
+  s_54f3fae2e86b5f::t_cd7fdde42605f5 265
+  s_54f3fae2e86b5f::t_6198b19831f15a 264
+  s_54f3fae2e86b5f::t_280cae75a7b9a2 260,267
+  s_54f3fae2e86b5f::t_8c5c20d7fbf76a 258-259
+  s_54f3fae2e86b5f::t_5893f52118e150 261
+  s_54f3fae2e86b5f::t_07ad2a7df5533f 262-263
+internal/proxy/service.go
+  s_54f3fae2e86b5f::t_0309028ae96710 4616-4620,7672-7676
+  s_54f3fae2e86b5f::t_c3274c716278e4 4614,4664-4665,4978
+  s_54f3fae2e86b5f::t_280cae75a7b9a2 4594,4976-4977,7649,8017-8018
+  s_54f3fae2e86b5f::t_5478e54f5b4d0a 4621,7677
+  s_54f3fae2e86b5f::t_5893f52118e150 4622,7678
+  s_54f3fae2e86b5f::t_13ffeae286eefb 7670,7715-7716,8019
+internal/proxy/subscription_state_models_internal_test.go
+  s_54f3fae2e86b5f::t_0309028ae96710 163-165
+  s_54f3fae2e86b5f::t_5b6cda6450a6e4 349-350,353-354
+  s_54f3fae2e86b5f::t_fba518e014d415 351
+  s_54f3fae2e86b5f::t_5893f52118e150 162,352
+  s_54f3fae2e86b5f::t_280cae75a7b9a2 161,184,347
+  s_54f3fae2e86b5f::t_254e2f5530e197 159,175-176,183,185
+internal/proxy/subscription_state_models.go
+  s_54f3fae2e86b5f::t_a96359e47a9288 252-254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "380dc27e06785c4820c102b956c10383cbb5d8fb",
+  "prompts": {},
+  "sessions": {
+    "s_54f3fae2e86b5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11490-fa25-73a2-84d7-c8dee0aed02d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+internal/proxy/subscription_state_models.go
+  s_6c0f50e29c46d2::t_3a1b3b6a18c4e9 111-112
+internal/proxy/subscription_third_party_internal_test.go
+  s_6c0f50e29c46d2::t_ab6c035117924e 16,298-346
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5b4a8018728c523d35c03d98a8544a8473e017d1",
+  "prompts": {},
+  "sessions": {
+    "s_6c0f50e29c46d2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b54c56cc-92ac-41fe-b45b-e32ecd1479d6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

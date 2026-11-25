@@ -1,0 +1,25 @@
+install/install.sh
+  s_0927ca9df7d0c9::t_0175e5a00f6e8d 5197,6121
+install/cc-statusline.sh
+  s_0927ca9df7d0c9::t_7839c2c4e2e88c 13,937
+install/tests/cc-statusline_test.sh
+  s_0927ca9df7d0c9::t_750416bb7ccb0b 170,184,194,199,209,218,251,628
+install/README.md
+  s_0927ca9df7d0c9::t_ae3ab848364281 557
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "88b07470535b1cad44a272acca516171853d8539",
+  "prompts": {},
+  "sessions": {
+    "s_0927ca9df7d0c9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fef3-4bed-7081-8c28-df186603a22a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,36 @@
+internal/proxy/forced_subscription_context_internal_test.go
+  s_49df7faaffb6d3::t_93900b8a6787c0 73
+internal/proxy/managed_subscriptions.go
+  s_49df7faaffb6d3::t_0015241cfa5c0e 225,243-247
+internal/proxy/inbound_subscription_pool_internal_test.go
+  s_49df7faaffb6d3::t_bd882dc3e8bd72 48
+  s_49df7faaffb6d3::t_16a0894d026e55 93-95,99-100,103,107,111
+  s_49df7faaffb6d3::t_414e13776db9e5 90-92,96-98,101-102,104-106,108-110,112-126
+  s_49df7faaffb6d3::t_d895feaaaa0431 1-47,49-89
+internal/proxy/linked_seat_nudge_internal_test.go
+  s_49df7faaffb6d3::t_93900b8a6787c0 207-208,212,217-218
+internal/proxy/codex_own_plan_memory_test.go
+  s_49df7faaffb6d3::t_93900b8a6787c0 51
+internal/proxy/safe_transport_subscription_verification_test.go
+  s_49df7faaffb6d3::t_93900b8a6787c0 25,63-65,68-69
+internal/proxy/managed_subscriptions_test.go
+  s_49df7faaffb6d3::t_0015241cfa5c0e 259
+docs/SUBSCRIPTION_ROUTING.md
+  s_49df7faaffb6d3::t_414e13776db9e5 15-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "aae710e69b260168b3fc63d15a30102089185534",
+  "prompts": {},
+  "sessions": {
+    "s_49df7faaffb6d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b46d-ba9e-7bb0-96d6-04aceeaa203b",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
