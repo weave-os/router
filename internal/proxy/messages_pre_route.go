@@ -49,7 +49,6 @@ type messagesPreRoute struct {
 	inboundSpiralSignals   conversation.SpiralSignals
 	inboundSpiralReasons   []conversation.SpiralReason
 	inboundSpiralComputed  bool
-	inboundToolCallCount   int
 	inboundLastUser        translate.LastUserMessageInfo
 	inboundUserPrompt      bool
 	inboundLatestToolCalls []byte
@@ -124,7 +123,6 @@ func assembleMessagesPreRoute(ctx context.Context, s *Service, in messagesPreRou
 	outputReserve, prefiltered := prefilterTurn(ctx, s, turnPrefilterInput{
 		env: env, feats: feats, eligibility: eligibility, header: r.Header, excludeAdvisorOutranking: true, log: log,
 	})
-	inboundToolCallCount := len(env.AssistantToolCallSignatures())
 	inboundLastUser := env.LastUserMessage()
 	inboundUserPrompt := routingEndsWithUserPrompt(ctx, env)
 	inboundLatestToolCalls := latestToolCallCountsJSON(env)
@@ -146,6 +144,6 @@ func assembleMessagesPreRoute(ctx context.Context, s *Service, in messagesPreRou
 		feats: feats, promptText: promptText, embedInput: embedInput,
 		taskArm: taskArm, req: req, routeStart: routeStart, outputReserve: outputReserve, overflowEstimate: overflowEstimate,
 		inboundSpiralSignals: inboundSpiralSignals, inboundSpiralReasons: inboundSpiralReasons, inboundSpiralComputed: inboundSpiralComputed,
-		inboundToolCallCount: inboundToolCallCount, inboundLastUser: inboundLastUser, inboundUserPrompt: inboundUserPrompt, inboundLatestToolCalls: inboundLatestToolCalls,
+		inboundLastUser: inboundLastUser, inboundUserPrompt: inboundUserPrompt, inboundLatestToolCalls: inboundLatestToolCalls,
 	}, false, nil
 }

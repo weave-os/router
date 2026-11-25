@@ -16,9 +16,8 @@ import (
 // gpt-oss on vLLM/SGLang/DeepInfra all intermittently emit a tool_call with a
 // blank function name (often closing the turn with finish_reason="stop").
 // Forwarding it as a tool_use block makes Claude Code invoke tool "" ->
-// "No such tool available" -> retry -> infinite loop until the proxy's
-// no-progress breaker trips. Both the streaming and non-streaming translators
-// must drop the nameless call and leave the turn's real stop_reason intact.
+// "No such tool available" -> retry -> infinite loop. Both the streaming and
+// non-streaming translators must drop the nameless call and leave the turn's real stop_reason intact.
 
 // driveAnthropicSSE feeds OpenAI chat.completion.chunk events through the
 // translator and returns the translated Anthropic SSE body.

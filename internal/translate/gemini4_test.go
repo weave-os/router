@@ -17,7 +17,7 @@ func TestGemini4UsesNativeGeminiThinkingAndValidatedTools(t *testing.T) {
 	}
 }
 
-var gemini4Models = []string{router.ModelGemini4Argon, router.ModelGemini4Neon}
+var gemini4Models = []string{router.ModelGemini4Argon, router.ModelGemini4Neon, "gemini-4-carbon", "gemini-4-hydrogen"}
 
 func assertNativeGeminiThinkingAndValidatedTools(t *testing.T, model string) {
 	t.Helper()
@@ -50,7 +50,7 @@ func assertNativeGeminiThinkingAndValidatedTools(t *testing.T, model string) {
 }
 
 func TestGemini4PreservesOutputBudgetsWithinItsNativeLimit(t *testing.T) {
-	for model, limit := range map[string]int{router.ModelGemini4Argon: 32768, router.ModelGemini4Neon: 65536} {
+	for model, limit := range map[string]int{router.ModelGemini4Argon: 32768, router.ModelGemini4Neon: 65536, "gemini-4-carbon": 32768, "gemini-4-hydrogen": 65536} {
 		t.Run(model, func(t *testing.T) {
 			for _, budget := range []struct{ requested, expected int }{{20000, 20000}, {100000, limit}} {
 				body := fmt.Sprintf(`{"model":"Weave","messages":[{"role":"user","content":"Synthetic output-budget check."}],"max_tokens":%d}`, budget.requested)
@@ -67,7 +67,7 @@ func TestGemini4PreservesOutputBudgetsWithinItsNativeLimit(t *testing.T) {
 }
 
 func TestGemini4XhighEffortOnlyReachesModelsThatAcceptIt(t *testing.T) {
-	for model, level := range map[string]string{router.ModelGemini4Argon: "high", router.ModelGemini4Neon: "xhigh"} {
+	for model, level := range map[string]string{router.ModelGemini4Argon: "high", router.ModelGemini4Neon: "xhigh", "gemini-4-carbon": "high", "gemini-4-hydrogen": "xhigh"} {
 		t.Run(model, func(t *testing.T) {
 			var emitted struct {
 				GenerationConfig struct {

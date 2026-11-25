@@ -659,7 +659,6 @@ func main() {
 	bandSwapEnabled := config.GetOr("ROUTER_BAND_SWAP", "false") == "true"
 	turnSignalCaptureEnabled := config.GetOr("ROUTER_TURN_SIGNAL_CAPTURE_ENABLED", "true") == "true"
 
-	textRepetitionBreakEnabled := config.GetOr("ROUTER_TEXT_REPETITION_BREAK_ENABLED", "true") == "true"
 	prefixTrimFreeSwitch := config.GetOr("ROUTER_PREFIX_TRIM_FREE_SWITCH", "true") == "true"
 	hmmConfig, err := hmmConfigFromEnv()
 	if err != nil {
@@ -918,7 +917,6 @@ func main() {
 		flags.KeySubscriptionExhaustedOpenRouterOnly:  boolDefault(false),
 		flags.KeyPlanUserClusterLists:                 boolDefault(false),
 		flags.KeyTurnSignalCapture:                    boolDefault(turnSignalCaptureEnabled),
-		flags.KeyTextRepetitionBreak:                  boolDefault(textRepetitionBreakEnabled),
 		flags.KeyPlannerEnabled:                       boolDefault(continuityConfig.PlannerEnabled),
 		flags.KeyScoreToolResultTurns:                 boolDefault(continuityConfig.ScoreToolResultTurns),
 		flags.KeyHMMToolResultHold:                    boolDefault(false),
@@ -1004,7 +1002,7 @@ func main() {
 		Telemetry: proxy.TelemetryDeps{Clock: time.Now, SessionTurnClock: sessionTurnClock, ContentCapture: captureMode, ContentCaptureMaxBytes: captureMaxBytes, Billing: billingSvc, Flags: &proxy.TelemetryFlags{
 			TurnSignalCapture: turnSignalCaptureEnabled, NativeAnthropicResponseSignals: nativeAnthropicResponseSignals, NativeOpenAIResponseSignals: nativeOpenAIResponseSignals}},
 		Conversation: conversation.Config{Summarizer: summarizer, RouterFeedbackStore: repo.Telemetry, SessionStrategies: sessionStrategyStore,
-			FeedbackLinks: feedbackLinks, PiHandoffSecret: config.GetOr("ROUTER_PI_HANDOFF_SECRET", ""), TextRepetitionBreak: &textRepetitionBreakEnabled},
+			FeedbackLinks: feedbackLinks, PiHandoffSecret: config.GetOr("ROUTER_PI_HANDOFF_SECRET", "")},
 		Routing: &proxy.RoutingDeps{PrefixTrimFreeSwitch: &prefixTrimFreeSwitch, EffortEscalation: effortEscalation, AvailableModels: servedModels, DefaultBaselineModel: resolveDefaultBaselineModel(), ExcludedModels: excludedModels,
 			HardPinResolver: hardPinResolver, ExplicitUtilityHardPin: hardPinOverrideConfigured, SubAgentProvider: subAgentProvider, SubAgentModel: subAgentModel,
 			Deadline: routingpolicy.PolicyDeadline{Fallback: policyDeadlineFallback, DefaultModel: policyDeadlineDefaultModel}, GlobalAutomaticExclusions: repo.GlobalAutomaticExclusions,
@@ -1035,7 +1033,6 @@ func main() {
 	logger.Info("Effort escalation configured", "enabled", effortEscalation)
 	logger.Info("Cross-vendor Claude Code orchestration tools configured", "enabled", ccOrchToolsCrossVendor, "task_tools_enabled", ccTaskToolsCrossVendor)
 	logger.Info("Turn signal capture configured", "enabled", turnSignalCaptureEnabled)
-	logger.Info("Text-repetition break configured", "enabled", textRepetitionBreakEnabled)
 	logger.Info("Planner configured", "enabled", continuityConfig.PlannerEnabled, "threshold_usd", continuityConfig.Planner.ThresholdUSD, "expected_remaining_turns", continuityConfig.Planner.ExpectedRemainingTurns, "tier_upgrade_enabled", continuityConfig.Planner.TierUpgradeEnabled, "corrected_economics", continuityConfig.Planner.CorrectedEconomics, "prefix_trim_free_switch", prefixTrimFreeSwitch, "routing_targets_count", len(routingTargets))
 	logger.Info("Tool-result scoring configured", "enabled", continuityConfig.ScoreToolResultTurns)
 

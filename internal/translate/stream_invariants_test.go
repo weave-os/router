@@ -71,25 +71,6 @@ func TestAnthropicSSETranslator_ReasoningAfterTextClosesTextBlockFirst(t *testin
 	assert.Less(t, stop, thinking)
 }
 
-func TestAnthropicSSETranslator_EmptyUpstreamModelDoesNotLatch(t *testing.T) {
-	_, summary := driveAnthropicSSEWithTools(t, "deepseek-v3.2", true, []string{
-		`data: {"id":"c1","model":"","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}` + "\n\n",
-		`data: {"id":"c1","model":"gemini-3.1-pro-preview","choices":[{"index":0,"delta":{"content":"</arg_key><arg_value>select:Grep</arg_value></tool_call>"},"finish_reason":null}]}` + "\n\n",
-		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n",
-		"data: [DONE]\n\n",
-	})
-	assert.False(t, summary.TextOnlyTurnNudged, "the later real upstream model must be seen, so the Gemini 3.x guard applies")
-}
-
-func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresOnLeadingClosingArgValue(t *testing.T) {
-	_, summary := driveAnthropicSSEWithTools(t, "z-ai/glm-5.3-flash", true, []string{
-		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"</arg_value> done"},"finish_reason":null}]}` + "\n\n",
-		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n",
-		"data: [DONE]\n\n",
-	})
-	assert.True(t, summary.TextOnlyTurnNudged)
-}
-
 func TestSSETranslator_FlushIsNoOpUntilStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
 	tr := translate.NewSSETranslator(rec, "m", nil)

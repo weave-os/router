@@ -3,7 +3,6 @@ package translate
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -452,8 +451,6 @@ type AnthropicSSETranslator struct {
 
 	estimatedInputTokens int
 
-	requestHadTools bool
-
 	thinkTagReasoning bool
 	splitter          thinkTagSplitter
 
@@ -462,12 +459,6 @@ type AnthropicSSETranslator struct {
 	seedToolCallsRecovered int
 
 	escapeNormalize bool
-
-	nudgeEmitted bool
-
-	sawText bool
-
-	leadingContent strings.Builder
 
 	stopReasonDemoted bool
 
@@ -522,11 +513,6 @@ func (t *AnthropicSSETranslator) WithEstimatedInputTokens(n int) *AnthropicSSETr
 	return t
 }
 
-func (t *AnthropicSSETranslator) WithRequestHadTools(hadTools bool) *AnthropicSSETranslator {
-	t.requestHadTools = hadTools
-	return t
-}
-
 func (t *AnthropicSSETranslator) WithThinkTagReasoning(on bool) *AnthropicSSETranslator {
 	t.thinkTagReasoning = on
 	return t
@@ -562,7 +548,6 @@ type ResponseSummary struct {
 	StopReasonPromoted     bool
 	ToolUseBlocks          int
 	InvalidToolArgsBlocks  int
-	TextOnlyTurnNudged     bool
 	StopReasonDemoted      bool
 	SuppressedToolCalls    int
 	ToolCallIssues         []toolcheck.Issue
@@ -590,7 +575,6 @@ func (t *AnthropicSSETranslator) Summary() ResponseSummary {
 		StopReasonPromoted:     t.toolUseEmitted && openAIFinishToAnthropic(t.finishReason) != "tool_use",
 		ToolUseBlocks:          t.toolUseCount,
 		InvalidToolArgsBlocks:  countUnrepairableToolArgs(t.toolCallIssues),
-		TextOnlyTurnNudged:     t.nudgeEmitted,
 		StopReasonDemoted:      t.stopReasonDemoted,
 		SuppressedToolCalls:    t.toolLedger.SuppressedCount(),
 		ToolCallIssues:         t.toolCallIssues,
@@ -888,14 +872,6 @@ func (t *AnthropicSSETranslator) appendText(content string) error {
 		content = t.pendingText.String() + content
 		t.pendingText.Reset()
 	}
-	t.sawText = true
-	if n := t.leadingContent.Len(); n < leadingContentCap {
-		if room := leadingContentCap - n; len(content) > room {
-			t.leadingContent.WriteString(content[:room])
-		} else {
-			t.leadingContent.WriteString(content)
-		}
-	}
 	return t.emitContentBlockDeltaText(t.blockIdx-1, content)
 }
 
@@ -983,82 +959,6 @@ func (t *AnthropicSSETranslator) resolveSeedToolCalls() error {
 	return nil
 }
 
-const routerNudgeCommand = "echo '[router] previous turn produced no tool_use; use Edit/Write/Read/Bash/Grep — do not respond with prose or thinking tags only.'"
-
-const leadingContentCap = 64
-
-var toolishMarkupMarkers = []string{
-	"<seed:tool_call", "</seed",
-	"<tool_call", "</tool_call",
-	"<function", "</function",
-	"<invoke", "</invoke",
-	"<arg_key", "</arg_key",
-	"<arg_value", "</arg_value",
-}
-
-func leadsWithToolishMarkup(content string) bool {
-	s := strings.TrimLeft(content, " \t\r\n")
-	for _, m := range toolishMarkupMarkers {
-		if strings.HasPrefix(s, m) {
-			return true
-		}
-	}
-	return false
-}
-
-func (t *AnthropicSSETranslator) synthesizeTextOnlyTurnNudge() error {
-	if t.toolUseEmitted || !t.requestHadTools || !t.started {
-		return nil
-	}
-	if t.toolLedger.SuppressedCount() > 0 {
-		return nil
-	}
-	switch t.finishReason {
-	case "length":
-		return nil
-	case "stop", "":
-		if t.sawText && !leadsWithToolishMarkup(t.leadingContent.String()) {
-			return nil
-		}
-	}
-	if usesGemini3Contract(t.requestModel) || usesGemini3Contract(t.modelFromUpstream) {
-		t.log().Debug(
-			"AnthropicSSE suppressed text-only-turn nudge on Gemini-3.x (sig-less tool_use would poison next-turn history)",
-			"upstream_model", t.modelFromUpstream,
-			"request_model", t.requestModel,
-		)
-		return nil
-	}
-	blockIdx := t.blockIdx
-	id := "toolu_router_nudge_" + t.messageID
-	if err := t.emitContentBlockStartTool(blockIdx, id, "Bash", ""); err != nil {
-		return err
-	}
-	args, err := json.Marshal(map[string]string{
-		"command":     routerNudgeCommand,
-		"description": "router recovery nudge: previous turn had no tool_use",
-	})
-	if err != nil {
-		return err
-	}
-	if err := t.emitContentBlockDeltaJSON(blockIdx, string(args)); err != nil {
-		return err
-	}
-	if err := t.emitContentBlockStop(blockIdx); err != nil {
-		return err
-	}
-	t.blockIdx++
-	t.toolUseEmitted = true
-	t.toolUseCount++
-	t.nudgeEmitted = true
-	t.log().Error(
-		"AnthropicSSE synthesized text-only-turn recovery nudge",
-		"upstream_model", t.modelFromUpstream,
-		"request_model", t.requestModel,
-	)
-	return nil
-}
-
 func (t *AnthropicSSETranslator) finishStream() error {
 	if !t.started {
 		if err := t.emitMessageStart(); err != nil {
@@ -1105,10 +1005,6 @@ func (t *AnthropicSSETranslator) finishStream() error {
 		}
 		t.closed = true
 		return nil
-	}
-
-	if err := t.synthesizeTextOnlyTurnNudge(); err != nil {
-		return err
 	}
 
 	if err := t.emitMessageDelta(); err != nil {

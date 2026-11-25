@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 38
+const RegistryVersion = 39
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -40,13 +40,6 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_TURN_SIGNAL_CAPTURE_ENABLED",
 		Kind:           KindBool,
 		Description:    "Persist the per-turn behavioral signal snapshot onto telemetry rows. Skipped regardless for installations that opted out of AI training or set content capture to off.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyTextRepetitionBreak,
-		EnvVar:         "ROUTER_TEXT_REPETITION_BREAK_ENABLED",
-		Kind:           KindBool,
-		Description:    "Enforcing text-repetition loop break.",
 		OrgOverridable: true,
 	},
 	{

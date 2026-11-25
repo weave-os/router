@@ -148,7 +148,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	feats, promptText, embedInput = preRoute.feats, preRoute.promptText, preRoute.embedInput
 	taskArm, req, routeStart, outputReserve, overflowEstimate := preRoute.taskArm, preRoute.req, preRoute.routeStart, preRoute.outputReserve, preRoute.overflowEstimate
 	inboundSpiralSignals, inboundSpiralReasons, inboundSpiralComputed := preRoute.inboundSpiralSignals, preRoute.inboundSpiralReasons, preRoute.inboundSpiralComputed
-	inboundToolCallCount, inboundLastUser, inboundUserPrompt, inboundLatestToolCalls := preRoute.inboundToolCallCount, preRoute.inboundLastUser, preRoute.inboundUserPrompt, preRoute.inboundLatestToolCalls
+	inboundLastUser, inboundUserPrompt, inboundLatestToolCalls := preRoute.inboundLastUser, preRoute.inboundUserPrompt, preRoute.inboundLatestToolCalls
 	routeRes, _, routeErr := routeTurn(ctx, s, s.clock, log, routeTurnRequest{
 		Request:        req,
 		Started:        routeStart,
@@ -217,18 +217,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
 	logPlannerOutcome(ctx, s.strategyPorts, routeRes)
 
-	postOutcome, err := conversation.PostRouteChecks{
-		AgentShadowMode: agentShadowMode, Route: routeRes, Env: env, Features: feats, PromptText: promptText,
-		ToolBearing: inboundToolCallCount > 0 || inboundLastUser.HasToolResult, ClientBudget: clientBudget, Scope: req,
-		LoopBreak:  newLoopBreak(s, strategy, facts.InstallationID, routeRes.SessionKey, roleForTier(catalog.TierFor(feats.Model)), decision),
-		NoProgress: s.lifecycle.NoProgress(), Now: s.clock.Now, TextRepetitionEnabled: s.lifecycle.TextRepetitionBreakEnabled(ctx),
+	if err := (conversation.PostRouteChecks{
+		AgentShadowMode: agentShadowMode, Route: routeRes, Env: env, ClientBudget: clientBudget, Scope: req,
 		RecoverClientCompaction: !callerModelPassthroughActive(ctx), SummaryMaxTokens: DefaultCompactionMaxTokens, ClientDefaultWindow: claudeCodeDefaultWindow,
-	}.Run(ctx)
-	if err != nil {
+	}).Run(ctx); err != nil {
 		return err
-	}
-	if postOutcome.LoopStopped {
-		return writeLoopStop(ctx, w, env, postOutcome.LoopStopMessage, feats.Tokens)
 	}
 
 	credentialCtx := credentials.ResolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)

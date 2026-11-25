@@ -262,12 +262,11 @@ func conversationRepeatedToolCalls(n int, name, input string) []string {
 
 func goldenDetectionScenarios() []goldenScenario {
 	stuck := conversationRepeatedToolCalls(1, "Bash", `{"command":"go test ./..."}`)
-	noProgressReqs := make([]goldenRequest, 5)
-	for i := range noProgressReqs {
-		noProgressReqs[i] = conversationReq(stuck...)
+	identicalReqs := make([]goldenRequest, 5)
+	for i := range identicalReqs {
+		identicalReqs[i] = conversationReq(stuck...)
 	}
-	noProgressReqs[4].noTelemetry = true
-	noProgress := conversationScenario("no_progress_break_after_identical_tool_turns", noProgressReqs...)
+	identicalTurns := conversationScenario("identical_tool_turns_are_served", identicalReqs...)
 
 	repeated := "I will now run the parser tests again to confirm the fix works as expected."
 	repetition := []string{conversationUser(goldenConversationOpening)}
@@ -277,11 +276,7 @@ func goldenDetectionScenarios() []goldenScenario {
 			fmt.Sprintf(`{"role":"assistant","content":[{"type":"text","text":%s},{"type":"tool_use","id":%q,"name":"Bash","input":{"command":"go test ./parser/%d"}}]}`, quoteJSON(repeated), id, i),
 			conversationToolResult(id, fmt.Sprintf("ok %d", i)))
 	}
-	repBreak := conversationReq(repetition...)
-	repBreak.noTelemetry = true
-	textRep := conversationScenario("text_repetition_break", repBreak)
-	textRepOff := conversationScenario("text_repetition_break_disabled", conversationReq(repetition...))
-	textRepOff.configure = func(svc *proxy.Service, _ *goldenHarness) *proxy.Service { return svc.WithTextRepetitionBreak(false) }
+	repeatedNarration := conversationScenario("repeated_narration_is_served", conversationReq(repetition...))
 	openAIRep := []string{conversationOpenAIUser(goldenConversationOpening)}
 	for i := range 3 {
 		id := fmt.Sprintf("call_r%d", i)
@@ -289,16 +284,16 @@ func goldenDetectionScenarios() []goldenScenario {
 			fmt.Sprintf(`{"role":"assistant","content":%s,"tool_calls":[{"id":%q,"type":"function","function":{"name":"Bash","arguments":"{\"command\":\"go test ./parser/%d\"}"}}]}`, quoteJSON(repeated), id, i),
 			fmt.Sprintf(`{"role":"tool","tool_call_id":%q,"content":"ok %d"}`, id, i))
 	}
-	openAITextRep := goldenScenario{
-		name: ingressOpenAI + "_conversation_text_repetition_break", ingress: ingressOpenAI,
+	openAIRepeatedNarration := goldenScenario{
+		name: ingressOpenAI + "_conversation_repeated_narration_is_served", ingress: ingressOpenAI,
 		decisions: []router.Decision{decision(providers.ProviderAnthropic, goldenAnthropicModel)},
-		upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "never")}},
-		requests: []goldenRequest{{body: conversationOpenAIBody(openAIRep...), noTelemetry: true, decorateContext: func(ctx context.Context) context.Context {
+		upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "ok")}},
+		requests: []goldenRequest{{body: conversationOpenAIBody(openAIRep...), decorateContext: func(ctx context.Context) context.Context {
 			return requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppOpencode})
 		}}},
 	}
 
-	return []goldenScenario{noProgress, textRep, textRepOff, openAITextRep}
+	return []goldenScenario{identicalTurns, repeatedNarration, openAIRepeatedNarration}
 }
 
 func goldenToolResultScenarios() []goldenScenario {
