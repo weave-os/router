@@ -25,7 +25,7 @@ policyctl serving publish  --kind candidate|selection_set|proposal --manifest <f
 policyctl serving publish-release --candidate <file> --selection-set <file> --proposal <file> [--dry-run]
 policyctl serving apply    --proposal <ObjectRef.json> | --proposal-sha256 <sha256> [--dry-run]
 policyctl serving status   --target staging|prod/stable|prod/weave-internal | --proposal <ObjectRef.json>
-policyctl serving export-selfhosted --target prod/stable [--activation <id>] [--registry <root>] --out <dir>
+policyctl serving export-selfhosted --target prod/stable [--activation <id>] [--registry <root>] [--previous <running export>] --out <dir>
                            --router-image-digest sha256:<64 hex> --classifier-url http://classifier:8080 [--classifier-image-digest sha256:<64 hex>]
                            [--worker-project selfhosted] [--worker-region local] [--worker-revision selfhosted-router]
 ```
@@ -39,7 +39,7 @@ policyctl serving export-selfhosted --target prod/stable [--activation <id>] [--
 | `serving apply` | `--proposal <ObjectRef.json>` **or** `--proposal-sha256 <digest>` | Reads the proposal at its exact generation, checks `sha256(stored bytes) == ref.sha256`, computes the activation transition against the authoritative target state (replay detection first), validates the proposal (evidence, candidate attestation, every lane against its live worker and classifier revision, scope rules), then CASes the target's single state object, superseding the outgoing activation and applying explicit withdrawals in the same write. A proposal with `scope: rollback` — or any proposal listing `withdraw_activations` — additionally has its `source_candidate` checked against the target's retained activation history before the CAS, on the dry run as well as the commit. | `ActivationResult` — `{"snapshot":{"state","generation"},"activation","outcome":"activated"\|"superseded","replayed"}` |
 | `serving apply --dry-run` | Same | Everything above except the CAS: no registry write, no infrastructure change. A proposal that was already activated reconciles to its original outcome instead of re-validating destinations, so completed retries never require healthy old revisions. | `PreparationResult` — `{"proposal","prepared",` `"activation"?}`; `prepared:true` means ready to apply, `prepared:false` with `activation` means already applied |
 | `serving status --target` | `--target` | Authoritative target state read (`state/<env>/<target>.json`, falling back to the legacy path for targets that have not applied since the layout move). Never validates against reachable workers. | `ServingStateSnapshot` — `{"state","generation"}` |
-| `serving export-selfhosted` | `--target`, `--out`, `--router-image-digest`, `--classifier-url` (`--classifier-image-digest` optional) | Read-only against the source registry. Copies one activation's (default: current) candidate, classifier release and policies into an empty directory unchanged, writes a fresh selection set, serving state and classifier runtime binding bound to a self-hosted worker, and reads the result back through the directory store and `PrepareWorker` before printing. See [Self-hosted export](#self-hosted-export). | `{"router_env","classifier","sidecar_env","source"}` |
+| `serving export-selfhosted` | `--target`, `--out`, `--router-image-digest`, `--classifier-url` (`--classifier-image-digest` and `--previous` optional) | Read-only against the source registry. Copies one activation's (default: current) candidate, classifier release and policies into an empty directory unchanged, writes a fresh selection set, serving state and classifier runtime binding bound to a self-hosted worker, and reads the result back through the directory store and `PrepareWorker` before printing. See [Self-hosted export](#self-hosted-export). | `{"router_env","classifier","sidecar_env","source"}` |
 | `serving status --proposal` | `--proposal <ObjectRef.json>` | Outcome reconciliation for that exact proposal: scans the target's activations for `activation.proposal == ref`. | `ActivationResult` with `replayed:true` if activated; otherwise `{"proposal","activated":false,"generation"}` |
 
 Removed verbs `validate`, `resolve`, `prepare`, `activate`, and `rollback` exit
@@ -758,6 +758,12 @@ selection set pinned, or the export fails):
 - the v3 router candidate (so `router_image_digest` and the candidate requirements are prod's);
 - the v1 classifier release (so the classifier image, package and taxonomy are prod's);
 - the default, profile and strategy policies.
+
+Pass `--previous <dir>` with the export the install currently runs. Its objects
+and activations are carried forward, the earlier activations are withdrawn in
+favor of the new one, and saved sessions rebind on their next turn instead of
+failing on an unknown or changed activation. Activation IDs derive from the
+selection set and sequence, so re-exporting the running release is a no-op.
 
 Written fresh, bound to the self-hosted worker:
 

@@ -30,6 +30,7 @@ func runServingExportSelfHosted(ctx context.Context, args []string, openSource s
 	targetRaw := flags.String("target", "", "managed target to export, for example prod/stable")
 	activationID := flags.String("activation", "", "activation to export; defaults to the target's current activation")
 	outDir := flags.String("out", "", "empty directory that receives the self-hosted serving registry")
+	previousDir := flags.String("previous", "", "export the install currently runs; its activations are carried forward so saved sessions rebind")
 	routerImageDigest := flags.String("router-image-digest", "", "router image digest the self-hosted worker runs; must equal the exported candidate's")
 	classifierURL := flags.String("classifier-url", "", "classifier origin the self-hosted router calls, for example http://classifier:8080")
 	classifierImageDigest := flags.String("classifier-image-digest", "", "classifier image the customer runs; the release is re-bound only when it differs from the released runtime image")
@@ -60,6 +61,7 @@ func runServingExportSelfHosted(ctx context.Context, args []string, openSource s
 		ClassifierURL:         *classifierURL,
 		ClassifierImageDigest: *classifierImageDigest,
 		Dir:                   *outDir,
+		PreviousDir:           *previousDir,
 	})
 	if err != nil {
 		return err

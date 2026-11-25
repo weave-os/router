@@ -28,10 +28,8 @@ type ServingSource struct {
 	SelectionSetSHA256 string `json:"selection_set_sha256"`
 }
 
-type SchemaVersionSource func(context.Context) (int64, error)
-
 type VersionDetails struct {
-	SchemaVersion SchemaVersionSource
+	SchemaVersion func(context.Context) (int64, error)
 	ServingSource *ServingSource
 }
 

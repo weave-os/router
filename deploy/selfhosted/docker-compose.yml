@@ -147,11 +147,13 @@ services:
       HMM_GEMINI_TRANSPORT: ${HMM_GEMINI_TRANSPORT:-}
       HMM_VERTEX_PROJECT: ${HMM_VERTEX_PROJECT:-}
       HMM_VERTEX_LOCATION: ${HMM_VERTEX_LOCATION:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${HMM_VERTEX_CREDENTIALS_FILE:-}
     depends_on:
       policy:
         condition: service_healthy
     volumes:
       - router_policy:/policy:ro
+      - ${HMM_VERTEX_CREDENTIALS_DIR:-./vertex-credentials}:/vertex-credentials:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/readyz >/dev/null || exit 1"]
       interval: 10s
@@ -232,3 +234,4 @@ networks:
   router:
   weave-router-link:
     name: weave-router-link
+    external: true

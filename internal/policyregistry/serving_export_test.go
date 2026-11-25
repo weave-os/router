@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -213,10 +214,10 @@ func TestExportSelfHostedClassifierSelectionIDMatchesSidecarFiles(t *testing.T) 
 }
 
 func TestExportSelfHostedServingGraphRejectsTamperedSourceObjects(t *testing.T) {
-	for _, relative := range []string{"candidate", "release", "policy"} {
-		t.Run(relative, func(t *testing.T) {
+	for _, kind := range []string{"candidate", "release", "policy"} {
+		t.Run(kind, func(t *testing.T) {
 			source := newGCSShapedExportSource(t)
-			tampered := tamperedObjectPath(t, source, relative)
+			tampered := tamperedObjectPath(t, source, kind)
 			source.objects[tampered] = append(source.objects[tampered], ' ')
 			_, err := policyregistry.ExportSelfHostedServingGraph(context.Background(), source, selfHostedExportRequest(t.TempDir()))
 			require.Error(t, err)
@@ -336,4 +337,51 @@ func sourceClassifierReleaseSHA256(t *testing.T, source *gcsShapedExportSource) 
 	var selection policyregistry.SelectionSetV4
 	require.NoError(t, policyregistry.StrictDecode(source.objects[selectionRelative], &selection))
 	return selection.Classifier.Release.SHA256
+}
+
+func TestExportSelfHostedUpgradeRebindsSessionsFromThePreviousExport(t *testing.T) {
+	ctx := context.Background()
+	firstDir := t.TempDir()
+	first, err := policyregistry.ExportSelfHostedServingGraph(ctx, newGCSShapedExportSource(t), selfHostedExportRequest(firstDir))
+	require.NoError(t, err)
+	firstStore, err := policyregistry.NewDirectoryServingStore(firstDir)
+	require.NoError(t, err)
+	projection := policyregistry.AdmissionProjection{Target: hmmstub.ServingTarget}
+	clock := func(context.Context) (time.Time, error) { return time.Now().UTC(), nil }
+	session, err := policyregistry.ServingAdmission{Store: firstStore}.Decide(ctx, policyregistry.SerializedAdmission{Projection: projection, Clock: clock})
+	require.NoError(t, err)
+
+	upgradeDir := t.TempDir()
+	request := selfHostedExportRequest(upgradeDir)
+	request.PreviousDir = firstDir
+	request.ClassifierImageDigest = "sha256:" + strings.Repeat("e", 64)
+	upgrade, err := policyregistry.ExportSelfHostedServingGraph(ctx, newGCSShapedExportSource(t), request)
+	require.NoError(t, err)
+	require.NotEqual(t, first.RouterEnv.SelectionSetSHA256, upgrade.RouterEnv.SelectionSetSHA256)
+
+	upgradeStore, err := policyregistry.NewDirectoryServingStore(upgradeDir)
+	require.NoError(t, err)
+	snapshot, err := upgradeStore.ReadServingState(ctx, hmmstub.ServingTarget)
+	require.NoError(t, err)
+	require.Len(t, snapshot.State.Activations, 2)
+	require.Equal(t, int64(2), snapshot.State.Sequence)
+	retired := snapshot.State.Activations[session.ActivationID]
+	require.NotNil(t, retired.WithdrawnAt)
+	require.Equal(t, snapshot.State.CurrentActivationID, retired.ReplacementID)
+
+	rebound, err := policyregistry.ServingAdmission{Store: upgradeStore}.Decide(ctx, policyregistry.SerializedAdmission{Projection: projection, Previous: &session, Clock: clock})
+	require.NoError(t, err)
+	require.Equal(t, snapshot.State.CurrentActivationID, rebound.ActivationID)
+	require.Equal(t, int64(2), rebound.BindingGeneration)
+
+	replayDir := t.TempDir()
+	request.Dir = replayDir
+	request.PreviousDir = upgradeDir
+	_, err = policyregistry.ExportSelfHostedServingGraph(ctx, newGCSShapedExportSource(t), request)
+	require.NoError(t, err)
+	replayStore, err := policyregistry.NewDirectoryServingStore(replayDir)
+	require.NoError(t, err)
+	replayed, err := replayStore.ReadServingState(ctx, hmmstub.ServingTarget)
+	require.NoError(t, err)
+	require.Equal(t, snapshot.State, replayed.State)
 }

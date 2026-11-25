@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"maps"
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/google/uuid"
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
@@ -23,12 +27,13 @@ const (
 
 	SelfHostedServingRoot = "gs://weave-router-selfhosted/serving"
 
-	selfHostedActivationID       = "00000000-0000-4000-8000-00000000c0de"
 	selfHostedActor              = "policyctl-export-selfhosted"
 	selfHostedRouterOrigin       = "https://router.selfhosted.invalid"
 	selfHostedClassifierRevision = "selfhosted-classifier"
 	selfHostedProvenanceSchemaV1 = "router_selfhosted_export_provenance_v1"
 )
+
+var selfHostedActivationNamespace = uuid.MustParse("6f1d3c2a-8b4e-4f5a-9c7d-2e1b0a9f8c3d")
 
 type selfHostedProvenance struct {
 	SchemaVersion string        `json:"schema_version"`
@@ -51,6 +56,7 @@ type SelfHostedExportRequest struct {
 	ClassifierURL         string
 	ClassifierImageDigest string
 	Dir                   string
+	PreviousDir           string
 }
 
 type SelfHostedRouterEnv struct {
@@ -138,11 +144,15 @@ func ExportSelfHostedServingGraph(ctx context.Context, source SelfHostedExportSt
 		return SelfHostedExport{}, err
 	}
 	graph := selfHostedGraph{root: SelfHostedServingRoot, objects: make(map[string][]byte)}
+	previous, err := carrySelfHostedHistory(ctx, request, graph)
+	if err != nil {
+		return SelfHostedExport{}, err
+	}
 	copied, err := copySelfHostedObjects(ctx, source, &graph, pinned, request.ClassifierImageDigest)
 	if err != nil {
 		return SelfHostedExport{}, err
 	}
-	rebound, err := rebindSelfHostedGraph(&graph, request, pinned, copied, classifierURL, environment)
+	bound, err := rebindSelfHostedGraph(&graph, request, pinned, copied, previous, classifierURL, environment)
 	if err != nil {
 		return SelfHostedExport{}, err
 	}
@@ -150,11 +160,11 @@ func ExportSelfHostedServingGraph(ctx context.Context, source SelfHostedExportSt
 		return SelfHostedExport{}, err
 	}
 	worker := request.Worker
-	worker.Configuration = rebound.configurationRef
-	if err := VerifySelfHostedServingGraph(ctx, request.Dir, worker, rebound.selectionRef); err != nil {
+	worker.Configuration = bound.configurationRef
+	if err := VerifySelfHostedServingGraph(ctx, request.Dir, worker, bound.selectionRef); err != nil {
 		return SelfHostedExport{}, fmt.Errorf("exported graph failed read-back: %w", err)
 	}
-	return selfHostedExportDocument(request, activation, pinned, copied, rebound), nil
+	return selfHostedExportDocument(request, activation, pinned, copied, bound), nil
 }
 
 type selfHostedActivationSource struct {
@@ -165,7 +175,6 @@ type selfHostedActivationSource struct {
 type selfHostedPinnedObjects struct {
 	activation       Activation
 	selection        *SelectionSetV4
-	candidate        *CandidateV3
 	release          *ClassifierReleaseManifestV1
 	candidatePayload []byte
 	releasePayload   []byte
@@ -174,6 +183,7 @@ type selfHostedPinnedObjects struct {
 type selfHostedCopied struct {
 	releasePayload []byte
 	rebound        bool
+	imageDigest    string
 	candidate      ObjectRef
 	release        ObjectRef
 	defaultPolicy  PolicyObject
@@ -181,7 +191,7 @@ type selfHostedCopied struct {
 	strategies     map[router.Strategy]PolicyObject
 }
 
-type selfHostedRebound struct {
+type selfHostedBoundRefs struct {
 	selectionRef     ObjectRef
 	configurationRef ObjectRef
 }
@@ -241,7 +251,7 @@ func readSelfHostedPinned(ctx context.Context, source SelfHostedExportStore, act
 	if release.Variants[policy.ClassifierVariantPrimary].PackageWeaveDataRef == nil {
 		return selfHostedPinnedObjects{}, errors.New("classifier release primary variant has no package reference")
 	}
-	return selfHostedPinnedObjects{activation: activation.activation, selection: selection, candidate: candidate, release: release, candidatePayload: candidatePayload, releasePayload: releasePayload}, nil
+	return selfHostedPinnedObjects{activation: activation.activation, selection: selection, release: release, candidatePayload: candidatePayload, releasePayload: releasePayload}, nil
 }
 
 func selfHostedReleasePayload(pinned selfHostedPinnedObjects, classifierImageDigest string) ([]byte, bool, error) {
@@ -292,7 +302,11 @@ func copySelfHostedObjects(ctx context.Context, source SelfHostedExportStore, gr
 			return selfHostedCopied{}, err
 		}
 	}
-	return selfHostedCopied{candidate: candidateRef, release: releaseRef, releasePayload: releasePayload, rebound: rebound, defaultPolicy: defaultPolicy, profiles: profiles, strategies: strategies}, nil
+	imageDigest := pinned.release.RuntimeImageDigest
+	if rebound {
+		imageDigest = classifierImageDigest
+	}
+	return selfHostedCopied{candidate: candidateRef, release: releaseRef, releasePayload: releasePayload, rebound: rebound, imageDigest: imageDigest, defaultPolicy: defaultPolicy, profiles: profiles, strategies: strategies}, nil
 }
 
 func copySelfHostedPolicy(ctx context.Context, source SelfHostedExportStore, graph *selfHostedGraph, reference PolicyObject) (PolicyObject, error) {
@@ -308,7 +322,7 @@ func copySelfHostedPolicy(ctx context.Context, source SelfHostedExportStore, gra
 	return PolicyObject{URI: copied.URI, SHA256: copied.SHA256, SchemaVersion: reference.SchemaVersion, Generation: copied.Generation}, nil
 }
 
-func rebindSelfHostedGraph(graph *selfHostedGraph, request SelfHostedExportRequest, pinned selfHostedPinnedObjects, copied selfHostedCopied, classifierURL string, environment Environment) (selfHostedRebound, error) {
+func rebindSelfHostedGraph(graph *selfHostedGraph, request SelfHostedExportRequest, pinned selfHostedPinnedObjects, copied selfHostedCopied, previous *ServingControlState, classifierURL string, environment Environment) (selfHostedBoundRefs, error) {
 	worker := request.Worker
 	provenance, err := CanonicalBytes(selfHostedProvenance{
 		SchemaVersion: selfHostedProvenanceSchemaV1,
@@ -316,7 +330,7 @@ func rebindSelfHostedGraph(graph *selfHostedGraph, request SelfHostedExportReque
 		Configuration: pinned.selection.Code.Router.Configuration, Attestation: pinned.selection.Code.Attestation,
 	})
 	if err != nil {
-		return selfHostedRebound{}, err
+		return selfHostedBoundRefs{}, err
 	}
 	configurationRef := graph.put(ServingArtifactsNamespace, provenance)
 	worker.Configuration = configurationRef
@@ -336,72 +350,131 @@ func rebindSelfHostedGraph(graph *selfHostedGraph, request SelfHostedExportReque
 	selection.StrategyPolicies = copied.strategies
 	selectionPayload, err := CanonicalBytes(selection)
 	if err != nil {
-		return selfHostedRebound{}, fmt.Errorf("encode self-hosted selection set: %w", err)
+		return selfHostedBoundRefs{}, fmt.Errorf("encode self-hosted selection set: %w", err)
 	}
 	selectionRef := graph.put(ServingArtifactsNamespace, selectionPayload)
 
-	state, err := json.Marshal(ServingControlState{
-		SchemaVersion: ServingControlStateV1, Target: request.Target, CurrentActivationID: selfHostedActivationID, Sequence: 1,
-		Activations: map[string]Activation{selfHostedActivationID: {
-			ID: selfHostedActivationID, Sequence: 1, SelectionSet: selectionRef, ActivatedAt: pinned.activation.ActivatedAt,
-			Proposal: configurationRef, RequestID: pinned.activation.ID, Actor: selfHostedActor, WorkflowActor: selfHostedActor,
-		}},
-	})
+	state, err := json.Marshal(selfHostedServingState(previous, request.Target, Activation{
+		SelectionSet: selectionRef, ActivatedAt: pinned.activation.ActivatedAt,
+		Proposal: configurationRef, RequestID: pinned.activation.ID, Actor: selfHostedActor, WorkflowActor: selfHostedActor,
+	}))
 	if err != nil {
-		return selfHostedRebound{}, fmt.Errorf("encode self-hosted serving state: %w", err)
+		return selfHostedBoundRefs{}, fmt.Errorf("encode self-hosted serving state: %w", err)
 	}
 	statePath, err := DirectoryServingStatePath(request.Target)
 	if err != nil {
-		return selfHostedRebound{}, err
+		return selfHostedBoundRefs{}, err
 	}
 	graph.objects[statePath] = state
 	binding, err := json.Marshal(ClassifierRuntimeBinding{
 		SchemaVersion: ClassifierRuntimeBindingSchemaV1, Environment: environment, ProjectID: worker.Project,
 		ReleaseSHA256: copied.release.SHA256, WorkerRevision: selfHostedClassifierRevision, WorkerURL: classifierURL, WorkerAudience: classifierURL,
-		ImageDigest: copiedImageDigest(pinned, copied), ConfigurationSHA256: configurationRef.SHA256,
+		ImageDigest: copied.imageDigest, ConfigurationSHA256: configurationRef.SHA256,
 	})
 	if err != nil {
-		return selfHostedRebound{}, fmt.Errorf("encode self-hosted classifier runtime binding: %w", err)
+		return selfHostedBoundRefs{}, fmt.Errorf("encode self-hosted classifier runtime binding: %w", err)
 	}
 	graph.objects[DirectoryServingRuntimeBindingPath(environment, copied.release.SHA256)] = binding
 	graph.objects[SelfHostedClassifierReleasePath] = copied.releasePayload
 	graph.objects[SelfHostedClassifierSelectionPath] = selectionPayload
-	return selfHostedRebound{selectionRef: selectionRef, configurationRef: configurationRef}, nil
+	return selfHostedBoundRefs{selectionRef: selectionRef, configurationRef: configurationRef}, nil
 }
 
-func copiedImageDigest(pinned selfHostedPinnedObjects, copied selfHostedCopied) string {
-	if copied.rebound {
-		return copiedReleaseImageDigest(copied.releasePayload)
+func carrySelfHostedHistory(ctx context.Context, request SelfHostedExportRequest, graph selfHostedGraph) (*ServingControlState, error) {
+	if request.PreviousDir == "" {
+		return nil, nil
 	}
-	return pinned.release.RuntimeImageDigest
+	store, err := NewDirectoryServingStore(request.PreviousDir)
+	if err != nil {
+		return nil, fmt.Errorf("open previous self-hosted export: %w", err)
+	}
+	if store.RootURI() != graph.root {
+		return nil, fmt.Errorf("previous export root %s differs from %s", store.RootURI(), graph.root)
+	}
+	snapshot, err := store.ReadServingState(ctx, request.Target)
+	if err != nil {
+		return nil, fmt.Errorf("read previous self-hosted serving state: %w", err)
+	}
+	statePath, err := DirectoryServingStatePath(request.Target)
+	if err != nil {
+		return nil, err
+	}
+	regenerated := map[string]struct{}{statePath: {}, directoryServingRootFile: {}, SelfHostedClassifierReleasePath: {}, SelfHostedClassifierSelectionPath: {}}
+	previousRoot, err := os.OpenRoot(request.PreviousDir)
+	if err != nil {
+		return nil, fmt.Errorf("open previous self-hosted export: %w", err)
+	}
+	defer func() { _ = previousRoot.Close() }()
+	previousFS := previousRoot.FS()
+	err = fs.WalkDir(previousFS, ".", func(relative string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return walkErr
+		}
+		if _, skip := regenerated[relative]; skip {
+			return nil
+		}
+		payload, err := fs.ReadFile(previousFS, relative)
+		if err != nil {
+			return err
+		}
+		graph.objects[relative] = payload
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("copy previous self-hosted export: %w", err)
+	}
+	return &snapshot.State, nil
 }
 
-func copiedReleaseImageDigest(payload []byte) string {
-	var release ClassifierReleaseManifestV1
-	if err := json.Unmarshal(payload, &release); err != nil {
-		return ""
+func selfHostedServingState(previous *ServingControlState, target ServingTarget, next Activation) ServingControlState {
+	state := ServingControlState{SchemaVersion: ServingControlStateV1, Target: target, Sequence: 1, Activations: map[string]Activation{}}
+	if previous != nil {
+		current := previous.Activations[previous.CurrentActivationID]
+		if current.SelectionSet == next.SelectionSet {
+			return *previous
+		}
+		state.Sequence = previous.Sequence + 1
+		state.Activations = maps.Clone(previous.Activations)
+		if next.ActivatedAt.Before(current.ActivatedAt) {
+			next.ActivatedAt = current.ActivatedAt
+		}
 	}
-	return release.RuntimeImageDigest
+	next.Sequence = state.Sequence
+	next.ID = uuid.NewSHA1(selfHostedActivationNamespace, fmt.Appendf(nil, "%s/%d", next.SelectionSet.SHA256, next.Sequence)).String()
+	retiredAt := next.ActivatedAt
+	for id, retired := range state.Activations {
+		if retired.SupersededAt == nil {
+			retired.SupersededAt = &retiredAt
+		}
+		if retired.WithdrawnAt == nil {
+			retired.WithdrawnAt = &retiredAt
+			retired.ReplacementID = next.ID
+		}
+		state.Activations[id] = retired
+	}
+	state.CurrentActivationID = next.ID
+	state.Activations[next.ID] = next
+	return state
 }
 
 func rebindReason(copied selfHostedCopied, pinned selfHostedPinnedObjects) string {
 	if !copied.rebound {
 		return ""
 	}
-	return "classifier image " + copiedReleaseImageDigest(copied.releasePayload) + " differs from the released image " + pinned.release.RuntimeImageDigest + "; release re-bound to the customer image"
+	return "classifier image " + copied.imageDigest + " differs from the released image " + pinned.release.RuntimeImageDigest + "; release re-bound to the customer image"
 }
 
-func selfHostedExportDocument(request SelfHostedExportRequest, activation selfHostedActivationSource, pinned selfHostedPinnedObjects, copied selfHostedCopied, rebound selfHostedRebound) SelfHostedExport {
+func selfHostedExportDocument(request SelfHostedExportRequest, activation selfHostedActivationSource, pinned selfHostedPinnedObjects, copied selfHostedCopied, bound selfHostedBoundRefs) SelfHostedExport {
 	worker := request.Worker
 	primary := pinned.release.Variants[policy.ClassifierVariantPrimary]
 	return SelfHostedExport{
 		RouterEnv: SelfHostedRouterEnv{
 			Target: request.Target, Project: worker.Project, Region: worker.Region, Revision: worker.Revision, ImageDigest: worker.ImageDigest,
-			ConfigurationURI: rebound.configurationRef.URI, ConfigurationSHA256: rebound.configurationRef.SHA256, ConfigurationGeneration: fmt.Sprint(rebound.configurationRef.Generation),
-			SelectionSetURI: rebound.selectionRef.URI, SelectionSetSHA256: rebound.selectionRef.SHA256, SelectionSetGeneration: fmt.Sprint(rebound.selectionRef.Generation),
+			ConfigurationURI: bound.configurationRef.URI, ConfigurationSHA256: bound.configurationRef.SHA256, ConfigurationGeneration: fmt.Sprint(bound.configurationRef.Generation),
+			SelectionSetURI: bound.selectionRef.URI, SelectionSetSHA256: bound.selectionRef.SHA256, SelectionSetGeneration: fmt.Sprint(bound.selectionRef.Generation),
 		},
 		Classifier: SelfHostedClassifierExport{
-			ImageDigest: copiedImageDigest(pinned, copied), PackageURI: primary.PackageWeaveDataRef.StorageURI, PackageSHA256: primary.ArtifactSHA256,
+			ImageDigest: copied.imageDigest, PackageURI: primary.PackageWeaveDataRef.StorageURI, PackageSHA256: primary.ArtifactSHA256,
 			Rebound: copied.rebound, RebindReason: rebindReason(copied, pinned),
 			ReleaseManifestPath: SelfHostedClassifierReleasePath, SelectionPath: SelfHostedClassifierSelectionPath,
 		},

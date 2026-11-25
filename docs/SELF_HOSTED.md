@@ -76,8 +76,10 @@ fields in the release notes before you deploy.
    - `ROUTER_ADMIN_PASSWORD`
 4. Set at least one provider key, plus `GEMINI_API_KEY` or the three Vertex
    variables for classifier embeddings (the `classifier` service reads them).
+   Off a GCP VM, Vertex also needs a service-account key mounted through
+   `HMM_VERTEX_CREDENTIALS_DIR` and `HMM_VERTEX_CREDENTIALS_FILE`.
 5. Create the shared network once: `docker network create weave-router-link`.
-   Compose also creates it on first start.
+   Compose treats it as external, so a linked Weave app and this app can share it.
 6. Run `docker compose up -d`.
 
 The router listens on `127.0.0.1:8080` by default. Put a TLS proxy in front of it,
