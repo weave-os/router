@@ -128,3 +128,27 @@ func TestStripRetiredBetaHistoryKeepsBetaPromptAnsweredByAModel(t *testing.T) {
 	assert.Equal(t, "/beta", gjson.GetBytes(prepared.Body, "messages.0.content").String())
 	assert.Equal(t, "There is no /beta command in this project.", gjson.GetBytes(prepared.Body, "messages.1.content").String())
 }
+
+func TestStripRetiredBetaHistoryKeepsToolCallAnswerToBetaPrompt(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "/beta"},
+			map[string]any{
+				"role":    "assistant",
+				"content": "",
+				"tool_calls": []any{map[string]any{
+					"id": "call_1", "type": "function",
+					"function": map[string]any{"name": "search", "arguments": `{"q":"beta"}`},
+				}},
+			},
+			map[string]any{"role": "tool", "tool_call_id": "call_1", "content": "no results"},
+			map[string]any{"role": "user", "content": "continue"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, env.StripRetiredBetaHistory(),
+		"a model's tool-call answer to /beta is not a router reply and keeps its tool result paired")
+}

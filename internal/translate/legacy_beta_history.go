@@ -37,7 +37,7 @@ func (e *RequestEnvelope) StripRetiredBetaHistory() int {
 		if msg.Get("role").String() == "user" && idx != lastUserIdx && idx+1 < len(messages) &&
 			isBetaCommandOnlyContent(msg.Get("content")) {
 			if reply := messages[idx+1]; isBetaAckOnlyContent(reply) ||
-				(reply.Get("role").String() == "assistant" && isEmptyTextContent(reply.Get("content"))) {
+				(reply.Get("role").String() == "assistant" && !carriesToolCall(reply) && isEmptyTextContent(reply.Get("content"))) {
 				removed += 2
 				idx++
 				continue

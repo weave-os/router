@@ -262,43 +262,26 @@ weave_command_router_owned() {
   return 1
 }
 
-# Directives the router no longer serves. Earlier installers wrote wrappers for
-# them; each is listed with the exact body it shipped, because its canonical
-# source is gone. Ownership is proven by that body, the legacy in-file marker
-# or the ownership sidecar.
-weave_retired_command_names() {
-  printf '%s\n' beta
-}
-
-weave_retired_command_body() {
-  case "$1" in
-    beta) printf '%s\n' '---' 'description: Toggle beta HMM routing for this session.' '---' '' '/beta $ARGUMENTS' ;;
-    *) return 1 ;;
-  esac
-}
-
-# remove_retired_commands deletes router-owned wrappers for retired directives
-# from a commands directory and leaves a same-named user command alone.
+# remove_retired_commands deletes the router-owned /beta wrapper an earlier
+# installer wrote and leaves a same-named user command alone. Ownership is
+# proven by the shipped body, the legacy in-file marker or the ownership sidecar.
 remove_retired_commands() {
-  local commands_dir="$1" client="$2" name command_file body
+  local commands_dir="$1" client="$2" command_file shipped_body
   [ -d "$commands_dir" ] || return 0
   refuse_if_symlink "$commands_dir"
-  while IFS= read -r name; do
-    command_file="$commands_dir/$name.md"
-    [ -f "$command_file" ] || continue
-    refuse_if_symlink "$command_file"
-    refuse_if_symlink "$command_file.weave-router"
-    body="$(weave_retired_command_body "$name")"
-    if [ "$(sed '/^<!-- weave-router managed command: .* -->$/d' "$command_file")" = "$body" ] \
-       || weave_command_router_owned "$command_file" "$name"; then
-      rm -f "$command_file" "$command_file.weave-router"
-      ok "Removed retired $client command $command_file"
-    else
-      warn "Leaving user-owned $client command at $command_file untouched."
-    fi
-  done <<EOF
-$(weave_retired_command_names)
-EOF
+  command_file="$commands_dir/beta.md"
+  [ -f "$command_file" ] || return 0
+  refuse_if_symlink "$command_file"
+  refuse_if_symlink "$command_file.weave-router"
+  # shellcheck disable=SC2016 # the shipped body holds a literal $ARGUMENTS
+  shipped_body="$(printf '%s\n' '---' 'description: Toggle beta HMM routing for this session.' '---' '' '/beta $ARGUMENTS')"
+  if [ "$(sed '/^<!-- weave-router managed command: .* -->$/d' "$command_file")" = "$shipped_body" ] \
+     || weave_command_router_owned "$command_file" beta; then
+    rm -f "$command_file" "$command_file.weave-router"
+    ok "Removed retired $client command $command_file"
+  else
+    warn "Leaving user-owned $client command at $command_file untouched."
+  fi
 }
 
 # Git Bash rewrites $HOME's /c/... form to C:/... in arguments to native

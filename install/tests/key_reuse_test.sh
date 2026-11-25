@@ -220,6 +220,7 @@ check "update installs a missing slash command" \
 # An update removes the router-owned wrapper of a retired directive, in both
 # the legacy marker form and the current sidecar form, and keeps a user's own
 # command of the same name.
+# shellcheck disable=SC2016 # the shipped body holds a literal $ARGUMENTS
 retired_body="$(printf '%s\n' '---' 'description: Toggle beta HMM routing for this session.' '---' '' '/beta $ARGUMENTS')"
 printf '%s\n<!-- weave-router managed command: beta -->' "$retired_body" >"$upd_home/.claude/commands/beta.md"
 run "$upd_home" -- update --claude --quiet
