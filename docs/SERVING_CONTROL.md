@@ -753,14 +753,14 @@ inference.
 A release ID alone does not say what served a turn. A retained conversation runs
 the current worker code with its historical policy and classifier. Each managed
 turn therefore records the recipe that ran, in nullable columns on
-`model_router_request_telemetry` (migration `0166`):
+`model_router_request_telemetry` (migration `0168`):
 
 | Column | Source |
 | --- | --- |
 | `worker_revision`, `worker_image_digest`, `worker_configuration_sha256` | The attested identity of the worker that admitted the request |
 | `serving_policy_sha256` | The selection policy that scored the turn. Turns without a classifier decision use the admitted snapshot's policy |
-| `effective_strategy` | The strategy that won precedence (plan, then installation, then managed default) |
-| `classifier_release_id`, `classifier_variant` | The classifier release and variant echoed by the decision that served the turn |
+| `effective_strategy` | The strategy that won precedence (plan, then installation, then managed default). Unscored and passthrough turns record the resolved request strategy |
+| `classifier_release_id`, `classifier_enabled_variants` | The classifier release and its enabled variants (sorted, comma-joined). Both come from the admitted snapshot |
 | `flag_overrides_sha256` | Content digest of the installation's flag overrides; NULL when it has none. Deployment defaults are covered by `worker_configuration_sha256` |
 
 Every column is NULL outside managed serving. Beta-versus-stable comparisons
@@ -779,7 +779,8 @@ policy digests. The installer status line shows them next to its channel badge s
 a user can quote what served them. The headers appear only when the installation
 has `serving_release_headers_enabled` set (default false) and terminal surfaces
 are not hidden: a blind experiment or `hide_terminal_surfaces` removes them, as
-it removes `X-Router-*` headers. Upstream-gateway mode must hide them too unless
+it removes `X-Router-*` headers. They are set when the response is written, after
+the blind experiment is resolved, and never on a 4xx or 5xx refusal. Upstream-gateway mode must hide them too unless
 the installation opts in; `ServingReleaseHeadersVisible` in `internal/ingress/terminal_surfaces.go` is the one
 predicate to extend.
 

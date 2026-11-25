@@ -369,16 +369,16 @@ func (o Overrides) MarshalJSON() (data []byte, err error) {
 	return json.Marshal(flat)
 }
 
-func (o Overrides) Digest() string {
+func (o Overrides) Digest() (digest string, err error) {
 	if o.IsEmpty() {
-		return ""
+		return "", nil
 	}
 	payload, err := o.MarshalJSON()
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("digest flag overrides: %w", err)
 	}
 	sum := sha256.Sum256(payload)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]), nil
 }
 
 type overridesContextKey struct{}

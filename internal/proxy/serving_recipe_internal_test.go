@@ -4,16 +4,19 @@ import (
 	"context"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func recipeServingCtx(t *testing.T) (context.Context, flags.Overrides) {
+func recipeServingCtx(t *testing.T) context.Context {
 	t.Helper()
 	overrides, err := flags.ParseOverrides([]byte(`{"turn_signal_capture_enabled":false}`))
 	require.NoError(t, err)
@@ -29,16 +32,16 @@ func recipeServingCtx(t *testing.T) (context.Context, flags.Overrides) {
 			ClassifierEnabledVariants: "primary",
 		},
 	})
-	return flags.WithOverrides(ctx, overrides), overrides
+	return flags.WithOverrides(ctx, overrides)
 }
 
 func TestServedTurnRecipeRecordsWorkerClassifierAndScoringPolicy(t *testing.T) {
-	ctx, overrides := recipeServingCtx(t)
+	ctx := recipeServingCtx(t)
+	const overrideDigest = "b0761e1fb7237aa27bdb4044fa856bd5f0c7c71d28985972af43ea06b9733883"
 	telemetry := turnrecord.InsertTelemetryParams{Strategy: string(router.StrategyHMMEmbedding)}
 	served := router.Decision{Metadata: &router.RoutingMetadata{SelectionPolicySHA256: "historical-policy-sha"}}
 
-	applyServedPolicyTelemetry(ctx, &telemetry, served)
-	applySubscriberTelemetry(ctx, &telemetry)
+	applyServedTurnTelemetry(ctx, hmm.ServingPorts(), &telemetry, routingpolicy.TurnRoute{Decision: served}, served, dispatch.EffortResolution{})
 
 	assert.Equal(t, "prod/stable", telemetry.ServingTarget)
 	assert.Equal(t, turnrecord.ServingRecipe{
@@ -49,26 +52,36 @@ func TestServedTurnRecipeRecordsWorkerClassifierAndScoringPolicy(t *testing.T) {
 		EffectiveStrategy:         string(router.StrategyHMMEmbedding),
 		ClassifierReleaseID:       "classifier-release-sha",
 		ClassifierEnabledVariants: "primary",
-		FlagOverridesSHA256:       overrides.Digest(),
+		FlagOverridesSHA256:       overrideDigest,
 	}, telemetry.ServingRecipe)
 }
 
 func TestUnscoredTurnRecipeFallsBackToAdmittedPolicy(t *testing.T) {
-	ctx, _ := recipeServingCtx(t)
+	ctx := recipeServingCtx(t)
 	var telemetry turnrecord.InsertTelemetryParams
 
-	applyServedPolicyTelemetry(ctx, &telemetry, router.Decision{})
-	applySubscriberTelemetry(ctx, &telemetry)
+	applyServedTurnTelemetry(ctx, hmm.ServingPorts(), &telemetry, routingpolicy.TurnRoute{}, router.Decision{}, dispatch.EffortResolution{})
 
 	assert.Equal(t, "admitted-policy-sha", telemetry.ServingRecipe.PolicySHA256)
 	assert.Equal(t, "router-worker-00042", telemetry.ServingRecipe.WorkerRevision)
+	assert.Equal(t, string(router.StrategyHMMEmbedding), telemetry.ServingRecipe.EffectiveStrategy, "an unscored turn records the resolved request strategy")
+}
+
+func TestPassthroughTurnRecipeRecordsTheResolvedStrategy(t *testing.T) {
+	ctx := recipeServingCtx(t)
+	ctx = router.WithStrategySelection(ctx, router.StrategySelection{Strategy: router.StrategyHMMBeta})
+	var telemetry turnrecord.InsertTelemetryParams
+
+	applySubscriberTelemetry(ctx, &telemetry)
+
+	assert.Equal(t, string(router.StrategyHMMBeta), telemetry.ServingRecipe.EffectiveStrategy)
 }
 
 func TestUnmanagedTurnRecordsNoRecipe(t *testing.T) {
 	telemetry := turnrecord.InsertTelemetryParams{Strategy: string(router.StrategyHMMEmbedding)}
 
-	applyServedPolicyTelemetry(context.Background(), &telemetry, router.Decision{Metadata: &router.RoutingMetadata{SelectionPolicySHA256: "policy-sha"}})
-	applySubscriberTelemetry(context.Background(), &telemetry)
+	served := router.Decision{Metadata: &router.RoutingMetadata{SelectionPolicySHA256: "policy-sha"}}
+	applyServedTurnTelemetry(context.Background(), hmm.ServingPorts(), &telemetry, routingpolicy.TurnRoute{Decision: served}, served, dispatch.EffortResolution{})
 
 	assert.Equal(t, turnrecord.ServingRecipe{}, telemetry.ServingRecipe)
 }

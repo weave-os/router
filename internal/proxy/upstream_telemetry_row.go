@@ -5,6 +5,7 @@ import (
 	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -17,7 +18,9 @@ func applyServedTurnTelemetry(ctx context.Context, ports continuity.StrategyPort
 	applyAuthorityShadowTelemetry(tel, routeRes)
 	applyBlindExperimentTelemetry(ctx, tel, &routeRes)
 	applyPolicyPinTelemetry(ctx, tel, decision.Metadata)
-	applyServedPolicyTelemetry(ctx, tel, decision)
+	if _, managed := requestcontext.ServingIdentityFromContext(ctx); managed && decision.Metadata != nil {
+		tel.ServingRecipe.PolicySHA256 = decision.Metadata.SelectionPolicySHA256
+	}
 	applySubscriberTelemetry(ctx, tel)
 	applyAgreementShadowTelemetry(ports, ctx, tel, routeRes)
 }
