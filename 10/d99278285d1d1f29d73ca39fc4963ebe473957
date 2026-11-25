@@ -1,0 +1,25 @@
+internal/observability/otel/usage_paths_test.go
+  s_6cb44943eda7dd::t_145832b9f34bde 28-30,79,91
+internal/usage/parse.go
+  s_6cb44943eda7dd::t_145832b9f34bde 76
+internal/proxy/usage_bypass.go
+  s_6cb44943eda7dd::t_145832b9f34bde 547
+internal/proxy/service.go
+  s_6cb44943eda7dd::t_145832b9f34bde 4454
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "10d99278285d1d1f29d73ca39fc4963ebe473957",
+  "prompts": {},
+  "sessions": {
+    "s_6cb44943eda7dd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b24-b1af-7ad2-96bb-e951b323af97",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+internal/policyregistry/serving_contract.go
+  s_70b56a85a6aa32::t_da9822ca7b5b53 73,383,397-398
+  s_70b56a85a6aa32::t_8bd08ab675cb66 399
+docs/SERVING_CONTROL.md
+  s_70b56a85a6aa32::t_3b5dd4948f8732 33-46
+internal/policyregistry/serving_controller.go
+  s_70b56a85a6aa32::t_341a103052210f 288
+  s_70b56a85a6aa32::t_7ea265a76fee52 296
+  s_70b56a85a6aa32::t_da9822ca7b5b53 268,284-287,289-295,297
+  s_70b56a85a6aa32::t_69ecc57e2bb44c 298
+internal/policyregistry/serving_exact_rollback_test.go
+  s_70b56a85a6aa32::t_787cdd38cce752 129-158
+  s_70b56a85a6aa32::t_da9822ca7b5b53 1-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "60ca84e1e1caef9bd11ed5827fdc19971410fac4",
+  "prompts": {},
+  "sessions": {
+    "s_70b56a85a6aa32": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c35a-6d1a-7012-ad5f-ffe2b7871c3c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

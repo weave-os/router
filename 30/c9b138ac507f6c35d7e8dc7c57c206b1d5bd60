@@ -1,0 +1,19 @@
+internal/architecture/comment_ban_allowlist.json
+  s_d05b950becbcd5::t_61b165c1ac41cb 42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "30c9b138ac507f6c35d7e8dc7c57c206b1d5bd60",
+  "prompts": {},
+  "sessions": {
+    "s_d05b950becbcd5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d79ffc2a-0056-4afe-be78-40f07bb7fb83",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

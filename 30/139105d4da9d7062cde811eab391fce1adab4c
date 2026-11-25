@@ -1,0 +1,21 @@
+docs/DELEGATED_SESSION_TOKENS.md
+  s_4a2c66a824762c::t_2946e9581e018a 67-69,71-72
+internal/auth/session_token_test.go
+  s_4a2c66a824762c::t_2946e9581e018a 97-99,102-105,433,451-453,459,461
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "30139105d4da9d7062cde811eab391fce1adab4c",
+  "prompts": {},
+  "sessions": {
+    "s_4a2c66a824762c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ae57-6dd7-7f20-939b-e5078546d18e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

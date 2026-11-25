@@ -1,0 +1,19 @@
+internal/router/cluster/artifacts/latest
+  s_ff3a498146930a::t_778a631e9a8205 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9a06b765d0b5197c0f5f09c59444911f645ae8f9",
+  "prompts": {},
+  "sessions": {
+    "s_ff3a498146930a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0fe2d-588a-7401-8e1a-94c9e0bae104",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

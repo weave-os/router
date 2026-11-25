@@ -1,0 +1,169 @@
+docs/POLICY_RECOVERY.md
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-6,8-69,71-85,87-99
+  s_84ceb7c3bf245f::t_1c6b0035310964 7,70,86
+internal/observability/apm/policy_metrics.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-48
+internal/router/policy/failure.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-61
+internal/proxy/dispatch_plan.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 14,37-41,44,46,52,55,71,73,79,130-132,146-149,153,156-158
+internal/router/policy/inference_registry.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 83,187-189,484,523-526
+internal/router/CLAUDE.md
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 29
+internal/api/admin/health.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 25-39
+internal/proxy/policy_recovery_integration_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-259
+internal/policyclient/client_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 843-846
+internal/policyclient/projection_provenance_test.go
+  s_84ceb7c3bf245f::t_1c6b0035310964 1-38
+internal/policyclient/resilience_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-181
+internal/translate/compaction.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 263,290-292,313
+internal/router/conversation.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-14
+docs/CONFIGURATION.md
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 561-563,566
+internal/dispatch/target.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 10,49-50,56,66-74
+internal/proxy/credential_key_parts_internal_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 5,8-10,32-40
+  s_84ceb7c3bf245f::t_e81ec68f76d6c7 41-42
+internal/dispatch/target_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 9,15,22,27-44
+  s_84ceb7c3bf245f::t_8dd2494d2bcfa2 45-46
+.github/workflows/smoke.yml
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 13,25-29
+internal/router/recovery.go
+  s_84ceb7c3bf245f::t_ca7fc027ef85ce 18-20
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-17,21
+cmd/router/main.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 773-775,830,838-840,913-919,923-924,931-933,950-953,955-956,958-959,961-1018,1021,1025,1182,1187,1374
+internal/policyclient/auth_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 60
+internal/proxy/service.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 70,75,197-198,200,1491,1638,1644-1645,2552-2556,2620,2633,2981,3243,3303,3309,3316,3410,3430,3440,3494,4021,4030,4051,4063,4299,4303,4313,4339-4347,4355-4361,4363-4364,4387,4411,4488-4490,4861,4954-4956,4967-4969,5790,6028,6088,6094,6101,6444,6578,6580,6608-6611,6622,6759,6766-6767,6771-6776,6804,6829-6830,6832-6834,6838,6840-6847,6853,6856-6857,6860,6862,6864,6867-6870,6877,6880-6888,6890,6894-6900,6902-6903,6915,6934,7013-7015
+internal/router/policy/sidecar_router.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 9,187-213,268-270,274,316-319
+internal/translate/task_trim_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-72
+internal/proxy/CLAUDE.md
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 42-48
+cmd/AGENTS.md
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 9-13
+internal/router/handover/summarizer_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 222,225,240,246-250,252,292,310,316,318-321,514
+internal/dispatch/executor.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 238-240
+internal/translate/compaction_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 167,180,183,185-188,191,203,205-208
+internal/proxy/policy_recovery.go
+  s_84ceb7c3bf245f::t_ca7fc027ef85ce 94,132
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-93,95-131,133
+internal/router/policy/decision_budget.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-37
+internal/policyclient/client.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 18,92,116,125-131,145-150,506-544,550,559,561-578,588-589,643,921,924-928,942-945,953-956,960,974-991,1114,1117
+  s_7fa428a6b6817b::t_ea4783dc7cdb2d 1132
+internal/architecture/inference_boundary_baseline.json
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 150,152-154,157
+internal/router/policy/inference_recovery_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-85
+docs/README.md
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 13
+internal/proxy/dispatch_error.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 340-341
+internal/proxy/dispatch_error_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 160
+internal/proxy/escalation_completion_internal_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 87-99,101,110-118,128,133,140-144,146-154,156-164,166-169
+internal/router/policy/inference_constraints.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 94,124-129
+  s_84ceb7c3bf245f::t_6becf2624deba3 130
+internal/translate/handover.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 34-36,131,139,237-240,242,252,310,320-325,328-349,353-375
+internal/proxy/sibling_failover.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 20-22
+internal/proxy/policy_deadline_fallback_internal_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 30,134-135,137,140-141,144,153,155-157,179,182,187,198,200-224,251,269,271-274
+  s_84ceb7c3bf245f::t_ca7fc027ef85ce 275
+internal/proxy/policy_recovery_load_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-107
+internal/inference/attempt_budget.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-24
+internal/policyclient/resilience.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-112
+internal/proxy/gemini.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 38,124,156,161,168,269,292-303,316,326-356,360,417-419
+internal/router/AGENTS.md
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 29
+internal/proxy/fallback.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 13,237-246,308-316
+internal/proxy/service_session_pin_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 814-815,860-861
+internal/proxy/turnloop.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 208-209,538,893,985-997,1413,1444-1449,2083-2084
+.github/workflows/test.yml
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 31,33-34,52-55,184-188,194-198,228
+  s_7fa428a6b6817b::t_eaff9d35da4a42 32
+  s_7fa428a6b6817b::t_a4750ce5d3044e 183
+internal/proxy/AGENTS.md
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 42-48
+cmd/CLAUDE.md
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 9-13
+internal/router/effort.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 5-12
+cmd/router/readiness.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 15-17,25-30,32,35,38-41,43-49
+cmd/router/readiness_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 67-79
+AGENTS.md
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 9-12
+docs/POLICY_INFERENCE.json
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 3,41,73,230,262,321,353,360,392
+docs/POLICY_INFERENCE.md
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 6,13,19,22-23
+internal/router/policy/inference_recovery.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 1-109,113-114,116-122
+  s_84ceb7c3bf245f::t_ca7fc027ef85ce 110-112,115
+internal/proxy/openai_cyber_refusal_integration_test.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 314-315
+internal/inference/request.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 53,180-182,187-191
+internal/proxy/route_preview.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 94
+internal/router/router.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 107-108,142-143,283-284
+CLAUDE.md
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 9-12
+internal/router/policy/resolver.go
+  s_84ceb7c3bf245f::t_fec4dff3b459dd 326,488-490,538-539
+  s_84ceb7c3bf245f::t_471a2d368e0784 540
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f0235a9e839d99c7b3e2f0ec227fe4eeda0ea133",
+  "prompts": {},
+  "sessions": {
+    "s_7fa428a6b6817b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "92be9f94-6f27-4e58-a8fb-0fe9429576cf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_84ceb7c3bf245f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0877c-d3fc-7571-8473-60cf94cda404",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

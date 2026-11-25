@@ -1,0 +1,29 @@
+docs/HMM_GO_SELECTION.md
+  s_33522dee49bf01::t_cbec4624cab501 187,195-202
+  s_33522dee49bf01::t_d1e294b6a2e084 203
+internal/proxy/agreement_shadow_review_internal_test.go
+  s_33522dee49bf01::t_67c9e0d1018f51 1-70,74-83,87-94,98,102-108,112-114,118-126,128-130,134-138,140-141,149,153-155
+  s_33522dee49bf01::t_5c1aafd6d3ed20 71-73,84-86,95-97,99-101,109-111,115-117,127,131-133,139,142-148,150-152
+internal/proxy/force_model.go
+  s_33522dee49bf01::t_cbec4624cab501 835,891
+internal/proxy/agreement_shadow.go
+  s_33522dee49bf01::t_cbec4624cab501 12,14,16,125,135,156-184
+  s_33522dee49bf01::t_dca7c6a89aba19 54,59,65,75,81,95,99,102-105,107,109,112,124,126,128,130,133,136-137,149-150
+  s_33522dee49bf01::t_016e8193688ab9 185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "47791406e6d9001786dfbdad50354b80fb586da1",
+  "prompts": {},
+  "sessions": {
+    "s_33522dee49bf01": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18eb0-0355-7522-a7c9-ac571ae84fba",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

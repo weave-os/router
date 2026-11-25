@@ -1,0 +1,19 @@
+install/npm/vscode.js
+  s_c3dc05fcd2e066::t_4885d6ab553730 50,52,64,85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4db6e98e5b1f262c351a25e7917b4a629247ce34",
+  "prompts": {},
+  "sessions": {
+    "s_c3dc05fcd2e066": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f6f4-63f7-7dc0-88e4-9ec0b535d130",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Shi Hao Hong <shihao.workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+internal/translate/cache_control.go
+  s_48c8ecd82f447f::t_1e63bc04409255 239-242,244-275,280-287
+  s_48c8ecd82f447f::t_ae3e2db764e2a0 243
+internal/translate/anthropic_final_assistant_cache_test.go
+  s_48c8ecd82f447f::t_0a5c77ac4863bd 70
+  s_48c8ecd82f447f::t_e8820bc4d23ce8 8,44-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9a5d87363bab04184364d6ad45b5df06fd04d460",
+  "prompts": {},
+  "sessions": {
+    "s_48c8ecd82f447f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1bd34-e28f-7ff2-abed-69e3e042525a",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

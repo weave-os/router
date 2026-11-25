@@ -1,0 +1,32 @@
+deploy/selfhosted/.env.example
+  s_771cc636e12898::t_4ddd1e22e6de5d 1-89
+deploy/selfhosted/docker-compose.yml
+  s_771cc636e12898::t_15e464e7d94916 213-218,220-231
+  s_771cc636e12898::t_2847745e4c1295 1-212,219
+  s_771cc636e12898::t_fe66e23b5d25bf 232-234
+docs/SERVING_CONTROL.md
+  s_771cc636e12898::t_7519bbdeba585d 18-21,28-30,42,80-81,748-824
+  s_771cc636e12898::t_730854c3014d28 825-828
+docs/README.md
+  s_771cc636e12898::t_cd01044e8076d7 9,39
+docs/SELF_HOSTED.md
+  s_771cc636e12898::t_1221a66bb7a42d 1-52,58-153
+  s_771cc636e12898::t_3fb54016dfb973 53-57
+  s_771cc636e12898::t_82a9fa3ba10edc 154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9d5e63374d8e37f7305449f7c0c0047238609435",
+  "prompts": {},
+  "sessions": {
+    "s_771cc636e12898": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "44f12d68-997e-4402-bc11-8fb34984afa0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

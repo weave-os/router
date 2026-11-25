@@ -1,0 +1,21 @@
+internal/policyclient/client.go
+  s_3ed591f1ee8fde::t_066bbbd13a06e4 376-377
+internal/proxy/decision_span_sidecar_stats_test.go
+  s_3ed591f1ee8fde::t_9874c525a48ae4 70-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "1474ebd81765b9072a801d82138e6067ce43bef5",
+  "prompts": {},
+  "sessions": {
+    "s_3ed591f1ee8fde": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fc3b1c9d-6660-4831-8dac-a6529259716f",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

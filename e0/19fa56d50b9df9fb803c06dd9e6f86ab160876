@@ -1,0 +1,19 @@
+scripts/subscription_verification_check/ownership_subscription_verification_test.go
+  s_9d135d1329cf1b::t_6d5811218f671a 127-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e019fa56d50b9df9fb803c06dd9e6f86ab160876",
+  "prompts": {},
+  "sessions": {
+    "s_9d135d1329cf1b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8fab1c97-27d0-41f4-a04a-9351501ff80f",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

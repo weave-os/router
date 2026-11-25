@@ -1,0 +1,25 @@
+internal/proxy/baseline_warm_prefill_internal_test.go
+  s_ac6ff0ada6dffa::t_968cc4f6b18cae 9,17-21,23,25,30,32,36-46,50,52,58-59,62-63,68-76,80,89-95,99
+internal/proxy/gemini.go
+  s_ac6ff0ada6dffa::t_b48c38b27db913 358
+internal/proxy/service.go
+  s_ac6ff0ada6dffa::t_07fe3b11efd7c5 5003,7989
+internal/proxy/turnloop.go
+  s_ac6ff0ada6dffa::t_11b37cbee83aa2 129,137-147,276-277,279,409-413,426,2645
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3bfa2d73833901a7e24419a836c6270e656163f1",
+  "prompts": {},
+  "sessions": {
+    "s_ac6ff0ada6dffa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26cf3a14-c4a9-4cfc-b8ce-838701ffa445",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+internal/router/catalog/cost.go
+  s_058485d2635629::t_37fa7601a5fd9d 51-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "caa9b9ee1b20c1bdcea1eb71dce90dca77f4821e",
+  "prompts": {},
+  "sessions": {
+    "s_058485d2635629": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc459cec-44c1-4e73-9977-ec456ecc2a56",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+internal/subscriptions/pool.go
+  s_cf030de1c35ef8::t_aa09f74039a196 37,115
+  s_cf030de1c35ef8::t_64d8fc758b2de9 113-114
+db/queries/model_router_subscription_accounts.sql
+  s_cf030de1c35ef8::t_aa09f74039a196 405
+internal/subscriptions/runtime_test.go
+  s_cf030de1c35ef8::t_aa09f74039a196 72
+internal/subscriptions/account_metadata.go
+  s_cf030de1c35ef8::t_aa09f74039a196 1-15
+internal/subscriptions/refresh_operation.go
+  s_cf030de1c35ef8::t_aa09f74039a196 141,155-157
+internal/subscriptions/manual_refresh.go
+  s_cf030de1c35ef8::t_aa09f74039a196 35
+internal/subscriptions/proactive_refresh_test.go
+  s_cf030de1c35ef8::t_aa09f74039a196 120
+internal/subscriptions/early_refresh.go
+  s_cf030de1c35ef8::t_aa09f74039a196 14-16
+internal/postgres/subscription_candidates_repo.go
+  s_cf030de1c35ef8::t_aa09f74039a196 46
+internal/postgres/subscription_credentials_test.go
+  s_cf030de1c35ef8::t_64d8fc758b2de9 44
+  s_cf030de1c35ef8::t_a7cee1c04e9e9c 38-43
+internal/api/admin/internal_subscription_refresh.go
+  s_cf030de1c35ef8::t_aa09f74039a196 34,48
+internal/auth/subscription.go
+  s_cf030de1c35ef8::t_aa09f74039a196 105-106
+internal/subscriptions/refresh_generation_test.go
+  s_cf030de1c35ef8::t_6998f9eca4dac6 1-94
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_cf030de1c35ef8::t_fdfea9b278cacf 479,526,551,599
+internal/subscriptions/runtime.go
+  s_cf030de1c35ef8::t_aa09f74039a196 205,456
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2c9d30f5a4c55205bb4fcfb6c1e98e6aa8926633",
+  "prompts": {},
+  "sessions": {
+    "s_cf030de1c35ef8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1db6f-b08e-7e82-b7c6-b03ed10b6515",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

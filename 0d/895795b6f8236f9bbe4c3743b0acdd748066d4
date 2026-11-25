@@ -1,0 +1,75 @@
+cmd/router/main.go
+  s_630cb8cc847cf4::t_9f41c33df906b8 1001
+docs/PROXY_TURN_LOOP.md
+  s_630cb8cc847cf4::t_86ad1f96a384e3 38
+docs/SERVING_CONTROL.md
+  s_630cb8cc847cf4::t_f24c94fe4995b2 189-192
+docs/TRANSLATION_REWRITES.md
+  s_630cb8cc847cf4::t_55cc1056523abe 91,98-106
+install/pi-router/src/config.ts
+  s_630cb8cc847cf4::t_4c3d60594a025f 228
+install/pi-router/test/e2e.sh
+  s_630cb8cc847cf4::t_4ce61ae0dd5917 192-193,195
+install/tests/registry_test.sh
+  s_630cb8cc847cf4::t_3bc3d2735e6e0b 77-80
+internal/architecture/atomization_ratchet_baseline.json
+  s_630cb8cc847cf4::t_d9d6fae2c33e19 14
+internal/conversation/lifecycle.go
+  s_630cb8cc847cf4::t_b5c4233103e3be 11-15
+internal/conversation/turn_history.go
+  s_630cb8cc847cf4::t_903ac6110f9819 34,36
+internal/proxy/capture_fakes_internal_test.go
+  s_630cb8cc847cf4::t_9ce18ad07495c3 1,5,7,11-15,17-21,23-24,27-36,40-47
+internal/proxy/classifier_dispatch_internal_test.go
+  s_630cb8cc847cf4::t_1183eddee6183b 32,88,203,250,268
+internal/proxy/classifier_passthrough_internal_test.go
+  s_630cb8cc847cf4::t_04d7e10b79503d 165-166
+internal/proxy/classifier_per_call_internal_test.go
+  s_630cb8cc847cf4::t_8490ca5f5c7c2a 107
+internal/proxy/classifier_turn.go
+  s_630cb8cc847cf4::t_d34960c134da08 58
+internal/proxy/conversation_messages.go
+  s_630cb8cc847cf4::t_7b4ccd5e47b215 27
+internal/proxy/golden_conversation_test.go
+  s_630cb8cc847cf4::t_94ad5b74582164 107,109,139,141,148-151,155,311
+internal/proxy/legacy_beta_history_internal_test.go
+  s_630cb8cc847cf4::t_47dc936b56e759 17-18,20,54,109,114,130
+internal/proxy/pi_handoff.go
+  s_630cb8cc847cf4::t_f300dde9f0580f 128,142
+internal/proxy/pi_handoff_test.go
+  s_630cb8cc847cf4::t_845a8408bd01e5 30-31,35,146,189,221
+internal/proxy/route_preview.go
+  s_630cb8cc847cf4::t_c74a141d4858bf 62,66-67,69
+internal/proxy/routing_model_internal_test.go
+  s_630cb8cc847cf4::t_31d28d7b1b87e4 18,50-51
+internal/proxy/session_key.go
+  s_630cb8cc847cf4::t_54193a968f224b 91
+internal/proxy/testdata/golden/anthropic_messages_conversation_legacy_beta_history_stripped_from_upstream.json
+  s_630cb8cc847cf4::t_28dec351273c40 6-104,108-121,126,131,136-137,141-197,199-241,246
+internal/proxy/testdata/golden/anthropic_messages_conversation_retired_beta_command_reaches_upstream.json
+  s_630cb8cc847cf4::t_e262dfef6c2ccd 6-104,108-121,126,131,136-182,185-245,248
+internal/proxy/weave_credits_internal_test.go
+  s_630cb8cc847cf4::t_11b881760eab9b 69
+internal/translate/cursor_command_test.go
+  s_630cb8cc847cf4::t_175b87f8845088 94,96
+internal/translate/legacy_beta_history.go
+  s_630cb8cc847cf4::t_8cc8aa9dba1f6f 9,28,30-33,35,37-43,47,73,76,78,80,82-83,85-86,88,94,105,121-125,161
+internal/translate/legacy_beta_history_test.go
+  s_630cb8cc847cf4::t_714bac4c08e2df 13,39,44,47,61,68,83,91,106-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0d895795b6f8236f9bbe4c3743b0acdd748066d4",
+  "prompts": {},
+  "sessions": {
+    "s_630cb8cc847cf4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "854abed3-d6c5-4691-bcba-c8afe775835b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
