@@ -717,7 +717,7 @@ func writeAnthropicSamplingParams(jw *jsonWriter, body []byte, capabilities rout
 		return
 	}
 	for _, key := range anthropicSamplingParams {
-		if value := gjson.GetBytes(body, key); value.Exists() {
+		if value := gjson.GetBytes(body, key); value.Type == gjson.Number {
 			jw.Key(key)
 			jw.Raw(value.Raw)
 		}

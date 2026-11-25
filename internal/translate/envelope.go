@@ -1065,12 +1065,13 @@ func resolveOpenAIOverrides(body []byte, opts EmitOptions) EmitOverrides {
 		}
 	}
 
-	hasMaxTokens := gjson.GetBytes(body, "max_tokens").Exists()
-	hasMaxComp := gjson.GetBytes(body, "max_completion_tokens").Exists()
+	maxTokens := gjson.GetBytes(body, "max_tokens")
+	hasMaxTokens := maxTokens.Type == gjson.Number
+	hasMaxComp := gjson.GetBytes(body, "max_completion_tokens").Type == gjson.Number
 
-	if hasMaxTokens && supportsReasoning {
-		if !hasMaxComp {
-			val := gjson.GetBytes(body, "max_tokens").Int()
+	if maxTokens.Exists() && supportsReasoning {
+		if hasMaxTokens && !hasMaxComp {
+			val := maxTokens.Int()
 			ov.SetMaxCompletionTokens = &val
 		}
 		ov.DeleteKeys = append(ov.DeleteKeys, "max_tokens")

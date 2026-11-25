@@ -1326,6 +1326,28 @@ func TestCrossFormat_OpenAIToAnthropic_FableOmitsSamplingParams(t *testing.T) {
 	assert.NotContains(t, doc, "top_k")
 }
 
+func TestCrossFormat_OpenAIToAnthropic_NullSamplingParamsAreUnset(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-4o",
+		"messages":[{"role":"user","content":"hi"}],
+		"temperature":null,
+		"top_p":null,
+		"top_k":null
+	}`)
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel: "claude-sonnet-4-5", Capabilities: router.Lookup("claude-sonnet-4-5"),
+	})
+	require.NoError(t, err)
+
+	doc := unmarshalBody(t, prep.Body)
+	assert.NotContains(t, doc, "temperature")
+	assert.NotContains(t, doc, "top_p")
+	assert.NotContains(t, doc, "top_k")
+}
+
 func TestCrossFormat_AnthropicToAnthropic_FableOmitsSamplingParams(t *testing.T) {
 	body := []byte(`{
 		"model":"claude-fable-5-1",

@@ -423,6 +423,33 @@ func TestResponsesToChatCompletions_MaxOutputAndDropsReasoning(t *testing.T) {
 	assert.False(t, gjson.GetBytes(out, "reasoning").Exists())
 }
 
+func TestConvertResponsesToChatCompletions_NullSamplingAndLimitFieldsAreUnset(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		portable bool
+	}{
+		{name: "responses", portable: false},
+		{name: "portable codex", portable: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			options := translate.ResponsesConversionOptions{PortableCodex: tc.portable}
+			nulls := []byte(`{"model":"gpt-5","input":"hi","temperature":null,"top_p":null,"max_output_tokens":null}`)
+			conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(nulls, options)
+			require.NoError(t, err)
+			for _, key := range []string{"temperature", "top_p", "max_completion_tokens"} {
+				assert.Falsef(t, gjson.GetBytes(conversion.Body, key).Exists(), "%s must stay unset: %s", key, conversion.Body)
+			}
+
+			numbers := []byte(`{"model":"gpt-5","input":"hi","temperature":0.2,"top_p":0.9,"max_output_tokens":512}`)
+			conversion, err = translate.ConvertResponsesToChatCompletionsWithOptions(numbers, options)
+			require.NoError(t, err)
+			assert.InDelta(t, 0.2, gjson.GetBytes(conversion.Body, "temperature").Num, 1e-9)
+			assert.InDelta(t, 0.9, gjson.GetBytes(conversion.Body, "top_p").Num, 1e-9)
+			assert.Equal(t, int64(512), gjson.GetBytes(conversion.Body, "max_completion_tokens").Int())
+		})
+	}
+}
+
 // Codex always sends a `reasoning` field, including effort:"none" (invalid as
 // reasoning_effort); reasoning OpenAI models also 400 on reasoning_effort+tools.
 // No effort value may leak into the translated chat body.
