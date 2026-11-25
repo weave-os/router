@@ -113,7 +113,7 @@ signature verifies it also downloads the `cc-statusline.sh` next to that
 `MANIFEST`, checks it against its row and requires its `WEAVE_RELEASE_TAG` to
 be no older than the installed copy's or the release recorded in
 `.manifest-tag` in the baseline cache, which each verified cycle rewrites with
-the release it accepted. Without this, an older signed release served from a
+the release it accepted and the command directory it applies to. Without this, an older signed release served from a
 mutable source would verify and roll the wrappers back. Every release
 must therefore publish `install/cc-statusline.sh` and list it in `MANIFEST`.
 

@@ -616,8 +616,11 @@ weave_sync_commands() {
       # to a release through the statusline it lists: that body's own
       # WEAVE_RELEASE_TAG must be no older than this copy's or the release the
       # wrappers were last refreshed from (.manifest-tag), or an older signed
-      # release served from a mutable source would roll the wrappers back.
-      recorded_tag="$(sed -n '1p' "$floor_file" 2>/dev/null)" || recorded_tag=""
+      # release served from a mutable source would roll the wrappers back. The
+      # slug can collide, so the floor counts only for the directory it names.
+      recorded_tag=""
+      [ "$(sed -n '2p' "$floor_file" 2>/dev/null)" = "$cmd_dir" ] \
+        && recorded_tag="$(sed -n '1p' "$floor_file" 2>/dev/null)"
       weave_release_tag_newer "$recorded_tag" "$release_floor" && release_floor="$recorded_tag"
       curl -fsSL --max-time 15 "$manifest_base/cc-statusline.sh" -o "$manifest.release" 2>/dev/null || exit 0
       weave_verify_file "$manifest" "install/cc-statusline.sh" "$manifest.release" || exit 0
@@ -699,7 +702,7 @@ weave_sync_commands() {
 $(weave_installed_command_names "$cmd_dir")
 EOF
     [ "$seeding" = "true" ] && : >"$sentinel" 2>/dev/null
-    if [ -n "$listed_tag" ] && printf '%s\n' "$listed_tag" >"$floor_file.tmp.$$" 2>/dev/null; then
+    if [ -n "$listed_tag" ] && printf '%s\n%s\n' "$listed_tag" "$cmd_dir" >"$floor_file.tmp.$$" 2>/dev/null; then
       mv "$floor_file.tmp.$$" "$floor_file" 2>/dev/null || rm -f "$floor_file.tmp.$$"
     fi
     true

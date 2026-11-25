@@ -669,7 +669,7 @@ sync_settle "install/commands/rf.md"
 
 # The newer release is now the floor: replaying this copy's own signed release
 # from the same source must not roll the wrapper back to its older body.
-next_fm="$(cat "$cmd_dir/fm.md")"
+newer_fm="$(cat "$cmd_dir/fm.md")"
 retag "$release_dir/cc-statusline.sh" "$current_tag"
 upstream_wrapper fm "release $current_tag fm."
 sign_commands
@@ -679,8 +679,21 @@ run_tool cc "$installed" "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/
 wait_for 20 log_has "$log" "selfhost/install/cc-statusline.sh"
 wait_for 20 no_glob_match "$baseline/.MANIFEST.tmp.*"
 sleep 0.5
-check "a release older than the installed wrappers does not roll them back" "$(cat "$cmd_dir/fm.md")" "$next_fm"
+check "a release older than the installed wrappers does not roll them back" "$(cat "$cmd_dir/fm.md")" "$newer_fm"
 check_not_contains "a release older than the installed wrappers fetches no wrapper body" "$(cat "$log")" "commands/fm.md"
+
+# Command directories whose slugs collide share a baseline cache, so a floor
+# recorded for another directory must not block this one's signed release.
+printf '%s\n%s\n' "$next_tag" "/elsewhere/.claude/commands" >"$baseline/.manifest-tag"
+rm -f "$lab/cache/weave-router/"checked-at*.commands
+: >"$log"
+run_tool cc "$installed" "WEAVE_COMMANDS_URL_BASE=https://selfhost.example.test/install/commands"
+if wait_for 20 grep -q "release $current_tag fm." "$cmd_dir/fm.md"; then
+  ok "a release floor recorded for another command directory is ignored"
+else
+  no "a release floor recorded for another command directory is ignored" "refreshed fm" "$(cat "$cmd_dir/fm.md")"
+fi
+sync_settle "install/commands/rf.md"
 
 # The scope selector recovered from the installed /router-off is unverified, so
 # only the shapes the installer writes are copied into verified wrappers.
