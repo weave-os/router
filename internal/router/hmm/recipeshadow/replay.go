@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/armid"
@@ -69,9 +70,9 @@ func (r *Replayer) Replay(ctx context.Context, profileKey string, served router.
 		RouteID:            served.Metadata.RouteID,
 		Harness:            policy.SelectionHarnessForClientApp(req.ClientApp),
 		PredictedLabel:     facts.PredictedLabel,
-		ClassOrder:         append([]string(nil), facts.ClassOrder...),
+		ClassOrder:         slices.Clone(facts.ClassOrder),
 		ClassProbabilities: maps.Clone(facts.Probabilities),
-		PreferredModels:    append([]string(nil), req.PreferredModels...),
+		PreferredModels:    slices.Clone(req.PreferredModels),
 	}
 	for _, candidate := range resolved.Candidates {
 		input.CandidateRosterIDs = append(input.CandidateRosterIDs, candidate.RosterID)

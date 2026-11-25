@@ -74,8 +74,9 @@ func (r RecipeRecorder) Fire(ctx context.Context, turn RecipeTurn) {
 		}
 		applyServingMetadata(&event, turn.Served.Metadata)
 		if replayErr != nil {
-			log.Warn("Recipe shadow replay failed", "err", replayErr)
 			event.ShadowError = string(recipeShadowFailureFor(replayErr))
+			log.Warn("Recipe shadow replay failed", "reason", event.ShadowError)
+			log.Debug("Recipe shadow replay error detail", "err", replayErr)
 		} else {
 			event.ShadowModel = pick.Model
 			event.ShadowProvider = pick.Provider
