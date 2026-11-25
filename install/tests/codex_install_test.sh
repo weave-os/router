@@ -987,9 +987,12 @@ cat >"$config" <<'TOML'
 approval_policy = "on-request"
 
 # --- BEGIN WEAVE TELEMETRY (managed by Weave) ---
+
 [otel]
 environment = "prod"
 # --- END WEAVE TELEMETRY (managed by Weave) ---
+[profiles.work]
+model = "gpt-5"
 TOML
 run_install
 run_install
@@ -1001,12 +1004,30 @@ lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
 tomllib.loads("\n".join(lines))
 foreign_begin = lines.index("# --- BEGIN WEAVE TELEMETRY (managed by Weave) ---")
 foreign_end = lines.index("# --- END WEAVE TELEMETRY (managed by Weave) ---")
-assert lines[foreign_begin + 1] == "[otel]", lines[foreign_begin + 1]
+assert lines[foreign_begin + 1 : foreign_begin + 3] == ["", "[otel]"], lines[foreign_begin + 1 : foreign_begin + 3]
 router_end = lines.index("# <<< weave-router managed <<<")
 assert router_end < foreign_begin, (router_end, foreign_begin)
 assert not any("weave-router" in line or "model_provider" in line for line in lines[foreign_begin:foreign_end])
 PY
 assert_top_level_setting model_provider weave
 assert_top_level_setting approval_policy on-request
+
+# A comment above the first header that is not the telemetry begin marker
+# stays where it is: an end marker there closes a region the block must not
+# be pulled into.
+cat >"$config" <<'TOML'
+# --- BEGIN OTHER TOOL ---
+sandbox_mode = "workspace-write"
+# --- END OTHER TOOL ---
+[profiles.work]
+model = "gpt-5"
+TOML
+run_install
+python3 - "$config" <<'PY' || fail "router block was pulled above a comment that closes another region"
+import sys
+
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+assert lines.index("# --- END OTHER TOOL ---") < lines.index("# >>> weave-router managed (do not edit between markers) >>>")
+PY
 
 echo "Codex installer routing regression tests passed"

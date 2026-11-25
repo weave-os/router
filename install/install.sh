@@ -1112,14 +1112,15 @@ $(weave_owned_codex_helpers)
 EOF
     strip_weave_codex_hooks "$tmp" ${owned_helpers[@]+"${owned_helpers[@]}"}
     local first_section
-    # Comment lines directly above the first header belong to it: another
-    # installer's begin marker sits there, and a block spliced between that
-    # marker and its header is deleted the next time that installer rewrites
-    # its own region.
+    # The Weave Codex telemetry plugin opens its marked region with a begin
+    # marker above its first table and deletes everything between its markers
+    # when it reinstalls. When that table is the first header, splice above
+    # the marker so the managed block stays outside the region.
     first_section="$(awk '
-      /^[[:space:]]*\[/ { print (attached_comment ? attached_comment : NR); exit }
-      /^[[:space:]]*#/ { if (!attached_comment) attached_comment = NR; next }
-      { attached_comment = 0 }
+      /^[[:space:]]*\[/ { print (telemetry_begin_line ? telemetry_begin_line : NR); exit }
+      index($0, "# --- BEGIN WEAVE TELEMETRY") == 1 { telemetry_begin_line = NR; next }
+      /^[[:space:]]*(#.*)?$/ { next }
+      { telemetry_begin_line = 0 }
     ' "$tmp")"
     if [ -n "$first_section" ]; then
       # BSD `head -n 0` (macOS default) errors with "illegal line count"
