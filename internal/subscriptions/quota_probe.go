@@ -18,7 +18,7 @@ type QuotaProber interface {
 }
 
 type QuotaReactivationStore interface {
-	ReactivateSubscriptionAccountQuota(context.Context, auth.SubscriptionOwner, string) (bool, error)
+	ReactivateSubscriptionAccountQuota(ctx context.Context, owner auth.SubscriptionOwner, accountID string, probedCooldown time.Time) (bool, error)
 }
 
 func (r *Runtime) WithQuotaProber(prober QuotaProber) *Runtime {
@@ -42,7 +42,7 @@ func (r *Runtime) reactivateRestoredQuota(ctx context.Context, owner auth.Subscr
 		log.Info("Subscription quota still exhausted after refresh", "reset_at", probe.ResetAt)
 		return false
 	}
-	reactivated, err := store.ReactivateSubscriptionAccountQuota(ctx, owner, account.ID)
+	reactivated, err := store.ReactivateSubscriptionAccountQuota(ctx, owner, account.ID, *credentials.CooldownUntil)
 	if err != nil {
 		log.Warn("Subscription quota reactivation failed", "err", err)
 		return false

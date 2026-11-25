@@ -223,7 +223,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	}
 	reqBody = requestcontext.ApplyModelAlias(ctx, reqBody, decision.Model)
 	if useCodex {
-		if err := c.checkCodexIncludedQuota(ctx, gjson.GetBytes(reqBody, "model").String()); err != nil {
+		if err := c.checkCodexIncludedQuota(ctx, gjson.GetBytes(reqBody, "model").String(), c.allowCodexExtraCredits); err != nil {
 			return err
 		}
 	}

@@ -596,6 +596,7 @@ SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier,
        (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
        account.token_refresh_version,
+       account.updated_at,
        -- A successful refresh clears the reason but keeps the rolling strikes.
        (CASE WHEN account.credential_last_rejection_reason IS NULL THEN 0
              ELSE account.credential_rejection_count END)::integer AS credential_rejection_count
@@ -643,6 +644,7 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 	Tier                     string
 	AccessTokenMissing       bool
 	TokenRefreshVersion      int64
+	UpdatedAt                pgtype.Timestamp
 	CredentialRejectionCount int32
 }
 
@@ -668,6 +670,7 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 //	       CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier,
 //	       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
 //	       account.token_refresh_version,
+//	       account.updated_at,
 //	       -- A successful refresh clears the reason but keeps the rolling strikes.
 //	       (CASE WHEN account.credential_last_rejection_reason IS NULL THEN 0
 //	             ELSE account.credential_rejection_count END)::integer AS credential_rejection_count
@@ -716,6 +719,7 @@ func (q *Queries) ListModelRouterSubscriptionCandidates(ctx context.Context, arg
 			&i.Tier,
 			&i.AccessTokenMissing,
 			&i.TokenRefreshVersion,
+			&i.UpdatedAt,
 			&i.CredentialRejectionCount,
 		); err != nil {
 			return nil, err
@@ -1011,15 +1015,18 @@ WHERE id = $1::uuid
        OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
   AND enabled = TRUE
   AND health_state = 'exhausted'
+  AND cooldown_until = $4::timestamp
 `
 
 type ResetModelRouterSubscriptionAccountQuotaParams struct {
-	ID           uuid.UUID
-	SubscriberID pgtype.UUID
-	APIKeyID     pgtype.UUID
+	ID                  uuid.UUID
+	SubscriberID        pgtype.UUID
+	APIKeyID            pgtype.UUID
+	ProbedCooldownUntil pgtype.Timestamp
 }
 
 // Clears a quota exhaustion the provider has confirmed is over before the recorded reset time.
+// The probed cooldown fences out an exhaustion another replica recorded while the probe ran.
 //
 //	UPDATE router.model_router_subscription_accounts
 //	SET health_state = 'active',
@@ -1030,8 +1037,14 @@ type ResetModelRouterSubscriptionAccountQuotaParams struct {
 //	       OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
 //	  AND enabled = TRUE
 //	  AND health_state = 'exhausted'
+//	  AND cooldown_until = $4::timestamp
 func (q *Queries) ResetModelRouterSubscriptionAccountQuota(ctx context.Context, arg ResetModelRouterSubscriptionAccountQuotaParams) (int64, error) {
-	result, err := q.db.Exec(ctx, resetModelRouterSubscriptionAccountQuota, arg.ID, arg.SubscriberID, arg.APIKeyID)
+	result, err := q.db.Exec(ctx, resetModelRouterSubscriptionAccountQuota,
+		arg.ID,
+		arg.SubscriberID,
+		arg.APIKeyID,
+		arg.ProbedCooldownUntil,
+	)
 	if err != nil {
 		return 0, err
 	}

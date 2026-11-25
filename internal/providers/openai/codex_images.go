@@ -52,7 +52,7 @@ func (c *Client) codexImageUpstream(ctx context.Context, operation string, body 
 	subscription := codexSubscriptionCreds(ctx) != nil
 	url := c.baseURL + "/v1/images/" + operation
 	if subscription {
-		if err := c.checkCodexIncludedQuota(ctx, gjson.GetBytes(body, "model").String()); err != nil {
+		if err := c.checkCodexIncludedQuota(ctx, gjson.GetBytes(body, "model").String(), c.allowCodexExtraCredits); err != nil {
 			return nil, err
 		}
 		url = c.codexBaseURL + "/images/" + operation

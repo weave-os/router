@@ -106,3 +106,19 @@ func TestQuotaReactivationReachesReplicaHoldingStaleExhaustion(t *testing.T) {
 	require.True(t, present)
 	lease.Release()
 }
+
+func TestQuotaReactivationKeepsExhaustionRecordedDuringProbe(t *testing.T) {
+	f := newProactiveRefreshFixture(t, false, false)
+	f.accessAt(t, 0)
+	exhaustSeatUntil(f, f.started.Add(3*simulatedDay))
+	liveReset := f.started.Add(4 * simulatedDay)
+	f.runtime.WithQuotaProber(quotaProberFunc(func(context.Context, subscriptions.Provider, string, string) (subscriptions.QuotaProbe, error) {
+		exhaustSeatUntil(f, liveReset)
+		return subscriptions.QuotaProbe{Available: true}, nil
+	}))
+	result, err := f.runtime.RefreshAccount(context.Background(), testOwner, "synthetic-seat")
+	require.NoError(t, err)
+	require.False(t, result.QuotaReactivated, "an exhaustion recorded after the probe read state is newer evidence")
+	require.Equal(t, auth.SubscriptionAccountStateExhausted, f.store.accounts[0].State)
+	require.Equal(t, liveReset, *f.store.accounts[0].CooldownUntil)
+}
