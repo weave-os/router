@@ -65,7 +65,7 @@ func (c *userPartCollector) skip(partType string) bool {
 	return true
 }
 
-func (c *userPartCollector) result(src Format, target, reason string) ([]string, error) {
+func (c *userPartCollector) finish(src Format, target, reason string) ([]string, error) {
 	if c.err != nil {
 		return nil, c.err
 	}
@@ -102,7 +102,7 @@ func writeAnthropicUserContentValue(jw *jsonWriter, content gjson.Result) error 
 	content.ForEach(func(_, part gjson.Result) bool {
 		return anthropicBlockFromOpenAIPart(&collector, part)
 	})
-	blocks, err := collector.result(FormatOpenAI, "anthropic", "no Anthropic equivalent; the message would be sent with no content")
+	blocks, err := collector.finish(FormatOpenAI, "anthropic", "no Anthropic equivalent; the message would be sent with no content")
 	if err != nil {
 		return err
 	}
@@ -203,7 +203,7 @@ func openAIUserPartsGJSON(content gjson.Result) ([]string, error) {
 		content.ForEach(func(_, part gjson.Result) bool {
 			return geminiPartFromOpenAI(&collector, part)
 		})
-		return collector.result(FormatOpenAI, "gemini", "no Gemini equivalent; the message would be sent with no content")
+		return collector.finish(FormatOpenAI, "gemini", "no Gemini equivalent; the message would be sent with no content")
 	default:
 	}
 	return nil, nil
@@ -292,7 +292,7 @@ func anthropicUserPartsGJSON(content gjson.Result, toolNames map[string]string) 
 		content.ForEach(func(_, block gjson.Result) bool {
 			return geminiPartFromAnthropic(&collector, block, toolNames)
 		})
-		return collector.result(FormatAnthropic, "gemini", "no Gemini equivalent; the message would be sent with no content")
+		return collector.finish(FormatAnthropic, "gemini", "no Gemini equivalent; the message would be sent with no content")
 	default:
 	}
 	return nil, nil
