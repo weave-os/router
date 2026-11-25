@@ -1130,8 +1130,8 @@ EOF
         if [ "$telemetry_begin_line" -gt 1 ]; then
           head -n "$((telemetry_begin_line - 1))" "$tmp"
         fi
-        awk -v begin="$telemetry_begin_line" -v header="$first_section" \
-          'NR > begin && NR < header && !/^[[:space:]]*(#.*)?$/' "$tmp"
+        awk -v begin="$telemetry_begin_line" -v table_line="$first_section" \
+          'NR > begin && NR < table_line && !/^[[:space:]]*(#.*)?$/' "$tmp"
         printf "%s\n" "$codex_insertion"
         awk -v begin="$telemetry_begin_line" 'NR == begin' "$tmp"
         tail -n "+${first_section}" "$tmp"
