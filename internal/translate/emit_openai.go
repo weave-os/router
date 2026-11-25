@@ -270,7 +270,9 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 		jw.Raw(r.Raw)
 	}
 
-	writeOpenAISystemAndMessagesFromAnthropic(jw, body, opts)
+	if err := writeOpenAISystemAndMessagesFromAnthropic(jw, body, opts); err != nil {
+		return nil, stats, err
+	}
 
 	if r := gjson.GetBytes(body, "stop_sequences"); r.Exists() &&
 		!opts.Capabilities.Supports(router.CapReasoning) {
@@ -412,7 +414,7 @@ func applyQwen3SamplersIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
 	return body, nil
 }
 
-func writeOpenAISystemAndMessagesFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) {
+func writeOpenAISystemAndMessagesFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) error {
 	systemText := flattenAnthropicSystemGJSON(gjson.GetBytes(body, "system"))
 	if targetIsOpenRouter(opts) && hasNonEmptyTools(body) {
 		if reminder := openRouterSystemReminder(opts.TargetModel); reminder != "" {
@@ -436,18 +438,23 @@ func writeOpenAISystemAndMessagesFromAnthropic(jw *jsonWriter, body []byte, opts
 		jw.EndObj()
 	}
 
+	var walkErr error
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		role := msg.Get("role").String()
 		switch role {
 		case "assistant":
 			writeOpenAIAssistantFromAnthropic(jw, msg)
 		default:
-			writeOpenAIUserFromAnthropic(jw, msg)
+			if err := writeOpenAIUserFromAnthropic(jw, msg); err != nil {
+				walkErr = err
+				return false
+			}
 		}
 		return true
 	})
 
 	jw.EndArr()
+	return walkErr
 }
 
 func flattenAnthropicSystemGJSON(system gjson.Result) string {
@@ -556,7 +563,7 @@ func buildOpenAIToolCall(block gjson.Result) string {
 	return string(inner.Bytes())
 }
 
-func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
+func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) error {
 	content := msg.Get("content")
 	switch content.Type {
 	case gjson.String:
@@ -566,20 +573,23 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 		jw.Key("content")
 		jw.Raw(content.Raw)
 		jw.EndObj()
-		return
+		return nil
 	case gjson.JSON:
 		if !content.IsArray() {
-			return
+			return nil
 		}
 	default:
-		return
+		return nil
 	}
 
 	var toolResultRaws []string
 	var userPartRaws []string
+	var walkErr error
+	skippedType := ""
 
 	content.ForEach(func(_, block gjson.Result) bool {
-		switch block.Get("type").String() {
+		blockType := block.Get("type").String()
+		switch blockType {
 		case "tool_result":
 			toolResultRaws = append(toolResultRaws, buildOpenAIToolResultMessage(block))
 			block.Get("content").ForEach(func(_, inner gjson.Result) bool {
@@ -602,17 +612,39 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 		case "image":
 			if part := buildOpenAIImagePart(block); part != "" {
 				userPartRaws = append(userPartRaws, part)
+			} else if skippedType == "" {
+				skippedType = blockType
+			}
+		case "document":
+			part, err := buildOpenAIFilePartFromAnthropicDocument(block)
+			if err != nil {
+				walkErr = err
+				return false
+			}
+			userPartRaws = append(userPartRaws, part)
+		case "container_upload":
+			walkErr = newUnsupportedUserPart(FormatAnthropic, "openai", "container_upload", "cross-provider file ids cannot be forwarded")
+			return false
+		default:
+			if skippedType == "" {
+				skippedType = blockType
 			}
 		}
 		return true
 	})
+	if walkErr != nil {
+		return walkErr
+	}
+	if len(toolResultRaws) == 0 && len(userPartRaws) == 0 && skippedType != "" {
+		return newUnsupportedUserPart(FormatAnthropic, "openai", skippedType, "no OpenAI Chat equivalent; the message would be sent with no content")
+	}
 
 	for _, raw := range toolResultRaws {
 		jw.Raw(raw)
 	}
 
 	if len(userPartRaws) == 0 {
-		return
+		return nil
 	}
 
 	if len(userPartRaws) == 1 {
@@ -624,7 +656,7 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 			jw.Key("content")
 			jw.Str(p.Get("text").String())
 			jw.EndObj()
-			return
+			return nil
 		}
 	}
 
@@ -638,6 +670,7 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 	}
 	jw.EndArr()
 	jw.EndObj()
+	return nil
 }
 
 func buildOpenAIToolResultMessage(block gjson.Result) string {
@@ -651,6 +684,40 @@ func buildOpenAIToolResultMessage(block gjson.Result) string {
 	inner.Str(toolResultContentGJSON(block.Get("content")))
 	inner.EndObj()
 	return string(inner.Bytes())
+}
+
+func buildOpenAIFilePartFromAnthropicDocument(block gjson.Result) (string, error) {
+	src := block.Get("source")
+	if src.Get("type").String() != "base64" {
+		return "", newUnsupportedUserPart(FormatAnthropic, "openai", "document", "url-source documents cannot be fetched by the router")
+	}
+	data := src.Get("data").String()
+	if data == "" || !isValidBase64(data) {
+		return "", newUnsupportedUserPart(FormatAnthropic, "openai", "document", "document source.data is missing or not valid base64")
+	}
+	mediaType := src.Get("media_type").String()
+	if mediaType == "" {
+		mediaType = "application/pdf"
+	}
+	filename := block.Get("title").String()
+	if filename == "" && mediaType == "application/pdf" {
+		filename = "document.pdf"
+	}
+	inner := newJSONWriter()
+	inner.Obj()
+	inner.Key("type")
+	inner.Str("file")
+	inner.Key("file")
+	inner.Obj()
+	if filename != "" {
+		inner.Key("filename")
+		inner.Str(filename)
+	}
+	inner.Key("file_data")
+	inner.Str("data:" + mediaType + ";base64," + data)
+	inner.EndObj()
+	inner.EndObj()
+	return string(inner.Bytes()), nil
 }
 
 func buildOpenAIImagePart(block gjson.Result) string {
