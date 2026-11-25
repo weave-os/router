@@ -10,10 +10,10 @@
 --
 -- The swap waits for its lock at most 250ms per attempt, below the application
 -- pool's 1s lock_timeout, so a queued ALTER never stalls live admissions behind
--- it. A timed-out attempt rolls back and is retried (up to 40 times, 0.5s
--- apart) inside the migration, so a transient reader does not leave the
--- migration dirty. The validation step takes no lock that blocks readers or
--- writers, so it waits without a bound.
+-- it. A timed-out attempt rolls back and is retried inside the migration (up
+-- to 40 times, with jittered exponential backoff capped at 2s), so a transient
+-- reader does not leave the migration dirty. The validation step takes no lock
+-- that blocks readers or writers, so it waits without a bound.
 BEGIN;
 
 DO $swap$
@@ -38,7 +38,7 @@ BEGIN
             IF attempt = 40 THEN
                 RAISE;
             END IF;
-            PERFORM pg_sleep(0.5);
+            PERFORM pg_sleep(least(0.1 * power(2, attempt - 1), 2) * (0.5 + random()));
         END;
     END LOOP;
 END

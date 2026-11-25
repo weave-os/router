@@ -3,7 +3,8 @@
 --
 -- The first step swaps in the narrow constraints as NOT VALID, waiting for its
 -- lock at most 250ms per attempt (below the application pool's 1s lock_timeout)
--- and retrying a timed-out attempt up to 40 times inside the migration. From
+-- and retrying a timed-out attempt inside the migration (up to 40 times, with
+-- jittered exponential backoff capped at 2s). From
 -- its commit on, no new prod/beta row can be written. The second transaction
 -- then removes the prod/beta rows written before that commit and validates.
 -- It takes only ROW EXCLUSIVE and SHARE UPDATE EXCLUSIVE, which block neither
@@ -40,7 +41,7 @@ BEGIN
             IF attempt = 40 THEN
                 RAISE;
             END IF;
-            PERFORM pg_sleep(0.5);
+            PERFORM pg_sleep(least(0.1 * power(2, attempt - 1), 2) * (0.5 + random()));
         END;
     END LOOP;
 END
