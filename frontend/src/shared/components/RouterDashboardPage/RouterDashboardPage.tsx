@@ -3,7 +3,11 @@
 import { isUnavailable, useRouterDashboardDataSource } from "../../data";
 import { RouterDashboardSlot, RouterDashboardSlotName } from "../../slots";
 import { Text } from "../atoms/Text";
-import { DashboardPageFilters, useDashboardFilters } from "../DashboardPageFilters";
+import {
+  type DashboardDateMenuControl,
+  DashboardPageFilters,
+  useDashboardFilters,
+} from "../DashboardPageFilters";
 import { Page } from "../Page";
 import { PageHeader } from "../PageHeader";
 import { RouterConnectHrefProvider } from "../RouterConnectEmptyState";
@@ -14,6 +18,7 @@ import { RouterOverviewTabPanel } from "./RouterOverviewTabPanel";
 export interface RouterDashboardPageProps {
   /** Where an empty chart's "Connect Weave Router" button goes. */
   connectHref?: string;
+  dateMenu?: DashboardDateMenuControl;
   /** Where the savings card's "How we measure" link goes. */
   methodologyHref?: string;
   /** The "Router cost & savings" heading, for hosts that move focus to it. */
@@ -22,6 +27,7 @@ export interface RouterDashboardPageProps {
 
 export function RouterDashboardPage({
   connectHref,
+  dateMenu,
   headingRef,
   methodologyHref,
 }: RouterDashboardPageProps) {
@@ -34,9 +40,12 @@ export function RouterDashboardPage({
       header={
         <PageHeader
           left={
-            <Text ref={headingRef} tabIndex={-1} variant="h4" as="h2" className="truncate">
-              Router cost &amp; savings
-            </Text>
+            <div className="flex min-w-0 items-center gap-2">
+              <Text ref={headingRef} tabIndex={-1} variant="h4" as="h2" className="truncate">
+                Router cost &amp; savings
+              </Text>
+              <RouterDashboardSlot name={RouterDashboardSlotName.DashboardTitleAccessory} />
+            </div>
           }
           leftColumnClassName="truncate"
           right={
@@ -49,7 +58,9 @@ export function RouterDashboardPage({
       tabs={<RouterOverviewTabs showSubscriptions={showSubscriptions} />}
     >
       {/* The subscription pool shows current limits, so date filters don't apply. */}
-      {tab !== RouterOverviewTab.Subscriptions && <DashboardPageFilters result={filters} />}
+      {tab !== RouterOverviewTab.Subscriptions && (
+        <DashboardPageFilters dateMenu={dateMenu} result={filters} />
+      )}
 
       <Page.Section className="pt-0">
         <RouterConnectHrefProvider value={connectHref}>

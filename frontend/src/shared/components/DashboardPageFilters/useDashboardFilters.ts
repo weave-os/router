@@ -1,127 +1,127 @@
 "use client";
 
-import { addDays, addMonths, addWeeks, startOfDay, startOfMonth, startOfWeek } from "date-fns";
+import { differenceInCalendarDays, subDays } from "date-fns";
 
 import { useCallback, useMemo, useState } from "react";
 
+import { useRouterDashboardDataSource } from "../../data";
+import { DateScalar } from "../../objects/DateScalar";
+import { DateFilter, Filter } from "../../tools/dateFilter";
+import {
+  addGranularity,
+  startOfGranularity,
+  TimeGranularity,
+  type WeekStartsOn,
+} from "../../tools/timeGranularity";
+
 export type Granularity = "hour" | "day" | "week";
 
-export interface DateRange {
-  /** Stable key used in the dropdown and persisted state. */
-  id: string;
-  label: string;
-  /** Pill text for the selected range, e.g. "since October 22"; defaults to the lowercased label. */
-  pillLabel?: (start: Date) => string;
-  /** Default granularity if the user hasn't picked one explicitly. */
-  defaultGranularity: Granularity;
-  start: (now: Date) => Date;
+export const GRANULARITY_OPTIONS: readonly Granularity[] = ["hour", "day", "week"];
+
+/** Hosted hides daily (and finer) buckets for ranges longer than this or with no start. */
+const DAY_GRANULARITY_MAX_DAYS = 45;
+
+const LONG_RANGE_GRANULARITIES: readonly Granularity[] = ["week"];
+
+export function availableGranularities(dateFilter: DateFilter): readonly Granularity[] {
+  if (dateFilter.start == null) return LONG_RANGE_GRANULARITIES;
+  const days = differenceInCalendarDays(
+    DateScalar.toDate(dateFilter.end ?? DateScalar.today()),
+    DateScalar.toDate(dateFilter.start),
+  );
+  return days > DAY_GRANULARITY_MAX_DAYS ? LONG_RANGE_GRANULARITIES : GRANULARITY_OPTIONS;
 }
 
-const MONTH_DAY = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "long" });
+/** Widens `filter` to whole weeks for weekly buckets, as hosted's `snapDateFilterToGranularity`. */
+export function snapDateFilterToGranularity(
+  filter: DateFilter,
+  granularity: Granularity,
+  weekStartsOn: WeekStartsOn,
+): DateFilter {
+  if (granularity !== "week") return filter;
+  const snap = (date: DateScalar) =>
+    DateScalar.fromDate(
+      startOfGranularity(DateScalar.toDate(date), TimeGranularity.Week, weekStartsOn),
+    );
+  const start = filter.start != null ? snap(filter.start) : undefined;
+  let end = filter.end != null ? snap(filter.end) : undefined;
+  if (end != null && end !== filter.end) {
+    end = DateScalar.fromDate(addGranularity(DateScalar.toDate(end), TimeGranularity.Week, 1));
+  }
+  return start === filter.start && end === filter.end ? filter : Filter.date(start, end);
+}
 
 /** Days the hosted Router dashboard looks back by default, today included. */
 const ROUTER_DASHBOARD_LOOKBACK_DAYS = 14;
 
-/**
- * Mirrors WorkWeave's default date filter set (week- and month-anchored
- * windows ending at "now"), trimmed to the granularities the router
- * supports.
- */
-export const DATE_RANGES: readonly DateRange[] = [
-  {
-    id: "last-14-days",
-    label: "Last 14 days",
-    pillLabel: start => `since ${MONTH_DAY.format(start)}`,
-    defaultGranularity: "day",
-    start: now => startOfDay(addDays(now, -(ROUTER_DASHBOARD_LOOKBACK_DAYS - 1))),
-  },
-  {
-    id: "this-week",
-    label: "This week",
-    defaultGranularity: "day",
-    start: now => startOfWeek(now, { weekStartsOn: 1 }),
-  },
-  {
-    id: "last-month",
-    label: "Last month",
-    defaultGranularity: "day",
-    start: now => addWeeks(startOfWeek(now, { weekStartsOn: 1 }), -4),
-  },
-  {
-    id: "last-2-months",
-    label: "Last 2 months",
-    defaultGranularity: "day",
-    start: now => addWeeks(startOfWeek(now, { weekStartsOn: 1 }), -8),
-  },
-  {
-    id: "last-3-months",
-    label: "Last 3 months",
-    defaultGranularity: "day",
-    start: now => addWeeks(startOfWeek(now, { weekStartsOn: 1 }), -12),
-  },
-  {
-    id: "last-5-months",
-    label: "Last 5 months",
-    defaultGranularity: "day",
-    start: now => addMonths(startOfMonth(now), -5),
-  },
-  {
-    id: "last-11-months",
-    label: "Last 11 months",
-    defaultGranularity: "day",
-    start: now => addMonths(startOfMonth(now), -11),
-  },
-] as const;
+const defaultStart = () =>
+  DateScalar.fromDate(subDays(new Date(), ROUTER_DASHBOARD_LOOKBACK_DAYS - 1));
 
-export const DEFAULT_RANGE_ID = "last-14-days";
+const defaultDateFilter = () => Filter.date(defaultStart());
+
+export function isDefaultDateFilter(filter: DateFilter) {
+  return filter.start === defaultStart() && filter.end == null;
+}
 
 export interface UseDashboardFiltersResult {
   filters: {
-    range: DateRange;
+    dateFilter: DateFilter;
     granularity: Granularity;
     fromISO: string;
-    /** ISO timestamp of the range end (now). */
+    /** ISO timestamp of the range end: the exclusive end day, or now for open ranges. */
     toISO: string;
   };
-  setRangeId: (id: string) => void;
+  setDateFilter: (start?: DateScalar, end?: DateScalar) => void;
+  resetDateFilter: () => void;
   setGranularity: (g: Granularity) => void;
+  granularityOptions: readonly Granularity[];
 }
 
 /**
  * Router-local filter state. Mirrors WW's useDashboardPageFilters /
  * useGranularitySelector contract but without nuqs/PostHog/GraphQL.
- * Granularity defaults from the selected range; the user can override
- * it with setGranularity, and the override is reset whenever the range
- * changes.
+ * Dates follow hosted's date filter: a start day and an optional exclusive end day.
  */
-export function useDashboardFilters(
-  initialRangeId: string = DEFAULT_RANGE_ID,
-): UseDashboardFiltersResult {
-  const [rangeId, setRangeIdState] = useState(initialRangeId);
-  const [granularityOverride, setGranularityOverride] = useState<Granularity | null>(null);
+export function useDashboardFilters(): UseDashboardFiltersResult {
+  const { weekStartsOn } = useRouterDashboardDataSource();
+  const [dateFilter, setDateFilterState] = useState(defaultDateFilter);
+  const [selectedGranularity, setSelectedGranularity] = useState<Granularity>("day");
+  const granularityOptions = availableGranularities(dateFilter);
+  const granularity = granularityOptions.includes(selectedGranularity)
+    ? selectedGranularity
+    : granularityOptions[0];
 
-  const range = useMemo(() => DATE_RANGES.find(r => r.id === rangeId) ?? DATE_RANGES[0], [rangeId]);
-  const granularity = granularityOverride ?? range.defaultGranularity;
+  const setGranularity = useCallback(
+    (next: Granularity) => {
+      setDateFilterState(current => snapDateFilterToGranularity(current, next, weekStartsOn));
+      setSelectedGranularity(next);
+    },
+    [weekStartsOn],
+  );
 
-  const setRangeId = useCallback((id: string) => {
-    setRangeIdState(id);
-    setGranularityOverride(null);
-  }, []);
-
-  const setGranularity = useCallback((g: Granularity) => {
-    setGranularityOverride(g);
-  }, []);
+  const setDateFilter = useCallback(
+    (start?: DateScalar, end?: DateScalar) => setDateFilterState(Filter.date(start, end)),
+    [],
+  );
+  const resetDateFilter = useCallback(() => setDateFilterState(defaultDateFilter()), []);
 
   const { fromISO, toISO } = useMemo(() => {
-    // oxlint-disable-next-line react/purity -- a range is anchored to the moment it was picked.
-    const to = new Date();
-    const from = range.start(to);
-    return { fromISO: from.toISOString(), toISO: to.toISOString() };
-  }, [range]);
+    // oxlint-disable-next-line react/purity -- an open range is anchored to the moment it was picked.
+    const to = dateFilter.end != null ? DateScalar.toDate(dateFilter.end) : new Date();
+    return {
+      fromISO: (dateFilter.start != null
+        ? DateScalar.toDate(dateFilter.start)
+        : new Date(0)
+      ).toISOString(),
+      toISO: to.toISOString(),
+    };
+  }, [dateFilter]);
 
   return {
-    filters: { range, granularity, fromISO, toISO },
-    setRangeId,
+    filters: { dateFilter, granularity, fromISO, toISO },
+    setDateFilter,
+    resetDateFilter,
     setGranularity,
+    granularityOptions,
   };
 }
