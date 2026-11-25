@@ -60,16 +60,34 @@ func (c *userPartCollector) fail(err error) bool {
 
 func (c *userPartCollector) skip(partType string) bool {
 	if c.skippedType == "" {
-		c.skippedType = partType
+		c.skippedType = reportableUserPartType(partType)
 	}
 	return true
+}
+
+var reportableUserPartTypes = map[string]bool{
+	"text":             true,
+	"image":            true,
+	"image_url":        true,
+	"file":             true,
+	"input_file":       true,
+	"input_audio":      true,
+	"document":         true,
+	"container_upload": true,
+}
+
+func reportableUserPartType(partType string) string {
+	if reportableUserPartTypes[partType] {
+		return partType
+	}
+	return "unknown"
 }
 
 func (c *userPartCollector) finish(src Format, target, reason string) ([]string, error) {
 	if c.err != nil {
 		return nil, c.err
 	}
-	if len(c.parts) == 0 && c.skippedType != "" {
+	if c.skippedType != "" {
 		return nil, newUnsupportedUserPart(src, target, c.skippedType, reason)
 	}
 	return c.parts, nil
@@ -102,7 +120,7 @@ func writeAnthropicUserContentValue(jw *jsonWriter, content gjson.Result) error 
 	content.ForEach(func(_, part gjson.Result) bool {
 		return anthropicBlockFromOpenAIPart(&collector, part)
 	})
-	blocks, err := collector.finish(FormatOpenAI, "anthropic", "no Anthropic equivalent; the message would be sent with no content")
+	blocks, err := collector.finish(FormatOpenAI, "anthropic", "no Anthropic equivalent; the part would be dropped")
 	if err != nil {
 		return err
 	}
@@ -203,7 +221,7 @@ func openAIUserPartsGJSON(content gjson.Result) ([]string, error) {
 		content.ForEach(func(_, part gjson.Result) bool {
 			return geminiPartFromOpenAI(&collector, part)
 		})
-		return collector.finish(FormatOpenAI, "gemini", "no Gemini equivalent; the message would be sent with no content")
+		return collector.finish(FormatOpenAI, "gemini", "no Gemini equivalent; the part would be dropped")
 	default:
 	}
 	return nil, nil
@@ -292,7 +310,7 @@ func anthropicUserPartsGJSON(content gjson.Result, toolNames map[string]string) 
 		content.ForEach(func(_, block gjson.Result) bool {
 			return geminiPartFromAnthropic(&collector, block, toolNames)
 		})
-		return collector.finish(FormatAnthropic, "gemini", "no Gemini equivalent; the message would be sent with no content")
+		return collector.finish(FormatAnthropic, "gemini", "no Gemini equivalent; the part would be dropped")
 	default:
 	}
 	return nil, nil
@@ -317,7 +335,7 @@ func geminiPartFromAnthropic(c *userPartCollector, block gjson.Result, toolNames
 		}
 		return c.add(geminiInlineDataPart(mime, data), nil)
 	case "document":
-		return c.add(geminiInlineDataFromAnthropicDocument(block.Get("source")))
+		return c.add(geminiInlineDataFromAnthropicDocument(block))
 	case "container_upload":
 		return c.fail(newUnsupportedUserPart(FormatAnthropic, "gemini", "container_upload", "cross-provider file ids cannot be forwarded"))
 	case "tool_result":
@@ -331,13 +349,37 @@ func geminiPartFromAnthropic(c *userPartCollector, block gjson.Result, toolNames
 	}
 }
 
-func geminiInlineDataFromAnthropicDocument(source gjson.Result) (string, error) {
-	if source.Get("type").String() != "base64" {
-		return "", newUnsupportedUserPart(FormatAnthropic, "gemini", "document", "url-source documents cannot be fetched by the router")
+func anthropicDocumentSourceError(block gjson.Result, target string) error {
+	src := block.Get("source")
+	data := src.Get("data").String()
+	switch src.Get("type").String() {
+	case "base64":
+		if data == "" || !isValidBase64(data) {
+			return newUnsupportedUserPart(FormatAnthropic, target, "document", "document source.data is missing or not valid base64")
+		}
+	case "text":
+		if data == "" {
+			return newUnsupportedUserPart(FormatAnthropic, target, "document", "text document source.data is missing")
+		}
+		if block.Get("citations.enabled").Bool() {
+			return newUnsupportedUserPart(FormatAnthropic, target, "document", "document citations cannot be represented on this target")
+		}
+	case "url":
+		return newUnsupportedUserPart(FormatAnthropic, target, "document", "url-source documents cannot be fetched by the router")
+	default:
+		return newUnsupportedUserPart(FormatAnthropic, target, "document", "only base64 and text document sources can be translated")
 	}
+	return nil
+}
+
+func geminiInlineDataFromAnthropicDocument(block gjson.Result) (string, error) {
+	if err := anthropicDocumentSourceError(block, "gemini"); err != nil {
+		return "", err
+	}
+	source := block.Get("source")
 	data := source.Get("data").String()
-	if data == "" || !isValidBase64(data) {
-		return "", newUnsupportedUserPart(FormatAnthropic, "gemini", "document", "document source.data is missing or not valid base64")
+	if source.Get("type").String() == "text" {
+		return geminiTextPart(data), nil
 	}
 	mime := source.Get("media_type").String()
 	if mime == "" {
@@ -361,14 +403,7 @@ func openAIPartFromAnthropicBlock(c *userPartCollector, toolResultRaws *[]string
 		})
 		return true
 	case "text":
-		inner := newJSONWriter()
-		inner.Obj()
-		inner.Key("type")
-		inner.Str("text")
-		inner.Key("text")
-		inner.Str(block.Get("text").String())
-		inner.EndObj()
-		return c.add(string(inner.Bytes()), nil)
+		return c.add(buildOpenAITextPart(block.Get("text").String()), nil)
 	case "image":
 		if part := buildOpenAIImagePart(block); part != "" {
 			return c.add(part, nil)
@@ -383,14 +418,25 @@ func openAIPartFromAnthropicBlock(c *userPartCollector, toolResultRaws *[]string
 	}
 }
 
+func buildOpenAITextPart(text string) string {
+	inner := newJSONWriter()
+	inner.Obj()
+	inner.Key("type")
+	inner.Str("text")
+	inner.Key("text")
+	inner.Str(text)
+	inner.EndObj()
+	return string(inner.Bytes())
+}
+
 func buildOpenAIFilePartFromAnthropicDocument(block gjson.Result) (string, error) {
-	src := block.Get("source")
-	if src.Get("type").String() != "base64" {
-		return "", newUnsupportedUserPart(FormatAnthropic, "openai", "document", "url-source documents cannot be fetched by the router")
+	if err := anthropicDocumentSourceError(block, "openai"); err != nil {
+		return "", err
 	}
+	src := block.Get("source")
 	data := src.Get("data").String()
-	if data == "" || !isValidBase64(data) {
-		return "", newUnsupportedUserPart(FormatAnthropic, "openai", "document", "document source.data is missing or not valid base64")
+	if src.Get("type").String() == "text" {
+		return buildOpenAITextPart(data), nil
 	}
 	mediaType := src.Get("media_type").String()
 	if mediaType == "" {

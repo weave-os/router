@@ -591,12 +591,9 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) error {
 	content.ForEach(func(_, block gjson.Result) bool {
 		return openAIPartFromAnthropicBlock(&collector, &toolResultRaws, block)
 	})
-	if collector.err != nil {
-		return collector.err
-	}
-	userPartRaws := collector.parts
-	if len(toolResultRaws) == 0 && len(userPartRaws) == 0 && collector.skippedType != "" {
-		return newUnsupportedUserPart(FormatAnthropic, "openai", collector.skippedType, "no OpenAI Chat equivalent; the message would be sent with no content")
+	userPartRaws, err := collector.finish(FormatAnthropic, "openai", "no OpenAI Chat equivalent; the part would be dropped")
+	if err != nil {
+		return err
 	}
 
 	for _, raw := range toolResultRaws {
