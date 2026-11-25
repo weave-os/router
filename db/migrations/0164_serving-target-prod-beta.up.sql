@@ -7,7 +7,11 @@
 -- transaction validates under SHARE UPDATE EXCLUSIVE, which lets reads and
 -- writes continue during the scan. Validation cannot fail: the new set is a
 -- superset of the old one, which every existing row already satisfies.
+-- Each transaction gives up after lock_timeout rather than queueing behind a
+-- long reader, since a queued ALTER blocks every admission and telemetry write.
 BEGIN;
+
+SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE router.session_release_bindings
     DROP CONSTRAINT session_release_bindings_target_check;
@@ -26,6 +30,8 @@ ALTER TABLE router.model_router_request_telemetry
 COMMIT;
 
 BEGIN;
+
+SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE router.session_release_bindings
     VALIDATE CONSTRAINT session_release_bindings_target_check;
