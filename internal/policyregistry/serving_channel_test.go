@@ -13,24 +13,24 @@ func TestChannelAdmissionKeepsEnrollmentTargetForStableAndInternal(t *testing.T)
 
 	beta := []ChannelPermission{{Channel: ChannelBeta, Generation: 4}}
 	for _, test := range []struct {
-		name        string
-		worker      ServingTarget
-		enrolled    ServingTarget
-		permissions []ChannelPermission
+		name           string
+		worker         ServingTarget
+		enrolledTarget ServingTarget
+		permissions    []ChannelPermission
 	}{
-		{name: "unscoped tooling", enrolled: TargetInternal},
-		{name: "stable worker, default access", worker: TargetStable, enrolled: TargetStable},
-		{name: "stable worker, beta holder", worker: TargetStable, enrolled: TargetStable, permissions: beta},
-		{name: "stable worker, staff enrollment", worker: TargetStable, enrolled: TargetInternal},
-		{name: "internal worker, staff enrollment", worker: TargetInternal, enrolled: TargetInternal, permissions: beta},
-		{name: "internal worker, customer", worker: TargetInternal, enrolled: TargetStable, permissions: beta},
+		{name: "unscoped tooling", enrolledTarget: TargetInternal},
+		{name: "stable worker, default access", worker: TargetStable, enrolledTarget: TargetStable},
+		{name: "stable worker, beta holder", worker: TargetStable, enrolledTarget: TargetStable, permissions: beta},
+		{name: "stable worker, staff enrollment", worker: TargetStable, enrolledTarget: TargetInternal},
+		{name: "internal worker, staff enrollment", worker: TargetInternal, enrolledTarget: TargetInternal, permissions: beta},
+		{name: "internal worker, customer", worker: TargetInternal, enrolledTarget: TargetStable, permissions: beta},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			channel, _ := test.worker.Channel()
-			resolution, err := ChannelAdmission{Worker: test.worker, WorkerChannel: channel, Enrolled: test.enrolled, Permissions: test.permissions}.ResolveTarget()
+			resolution, err := ChannelAdmission{Worker: test.worker, WorkerChannel: channel, EnrolledTarget: test.enrolledTarget, Permissions: test.permissions}.ResolveTarget()
 			require.NoError(t, err)
-			assert.Equal(t, ChannelResolution{Target: test.enrolled}, resolution, "a permission row must never move stable or internal admission")
+			assert.Equal(t, ChannelResolution{Target: test.enrolledTarget}, resolution, "a permission row must never move stable or internal admission")
 		})
 	}
 }
@@ -39,10 +39,10 @@ func TestChannelAdmissionBetaFailsClosedWithoutItsPermission(t *testing.T) {
 	t.Parallel()
 
 	for _, permissions := range [][]ChannelPermission{nil, {{Channel: ChannelStable, Generation: 1}}} {
-		_, err := ChannelAdmission{Worker: TargetBeta, WorkerChannel: ChannelBeta, Enrolled: TargetInternal, Permissions: permissions}.ResolveTarget()
+		_, err := ChannelAdmission{Worker: TargetBeta, WorkerChannel: ChannelBeta, EnrolledTarget: TargetInternal, Permissions: permissions}.ResolveTarget()
 		require.ErrorIs(t, err, ErrServingChannelNotPermitted, "internal enrollment must not grant beta")
 	}
-	resolution, err := ChannelAdmission{Worker: TargetBeta, WorkerChannel: ChannelBeta, Enrolled: TargetStable, Permissions: []ChannelPermission{{Channel: ChannelBeta, Generation: 3}}}.ResolveTarget()
+	resolution, err := ChannelAdmission{Worker: TargetBeta, WorkerChannel: ChannelBeta, EnrolledTarget: TargetStable, Permissions: []ChannelPermission{{Channel: ChannelBeta, Generation: 3}}}.ResolveTarget()
 	require.NoError(t, err)
 	assert.Equal(t, ChannelResolution{Target: TargetBeta, Generation: 3}, resolution)
 }
@@ -60,13 +60,13 @@ func TestRejectSessionChannelChangeOnlyAcrossHostDecidedTargets(t *testing.T) {
 func TestParseServingChannelAcceptsOnlyKnownChannels(t *testing.T) {
 	t.Parallel()
 
-	for _, value := range []string{"stable", "beta", "internal"} {
-		channel, err := ParseServingChannel(value)
-		require.NoError(t, err)
-		assert.Equal(t, ServingChannel(value), channel)
+	channel, err := ParseServingChannel("beta")
+	require.NoError(t, err)
+	assert.Equal(t, ChannelBeta, channel)
+	for _, value := range []string{"hmm_beta", "stable", "internal"} {
+		_, err := ParseServingChannel(value)
+		require.Error(t, err, "%q is not a channel a permission row can carry", value)
 	}
-	_, err := ParseServingChannel("hmm_beta")
-	require.Error(t, err, "a strategy name is not a channel")
 }
 
 func TestExperimentalRoutingModelsStayInternalOnly(t *testing.T) {

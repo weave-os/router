@@ -55,7 +55,7 @@ func (r *ServingAdmissionRepo) projectServingTarget(ctx context.Context, queries
 	if err != nil {
 		return policyregistry.AdmissionProjection{}, err
 	}
-	resolution, err := policyregistry.ChannelAdmission{Worker: r.worker, WorkerChannel: r.workerChannel, Enrolled: projection.Target, Permissions: permissions}.ResolveTarget()
+	resolution, err := policyregistry.ChannelAdmission{Worker: r.worker, WorkerChannel: r.workerChannel, EnrolledTarget: projection.Target, Permissions: permissions}.ResolveTarget()
 	if err != nil {
 		return policyregistry.AdmissionProjection{}, err
 	}

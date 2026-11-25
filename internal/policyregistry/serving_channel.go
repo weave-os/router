@@ -18,9 +18,8 @@ var ErrServingChannelNotPermitted = errors.New("installation is not permitted on
 var ErrServingChannelChanged = errors.New("start a new conversation to change serving channel")
 
 func ParseServingChannel(value string) (ServingChannel, error) {
-	switch channel := ServingChannel(value); channel {
-	case ChannelStable, ChannelBeta, ChannelInternal:
-		return channel, nil
+	if ServingChannel(value) == ChannelBeta {
+		return ChannelBeta, nil
 	}
 	return "", fmt.Errorf("unknown serving channel %q", value)
 }
@@ -42,10 +41,10 @@ type ChannelPermission struct {
 }
 
 type ChannelAdmission struct {
-	Worker        ServingTarget
-	WorkerChannel ServingChannel
-	Enrolled      ServingTarget
-	Permissions   []ChannelPermission
+	Worker         ServingTarget
+	WorkerChannel  ServingChannel
+	EnrolledTarget ServingTarget
+	Permissions    []ChannelPermission
 }
 
 type ChannelResolution struct {
@@ -55,7 +54,7 @@ type ChannelResolution struct {
 
 func (a ChannelAdmission) ResolveTarget() (ChannelResolution, error) {
 	if a.WorkerChannel == "" || EnrollmentDecidesTarget(a.Worker) {
-		return ChannelResolution{Target: a.Enrolled}, nil
+		return ChannelResolution{Target: a.EnrolledTarget}, nil
 	}
 	for _, permission := range a.Permissions {
 		if permission.Channel == a.WorkerChannel {

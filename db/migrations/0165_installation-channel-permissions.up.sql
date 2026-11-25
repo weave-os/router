@@ -7,8 +7,8 @@ BEGIN;
 -- so existing access is unchanged and stable needs no row. Beta is opt-in and
 -- refused without its row. The internal channel is never granted here; it
 -- stays staff-only through internal enrollment.
--- Writers take the installation row's exclusive lock and publish an
--- installation invalidation so cached admissions drop the revoked channel.
+-- Writers take the installation row's exclusive lock; a cached admission
+-- decision keeps serving for its TTL unless the writer also invalidates it.
 CREATE TABLE router.installation_channel_permissions (
     installation_id uuid NOT NULL REFERENCES router.model_router_installations(id) ON DELETE CASCADE,
     channel varchar(16) NOT NULL CHECK (channel IN ('beta')),
