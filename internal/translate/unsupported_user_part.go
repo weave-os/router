@@ -372,6 +372,21 @@ func anthropicDocumentSourceError(block gjson.Result, target string) error {
 	return nil
 }
 
+func anthropicTextDocumentContent(block gjson.Result) string {
+	var b strings.Builder
+	if title := block.Get("title").String(); title != "" {
+		b.WriteString("Document title: " + title + "\n")
+	}
+	if context := block.Get("context").String(); context != "" {
+		b.WriteString("Document context: " + context + "\n")
+	}
+	if b.Len() > 0 {
+		b.WriteString("\n")
+	}
+	b.WriteString(block.Get("source.data").String())
+	return b.String()
+}
+
 func geminiInlineDataFromAnthropicDocument(block gjson.Result) (string, error) {
 	if err := anthropicDocumentSourceError(block, "gemini"); err != nil {
 		return "", err
@@ -379,7 +394,7 @@ func geminiInlineDataFromAnthropicDocument(block gjson.Result) (string, error) {
 	source := block.Get("source")
 	data := source.Get("data").String()
 	if source.Get("type").String() == "text" {
-		return geminiTextPart(data), nil
+		return geminiTextPart(anthropicTextDocumentContent(block)), nil
 	}
 	mime := source.Get("media_type").String()
 	if mime == "" {
@@ -436,7 +451,7 @@ func buildOpenAIFilePartFromAnthropicDocument(block gjson.Result) (string, error
 	src := block.Get("source")
 	data := src.Get("data").String()
 	if src.Get("type").String() == "text" {
-		return buildOpenAITextPart(data), nil
+		return buildOpenAITextPart(anthropicTextDocumentContent(block)), nil
 	}
 	mediaType := src.Get("media_type").String()
 	if mediaType == "" {
