@@ -653,17 +653,29 @@ func TestBlindPassthroughServesConfiguredControlModelForUndetectedClient(t *test
 	assert.Equal(t, blindExperimentPublicDecisionReason, decision.Reason)
 }
 
-func TestBlindPassthroughControlModelOverridesClientDetectionAndRequestedModel(t *testing.T) {
+func TestBlindPassthroughControlModelServesRoutingAndUnknownModelsOnly(t *testing.T) {
 	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}}
-	for _, requested := range []string{"weave-auto", "claude-sonnet-4-6"} {
+	for _, requested := range []string{"weave-auto", "", "unknown-model"} {
 		decision, _, err := service.blindExperimentPassthroughDecision(
-			blindExperimentControlContext("claude-haiku-4-5", requestcontext.ClientAppClaudeCode),
+			blindExperimentControlContext("claude-haiku-4-5", ""),
 			router.Request{RequestedModel: requested, EnabledProviders: enabled})
 
-		require.NoError(t, err)
-		assert.Equal(t, "claude-haiku-4-5", decision.Model, "every control-arm turn serves the configured control model, requested %q", requested)
+		require.NoError(t, err, requested)
+		assert.Equal(t, "claude-haiku-4-5", decision.Model, "routing or unknown request %q serves the control model", requested)
 	}
+}
+
+func TestBlindPassthroughControlModelKeepsAnExplicitCatalogModel(t *testing.T) {
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	enabled := map[string]struct{}{providers.ProviderAnthropic: {}}
+
+	decision, _, err := service.blindExperimentPassthroughDecision(
+		blindExperimentControlContext("claude-haiku-4-5", requestcontext.ClientAppClaudeCode),
+		router.Request{RequestedModel: "claude-sonnet-4-6", EnabledProviders: enabled})
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude-sonnet-4-6", decision.Model, "an explicit catalog model is served as the caller named it, never swapped for the control model")
 }
 
 func TestBlindPassthroughControlModelKeepsTheCallersGatewayModel(t *testing.T) {

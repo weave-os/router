@@ -211,7 +211,7 @@ func passthroughServedModel(ctx context.Context, req router.Request) string {
 		return requested
 	}
 	callerCredentials := len(req.GatewayProviders) > 0 || len(credentials.ExternalKeysFromContext(ctx)) > 0
-	if control := blindExperimentControlModel(ctx); control != "" && !callerCredentials {
+	if control := blindExperimentControlModel(ctx); control != "" && !callerCredentials && !namesCatalogModel(requested) {
 		return control
 	}
 	if len(req.GatewayProviders) > 0 {
@@ -221,6 +221,14 @@ func passthroughServedModel(ctx context.Context, req router.Request) string {
 		return baseline
 	}
 	return requested
+}
+
+func namesCatalogModel(model string) bool {
+	if router.IsRoutingModel(model) {
+		return false
+	}
+	_, known := catalog.ByID(model)
+	return known
 }
 
 func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router.Request) (router.Decision, error) {
