@@ -2654,6 +2654,13 @@ saved_beta_override() {
   json_get "$settings_dir/$WEAVE_BETA_SETTINGS_NAME" '.env.WEAVE_ROUTER_BETA_URL'
 }
 
+# beta_settings_owned is true when weave-beta.json holds only what
+# write_claude_beta_settings writes; any other file at that path is the user's.
+beta_settings_owned() {
+  jq -e '(keys == ["env"]) and (.env | keys - ["ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS",
+          "ENABLE_TOOL_SEARCH", "CLAUDE_CODE_AUTO_MODE_SERVER", "WEAVE_ROUTER_BETA_URL"] | length == 0)' "$1" >/dev/null 2>&1
+}
+
 # printable_url drops control characters from a URL read out of a settings
 # file before it reaches the terminal.
 printable_url() { printf '%s' "$1" | tr -d '[:cntrl:]'; }
@@ -2677,7 +2684,7 @@ write_claude_beta_settings() {
   if [ -z "$beta_url" ]; then
     # This endpoint has no beta channel. Beta files left by an earlier install
     # would keep sending the key and every claude-beta prompt to the old host.
-    if [ -f "$beta_file" ] && [ ! -L "$beta_file" ]; then
+    if [ -f "$beta_file" ] && [ ! -L "$beta_file" ] && beta_settings_owned "$beta_file"; then
       rm -f "$beta_file"
       ok "Removed $beta_file (this router has no beta channel)"
     fi
@@ -2687,6 +2694,10 @@ write_claude_beta_settings() {
     return 0
   fi
   refuse_if_symlink "$beta_file"
+  if [ -f "$beta_file" ] && ! beta_settings_owned "$beta_file"; then
+    warn "Leaving user-owned $beta_file untouched."
+    return 0
+  fi
   [ "$beta_url" = "$BETA_HOSTED_BASE_URL" ] || override="$beta_url"
   # mktemp creates the file 0600 under a name nothing could have planted.
   tmp="$(mktemp "$settings_dir/.weave-beta.XXXXXX")"
@@ -2743,7 +2754,10 @@ toggle_claude_beta() {
   current="$(strip_trailing_slashes "$(json_get "$settings_file" '.env.ANTHROPIC_BASE_URL')")"
   [ -n "$install_dir" ] && refuse_if_symlink "$switch_file"
   [ ! -f "$switch_file" ] || stable="$(json_get "$switch_file" '.stable_base_url')"
-  base_url="${stable:-$current}"
+  # The beta host follows the endpoint settings.json holds now, never the saved
+  # stable URL: a sidecar left from before a retarget must not move this
+  # installation's key to another router's beta host.
+  base_url="$current"
   beta_url="$(beta_base_url)"
   case "$beta_action" in
     status)
@@ -8910,8 +8924,9 @@ if [ "$target" = "claude" ] && [ -f "$settings_dir/.weave-parked.json" ]; then
 fi
 # A fresh install points settings.json at the endpoint it was given, so a
 # leftover `beta on` sidecar no longer describes it. `update` keeps the
-# installed endpoint, beta included, and keeps the sidecar with it.
-if [ "$mode" = "install" ] && [ -f "$settings_dir/$WEAVE_BETA_SWITCH_NAME" ]; then
+# sidecar only while settings.json is still on this install's beta endpoint.
+if [ -f "$settings_dir/$WEAVE_BETA_SWITCH_NAME" ] && { [ "$mode" = "install" ] \
+    || [ "$(json_get "$settings_file" '.env.ANTHROPIC_BASE_URL')" != "$(json_get "$settings_dir/$WEAVE_BETA_SETTINGS_NAME" '.env.ANTHROPIC_BASE_URL')" ]; }; then
   rm -f "$settings_dir/$WEAVE_BETA_SWITCH_NAME"
 fi
 

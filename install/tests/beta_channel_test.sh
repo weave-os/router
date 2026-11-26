@@ -149,10 +149,23 @@ rm -f "$selfhosted_home/.claude/.weave-beta-switch.json"
 router "$selfhosted_home" beta off || true
 [ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$selfhosted_settings")" = http://127.0.0.2:9 ] || fail "beta off guessed a stable endpoint for a self-hosted install"
 grep -q 'stable endpoint is missing' "$work/output" || fail "beta off without the sidecar did not explain"
+# A sidecar left from a hosted `beta on` never picks the beta host after the
+# install moves to a self-hosted router.
+printf '{"stable_base_url":"%s"}\n' "$hosted" >"$selfhosted_home/.claude/.weave-beta-switch.json"
+jq '.env.ANTHROPIC_BASE_URL = "http://127.0.0.1:9"' "$selfhosted_settings" >"$work/settings.tmp" && mv "$work/settings.tmp" "$selfhosted_settings"
+rm -f "$selfhosted_home/.claude/weave-beta.json"
+router "$selfhosted_home" beta on || true
+[ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$selfhosted_settings")" = http://127.0.0.1:9 ] || fail "beta on took the beta host from a stale sidecar"
+rm -f "$selfhosted_home/.claude/.weave-beta-switch.json"
 # Retargeting to a router with no beta channel removes the old beta files.
 install_for "$selfhosted_home" claude --base-url http://127.0.0.1:9
 [ ! -e "$selfhosted_home/.claude/weave-beta.json" ] || fail "retarget kept weave-beta.json for the old beta host"
 [ ! -e "$selfhosted_home/.weave/bin/claude-beta" ] || fail "retarget kept the claude-beta launcher"
+printf '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.3:9"},"model":"mine"}\n' >"$selfhosted_home/.claude/weave-beta.json"
+install_for "$selfhosted_home" claude --base-url http://127.0.0.1:9
+[ "$(jq -r '.model' "$selfhosted_home/.claude/weave-beta.json")" = mine ] || fail "install removed a user-owned weave-beta.json"
+uninstall_for "$selfhosted_home" claude
+[ -e "$selfhosted_home/.claude/weave-beta.json" ] || fail "uninstall removed a user-owned weave-beta.json"
 
 # Project scope never writes personal beta assets.
 project_home="$work/project"

@@ -1543,7 +1543,11 @@ fi
 for beta_asset in "$(dirname "$settings_file")/weave-beta.json" "$(dirname "$settings_file")/.weave-beta-switch.json"; do
   # rm -f removes a symlink itself, never its target, so a linked file cannot
   # stop the cleanup of the key-bearing files that follow.
-  if [ -f "$beta_asset" ] || [ -L "$beta_asset" ]; then
+  if [ "${beta_asset##*/}" = "weave-beta.json" ] && [ -f "$beta_asset" ] && [ ! -L "$beta_asset" ] \
+      && ! jq -e '(keys == ["env"]) and (.env | keys - ["ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS",
+            "ENABLE_TOOL_SEARCH", "CLAUDE_CODE_AUTO_MODE_SERVER", "WEAVE_ROUTER_BETA_URL"] | length == 0)' "$beta_asset" >/dev/null 2>&1; then
+    warn "Leaving user-owned $beta_asset untouched."
+  elif [ -f "$beta_asset" ] || [ -L "$beta_asset" ]; then
     rm -f "$beta_asset"
     ok "Removed $beta_asset"
   fi
