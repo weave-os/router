@@ -1,0 +1,22 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages_stable_worker",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 421,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "base_url": "https://beta.example.test",
+          "error": "misdirected_serving_channel",
+          "message": "weave-auto-beta is served only by the beta router host."
+        }
+      }
+    }
+  ],
+  "scenario": "serving_channel_auto_beta_case_variant_misdirected_on_stable_worker"
+}

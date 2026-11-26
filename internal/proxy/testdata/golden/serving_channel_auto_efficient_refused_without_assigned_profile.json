@@ -1,0 +1,20 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages_stable_worker_without_assigned_profile",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 403,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "error": "routing_model_not_permitted"
+        }
+      }
+    }
+  ],
+  "scenario": "serving_channel_auto_efficient_refused_without_assigned_profile"
+}

@@ -64,7 +64,7 @@ func DisplaySettingsHandler(accounts SubscriptionAccountLister, resolveCaller Ca
 				hide = experiments.InstallationBlindExperimentEnabled(callerCtx, installation.ID)
 			}
 		}
-		if !hide && ingress.ServingReleaseHeadersVisible(callerCtx) && !installationExperimentBlindsRelease(callerCtx, installation.ID, experiments) {
+		if !hide && !installationExperimentBlindsRelease(callerCtx, installation.ID, experiments) {
 			ingress.SetServingReleaseHeaders(callerCtx, c.Writer.Header())
 		}
 		c.JSON(http.StatusOK, displaySettingsResponse{
