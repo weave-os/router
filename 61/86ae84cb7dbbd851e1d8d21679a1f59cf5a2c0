@@ -1,0 +1,21 @@
+db/migrations/0165_serving-target-prod-beta.down.sql
+  s_f697b16075d222::t_1c2d01fb52d035 10-11
+db/migrations/0165_serving-target-prod-beta.up.sql
+  s_f697b16075d222::t_02da9f6e15b9df 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6186ae84cb7dbbd851e1d8d21679a1f59cf5a2c0",
+  "prompts": {},
+  "sessions": {
+    "s_f697b16075d222": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af654d34-b0a5-4014-82fa-bfb1cbd36748",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "review <r@x>"
+    }
+  }
+}
