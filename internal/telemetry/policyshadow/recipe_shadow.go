@@ -43,7 +43,8 @@ func (r RecipeRecorder) Fire(ctx context.Context, turn RecipeTurn) {
 	observability.SafeGoContext(requestcontext.WithoutValues(ctx), log, decisionTimeout, "recipeShadowDecision", func(shadowCtx context.Context) {
 		profileKey, assigned, err := r.Profiles.ProfileKey(shadowCtx, turn.InstallationID, r.ShadowModel)
 		if err != nil {
-			log.Warn("Recipe shadow profile lookup failed", "err", err)
+			log.Warn("Recipe shadow profile lookup failed", "reason", recipeShadowProfileLookupFailed)
+			log.Debug("Recipe shadow profile lookup error detail", "err", err)
 			return
 		}
 		if !assigned || profileKey == turn.ServingProfileKey {
@@ -86,7 +87,8 @@ func (r RecipeRecorder) Fire(ctx context.Context, turn RecipeTurn) {
 			event.ModelsAgree = pick.Model == event.ServingModel
 		}
 		if insertErr := r.Store.InsertPolicyShadowDecision(shadowCtx, event); insertErr != nil {
-			log.Warn("Recipe shadow decision insert failed", "err", insertErr)
+			log.Warn("Recipe shadow decision insert failed", "reason", recipeShadowInsertFailed)
+			log.Debug("Recipe shadow decision insert error detail", "err", insertErr)
 		}
 	})
 }
@@ -94,8 +96,10 @@ func (r RecipeRecorder) Fire(ctx context.Context, turn RecipeTurn) {
 type recipeShadowFailure string
 
 const (
-	recipeShadowNoEligibleArm recipeShadowFailure = "no_eligible_arm"
-	recipeShadowReplayFailed  recipeShadowFailure = "replay_failed"
+	recipeShadowNoEligibleArm       recipeShadowFailure = "no_eligible_arm"
+	recipeShadowReplayFailed        recipeShadowFailure = "replay_failed"
+	recipeShadowProfileLookupFailed recipeShadowFailure = "profile_lookup_failed"
+	recipeShadowInsertFailed        recipeShadowFailure = "insert_failed"
 )
 
 func recipeShadowFailureFor(err error) recipeShadowFailure {

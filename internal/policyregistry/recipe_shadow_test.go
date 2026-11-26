@@ -14,8 +14,8 @@ import (
 
 func TestRecipePolicySourceReadsTheProfileFromTheCurrentActivation(t *testing.T) {
 	store, controller, selectionSet := controllerFixture(t)
-	base := *mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, selectionSet.Default.Release))
-	selectionSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, selectionSet.Default, profileKeyOne, base.Policy)
+	defaultRelease := *mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, selectionSet.Default.Release))
+	selectionSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, selectionSet.Default, profileKeyOne, defaultRelease.Policy)
 	store.publish(t, policyregistry.ServingSelectionSets, selectionSet)
 	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, selectionSet, servingEpoch)
 	_, err := controller.Activate(context.Background(), store.publishArtifact(t, policyregistry.ServingProposal, proposal), "workflow")
@@ -26,7 +26,7 @@ func TestRecipePolicySourceReadsTheProfileFromTheCurrentActivation(t *testing.T)
 	recipe, err := source.ProfilePolicy(context.Background(), profileKeyOne)
 
 	require.NoError(t, err)
-	assert.Equal(t, base.Policy.SHA256, recipe.Policy.SHA256)
+	assert.Equal(t, defaultRelease.Policy.SHA256, recipe.Policy.SHA256)
 	require.NotNil(t, recipe.Roster)
 
 	store.readErr = errors.New("registry unavailable")

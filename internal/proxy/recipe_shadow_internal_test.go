@@ -79,14 +79,14 @@ func TestRecipeShadowSkipsTurnsWithoutAServingIdentity(t *testing.T) {
 }
 
 func TestRecipeShadowObservesOnlyDefaultRecipeTurns(t *testing.T) {
-	enabled := recipeShadowEnabled()
+	shadowCtx := recipeShadowEnabled()
 	for model, want := range map[router.RoutingModel]bool{
 		"":                        true,
 		router.ModelAutomatic:     true,
 		router.ModelAutoEfficient: false,
 		router.ModelHMMBeta:       false,
 	} {
-		ctx := router.WithStrategySelection(enabled, router.StrategySelection{Strategy: router.StrategyHMM, RoutingModel: model})
+		ctx := router.WithStrategySelection(shadowCtx, router.StrategySelection{Strategy: router.StrategyHMM, RoutingModel: model})
 		assert.Equal(t, want, recipeShadowFired(ctx), "routing model %q", model)
 	}
 }
