@@ -1,0 +1,19 @@
+internal/proxy/recipe_shadow_internal_test.go
+  s_04587c8eec3bcb::t_2b65d3b3b46958 57-58,62,65-66,68-69,77-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c11204fef56a9b55b99f88b6aae27ef9157ed2c5",
+  "prompts": {},
+  "sessions": {
+    "s_04587c8eec3bcb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af1e22df-7616-4781-bcbf-329fc00bdabb",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
