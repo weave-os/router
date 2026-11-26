@@ -689,3 +689,15 @@ func TestInstallationBlindExperimentEnabled(t *testing.T) {
 		assert.Equal(t, tc.want, service.InstallationBlindExperimentEnabled(ctx, "inst-1"), tc.name)
 	}
 }
+
+func TestBlindExperimentSessionStateCarriesControlModel(t *testing.T) {
+	service := sessionModeService(t, auth.BlindExperimentRecord{
+		Configured: true, Enabled: true, RouterOnPercentage: 0, Seed: "seed",
+		CanonicalSubjectKey: "account-7", SessionMode: true, ControlModel: "claude-opus-5-5",
+	})
+
+	state := sessionState(t, service, auth.BlindExperimentSessionSubjectKey("key-1", "session-1"))
+
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, state.Arm)
+	assert.Equal(t, "claude-opus-5-5", state.ControlModel)
+}

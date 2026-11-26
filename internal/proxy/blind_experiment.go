@@ -71,7 +71,10 @@ func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentSt
 	outcome := blindExperimentOutcome{
 		source:           source,
 		treatmentApplied: blindExperimentTreatmentApplied(state.Arm, source),
-		baselineModel:    blindExperimentBaselineModel(ctx, requestedModel),
+		baselineModel:    blindExperimentDetectedBaselineModel(ctx, requestedModel),
+	}
+	if control := blindExperimentControlModel(ctx); control != "" && source == auth.BlindExperimentModelSourceExperimentPassthrough && controlModelApplies(requestedModel) && routed.Decision.Model == control {
+		outcome.baselineModel = control
 	}
 	if source != auth.BlindExperimentModelSourceNotDispatched && outcome.baselineModel != "" {
 		if servedModel == "" {
@@ -83,7 +86,7 @@ func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentSt
 	return outcome
 }
 
-func blindExperimentBaselineModel(ctx context.Context, requestedModel string) string {
+func blindExperimentDetectedBaselineModel(ctx context.Context, requestedModel string) string {
 	baseline := clientRequestedModel(ctx, requestedModel)
 	if router.IsRoutingModel(baseline) {
 		return ""
@@ -94,6 +97,14 @@ func blindExperimentBaselineModel(ctx context.Context, requestedModel string) st
 		}
 	}
 	return baseline
+}
+
+func blindExperimentControlModel(ctx context.Context) string {
+	state, active := auth.BlindExperimentFrom(ctx)
+	if !active {
+		return ""
+	}
+	return state.ControlModel
 }
 
 func applyBlindExperimentOutcomeAttrs(ctx context.Context, b *telemetry.AttrBuilder, routed *routingpolicy.TurnRoute, requestedModel, servedModel string) {
@@ -193,14 +204,31 @@ func (s *Service) passthroughDecision(ctx context.Context, req router.Request) (
 	return ctx, decision, true, err
 }
 
-func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router.Request) (router.Decision, error) {
-	req.RequestedModel = clientRequestedModel(ctx, req.RequestedModel)
+func passthroughServedModel(ctx context.Context, req router.Request) string {
+	requested := clientRequestedModel(ctx, req.RequestedModel)
 	experimentArm := blindExperimentPassthroughActive(ctx) && !auth.RoutingPassthroughFrom(ctx) && !auth.ClientModelPassthroughFrom(ctx)
-	if experimentArm && len(req.GatewayProviders) == 0 {
-		if baseline := blindExperimentBaselineModel(ctx, req.RequestedModel); baseline != "" {
-			req.RequestedModel = baseline
-		}
+	if !experimentArm {
+		return requested
 	}
+	callerCredentials := len(req.GatewayProviders) > 0 || len(req.SubscriptionProviders) > 0 || len(credentials.ExternalKeysFromContext(ctx)) > 0
+	if control := blindExperimentControlModel(ctx); control != "" && !callerCredentials && controlModelApplies(req.RequestedModel) && catalog.PermittedBy(req.ProductEligibility, control) {
+		return control
+	}
+	if len(req.GatewayProviders) > 0 {
+		return requested
+	}
+	if baseline := blindExperimentDetectedBaselineModel(ctx, requested); baseline != "" {
+		return baseline
+	}
+	return requested
+}
+
+func controlModelApplies(requestedModel string) bool {
+	return router.CanonicalRoutingModel(requestedModel) == router.ModelAutomatic
+}
+
+func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router.Request) (router.Decision, error) {
+	req.RequestedModel = passthroughServedModel(ctx, req)
 	if !modelPermittedByAllowlist(ctx, req.RequestedModel) || !modelInRequestSubset(ctx, req.RequestedModel) {
 		return router.Decision{}, fmt.Errorf("requested model %q is not allowed: %w", req.RequestedModel, router.ErrAllowlistEmptiesPool)
 	}

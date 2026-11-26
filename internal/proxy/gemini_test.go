@@ -378,3 +378,37 @@ func TestProxyGeminiGenerateContent_PersistsExperimentUpstreamError(t *testing.T
 	assert.Zero(t, row.OutputTokens)
 	assert.Len(t, googleProvider.proxyBodies, 1, "a non-retryable upstream error must not be retried")
 }
+
+func TestProxyGeminiGenerateContent_SubscriptionFundedCallerKeepsItsModelInTheControlArm(t *testing.T) {
+	serve := func(t *testing.T, subscriptionToken string) (*captureTelemetry, error) {
+		t.Helper()
+		googleProvider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+			_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2,"totalTokenCount":12}}`))
+		}}
+		telemetry := newCaptureTelemetry()
+		service := proxy.WithStrategyPorts(proxy.NewService(
+			&fakeRouter{err: errors.New("scorer must not run for passthrough arm")},
+			dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: googleProvider}),
+			nil, newFakePinStore(), false,
+			providers.ProviderGoogle, "gemini-2.5-flash", telemetry), hmm.ServingPorts())
+
+		ctx := geminiExperimentContext("55555555-5555-5555-5555-555555555555", auth.BlindExperimentArmPassthrough)
+		state, _ := auth.BlindExperimentFrom(ctx)
+		state.ControlModel = "gemini-2.5-flash"
+		ctx = context.WithValue(ctx, auth.BlindExperimentContextKey{}, state)
+		if subscriptionToken != "" {
+			ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, subscriptionToken)
+		}
+		body := strings.Replace(geminiInjectedBody, "gemini-1.5-pro", "weave-auto", 1)
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/weave-auto:generateContent", nil)
+		return telemetry, service.ProxyGeminiGenerateContent(ctx, []byte(body), httptest.NewRecorder(), request)
+	}
+
+	telemetry, err := serve(t, "")
+	require.NoError(t, err)
+	assert.Equal(t, "gemini-2.5-flash", telemetry.firstRow(t).DecisionModel, "without caller-paid funding the control arm serves the control model")
+
+	_, err = serve(t, "sk-ant-oat01-synthetic-subscription-token")
+	var unknown *proxy.PassthroughModelUnknownError
+	require.ErrorAs(t, err, &unknown, "a caller paying with its own subscription keeps weave-auto and is never moved to the control model on the Gemini entrypoint")
+}

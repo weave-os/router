@@ -37,6 +37,7 @@ func (repo *blindExperimentSessionRepo) GetForInstallation(ctx context.Context, 
 		RouterOnPercentage: int(row.RouterOnPercentage),
 		Seed:               row.Seed,
 		SessionMode:        row.SessionMode,
+		ControlModel:       servableControlModel(ctx, installationID, row.ControlModel),
 		CohortExperimentID: row.CohortExperimentID,
 	}, nil
 }

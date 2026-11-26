@@ -8,6 +8,7 @@ SELECT
     COALESCE(configuration.router_on_percentage, 100)::smallint AS router_on_percentage,
     COALESCE(configuration.seed::text, '')::text AS seed,
     COALESCE(configuration.session_mode, FALSE)::boolean AS session_mode,
+    COALESCE(configuration.control_model, '')::text AS control_model,
     assignment.canonical_subject_key,
     assignment.automatic_arm,
     assignment.manual_override,
@@ -60,6 +61,7 @@ SELECT
     router_on_percentage,
     seed::text AS seed,
     session_mode,
+    COALESCE(control_model, '')::text AS control_model,
     COALESCE(cohort_experiment_id::text, '')::text AS cohort_experiment_id
 FROM router.blind_router_experiment_configurations
 WHERE installation_id = @installation_id::uuid;
