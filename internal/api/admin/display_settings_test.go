@@ -247,17 +247,27 @@ func TestDisplaySettingsNamesTheReleaseOnlyForAnOptedInVisibleCaller(t *testing.
 		policyDigest  = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 	)
 	for name, tc := range map[string]struct {
-		optIn       bool
-		hide        bool
-		blind       bool
-		wantHeaders bool
+		optIn                  bool
+		hide                   bool
+		blind                  bool
+		userID                 string
+		installationExperiment bool
+		noChecker              bool
+		wantHeaders            bool
 	}{
-		"opted in installation sees its release and policy": {optIn: true, wantHeaders: true},
-		"installation that has not opted in sees nothing":   {},
-		"hidden terminal surfaces hide the release":         {optIn: true, hide: true},
-		"an active blind experiment hides the release":      {optIn: true, blind: true},
+		"opted in installation sees its release and policy":                                              {optIn: true, wantHeaders: true},
+		"installation that has not opted in sees nothing":                                                {},
+		"hidden terminal surfaces hide the release":                                                      {optIn: true, hide: true},
+		"an active blind experiment hides the release":                                                   {optIn: true, blind: true},
+		"identified caller without an active experiment state is hidden while the installation runs one": {optIn: true, userID: "user-1", installationExperiment: true},
+		"unidentified caller is hidden while the installation runs an experiment":                        {optIn: true, installationExperiment: true},
+		"a missing experiment checker fails closed":                                                      {optIn: true, userID: "user-1", noChecker: true},
 	} {
 		t.Run(name, func(t *testing.T) {
+			var experimentChecker admin.InstallationExperimentChecker = fakeExperimentChecker{enabled: tc.installationExperiment}
+			if tc.noChecker {
+				experimentChecker = nil
+			}
 			engine := gin.New()
 			engine.GET("/v1/display-settings", func(c *gin.Context) {
 				c.Set("router_installation", &auth.Installation{ID: "inst-1", HideTerminalSurfaces: tc.hide})
@@ -269,11 +279,15 @@ func TestDisplaySettingsNamesTheReleaseOnlyForAnOptedInVisibleCaller(t *testing.
 				}
 				c.Request = c.Request.WithContext(ctx)
 			}, admin.DisplaySettingsHandler(&fakeAccountLister{}, func(c *gin.Context) context.Context {
-				if tc.blind {
-					return context.WithValue(c.Request.Context(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
+				callerCtx := c.Request.Context()
+				if tc.userID != "" {
+					callerCtx = context.WithValue(callerCtx, auth.UserIDContextKey{}, tc.userID)
 				}
-				return c.Request.Context()
-			}, nil, nil))
+				if tc.blind {
+					callerCtx = context.WithValue(callerCtx, auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
+				}
+				return callerCtx
+			}, experimentChecker, nil))
 
 			rec := httptest.NewRecorder()
 			engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
