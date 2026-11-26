@@ -48,6 +48,7 @@ Index of Markdown documentation in the `router/` repo.
 | [SMOKE.md](SMOKE.md) | Pre-merge record/replay smoke-suite scenarios, cassettes, and local workflow. |
 | [CI.md](CI.md) | CI timing baseline, completed improvements, and the remaining optimization backlog. |
 | [PROXY_TURN_LOOP.md](PROXY_TURN_LOOP.md) | Turn-loop precedence, session-key derivation, force-model resolution and the handover credential boundary. |
+| [ROUTER_ATOMIZATION.md](ROUTER_ATOMIZATION.md) | Target serving and strategy boundaries, migration phases, and behavior-preserving checks. |
 
 For engineering conventions (layer model, package layout, recipes), see the
 root [`CLAUDE.md`](../CLAUDE.md) (and its mirror [`AGENTS.md`](../AGENTS.md)).
