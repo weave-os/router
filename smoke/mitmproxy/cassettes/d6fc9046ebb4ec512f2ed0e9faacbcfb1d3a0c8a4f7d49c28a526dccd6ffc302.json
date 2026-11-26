@@ -3,17 +3,18 @@
   "path": "/v1/messages",
   "status_code": 200,
   "headers": {
+    "Accept-Encoding": "gzip, identity",
     "Anthropic-Workspace-Id": "wrkspc_017WoV7PcYUfCTFn2dFE92A5",
     "Cf-Cache-Status": "DYNAMIC",
     "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
     "Content-Type": "application/json",
-    "Date": "Tue, 24 Nov 2026 07:27:30 GMT",
+    "Date": "Thu, 26 Nov 2026 07:27:32 GMT",
     "Server": "cloudflare",
-    "Server-Timing": "x-originResponse;dur=425",
+    "Server-Timing": "x-originResponse;dur=384",
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
-    "Traceresponse": "00-ab1bfb546569cdcea4336b13d41123d0-a8b32300bb469f7a-01",
+    "Traceresponse": "00-1125c9c5ea1dbf91dd0ec7691c9a9068-4433461184577e55-01",
     "Vary": "Accept-Encoding",
     "X-Robots-Tag": "none"
   },
-  "body": "{\"model\":\"claude-haiku-4-5-20251001\",\"id\":\"msg_011ChMMgmyFtBeNt9uqrpSAe\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"two\"}],\"container\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":3,\"cache_creation_input_tokens\":322,\"cache_read_input_tokens\":8895,\"cache_creation\":{\"ephemeral_5m_input_tokens\":322,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":4,\"service_tier\":\"standard\",\"inference_geo\":\"not_available\",\"speed\":\"standard\"},\"diagnostics\":null}"
+  "body": "{\"model\":\"claude-haiku-4-5-20251001\",\"id\":\"msg_011ChR9JmBNvJA1qJ3MXa22n\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"two\"}],\"container\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":3,\"cache_creation_input_tokens\":322,\"cache_read_input_tokens\":8895,\"cache_creation\":{\"ephemeral_5m_input_tokens\":322,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":4,\"service_tier\":\"standard\",\"inference_geo\":\"not_available\",\"speed\":\"standard\"},\"diagnostics\":null}"
 }
