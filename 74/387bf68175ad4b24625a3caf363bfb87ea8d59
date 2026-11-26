@@ -1,0 +1,39 @@
+install/tests/codex_install_test.sh
+  s_63ab08eface16a::t_8e4101a8b6fa09 177-178,180-183
+install/install.sh
+  s_63ab08eface16a::t_01d66108f7dcef 2666,2680,8865
+  s_63ab08eface16a::t_7599cdaa416421 120-123,401,1820-1824,1827-1833,1874,1985-2001,4930-4931
+  s_63ab08eface16a::t_6f81e4ffbeb7d0 7781-7843,7969-7971,7975-7976,8704
+  s_63ab08eface16a::t_acc4b7fa44e1ed 175-176,1038-1062,1079,1112-1113
+  s_63ab08eface16a::t_4e615cf21a000e 2614-2665,2667-2679,2681-2769,3181,3891,5753-5758,8880-8884
+  s_63ab08eface16a::t_31fbf804290995 4932-4934,8885
+install/uninstall.sh
+  s_63ab08eface16a::t_acc4b7fa44e1ed 830-831
+  s_63ab08eface16a::t_c4623359a618a5 1462,1541-1558
+  s_63ab08eface16a::t_cdedeb64c1a52b 1559-1560
+install/cc-statusline.sh
+  s_63ab08eface16a::t_6f81e4ffbeb7d0 399-461,587-589,593-594,1322
+install/tests/beta_channel_test.sh
+  s_63ab08eface16a::t_a57c84fa17c3fa 1-199
+  s_63ab08eface16a::t_5563f74245ebad 200
+Makefile
+  s_63ab08eface16a::t_1a16b725ebe5fd 107
+install/README.md
+  s_63ab08eface16a::t_6c079cc1e9f53d 746-788,968-970
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "74387bf68175ad4b24625a3caf363bfb87ea8d59",
+  "prompts": {},
+  "sessions": {
+    "s_63ab08eface16a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fa9f2c-bfa5-4ed1-9bb5-b0898a0767de",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
