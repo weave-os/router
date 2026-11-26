@@ -1,0 +1,26 @@
+internal/policyregistry/serving_channel_test.go
+  s_ce9e4105348e97::t_07d3e39bbbfd87 16-19,21-26,31,33,42,45,63-68
+db/migrations/0165_installation-channel-permissions.up.sql
+  s_ce9e4105348e97::t_07d3e39bbbfd87 10-11
+internal/policyregistry/serving_channel.go
+  s_ce9e4105348e97::t_07d3e39bbbfd87 44-47,57
+  s_ce9e4105348e97::t_277dd1c74a0b09 21-22
+internal/postgres/serving/admission_steps.go
+  s_ce9e4105348e97::t_07d3e39bbbfd87 58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a48453de46f33a89c32a54b27a8584d3c78b27d8",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

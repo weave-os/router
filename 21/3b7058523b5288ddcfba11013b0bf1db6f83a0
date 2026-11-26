@@ -1,0 +1,51 @@
+docs/SERVING_CONTROL.md
+  s_5caf5b9f1dc444::t_07cc1e625ec901 750,755,772,835
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "213b7058523b5288ddcfba11013b0bf1db6f83a0",
+  "prompts": {},
+  "sessions": {
+    "s_302a3bf6862e3e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5b51397d-350a-449c-8758-91ad07df6634",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_5caf5b9f1dc444": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6f266853-1f5e-476e-8166-1c64e189736b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_71e3fa757e743b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6721a841-a3d2-4940-a839-a1e2ad28413d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_829de427c1028e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "879539f2-2554-47ed-8dbf-fc463f0ea9fd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

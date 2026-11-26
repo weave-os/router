@@ -1,0 +1,23 @@
+cmd/router/beta_channel_admission_test.go
+  s_ce9e4105348e97::t_0d811280b76f46 133
+internal/policyregistry/serving_channel_test.go
+  s_ce9e4105348e97::t_0d811280b76f46 14,23,25-26
+docs/CONFIGURATION.md
+  s_ce9e4105348e97::t_1c39e26d2f6595 679-680
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2db15fcddd64c6d83359423d7bba1acb85c9cffc",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

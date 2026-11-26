@@ -1,0 +1,25 @@
+internal/router/routing_model_test.go
+  s_d86b10f943db4c::t_a645b0f180bd45 33-34
+db/migrations/0161_installation-routing-model-profile-assignments.up.sql
+  s_d86b10f943db4c::t_a645b0f180bd45 6-7,10
+internal/policyregistry/serving_routing_model.go
+  s_d86b10f943db4c::t_a645b0f180bd45 24
+internal/router/routing_model.go
+  s_d86b10f943db4c::t_a645b0f180bd45 43-51,53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f497bf9af7f6e806b5f3ed9a26a6287ff50ab985",
+  "prompts": {},
+  "sessions": {
+    "s_d86b10f943db4c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fbb46b15-11f1-4bf4-88d4-a77333a9b354",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

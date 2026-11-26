@@ -1,0 +1,19 @@
+internal/proxy/usage/AGENTS.md
+  s_49df7faaffb6d3::t_bb221e4170250b 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e0882ea388fcf581ab54bdd87127752a43fbaf7a",
+  "prompts": {},
+  "sessions": {
+    "s_49df7faaffb6d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b46d-ba9e-7bb0-96d6-04aceeaa203b",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

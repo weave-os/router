@@ -1,0 +1,44 @@
+internal/auth/service.go
+  s_ca417744b2c4cd::t_78abe70543bde3 444-445
+install/install.sh
+  s_ca417744b2c4cd::t_ad9ba10b898202 3132-3139,3141
+  s_ca417744b2c4cd::t_af8081ec695b61 3105-3109,3111-3118
+  s_ca417744b2c4cd::t_a845822cfd6459 3151
+internal/proxy/service.go
+  s_ca417744b2c4cd::t_b3f676fc77f536 627
+  s_ca417744b2c4cd::t_7284050d5bccd7 381-383
+internal/server/server.go
+  s_ca417744b2c4cd::t_c0ea1e7c606c34 228
+internal/auth/installation.go
+  s_ca417744b2c4cd::t_d0f5a3cf9b6d04 80-81
+install/tests/cc-statusline_test.sh
+  s_ca417744b2c4cd::t_9ef32aa5c6f131 425,430,432,440
+  s_ca417744b2c4cd::t_3a7e4fbac2928e 451,465,476
+  s_ca417744b2c4cd::t_d8ecc8b7e7d0de 414-417
+  s_ca417744b2c4cd::t_984ee0ac67d5cb 407-413,418-424,426-429,431,433-439,441-450,452-464,466-475,477-479
+internal/api/admin/display_settings_test.go
+  s_ca417744b2c4cd::t_ed0dfd01b10004 16
+internal/api/admin/display_settings.go
+  s_ca417744b2c4cd::t_891d4e4fd706fb 11
+  s_ca417744b2c4cd::t_9865c0d068e92e 16
+install/cc-statusline.sh
+  s_ca417744b2c4cd::t_812ee25916b80a 339-346,348
+  s_ca417744b2c4cd::t_915a8320a1077f 358
+  s_ca417744b2c4cd::t_9f56d92041ec74 312-316,318-325
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b20dbedadfd7c6a28d4ff327b61c52f96fa547ea",
+  "prompts": {},
+  "sessions": {
+    "s_ca417744b2c4cd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "88a49ec3-fb5d-4217-8792-c09695a9c6af",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

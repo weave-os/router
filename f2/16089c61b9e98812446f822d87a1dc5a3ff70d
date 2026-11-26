@@ -1,0 +1,25 @@
+internal/proxy/policy_shadow.go
+  s_ce9e4105348e97::t_5b707fcd4ca4b9 24-25,35-36
+internal/policyregistry/recipe_shadow.go
+  s_ce9e4105348e97::t_5b707fcd4ca4b9 53,62,75
+internal/postgres/serving/recipe_shadow.go
+  s_ce9e4105348e97::t_5b707fcd4ca4b9 23,27
+internal/proxy/recipe_shadow_internal_test.go
+  s_ce9e4105348e97::t_5b707fcd4ca4b9 44,47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f216089c61b9e98812446f822d87a1dc5a3ff70d",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

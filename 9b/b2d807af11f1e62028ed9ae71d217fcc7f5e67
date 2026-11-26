@@ -1,0 +1,36 @@
+internal/router/catalog/catalog.go
+  s_6de4212cfed736::t_fa1af35e313efc 302-307,311
+  s_6de4212cfed736::t_997aea33cf0f5d 312-313
+install/cc-statusline.sh
+  s_6de4212cfed736::t_ab20fb6180eac6 202,272
+internal/observability/otel/pricing_test.go
+  s_6de4212cfed736::t_7e6d99c5cc241d 39
+install/install.sh
+  s_6de4212cfed736::t_59943a812be3aa 780-781
+  s_6de4212cfed736::t_ab20fb6180eac6 2172,2242
+internal/proxy/force_model.go
+  s_6de4212cfed736::t_eeea3525af208b 77-83
+internal/router/model.go
+  s_6de4212cfed736::t_68508bf080b8e8 171-174
+install/pi-router/src/config.ts
+  s_6de4212cfed736::t_c498dc1eea2887 231,239
+  s_6de4212cfed736::t_a08387399e36d7 228
+install/pi-router/src/pricing.generated.ts
+  s_6de4212cfed736::t_c324dc9465c532 9,60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "9bb2d807af11f1e62028ed9ae71d217fcc7f5e67",
+  "prompts": {},
+  "sessions": {
+    "s_6de4212cfed736": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3fcc2a5a-c427-4f5d-9a37-2e458ac4d309",
+        "model": "minimax/minimax-m3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

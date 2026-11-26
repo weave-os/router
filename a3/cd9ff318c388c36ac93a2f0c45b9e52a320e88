@@ -1,0 +1,52 @@
+internal/policyregistry/serving_test.go
+  s_71e3fa757e743b::t_54c9707600c2f9 183,187
+internal/policyregistry/serving_contract.go
+  s_71e3fa757e743b::t_2069bedfb96ff8 22,29,32
+internal/server/middleware/serving_admission_test.go
+  s_71e3fa757e743b::t_ec8e684e3fc106 91-95,124
+cmd/router/serving_runtime_test.go
+  s_71e3fa757e743b::t_a81623c6cfa84e 29
+smoke/hmmstub/serving.go
+  s_71e3fa757e743b::t_59f6113194eafb 93-96,117,132,141,153
+internal/server/middleware/serving_channel.go
+  s_71e3fa757e743b::t_36b79ab603a71b 10,14,17-29
+docs/CONFIGURATION.md
+  s_71e3fa757e743b::t_cee866c8971e82 644,678
+internal/policyregistry/serving_channel_test.go
+  s_71e3fa757e743b::t_b9b29d86776c10 4,42,45,47,53,55-57,75,79-94
+docs/SERVING_CONTROL.md
+  s_71e3fa757e743b::t_f47b184c6dfad8 100-103
+internal/server/middleware/serving_channel_test.go
+  s_71e3fa757e743b::t_e751fdb6b798af 7,16-17,22,24,39-62,64-72,76-77,82,88,93-99
+internal/policyregistry/serving_channel.go
+  s_71e3fa757e743b::t_d8b311027c5037 31
+cmd/router/beta_channel_admission_test.go
+  s_71e3fa757e743b::t_d93f5789138536 1-194
+internal/server/middleware/routing_model.go
+  s_71e3fa757e743b::t_6ff53f0ac0fecb 21-28
+internal/router/routing_model_test.go
+  s_71e3fa757e743b::t_3115004b9cf1c4 36-44
+  s_71e3fa757e743b::t_3f595e6d24c601 45-50
+cmd/policyctl/serving_test.go
+  s_71e3fa757e743b::t_860ffb7e597d2b 11
+internal/router/routing_model.go
+  s_71e3fa757e743b::t_76d53af4b33cea 8,38-39
+internal/server/middleware/routing_model_test.go
+  s_71e3fa757e743b::t_094295d6885b44 136-169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a3cd9ff318c388c36ac93a2f0c45b9e52a320e88",
+  "prompts": {},
+  "sessions": {
+    "s_71e3fa757e743b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6721a841-a3d2-4940-a839-a1e2ad28413d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

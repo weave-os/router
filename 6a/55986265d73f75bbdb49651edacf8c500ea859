@@ -1,0 +1,56 @@
+internal/router/policy/contract.go
+  s_2f40bb97923467::t_23e0e7d154d676 35-41
+internal/auth/user.go
+  s_2f40bb97923467::t_bfa81086cf417b 11-16,23-27
+  s_2f40bb97923467::t_be8795b2c63055 28-29
+internal/auth/user_cluster_cache.go
+  s_2f40bb97923467::t_8a0a4a26ac03fd 1-155
+internal/proxy/cluster_overrides.go
+  s_2f40bb97923467::t_5967766767726c 1-61
+internal/auth/service.go
+  s_2f40bb97923467::t_1be7e34420aea7 95-105
+  s_2f40bb97923467::t_8459a23a0ec3aa 128-140
+  s_2f40bb97923467::t_fa92d0717434e1 56-68
+  s_2f40bb97923467::t_2fb98492ec8d8c 615
+  s_2f40bb97923467::t_2d6bef6418a74f 654-696
+internal/proxy/service.go
+  s_2f40bb97923467::t_3c2d2688e5fffa 846-848,851-852
+internal/postgres/user_cluster_model_list_repo.go
+  s_2f40bb97923467::t_2c98da16b13791 1-44
+internal/auth/user_cluster_model_list.go
+  s_2f40bb97923467::t_926d25ed65de43 1-26
+internal/postgres/repository.go
+  s_2f40bb97923467::t_7a928140a9057d 20-25,31-39
+internal/auth/user_cluster_cache_test.go
+  s_2f40bb97923467::t_f137ede5a1d422 1-102
+internal/pubsub/invalidation.go
+  s_2f40bb97923467::t_9cc3bd9b9ae1ff 98,102-107,110,125-127
+internal/proxy/CLAUDE.md
+  s_2f40bb97923467::t_68882372745b4f 44-82
+internal/proxy/cluster_overrides_internal_test.go
+  s_2f40bb97923467::t_7bdf69fab6273e 1-103
+internal/auth/user_test.go
+  s_2f40bb97923467::t_6ed9465633604a 235-343
+cmd/router/main.go
+  s_2f40bb97923467::t_5c5f80f0f8dc20 378-381,416,433
+internal/api/admin/policy_catalog.go
+  s_2f40bb97923467::t_97247abd070e0c 33-35,41-43
+internal/proxy/AGENTS.md
+  s_2f40bb97923467::t_68882372745b4f 44-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "6a55986265d73f75bbdb49651edacf8c500ea859",
+  "prompts": {},
+  "sessions": {
+    "s_2f40bb97923467": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "94fcecb7-2f4d-43f6-bda6-f33d59ff2276",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

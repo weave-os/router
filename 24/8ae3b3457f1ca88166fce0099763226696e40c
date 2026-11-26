@@ -1,0 +1,27 @@
+internal/api/admin/display_settings.go
+  s_ce9e4105348e97::t_b868f279a1a064 12,67-68
+internal/server/middleware/serving_release_headers_test.go
+  s_ce9e4105348e97::t_6aac749a967cdc 37,41-43,48-50
+docs/SERVING_CONTROL.md
+  s_ce9e4105348e97::t_91adf38688ca14 776-790,794
+internal/api/admin/display_settings_test.go
+  s_ce9e4105348e97::t_6aac749a967cdc 15,243,245-276,278-279,281-290
+docs/CONFIGURATION.md
+  s_ce9e4105348e97::t_d588e1b05a4c8a 1368-1369
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "248ae3b3457f1ca88166fce0099763226696e40c",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
