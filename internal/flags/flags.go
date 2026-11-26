@@ -79,6 +79,7 @@ const (
 	KeySwitchDecideShadow                   Key = "switch_decide_shadow"
 	KeyAuthorityCacheShadow                 Key = "authority_cache_shadow"
 	KeyAgreementShadowEpoch                 Key = "agreement_shadow_epoch"
+	KeyRecipeShadow                         Key = "recipe_shadow"
 	KeySiblingFailover                      Key = "sibling_failover"
 	KeyOwnSeatFirst                         Key = "own_seat_first"
 	KeyOwnOverageBeforePool                 Key = "own_overage_before_pool"
@@ -367,6 +368,19 @@ func (o Overrides) MarshalJSON() (data []byte, err error) {
 }
 
 type overridesContextKey struct{}
+
+type storedOverridesContextKey struct{}
+
+func WithRequestOverlay(ctx context.Context, stored, effective Overrides) context.Context {
+	return WithOverrides(context.WithValue(ctx, storedOverridesContextKey{}, stored), effective)
+}
+
+func StoredOverridesFromContext(ctx context.Context) (o Overrides, ok bool) {
+	if stored, overlaid := ctx.Value(storedOverridesContextKey{}).(Overrides); overlaid {
+		return stored, !stored.IsEmpty()
+	}
+	return OverridesFromContext(ctx)
+}
 
 func WithOverrides(ctx context.Context, o Overrides) context.Context {
 	if o.IsEmpty() {

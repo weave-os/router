@@ -40,5 +40,13 @@ func (r *TelemetryRepo) InsertPolicyShadowDecision(ctx context.Context, p teleme
 		ShadowLatencyMs:             p.ShadowLatencyMs,
 		ShadowError:                 stringPtrOrNil(p.ShadowError),
 		ModelsAgree:                 p.ModelsAgree,
+		ShadowRoutingModel:          stringPtrOrNil(p.ShadowRoutingModel),
+		ServingProfileKey:           stringPtrOrNil(p.ServingProfileKey),
+		ShadowProfileKey:            stringPtrOrNil(p.ShadowProfileKey),
+		ClassifierPredictedLabel:    stringPtrOrNil(p.ClassifierPredictedLabel),
+		ServingPolicyGroup:          stringPtrOrNil(p.ServingPolicyGroup),
+		ShadowPolicyGroup:           stringPtrOrNil(p.ShadowPolicyGroup),
+		ServingRosterArmID:          stringPtrOrNil(p.ServingRosterArmID),
+		ShadowRosterArmID:           stringPtrOrNil(p.ShadowRosterArmID),
 	})
 }

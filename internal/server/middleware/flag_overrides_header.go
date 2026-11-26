@@ -40,7 +40,7 @@ func WithFlagOverridesHeader(svc *auth.Service) gin.HandlerFunc {
 			return
 		}
 		observability.FromGin(c).Debug("Flag overrides header applied", "installation_id", installation.ID, "flag_keys", requested.Keys())
-		c.Request = c.Request.WithContext(flags.WithOverrides(ctx, effective))
+		c.Request = c.Request.WithContext(flags.WithRequestOverlay(ctx, stored, effective))
 		c.Next()
 	}
 }
