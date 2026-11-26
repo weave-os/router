@@ -133,7 +133,7 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 		proposalDigest = flags.String("proposal-sha256", "", "resolve this immutable proposal digest instead of reading an ObjectRef file")
 		dryRun = flags.Bool("dry-run", false, "validate the proposal and its destinations without activating")
 	case commandStatus:
-		targetRaw = flags.String("target", "", "staging, prod/stable or prod/weave-internal")
+		targetRaw = flags.String("target", "", "staging, prod/stable, prod/weave-internal or prod/beta")
 		proposalPath = flags.String("proposal", "", "JSON file containing the exact published proposal ObjectRef")
 	default:
 		return fmt.Errorf("unsupported serving command %q", command)

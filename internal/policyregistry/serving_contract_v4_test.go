@@ -165,6 +165,11 @@ func TestCandidateV3AndSelectionSetV4KeepPhysicalClassifierOutOfTargetSet(t *tes
 		policy.ClassifierVariantPrimary, policy.ClassifierVariantQwen,
 	}
 	require.ErrorContains(t, selectionSet.Validate(classifierContractRegistryRoot), "internal-only variant")
+	selectionSet.Target = TargetBeta
+	require.ErrorContains(t, selectionSet.Validate(classifierContractRegistryRoot), "internal-only variant", "beta customers test primary classifier releases only")
+	selectionSet.Target = TargetInternal
+	require.NoError(t, selectionSet.Validate(classifierContractRegistryRoot), "experimental variants stay available to staff")
+	selectionSet.Target = TargetStable
 	selectionSet.Classifier.EnabledVariants = []policy.ClassifierVariantID{policy.ClassifierVariantPrimary}
 
 	selectionSetRef := objectReferenceForTest(t, ServingSelectionSet, selectionSet)

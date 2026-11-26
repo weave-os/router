@@ -99,7 +99,7 @@ var schemaFields = []Field{
 	{"serving_profile_version", "string", true, "Immutable revision of the server-owned Router profile."},
 	{"serving_release_id", "string", true, "Verified serving release identifier."},
 	{"serving_binding_id", "string", true, "Verified serving binding identifier."},
-	{"serving_target", "string", true, "Managed serving target that admitted the turn: staging, prod/stable, or prod/weave-internal."},
+	{"serving_target", "string", true, "Managed serving target that admitted the turn: staging, prod/stable, prod/weave-internal, or prod/beta."},
 	{"boost_optimizer_version", "string", true, "Boost source optimizer version used for selection."},
 	{"policy_artifact_id", "string", true, "Routing policy artifact identifier."},
 	{"policy_artifact_sha256", "string", true, "SHA-256 digest of the routing policy artifact."},

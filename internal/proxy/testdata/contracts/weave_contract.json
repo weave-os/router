@@ -782,7 +782,7 @@
       "name": "serving_target",
       "type": "string",
       "nullable": true,
-      "description": "Managed serving target that admitted the turn: staging, prod/stable, or prod/weave-internal."
+      "description": "Managed serving target that admitted the turn: staging, prod/stable, prod/weave-internal, or prod/beta."
     },
     {
       "name": "boost_optimizer_version",
