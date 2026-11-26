@@ -7,8 +7,8 @@
 -- fast. From its commit on, no new prod/beta row can be written. The second
 -- transaction then removes the prod/beta rows written before that commit and
 -- validates, bounded by lock_timeout and statement_timeout so it fails loudly
--- instead of hanging. A failed rollback leaves version 163 dirty: run
--- `migrate force 164` and run it again; every statement here is re-runnable.
+-- instead of hanging. A failed rollback leaves version 164 dirty: run
+-- `migrate force 165` and run it again; every statement here is re-runnable.
 --
 -- A session binding pins a conversation to a target's activation, so a
 -- prod/beta binding is meaningless once the target is gone: delete it.

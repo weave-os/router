@@ -11,7 +11,7 @@
 -- The swap waits for its lock at most 250ms per attempt, below the application
 -- pool's 1s lock_timeout. A timed-out attempt is retried at most 5 times, with
 -- jittered backoff, inside a 10s total deadline; after that the migration fails
--- fast. A failed run leaves version 164 dirty: run `migrate force 163` and
+-- fast. A failed run leaves version 165 dirty: run `migrate force 164` and
 -- retry once the table is quiet. The validation step takes no lock that blocks
 -- readers or writers, so it is bounded only by statement_timeout.
 BEGIN;
