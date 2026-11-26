@@ -1,0 +1,96 @@
+docs/POLICY_INFERENCE.json
+  s_083965f66ea2d9::t_050042058e3da3 2-3,42,224,321,362
+  s_083965f66ea2d9::t_cd6ed698378563 58-63,240-245,337-342,378-383
+docs/INFERENCE_BOUNDARY.md
+  s_083965f66ea2d9::t_7065c7c3844949 93-98
+internal/inference/request.go
+  s_083965f66ea2d9::t_6ffde70105444c 1-2
+  s_083965f66ea2d9::t_24c18c7f847f4e 11-169,175,181-182
+  s_083965f66ea2d9::t_3a97278605ecca 3-10,170-174,176-180,183
+internal/inference/outcome.go
+  s_083965f66ea2d9::t_3a97278605ecca 1-6,9-12
+  s_083965f66ea2d9::t_24c18c7f847f4e 7-8
+internal/router/policy/inference_purpose.go
+  s_083965f66ea2d9::t_f0da99f55a5033 3-5,8-29,62,65-71,74,77-82,109,112-117,130-144,147-150,153,156-159,161-172
+internal/router/policy/inference_deployment.go
+  s_083965f66ea2d9::t_5cb19ba2a4d784 1-51,55-89
+  s_083965f66ea2d9::t_6ffde70105444c 52-54
+internal/inference/contracts_test.go
+  s_083965f66ea2d9::t_24c18c7f847f4e 11
+  s_083965f66ea2d9::t_d5003cb223c78a 1-10,12-15
+internal/router/policy/inference_registry.go
+  s_083965f66ea2d9::t_3a97278605ecca 40,152-159,168-173,189,191,286-343,367,402-407,419
+  s_083965f66ea2d9::t_bfb8bd2bccc00c 9,187-188
+  s_083965f66ea2d9::t_d1dff80a42b017 18,413
+docs/POLICY_INFERENCE.md
+  s_083965f66ea2d9::t_050042058e3da3 5-6,13,19,22-23
+  s_083965f66ea2d9::t_cd6ed698378563 10-12,14-18,20-21,24-33
+internal/inference/executor.go
+  s_083965f66ea2d9::t_3a97278605ecca 1-5,23-27,29
+  s_083965f66ea2d9::t_24c18c7f847f4e 6-22,28
+cmd/router/main.go
+  s_083965f66ea2d9::t_214e571a1a2e9a 604-608,650-652,654-656,789-816,1962,1965,1968,1970,1977-1987,1994,1999,2004,2006
+CLAUDE.md
+  s_083965f66ea2d9::t_7065c7c3844949 127,138
+internal/architecture/inference_boundary_baseline.json
+  s_083965f66ea2d9::t_ae5bdce4bbd4bc 9,21
+cmd/CLAUDE.md
+  s_083965f66ea2d9::t_7065c7c3844949 16,20
+internal/router/policy/resolver.go
+  s_083965f66ea2d9::t_7953591aa3e90a 129-132,136-138,387-390,404,406,408,486,507,533-534,536,541-546,551-562
+  s_083965f66ea2d9::t_6ffde70105444c 539
+  s_083965f66ea2d9::t_f2a67aff24ee4f 133-134,139-149,281,391,407,535,537-538,540,563
+  s_28c8815db4c15b::t_7b933a850a4969 135,564
+internal/router/policy/inference_registry_test.go
+  s_083965f66ea2d9::t_bfb8bd2bccc00c 100-108
+  s_083965f66ea2d9::t_db33c2d878a596 153-156,158
+  s_083965f66ea2d9::t_d5003cb223c78a 99,114-147,161
+internal/router/policy/inference_plan_test.go
+  s_083965f66ea2d9::t_904ef2907c031d 166
+  s_083965f66ea2d9::t_642a578bfe9ea8 164-165,167-187
+  s_083965f66ea2d9::t_d1dff80a42b017 204-219,221
+  s_083965f66ea2d9::t_d5003cb223c78a 1-35,37-102,111-163,188-203,220,222-322
+  s_083965f66ea2d9::t_6ffde70105444c 103-110
+  s_083965f66ea2d9::t_b34d5e30527396 36
+AGENTS.md
+  s_083965f66ea2d9::t_b6d5fadda3dcfa 127,138
+internal/router/policy/inference_plan.go
+  s_083965f66ea2d9::t_d1dff80a42b017 498-500
+  s_083965f66ea2d9::t_aaad31f83777da 373-376,388,392
+  s_083965f66ea2d9::t_94bb74fe429969 16-24,55,72-78,80-83
+  s_083965f66ea2d9::t_b43dad1d2295f4 1-6,8-15,25-54,56-71,79,84-99,105-106,116-338,349-372,377-387,389-391,393-474,490,493-497,501-557
+  s_083965f66ea2d9::t_6ffde70105444c 339-348
+  s_083965f66ea2d9::t_d3b7d92c968f57 7,100-104,107-115,475-489,491-492
+internal/architecture/inference_boundary_test.go
+  s_083965f66ea2d9::t_d3b7d92c968f57 31,300-304
+cmd/AGENTS.md
+  s_083965f66ea2d9::t_b6d5fadda3dcfa 16,20
+internal/router/policy/inference_projection.go
+  s_083965f66ea2d9::t_3a97278605ecca 42-43,47,55,88-98,117-119
+cmd/router/inference_policy_config_test.go
+  s_083965f66ea2d9::t_774b90a6573c69 1-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6bbe01b7903401e5ec408c50e0cf6f0b032fe63d",
+  "prompts": {},
+  "sessions": {
+    "s_083965f66ea2d9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08390-85bb-7c41-ae3e-6b279a904f20",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_28c8815db4c15b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0832c-78ed-7dc3-829b-0f975789e8e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

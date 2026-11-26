@@ -1,0 +1,19 @@
+internal/proxy/subscription_admission_diagnostics_internal_test.go
+  s_2a2bb68f460a0e::t_07e7bbb0912404 80,102-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b0040aa8910ecbdb0b3b4348b33ac52053186005",
+  "prompts": {},
+  "sessions": {
+    "s_2a2bb68f460a0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ccb7-f08d-77d0-90e8-3d30f68fe881",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

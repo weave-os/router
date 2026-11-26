@@ -1,0 +1,19 @@
+install/README.md
+  s_c3dc05fcd2e066::t_044a6ad5dca0d3 335-338,351-353
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "093f79ec809291a02c85d816d88b329daa4cd951",
+  "prompts": {},
+  "sessions": {
+    "s_c3dc05fcd2e066": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f6f4-63f7-7dc0-88e4-9ec0b535d130",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Shi Hao Hong <shihao.workweave.ai>"
+    }
+  }
+}

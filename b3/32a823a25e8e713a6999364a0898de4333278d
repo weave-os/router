@@ -1,0 +1,19 @@
+internal/proxy/compaction_gateway_internal_test.go
+  s_991a9052468081::t_163badddc52aad 52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b332a823a25e8e713a6999364a0898de4333278d",
+  "prompts": {},
+  "sessions": {
+    "s_991a9052468081": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15f5c-b55b-7ec0-be24-28952d4b75a3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

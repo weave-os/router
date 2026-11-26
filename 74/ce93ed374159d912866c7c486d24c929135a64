@@ -1,0 +1,19 @@
+README.md
+  s_7e6c168a194a27::t_c81bc7268be768 1-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "74ce93ed374159d912866c7c486d24c929135a64",
+  "prompts": {},
+  "sessions": {
+    "s_7e6c168a194a27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a198c1-fcca-7fb3-9492-b2ef58188b58",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

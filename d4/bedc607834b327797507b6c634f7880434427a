@@ -1,0 +1,33 @@
+install/install.sh
+  s_a22e6d91107c71::t_bb6ec0efa9d62a 5022
+  s_a22e6d91107c71::t_949745803dc0af 3581
+install/cc-statusline.sh
+  s_a22e6d91107c71::t_ca2f8840567d0d 284
+install/tests/cc-statusline_test.sh
+  s_a22e6d91107c71::t_9b5d5f06e040f1 342-343
+  s_a22e6d91107c71::t_71004d693a3b3a 314-317
+install/uninstall.sh
+  s_a22e6d91107c71::t_c9ade6087529d6 30-33
+  s_a22e6d91107c71::t_c242a700bfc9c8 554
+  s_a22e6d91107c71::t_e770963e59a19d 167-194
+  s_a22e6d91107c71::t_5d307da9fa00bf 1039
+install/tests/registry_test.sh
+  s_a22e6d91107c71::t_f65e84021d8f97 195-196
+  s_a22e6d91107c71::t_1966952854d186 410-413
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d4bedc607834b327797507b6c634f7880434427a",
+  "prompts": {},
+  "sessions": {
+    "s_a22e6d91107c71": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "58d40b34-e557-41f3-ba44-45f598b7b5ec",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

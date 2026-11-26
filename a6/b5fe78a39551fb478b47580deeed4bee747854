@@ -1,0 +1,19 @@
+internal/policyregistry/serving_channel.go
+  s_302a3bf6862e3e::t_ba3a5823b6523e 73-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a6b5fe78a39551fb478b47580deeed4bee747854",
+  "prompts": {},
+  "sessions": {
+    "s_302a3bf6862e3e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5b51397d-350a-449c-8758-91ad07df6634",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

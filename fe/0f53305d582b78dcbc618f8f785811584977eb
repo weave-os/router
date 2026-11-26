@@ -1,0 +1,26 @@
+internal/translate/default_max_tokens_test.go
+  s_f08eca5370773a::t_7975e0df85a5bb 194-207
+  s_f08eca5370773a::t_79e60c05f30991 182-183
+internal/translate/envelope.go
+  s_f08eca5370773a::t_501f8a92357082 1202-1203,1206-1208
+internal/router/catalog/catalog_test.go
+  s_f08eca5370773a::t_c09f8cee39aa6d 296
+internal/router/catalog/catalog.go
+  s_f08eca5370773a::t_8da920761d363a 575-577
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "fe0f53305d582b78dcbc618f8f785811584977eb",
+  "prompts": {},
+  "sessions": {
+    "s_f08eca5370773a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ad6052b7-f13f-4be5-af60-c20da07ddcb0",
+        "model": "deepseek/deepseek-v4-flash"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

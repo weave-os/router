@@ -1,0 +1,27 @@
+db/queries/llm_escalation.sql
+  s_40167acc8fafc1::t_803b51d191ce57 11-35,37,45,47-53
+scripts/llm_escalation_state_check/main.go
+  s_40167acc8fafc1::t_803b51d191ce57 38,69-78,83,89-92,101-115,123-138,140-143,145-164,168-178,188,197-201,220-222,269-282,285-289,301,330,355-359,367-369
+internal/postgres/llm_escalation_repo.go
+  s_40167acc8fafc1::t_803b51d191ce57 43-50,56,59-60,63,84-88,90-92,96-100,105-106,180,216,263,290-300
+.github/workflows/test.yml
+  s_40167acc8fafc1::t_803b51d191ce57 216-220
+internal/sqlc/llm_escalation.sql.go
+  s_40167acc8fafc1::t_803b51d191ce57 215-230,258,260,263,266-268,384-390,394-397,400,403-409,411-416,658-704
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "241afa3d6530e3b7023f92e2a6a5ca71b9209583",
+  "prompts": {},
+  "sessions": {
+    "s_40167acc8fafc1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ea25-6802-7ed1-8f39-c1afa4d6fe2c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

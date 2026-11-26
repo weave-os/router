@@ -1,0 +1,35 @@
+docs/CONFIGURATION.md
+  s_3aa5c252e09d40::t_bc7d3edb1912d4 974-980
+internal/policyregistry/serving_routing_model.go
+  s_3aa5c252e09d40::t_4cdffc5de247c0 30-39
+internal/policyregistry/serving_routing_model_test.go
+  s_3aa5c252e09d40::t_b50e7d40f87bce 202-228
+internal/postgres/serving/admission.go
+  s_3aa5c252e09d40::t_7c3b64e52c6d1b 127-132,149-151,240
+internal/router/routing_model_selection.go
+  s_3aa5c252e09d40::t_ac6c62d19701d4 31-33
+internal/router/strategy_selection_test.go
+  s_3aa5c252e09d40::t_30e2283ed3b146 99
+internal/server/middleware/routing_model_test.go
+  s_3aa5c252e09d40::t_656567f1e9f016 307-339
+scripts/serving_admission_check/main.go
+  s_3aa5c252e09d40::t_7a653ee2392a18 46,83-86,471
+scripts/serving_admission_check/routing_model_continuity.go
+  s_3aa5c252e09d40::t_192c58b437dfe3 1-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "81a2e5afb83d4d12769fff962d940192972a0eb2",
+  "prompts": {},
+  "sessions": {
+    "s_3aa5c252e09d40": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "23822e0f-2045-4524-8c3f-1b0a28c88a67",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

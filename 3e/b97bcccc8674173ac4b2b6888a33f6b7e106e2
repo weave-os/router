@@ -1,0 +1,68 @@
+internal/sqlc/models.go
+  s_394c7cb9fc8be4::t_67ebf8ece403a3 152-159
+internal/auth/session_token.go
+  s_394c7cb9fc8be4::t_c9b2d0fe191a4a 41-42,239,244-247,256-258
+  s_394c7cb9fc8be4::t_1c43b7c0ddd8cf 259-260
+  s_a156643a835fc6::t_5cf877a417d2cc 240-243
+db/queries/billing.sql
+  s_394c7cb9fc8be4::t_67ebf8ece403a3 122-139,223-224,226-239
+internal/server/server.go
+  s_394c7cb9fc8be4::t_37150067a12c53 359,391,452
+internal/billing/repo.go
+  s_394c7cb9fc8be4::t_c9b2d0fe191a4a 60-63,68-72
+  s_394c7cb9fc8be4::t_cc7c462b011e18 73
+internal/proxy/service.go
+  s_394c7cb9fc8be4::t_c9b2d0fe191a4a 6832-6834
+internal/server/middleware/delegated_spend_cap.go
+  s_394c7cb9fc8be4::t_37150067a12c53 1-80
+docs/DELEGATED_SESSION_TOKENS.md
+  s_394c7cb9fc8be4::t_1f7c9ba5489ea2 32-33,39-48
+  s_394c7cb9fc8be4::t_e7cca8e60799e0 49
+db/migrations/0138_delegated-token-spend.up.sql
+  s_394c7cb9fc8be4::t_67ebf8ece403a3 1-17
+internal/billing/service.go
+  s_394c7cb9fc8be4::t_c9b2d0fe191a4a 152,260-278,368-371,453-454
+db/migrations/0138_delegated-token-spend.down.sql
+  s_394c7cb9fc8be4::t_67ebf8ece403a3 1-5
+internal/sqlc/billing.sql.go
+  s_394c7cb9fc8be4::t_67ebf8ece403a3 27-28,30,52-53,55,135-152,162,166,170,204-205,314-331,341,345,349,382-383,419-459
+  s_394c7cb9fc8be4::t_c820e4e8f5b94e 460
+internal/postgres/billing_repo.go
+  s_394c7cb9fc8be4::t_c9b2d0fe191a4a 78-79,91-102
+  s_394c7cb9fc8be4::t_1a48510f6eaaed 103-104
+internal/auth/session_token_test.go
+  s_394c7cb9fc8be4::t_b75d3fb3ad5328 175,177-183,217-230
+  s_394c7cb9fc8be4::t_7622e174096a10 231-232
+  s_a156643a835fc6::t_5cf877a417d2cc 184
+internal/billing/prepaid.go
+  s_394c7cb9fc8be4::t_c9b2d0fe191a4a 93-96,198-199
+cmd/router/main.go
+  s_394c7cb9fc8be4::t_37150067a12c53 244
+internal/server/middleware/delegated_spend_cap_test.go
+  s_394c7cb9fc8be4::t_b75d3fb3ad5328 1-74,77-95
+  s_394c7cb9fc8be4::t_643cefcaad2e95 75-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3eb97bcccc8674173ac4b2b6888a33f6b7e106e2",
+  "prompts": {},
+  "sessions": {
+    "s_394c7cb9fc8be4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16f2b-feba-72f3-a064-e0e2eff463af",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_a156643a835fc6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1703c-0931-7662-93c5-c7d0404406b5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

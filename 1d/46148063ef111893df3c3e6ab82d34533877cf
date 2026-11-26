@@ -1,0 +1,27 @@
+internal/server/middleware/serving_release_headers_test.go
+  s_ce9e4105348e97::t_2774060c9dfb14 125-152
+docs/SERVING_CONTROL.md
+  s_ce9e4105348e97::t_75b1bc4faf3630 787-793
+internal/server/middleware/serving_admission.go
+  s_ce9e4105348e97::t_6c9c674d2f1312 35-39,115
+internal/server/middleware/serving_release_headers.go
+  s_ce9e4105348e97::t_6c9c674d2f1312 8,14-17,25-30,32
+cmd/router/main.go
+  s_ce9e4105348e97::t_6c9c674d2f1312 786
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1d46148063ef111893df3c3e6ab82d34533877cf",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

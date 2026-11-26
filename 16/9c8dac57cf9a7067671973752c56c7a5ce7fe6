@@ -1,0 +1,23 @@
+db/queries/routing_observation_verification.sql
+  s_09aee02fdeba7f::t_707ded8701da6b 1
+internal/sqlc/routing_observation_verification.sql.go
+  s_09aee02fdeba7f::t_707ded8701da6b 67,91,97,103,126-128
+cmd/verify-routing-observations/main.go
+  s_09aee02fdeba7f::t_707ded8701da6b 91,93,97-99,104,112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "169c8dac57cf9a7067671973752c56c7a5ce7fe6",
+  "prompts": {},
+  "sessions": {
+    "s_09aee02fdeba7f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a209ab-1022-7d23-872d-80230f025ae6",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Shi Hao Hong <shihao.workweave.ai>"
+    }
+  }
+}

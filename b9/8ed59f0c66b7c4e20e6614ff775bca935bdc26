@@ -1,0 +1,34 @@
+internal/proxy/blind_experiment.go
+  s_ce9e4105348e97::t_dfd398165feba3 74-77,89,220
+  s_ce9e4105348e97::t_3d882eb63a3194 213-214
+internal/postgres/blind_experiment_session_repo.go
+  s_ce9e4105348e97::t_dfd398165feba3 40
+internal/postgres/blind_experiment_control_model.go
+  s_ce9e4105348e97::t_dfd398165feba3 1-21
+internal/postgres/migration_0166_test.go
+  s_ce9e4105348e97::t_81c27e1f2382e2 39-45
+  s_ce9e4105348e97::t_d0a2e132dfa174 38
+internal/proxy/blind_experiment_internal_test.go
+  s_ce9e4105348e97::t_f8f2d1f28a6475 12,723-724,730-731,736
+  s_ce9e4105348e97::t_3d882eb63a3194 669,674,677,682-694,721-722,725-729,732-735,737-739
+internal/postgres/blind_experiment_control_model_test.go
+  s_ce9e4105348e97::t_f8f2d1f28a6475 1-16
+internal/postgres/blind_experiment_repo.go
+  s_ce9e4105348e97::t_dfd398165feba3 51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b98ed59f0c66b7c4e20e6614ff775bca935bdc26",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

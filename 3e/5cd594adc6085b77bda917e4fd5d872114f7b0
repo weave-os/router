@@ -1,0 +1,23 @@
+db/migrations/0164_serving-target-prod-beta.down.sql
+  s_ce9e4105348e97::t_3b070973256fba 6-7
+  s_ce9e4105348e97::t_ebcfbb90a0598b 44
+db/migrations/0164_serving-target-prod-beta.up.sql
+  s_ce9e4105348e97::t_ebcfbb90a0598b 41
+  s_ce9e4105348e97::t_3b070973256fba 13-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3e5cd594adc6085b77bda917e4fd5d872114f7b0",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
