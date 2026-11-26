@@ -1,0 +1,23 @@
+internal/proxy/golden_serving_channel_test.go
+  s_4cd22983350ba2::t_3c9513ba1bf807 58,68
+  s_4cd22983350ba2::t_ab4b3ff2908548 128-129
+  s_4cd22983350ba2::t_18880120ca8309 21-28,46,53,57,73-74,90-91
+internal/api/admin/serving_release_headers_test.go
+  s_4cd22983350ba2::t_18880120ca8309 64-65,67-69,71-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2370b8ee4e7be6b3bdac1508e5c86bf668b6ad93",
+  "prompts": {},
+  "sessions": {
+    "s_4cd22983350ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "132b2d77-b4ec-4ae3-99d9-a1255f4bbc9e",
+        "model": "claude-haiku-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
