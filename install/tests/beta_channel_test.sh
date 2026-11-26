@@ -44,12 +44,12 @@ uninstall_for() {
 }
 
 # --- Claude Code: hosted install writes the beta settings and launcher. ---
-h="$work/claude"
-mkdir -p "$h"
-install_for "$h" claude --base-url "$hosted"
-settings="$h/.claude/settings.json"
-beta="$h/.claude/weave-beta.json"
-launcher="$h/.weave/bin/claude-beta"
+claude_home="$work/claude"
+mkdir -p "$claude_home"
+install_for "$claude_home" claude --base-url "$hosted"
+settings="$claude_home/.claude/settings.json"
+beta="$claude_home/.claude/weave-beta.json"
+launcher="$claude_home/.weave/bin/claude-beta"
 [ -f "$beta" ] || fail "weave-beta.json was not written"
 [ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$beta")" = "$beta_default" ] || fail "beta settings do not point at the beta host"
 [ "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$beta")" = "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$settings")" ] \
@@ -69,77 +69,112 @@ CLAUDE_ARGS_OUT="$work/claude-args" PATH="$work/bin:$PATH" "$launcher" --resume 
 printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$work/bin/claude"
 
 # A user-owned file at the launcher path is left alone on reinstall.
-u="$work/user-launcher"
-mkdir -p "$u/.weave/bin"
-printf '%s\n' '#!/usr/bin/env bash' 'echo mine' >"$u/.weave/bin/claude-beta"
-install_for "$u" claude --base-url "$hosted"
-[ "$(sed -n 2p "$u/.weave/bin/claude-beta")" = "echo mine" ] || fail "installer overwrote a user-owned claude-beta"
+user_home="$work/user-launcher"
+mkdir -p "$user_home/.weave/bin"
+printf '%s\n' '#!/usr/bin/env bash' 'echo mine' >"$user_home/.weave/bin/claude-beta"
+install_for "$user_home" claude --base-url "$hosted"
+[ "$(sed -n 2p "$user_home/.weave/bin/claude-beta")" = "echo mine" ] || fail "installer overwrote a user-owned claude-beta"
+
+# A --dir install refuses a symlinked launcher directory.
+dir_home="$work/dir-install"
+mkdir -p "$dir_home/tree/.weave" "$work/elsewhere"
+ln -s "$work/elsewhere" "$dir_home/tree/.weave/bin"
+if HOME="$dir_home" XDG_CACHE_HOME="$dir_home/.cache" PATH="$work/bin:$PATH" NO_COLOR=1 WEAVE_ROUTER_KEY=rk_beta_test \
+  bash "$installer" --claude --quiet --non-interactive --dir "$dir_home/tree" --base-url "$hosted" </dev/null >"$work/output" 2>&1; then
+  fail "--dir install wrote through a symlinked .weave/bin"
+fi
+[ ! -e "$work/elsewhere/claude-beta" ] || fail "--dir install wrote the launcher through a symlink"
 
 # --- beta on / status / off rewrites only the base URL. ---
-router "$h" beta status || fail "beta status failed"
+router "$claude_home" beta status || fail "beta status failed"
 grep -q 'stable' "$work/output" || fail "beta status did not report stable: $(cat "$work/output")"
-router "$h" beta on || fail "beta on failed"
+router "$claude_home" beta on || fail "beta on failed"
 grep -q 'Restart Claude Code' "$work/output" || fail "beta on did not ask for a restart"
 [ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$settings")" = "$beta_default" ] || fail "beta on did not move the base URL"
 [ "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$settings")" = "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$beta")" ] \
   || fail "beta on changed the router key"
-router "$h" beta status || fail "beta status failed"
+router "$claude_home" beta status || fail "beta status failed"
 grep -q 'beta' "$work/output" || fail "beta status did not report beta"
-router "$h" beta on || fail "repeat beta on failed"
+router "$claude_home" beta on || fail "repeat beta on failed"
 grep -q 'already on beta' "$work/output" || fail "repeat beta on was not a no-op"
 # `update` keeps the beta endpoint and still writes beta settings for it.
 # Offline, update cannot verify the key and exits non-zero; the files it
 # rewrote before that check are what matter here.
-router "$h" update --claude --quiet --scope user || true
+router "$claude_home" update --claude --quiet --scope user || true
 [ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$settings")" = "$beta_default" ] || fail "update dropped the beta switch"
 [ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$beta")" = "$beta_default" ] || fail "update rewrote beta settings off the beta host"
-router "$h" beta off || fail "beta off failed"
+router "$claude_home" beta off || fail "beta off failed"
 [ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$settings")" = "$hosted" ] || fail "beta off did not restore the stable URL"
-[ ! -e "$h/.claude/.weave-beta-switch.json" ] || fail "beta off left its sidecar"
-if router "$h" beta --codex on; then fail "beta accepted --codex"; fi
-if router "$h" beta sideways; then fail "beta accepted an unknown action"; fi
+[ ! -e "$claude_home/.claude/.weave-beta-switch.json" ] || fail "beta off left its sidecar"
+if router "$claude_home" beta --codex on; then fail "beta accepted --codex"; fi
+if router "$claude_home" beta sideways; then fail "beta accepted an unknown action"; fi
 
 # beta on refuses while the router is off.
-router "$h" off --claude || fail "off failed"
-router "$h" beta on || true
+router "$claude_home" off --claude || fail "off failed"
+router "$claude_home" beta on || true
 grep -q "isn't routed" "$work/output" || fail "beta on while off did not refuse"
-router "$h" on --claude || fail "on failed"
+router "$claude_home" on --claude || fail "on failed"
+# beta off while the router is off keeps the sidecar that restores stable.
+router "$claude_home" beta on || fail "beta on failed"
+router "$claude_home" off --claude || fail "off failed"
+router "$claude_home" beta off || true
+[ -e "$claude_home/.claude/.weave-beta-switch.json" ] || fail "beta off while off dropped its sidecar"
+router "$claude_home" on --claude || fail "on failed"
+router "$claude_home" beta off || fail "beta off failed"
+[ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$settings")" = "$hosted" ] || fail "beta off after on did not restore stable"
 
 # --- Self-hosted: no beta unless WEAVE_ROUTER_BETA_URL names one. ---
-s="$work/selfhosted"
-mkdir -p "$s"
-install_for "$s" claude --base-url http://127.0.0.1:9
-[ ! -e "$s/.claude/weave-beta.json" ] || fail "self-hosted install wrote beta settings without a beta host"
-[ ! -e "$s/.weave/bin/claude-beta" ] || fail "self-hosted install wrote a launcher without a beta host"
-router "$s" beta on || true
+selfhosted_home="$work/selfhosted"
+mkdir -p "$selfhosted_home"
+install_for "$selfhosted_home" claude --base-url http://127.0.0.1:9
+[ ! -e "$selfhosted_home/.claude/weave-beta.json" ] || fail "self-hosted install wrote beta settings without a beta host"
+[ ! -e "$selfhosted_home/.weave/bin/claude-beta" ] || fail "self-hosted install wrote a launcher without a beta host"
+router "$selfhosted_home" beta on || true
 grep -q 'no beta channel' "$work/output" || fail "beta on without a beta host did not explain"
-WEAVE_ROUTER_BETA_URL=http://127.0.0.2:9 install_for "$s" claude --base-url http://127.0.0.1:9
-[ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$s/.claude/weave-beta.json")" = http://127.0.0.2:9 ] || fail "WEAVE_ROUTER_BETA_URL was not used"
-[ "$(jq -r '.env.WEAVE_ROUTER_BETA_URL' "$s/.claude/weave-beta.json")" = http://127.0.0.2:9 ] || fail "beta override not carried for the status line"
+WEAVE_ROUTER_BETA_URL=http://127.0.0.2:9 install_for "$selfhosted_home" claude --base-url http://127.0.0.1:9
+[ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$selfhosted_home/.claude/weave-beta.json")" = http://127.0.0.2:9 ] || fail "WEAVE_ROUTER_BETA_URL was not used"
+[ "$(jq -r '.env.WEAVE_ROUTER_BETA_URL' "$selfhosted_home/.claude/weave-beta.json")" = http://127.0.0.2:9 ] || fail "beta override not carried for the status line"
+# beta on|off find the saved self-hosted beta endpoint without the env var,
+# and beta off restores the stable URL instead of claiming it is stable.
+selfhosted_settings="$selfhosted_home/.claude/settings.json"
+router "$selfhosted_home" beta on || fail "self-hosted beta on failed"
+[ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$selfhosted_settings")" = http://127.0.0.2:9 ] || fail "self-hosted beta on did not use the saved beta host"
+router "$selfhosted_home" beta off || fail "self-hosted beta off failed"
+[ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$selfhosted_settings")" = http://127.0.0.1:9 ] || fail "self-hosted beta off did not restore stable: $(cat "$work/output")"
+# Without the saved stable URL, beta off never falls back to the hosted router.
+router "$selfhosted_home" beta on || fail "self-hosted beta on failed"
+rm -f "$selfhosted_home/.claude/.weave-beta-switch.json"
+router "$selfhosted_home" beta off || true
+[ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$selfhosted_settings")" = http://127.0.0.2:9 ] || fail "beta off guessed a stable endpoint for a self-hosted install"
+grep -q 'stable endpoint is missing' "$work/output" || fail "beta off without the sidecar did not explain"
+# Retargeting to a router with no beta channel removes the old beta files.
+install_for "$selfhosted_home" claude --base-url http://127.0.0.1:9
+[ ! -e "$selfhosted_home/.claude/weave-beta.json" ] || fail "retarget kept weave-beta.json for the old beta host"
+[ ! -e "$selfhosted_home/.weave/bin/claude-beta" ] || fail "retarget kept the claude-beta launcher"
 
 # Project scope never writes personal beta assets.
-p="$work/project"
-mkdir -p "$p/repo"
-git -C "$p/repo" init -q
-( cd "$p/repo" && HOME="$p" XDG_CACHE_HOME="$p/.cache" PATH="$work/bin:$PATH" NO_COLOR=1 WEAVE_ROUTER_KEY=rk_beta_test \
+project_home="$work/project"
+mkdir -p "$project_home/repo"
+git -C "$project_home/repo" init -q
+( cd "$project_home/repo" && HOME="$project_home" XDG_CACHE_HOME="$project_home/.cache" PATH="$work/bin:$PATH" NO_COLOR=1 WEAVE_ROUTER_KEY=rk_beta_test \
   bash "$installer" --claude --quiet --non-interactive --scope project --base-url "$hosted" </dev/null >"$work/output" 2>&1 ) \
   || { cat "$work/output" >&2; fail "project install"; }
-[ ! -e "$p/repo/.claude/weave-beta.json" ] || fail "project install wrote weave-beta.json"
+[ ! -e "$project_home/repo/.claude/weave-beta.json" ] || fail "project install wrote weave-beta.json"
 
 # --- Uninstall removes the beta assets. ---
-router "$h" beta on || fail "beta on failed"
-uninstall_for "$h" claude
+router "$claude_home" beta on || fail "beta on failed"
+uninstall_for "$claude_home" claude
 [ ! -e "$beta" ] || fail "uninstall left weave-beta.json"
 [ ! -e "$launcher" ] || fail "uninstall left claude-beta"
-[ ! -e "$h/.claude/.weave-beta-switch.json" ] || fail "uninstall left the beta switch sidecar"
-uninstall_for "$u" claude
-[ -e "$u/.weave/bin/claude-beta" ] || fail "uninstall removed a user-owned claude-beta"
+[ ! -e "$claude_home/.claude/.weave-beta-switch.json" ] || fail "uninstall left the beta switch sidecar"
+uninstall_for "$user_home" claude
+[ -e "$user_home/.weave/bin/claude-beta" ] || fail "uninstall removed a user-owned claude-beta"
 
 # --- Codex: a weave-beta provider and profile, no jq needed. ---
-c="$work/codex"
-mkdir -p "$c"
-install_for "$c" codex --base-url "$hosted"
-config="$c/.codex/config.toml"
+codex_home="$work/codex"
+mkdir -p "$codex_home"
+install_for "$codex_home" codex --base-url "$hosted"
+config="$codex_home/.codex/config.toml"
 grep -qx '\[model_providers.weave-beta\]' "$config" || fail "Codex beta provider missing"
 grep -qx "base_url = \"$beta_default/v1\"" "$config" || fail "Codex beta provider does not use the beta host"
 grep -qx '\[profiles.weave-beta\]' "$config" || fail "Codex weave-beta profile missing"
@@ -155,19 +190,19 @@ assert config["profiles"]["weave-beta"]["model_provider"] == "weave-beta"
 assert config["model_providers"]["weave-beta"]["base_url"].startswith("https://beta.")
 PY
 fi
-install_for "$c" codex --base-url "$hosted"
+install_for "$codex_home" codex --base-url "$hosted"
 [ "$(grep -c '^\[profiles\.weave-beta\]$' "$config")" -eq 1 ] || fail "reinstall duplicated the weave-beta profile"
-uninstall_for "$c" codex
+uninstall_for "$codex_home" codex
 if grep -q 'weave-beta' "$config" 2>/dev/null; then fail "Codex uninstall left the beta profile"; fi
 
 # --- Status line: BETA badge on the beta host, release SHA when known. ---
-sl="$work/statusline"
-mkdir -p "$sl/cache"
+statusline_home="$work/statusline"
+mkdir -p "$statusline_home/cache"
 render() { # render <base-url> [extra env...]
   local base="$1"
   shift
   printf '%s' '{"session_id":"s1","model":{"id":"claude-opus-5"}}' \
-    | env "$@" HOME="$sl" XDG_CACHE_HOME="$sl/cache" WEAVE_DISPLAY_SETTINGS_COLD_WAIT_TENTHS=0 \
+    | env "$@" HOME="$statusline_home" XDG_CACHE_HOME="$statusline_home/cache" WEAVE_DISPLAY_SETTINGS_COLD_WAIT_TENTHS=0 \
       PATH="$work/bin:$PATH" ANTHROPIC_BASE_URL="$base" bash "$statusline" 2>/dev/null \
     | sed 's/\x1b\[[0-9;]*m//g'
 }
@@ -175,26 +210,33 @@ out="$(render "$hosted")"
 case "$out" in *BETA*) fail "stable session shows BETA: $out" ;; esac
 out="$(render "$beta_default")"
 case "$out" in *"WEAVE ROUTER · BETA"*) ;; *) fail "beta session lacks BETA badge: $out" ;; esac
-mkdir -p "$sl/cache/weave-router"
-printf 'abcdef1' >"$sl/cache/weave-router/release-beta.router.workweave.ai"
+mkdir -p "$statusline_home/cache/weave-router"
+weave_release_lib="$(sed -n '/^weave_url_key() {/,/^weave_channel_clause() {/p' "$statusline" | sed '$d')"
+release_cache_for() { # release_cache_for <cache-home> <base-url>
+  ( XDG_CACHE_HOME="$1"; eval "$weave_release_lib"; weave_release_cache "$2" )
+}
+printf 'abcdef1' >"$(release_cache_for "$statusline_home/cache" "$beta_default")"
 out="$(render "$beta_default")"
 case "$out" in *"BETA abcdef1"*) ;; *) fail "beta badge lacks the release SHA: $out" ;; esac
 out="$(render http://127.0.0.2:9 WEAVE_ROUTER_BETA_URL=http://127.0.0.2:9)"
 case "$out" in *BETA*) ;; *) fail "beta override host lacks BETA badge: $out" ;; esac
+out="$(render http://127.0.0.2:8 WEAVE_ROUTER_BETA_URL=http://127.0.0.2:9)"
+case "$out" in *BETA*) fail "a stable router on the beta host's other port shows BETA: $out" ;; esac
 
 # The release header is read from the display-settings response.
-weave_release_lib="$(sed -n '/^weave_url_host() {/,/^weave_channel_clause() {/p' "$statusline" | sed '$d')"
 (
-  XDG_CACHE_HOME="$sl/cache2"
+  XDG_CACHE_HOME="$statusline_home/cache2"
   mkdir -p "$XDG_CACHE_HOME/weave-router"
   export WEAVE_RELEASE_HEADERS='x-weave-release-sha|x-weave-policy-sha'
   eval "$weave_release_lib"
-  printf 'HTTP/2 200\r\nX-Weave-Release-SHA: 0123456789ABCDEF\r\n\r\n' >"$sl/h1"
-  weave_store_release "$sl/h1" "$beta_default"
-  [ "$(cat "$XDG_CACHE_HOME/weave-router/release-beta.router.workweave.ai")" = 0123456 ] || exit 1
-  printf 'HTTP/2 200\r\nX-Weave-Release-SHA: not-a-sha\r\n\r\n' >"$sl/h2"
-  weave_store_release "$sl/h2" "$beta_default"
-  [ ! -e "$XDG_CACHE_HOME/weave-router/release-beta.router.workweave.ai" ] || exit 1
+  printf 'HTTP/2 200\r\nX-Weave-Release-SHA: 0123456789ABCDEF\r\n\r\n' >"$statusline_home/good_headers"
+  weave_store_release "$statusline_home/good_headers" "$beta_default"
+  release_file="$(weave_release_cache "$beta_default")"
+  [ "$(cat "$release_file")" = 0123456 ] || exit 1
+  [ "$(weave_release_cache "$hosted")" != "$release_file" ] || exit 1
+  printf 'HTTP/2 200\r\nX-Weave-Release-SHA: not-a-sha\r\n\r\n' >"$statusline_home/bad_headers"
+  weave_store_release "$statusline_home/bad_headers" "$beta_default"
+  [ ! -e "$release_file" ] || exit 1
 ) || fail "release header capture"
 
 echo "Beta channel installer regression tests passed"

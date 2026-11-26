@@ -783,7 +783,9 @@ codex --profile weave-beta          # one beta Codex run
 Project installs skip all of this, since `settings.json` is shared with the
 team. Self-hosted installs skip it unless `WEAVE_ROUTER_BETA_URL` names a beta
 endpoint; set it at install time to use your own beta host, or to follow the
-hosted one if it moves. Org admins can push `weave-beta.json` through managed
+hosted one if it moves. `update` and `beta on|off` reuse the endpoint saved in
+`weave-beta.json`; an install against a router with no beta channel removes
+`weave-beta.json` and the `claude-beta` launcher. Org admins can push `weave-beta.json` through managed
 settings instead.
 
 ### Which directives each client gets

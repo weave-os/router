@@ -172,7 +172,6 @@ setup_codex="false"
 # `set -u` would not. --json switches the output to the raw API payload.
 models_args=""
 models_json="false"
-# `beta` action: on | off | status.
 beta_action=""
 models_auto_target="false"
 
@@ -2646,61 +2645,86 @@ beta_base_url() {
   esac
 }
 
-# beta_assets_supported is true for installs that belong to one person: user
-# scope, including a throwaway --dir. A project install shares settings.json
-# with the team, and the launcher is a personal command.
-beta_assets_supported() {
-  [ "$scope" = "user" ] && [ -n "$(beta_base_url)" ]
+# saved_beta_override prints the beta endpoint an earlier install recorded in
+# weave-beta.json, so `beta on|off` and `update` keep a self-hosted beta host
+# without WEAVE_ROUTER_BETA_URL in the caller's shell. A --dir tree may be
+# hostile, so only the copy under $HOME is trusted.
+saved_beta_override() {
+  [ -z "$install_dir" ] || return 0
+  json_get "$settings_dir/$WEAVE_BETA_SETTINGS_NAME" '.env.WEAVE_ROUTER_BETA_URL'
 }
 
-beta_settings_file() { printf '%s' "$settings_dir/$WEAVE_BETA_SETTINGS_NAME"; }
-beta_launcher_file() { printf '%s' "$settings_base/.weave/bin/$WEAVE_BETA_LAUNCHER_NAME"; }
+# printable_url drops control characters from a URL read out of a settings
+# file before it reaches the terminal.
+printable_url() { printf '%s' "$1" | tr -d '[:cntrl:]'; }
 
 # write_claude_beta_settings writes weave-beta.json: the router-owned env from
 # the stable settings with the base URL moved to the beta host. Claude Code
 # layers a --settings file over the user's own settings, so everything else
 # (status line, hooks, model) still comes from settings.json. Copying the full
 # router env, key included, keeps claude-beta routed even while `off` has
-# parked the stable config.
+# parked the stable config. Only user-scope installs (including a throwaway
+# --dir) get it: a project install shares settings.json with the team.
 write_claude_beta_settings() {
-  local custom_headers="$1" beta_url beta_file override=""
-  beta_assets_supported || return 0
+  local custom_headers="$1" beta_url beta_file launcher override="" tmp
+  [ "$scope" = "user" ] || return 0
+  if [ "$mode" = "update" ]; then
+    local WEAVE_ROUTER_BETA_URL="${WEAVE_ROUTER_BETA_URL:-$(saved_beta_override)}"
+  fi
   beta_url="$(beta_base_url)"
-  beta_file="$(beta_settings_file)"
+  beta_file="$settings_dir/$WEAVE_BETA_SETTINGS_NAME"
+  launcher="$settings_base/.weave/bin/$WEAVE_BETA_LAUNCHER_NAME"
+  if [ -z "$beta_url" ]; then
+    # This endpoint has no beta channel. Beta files left by an earlier install
+    # would keep sending the key and every claude-beta prompt to the old host.
+    if [ -f "$beta_file" ] && [ ! -L "$beta_file" ]; then
+      rm -f "$beta_file"
+      ok "Removed $beta_file (this router has no beta channel)"
+    fi
+    if [ -f "$launcher" ] && [ ! -L "$launcher" ] && grep -Fq "$WEAVE_BETA_LAUNCHER_MARKER" "$launcher" 2>/dev/null; then
+      rm -f "$launcher"
+    fi
+    return 0
+  fi
   refuse_if_symlink "$beta_file"
   [ "$beta_url" = "$BETA_HOSTED_BASE_URL" ] || override="$beta_url"
-  (umask 077 && jq -n --arg url "$beta_url" --arg header "$custom_headers" --arg override "$override" '{
+  # mktemp creates the file 0600 under a name nothing could have planted.
+  tmp="$(mktemp "$settings_dir/.weave-beta.XXXXXX")"
+  jq -n --arg url "$beta_url" --arg header "$custom_headers" --arg override "$override" '{
     env: ({ ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header,
             ENABLE_TOOL_SEARCH: "true", CLAUDE_CODE_AUTO_MODE_SERVER: "0" }
           + (if $override == "" then {} else { WEAVE_ROUTER_BETA_URL: $override } end))
-  }' >"$beta_file.tmp")
-  chmod 600 "$beta_file.tmp"
-  mv -f "$beta_file.tmp" "$beta_file"
+  }' >"$tmp"
+  mv -f "$tmp" "$beta_file"
   ok "Beta settings written to $beta_file"
-  install_claude_beta_launcher "$beta_file"
+  install_claude_beta_launcher "$beta_file" "$launcher"
 }
 
 # install_claude_beta_launcher writes the claude-beta command. A file at that
 # path without our marker is the user's and stays untouched.
 install_claude_beta_launcher() {
-  local beta_file="$1" launcher launcher_dir
-  launcher="$(beta_launcher_file)"
+  local beta_file="$1" launcher="$2" launcher_dir tmp
   launcher_dir="$(dirname "$launcher")"
+  if [ -n "$install_dir" ]; then
+    refuse_if_symlink "$settings_base/.weave"
+    refuse_if_symlink "$launcher_dir"
+  fi
   mkdir -p "$launcher_dir"
   refuse_if_symlink "$launcher"
   if [ -e "$launcher" ] && ! grep -Fq "$WEAVE_BETA_LAUNCHER_MARKER" "$launcher" 2>/dev/null; then
     warn "Leaving user-owned $launcher untouched; start beta sessions with: claude --settings $beta_file"
     return 0
   fi
+  tmp="$(mktemp "$launcher_dir/.claude-beta.XXXXXX")"
   {
     printf '#!/usr/bin/env bash\n'
     printf '%s\n' "$WEAVE_BETA_LAUNCHER_MARKER"
     printf '%s\n' '# Starts Claude Code on the Weave Router beta channel. Stable claude' \
       '# sessions are unaffected. npx @weave-os/router --uninstall removes it.'
     printf 'exec claude --settings %q "$@"\n' "$beta_file"
-  } >"$launcher.tmp"
-  chmod 755 "$launcher.tmp"
-  mv -f "$launcher.tmp" "$launcher"
+  } >"$tmp"
+  chmod 755 "$tmp"
+  mv -f "$tmp" "$launcher"
   ok "Beta launcher installed at $launcher"
   case ":$PATH:" in
     *":$launcher_dir:"*) ;;
@@ -2710,25 +2734,23 @@ install_claude_beta_launcher() {
 
 # toggle_claude_beta is `beta on|off|status`: it moves the stable settings.json
 # base URL to the beta host and back, keeping the stable URL in a sidecar so
-# `beta off` restores exactly what was there.
+# `beta off` restores exactly what was there. The sidecar is removed only once
+# that URL is back in settings.json.
 toggle_claude_beta() {
   local switch_file="$settings_dir/$WEAVE_BETA_SWITCH_NAME" parked="$settings_dir/.weave-parked.json"
-  local current beta_url stable merged
+  local current beta_url stable="" merged tmp
+  local WEAVE_ROUTER_BETA_URL="${WEAVE_ROUTER_BETA_URL:-$(saved_beta_override)}"
   current="$(strip_trailing_slashes "$(json_get "$settings_file" '.env.ANTHROPIC_BASE_URL')")"
-  [ -n "${install_dir:-}" ] && refuse_if_symlink "$switch_file"
-  if [ -f "$switch_file" ]; then
-    stable="$(json_get "$switch_file" '.stable_base_url')"
-    base_url="${stable:-$current}"
-  else
-    base_url="$current"
-  fi
+  [ -n "$install_dir" ] && refuse_if_symlink "$switch_file"
+  [ ! -f "$switch_file" ] || stable="$(json_get "$switch_file" '.stable_base_url')"
+  base_url="${stable:-$current}"
   beta_url="$(beta_base_url)"
   case "$beta_action" in
     status)
       if [ -n "$beta_url" ] && [ "$current" = "$beta_url" ]; then
-        ok "Claude Code: ${C_BOLD}beta${C_RESET} — sessions use $beta_url."
+        ok "Claude Code: ${C_BOLD}beta${C_RESET} — sessions use $(printable_url "$beta_url")."
       elif router_shaped_url "$current"; then
-        ok "Claude Code: ${C_BOLD}stable${C_RESET} — sessions use $current."
+        ok "Claude Code: ${C_BOLD}stable${C_RESET} — sessions use $(printable_url "$current")."
       else
         info "Claude Code isn't routed through the Weave Router in this scope."
       fi
@@ -2739,30 +2761,44 @@ toggle_claude_beta() {
         return 0
       fi
       if [ -z "$beta_url" ]; then
-        warn "This router ($current) has no beta channel. Set WEAVE_ROUTER_BETA_URL if it runs one."
+        warn "This router ($(printable_url "$current")) has no beta channel. Set WEAVE_ROUTER_BETA_URL if it runs one."
         return 0
       fi
       if [ "$current" = "$beta_url" ]; then
         ok "Claude Code is already on beta — nothing to do."
         return 0
       fi
-      jq -n --arg url "$current" '{stable_base_url: $url}' >"$switch_file"
-      chmod 600 "$switch_file"
+      tmp="$(mktemp "$settings_dir/.weave-beta-switch.XXXXXX")"
+      jq -n --arg url "$current" '{stable_base_url: $url}' >"$tmp"
+      mv -f "$tmp" "$switch_file"
       merged="$(jq --arg url "$beta_url" '.env.ANTHROPIC_BASE_URL = $url' "$settings_file")"
       printf '%s\n' "$merged" >"$settings_file"
-      ok "Claude Code is on ${C_BOLD}beta${C_RESET} ($beta_url). Restart Claude Code for it to take effect."
+      ok "Claude Code is on ${C_BOLD}beta${C_RESET} ($(printable_url "$beta_url")). Restart Claude Code for it to take effect."
       ;;
     off)
+      # `off` parked the router env, beta URL included; `on` restores it. Keep
+      # the sidecar so `beta off` still knows the stable URL after that.
+      if [ -f "$parked" ]; then
+        warn "Claude Code is off. Run 'npx $npm_package_name on --claude' first, then 'beta off'."
+        return 0
+      fi
       if [ -z "$beta_url" ] || [ "$current" != "$beta_url" ]; then
-        rm -f "$switch_file"
         ok "Claude Code is already on stable — nothing to do."
         return 0
       fi
-      [ -n "${stable:-}" ] || stable="$HOSTED_BASE_URL"
+      if [ -z "$stable" ]; then
+        # Without the saved URL only the hosted pairing is known. Never point a
+        # self-hosted installation's key at the hosted router.
+        if [ "$beta_url" != "$BETA_HOSTED_BASE_URL" ]; then
+          warn "The saved stable endpoint is missing. Re-run the installer with --base-url <your router> to go back to stable."
+          return 0
+        fi
+        stable="$HOSTED_BASE_URL"
+      fi
       merged="$(jq --arg url "$stable" '.env.ANTHROPIC_BASE_URL = $url' "$settings_file")"
       printf '%s\n' "$merged" >"$settings_file"
       rm -f "$switch_file"
-      ok "Claude Code is back on ${C_BOLD}stable${C_RESET} ($stable). Restart Claude Code for it to take effect."
+      ok "Claude Code is back on ${C_BOLD}stable${C_RESET} ($(printable_url "$stable")). Restart Claude Code for it to take effect."
       ;;
   esac
 }
@@ -7780,44 +7816,38 @@ weave_sync_commands 2>/dev/null || true
 # strictly exclusive is reclaiming a lock whose holder died; see below.
 # ---------- release channel ----------
 #
-# A session whose base URL is the beta host shows a BETA badge. Beta is a
+# A session whose base URL is the beta endpoint shows a BETA badge. Beta is a
 # per-session choice (claude-beta, or `npx @weave-os/router beta on`), so the
 # badge reflects this process's environment. WEAVE_ROUTER_BETA_URL overrides
-# the hosted beta host; the beta settings file sets it when it is not the
+# the hosted beta endpoint; the beta settings file sets it when it is not the
 # default.
-WEAVE_BETA_HOST_DEFAULT="beta.router.workweave.ai"
+WEAVE_BETA_URL_DEFAULT="https://beta.router.workweave.ai"
 # A router response may name the release and policy it served. The status line
 # shows the short form so a user can quote what they ran.
 WEAVE_RELEASE_HEADERS='x-weave-release-sha|x-weave-policy-sha'
 
-weave_url_host() {
-  local host="${1#*://}"
-  host="${host%%/*}"
-  printf '%s' "${host%%:*}" | tr '[:upper:]' '[:lower:]'
-}
-
-weave_beta_host() {
-  if [ -n "${WEAVE_ROUTER_BETA_URL:-}" ]; then
-    weave_url_host "$WEAVE_ROUTER_BETA_URL"
-  else
-    printf '%s' "$WEAVE_BETA_HOST_DEFAULT"
-  fi
+# weave_url_key normalizes a base URL for comparison: scheme, host, port and
+# path all count, so two routers on one host stay distinct.
+weave_url_key() {
+  local url="$1"
+  while [ "${url%/}" != "$url" ]; do url="${url%/}"; done
+  printf '%s' "$url" | tr '[:upper:]' '[:lower:]'
 }
 
 weave_release_cache() {
-  local host
-  host="$(weave_url_host "$1" | tr -c 'A-Za-z0-9.-' '_')"
-  [ -n "$host" ] || return 1
-  printf '%s' "${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/release-$host"
+  local key
+  key="$(weave_url_key "$1")"
+  [ -n "$key" ] || return 1
+  printf '%s' "${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/release-$(printf '%s' "$key" | cksum | cut -d ' ' -f 1)"
 }
 
 # weave_store_release keeps the release named in a response's headers, per
-# router host, so a stable session never shows a beta release or the reverse.
-# A response without the header clears the cached value.
+# router endpoint, so a stable session never shows a beta release or the
+# reverse. A response without the header clears the cached value.
 weave_store_release() {
-  local headers="$1" base="$2" cache release
+  local headers_file="$1" base="$2" cache release
   cache="$(weave_release_cache "$base")" || return 0
-  release="$(tr -d '\r' <"$headers" 2>/dev/null \
+  release="$(tr -d '\r' <"$headers_file" 2>/dev/null \
     | awk -F ':' -v names="$WEAVE_RELEASE_HEADERS" '
         BEGIN { n = split(names, want, "|") }
         { name = tolower($1); sub(/^[^:]*:[[:space:]]*/, ""); value = $0
@@ -7833,9 +7863,10 @@ weave_store_release() {
 # weave_channel_clause prints " · BETA" (plus " <release>" when the router
 # named one) for a beta session, and nothing otherwise.
 weave_channel_clause() {
-  local base="${ANTHROPIC_BASE_URL:-}" cache release=""
+  local base cache release=""
+  base="$(weave_url_key "${ANTHROPIC_BASE_URL:-}")"
   [ -n "$base" ] || return 0
-  [ "$(weave_url_host "$base")" = "$(weave_beta_host)" ] || return 0
+  [ "$base" = "$(weave_url_key "${WEAVE_ROUTER_BETA_URL:-$WEAVE_BETA_URL_DEFAULT}")" ] || return 0
   cache="$(weave_release_cache "$base")" && release="$(cat "$cache" 2>/dev/null)"
   [[ "$release" =~ ^[0-9a-f]{7}$ ]] || release=""
   printf ' · \033[1mBETA\033[0m%s' "${release:+ $release}"
@@ -7966,7 +7997,7 @@ weave_hidden_gate() {
     done
     printf '%s\n' "$custom_headers" | grep -E '^X-Weave-User-(Email|Name):[[:space:]]*[A-Za-z0-9@._+ -]+$' \
       | sed 's/^\(.*\)$/header = "\1"/' >>"$header_file" 2>/dev/null || true
-    response_headers="$cache.headers.$$"
+    response_headers="$(mktemp "$cache_dir/.response-headers.XXXXXX")" || { rm -f "$header_file"; exit 0; }
     if ! body="$(curl -fsS --max-time 5 -D "$response_headers" -K "$header_file" "$url" 2>/dev/null)"; then
       rm -f "$header_file" "$response_headers"
       exit 0

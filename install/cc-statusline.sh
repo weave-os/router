@@ -398,44 +398,38 @@ weave_sync_commands 2>/dev/null || true
 # strictly exclusive is reclaiming a lock whose holder died; see below.
 # ---------- release channel ----------
 #
-# A session whose base URL is the beta host shows a BETA badge. Beta is a
+# A session whose base URL is the beta endpoint shows a BETA badge. Beta is a
 # per-session choice (claude-beta, or `npx @weave-os/router beta on`), so the
 # badge reflects this process's environment. WEAVE_ROUTER_BETA_URL overrides
-# the hosted beta host; the beta settings file sets it when it is not the
+# the hosted beta endpoint; the beta settings file sets it when it is not the
 # default.
-WEAVE_BETA_HOST_DEFAULT="beta.router.workweave.ai"
+WEAVE_BETA_URL_DEFAULT="https://beta.router.workweave.ai"
 # A router response may name the release and policy it served. The status line
 # shows the short form so a user can quote what they ran.
 WEAVE_RELEASE_HEADERS='x-weave-release-sha|x-weave-policy-sha'
 
-weave_url_host() {
-  local host="${1#*://}"
-  host="${host%%/*}"
-  printf '%s' "${host%%:*}" | tr '[:upper:]' '[:lower:]'
-}
-
-weave_beta_host() {
-  if [ -n "${WEAVE_ROUTER_BETA_URL:-}" ]; then
-    weave_url_host "$WEAVE_ROUTER_BETA_URL"
-  else
-    printf '%s' "$WEAVE_BETA_HOST_DEFAULT"
-  fi
+# weave_url_key normalizes a base URL for comparison: scheme, host, port and
+# path all count, so two routers on one host stay distinct.
+weave_url_key() {
+  local url="$1"
+  while [ "${url%/}" != "$url" ]; do url="${url%/}"; done
+  printf '%s' "$url" | tr '[:upper:]' '[:lower:]'
 }
 
 weave_release_cache() {
-  local host
-  host="$(weave_url_host "$1" | tr -c 'A-Za-z0-9.-' '_')"
-  [ -n "$host" ] || return 1
-  printf '%s' "${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/release-$host"
+  local key
+  key="$(weave_url_key "$1")"
+  [ -n "$key" ] || return 1
+  printf '%s' "${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/release-$(printf '%s' "$key" | cksum | cut -d ' ' -f 1)"
 }
 
 # weave_store_release keeps the release named in a response's headers, per
-# router host, so a stable session never shows a beta release or the reverse.
-# A response without the header clears the cached value.
+# router endpoint, so a stable session never shows a beta release or the
+# reverse. A response without the header clears the cached value.
 weave_store_release() {
-  local headers="$1" base="$2" cache release
+  local headers_file="$1" base="$2" cache release
   cache="$(weave_release_cache "$base")" || return 0
-  release="$(tr -d '\r' <"$headers" 2>/dev/null \
+  release="$(tr -d '\r' <"$headers_file" 2>/dev/null \
     | awk -F ':' -v names="$WEAVE_RELEASE_HEADERS" '
         BEGIN { n = split(names, want, "|") }
         { name = tolower($1); sub(/^[^:]*:[[:space:]]*/, ""); value = $0
@@ -451,9 +445,10 @@ weave_store_release() {
 # weave_channel_clause prints " · BETA" (plus " <release>" when the router
 # named one) for a beta session, and nothing otherwise.
 weave_channel_clause() {
-  local base="${ANTHROPIC_BASE_URL:-}" cache release=""
+  local base cache release=""
+  base="$(weave_url_key "${ANTHROPIC_BASE_URL:-}")"
   [ -n "$base" ] || return 0
-  [ "$(weave_url_host "$base")" = "$(weave_beta_host)" ] || return 0
+  [ "$base" = "$(weave_url_key "${WEAVE_ROUTER_BETA_URL:-$WEAVE_BETA_URL_DEFAULT}")" ] || return 0
   cache="$(weave_release_cache "$base")" && release="$(cat "$cache" 2>/dev/null)"
   [[ "$release" =~ ^[0-9a-f]{7}$ ]] || release=""
   printf ' · \033[1mBETA\033[0m%s' "${release:+ $release}"
@@ -584,7 +579,7 @@ weave_hidden_gate() {
     done
     printf '%s\n' "$custom_headers" | grep -E '^X-Weave-User-(Email|Name):[[:space:]]*[A-Za-z0-9@._+ -]+$' \
       | sed 's/^\(.*\)$/header = "\1"/' >>"$header_file" 2>/dev/null || true
-    response_headers="$cache.headers.$$"
+    response_headers="$(mktemp "$cache_dir/.response-headers.XXXXXX")" || { rm -f "$header_file"; exit 0; }
     if ! body="$(curl -fsS --max-time 5 -D "$response_headers" -K "$header_file" "$url" 2>/dev/null)"; then
       rm -f "$header_file" "$response_headers"
       exit 0
