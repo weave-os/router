@@ -1,6 +1,7 @@
 package main
 
 import (
+	"weave-os/router/internal/config"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router/planner"
 )
@@ -13,6 +14,7 @@ func withRoutingSwitchDefaults(defaults map[flags.Key]string, hardPinExplore, cc
 		flags.KeyEscapeNormalize:           escapeNormalize,
 		flags.KeyPlannerTierUpgrade:        plannerCfg.TierUpgradeEnabled,
 		flags.KeyPlannerCorrectedEconomics: plannerCfg.CorrectedEconomics,
+		flags.KeySwitchDecideAuthoritative: config.GetOr("ROUTER_SWITCH_EXPERIMENT", "") == "live",
 	} {
 		defaults[key] = boolDefault(on)
 	}

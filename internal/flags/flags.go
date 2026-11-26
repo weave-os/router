@@ -79,6 +79,7 @@ const (
 	KeyHMMDowngradeHysteresisTurns          Key = "hmm_downgrade_hysteresis_turns"
 	KeyHMMDowngradeHysteresisShadowTurns    Key = "hmm_downgrade_hysteresis_shadow_turns"
 	KeySwitchDecideShadow                   Key = "switch_decide_shadow"
+	KeySwitchDecideAuthoritative            Key = "switch_decide_authoritative"
 	KeyAuthorityCacheShadow                 Key = "authority_cache_shadow"
 	KeyAgreementShadowEpoch                 Key = "agreement_shadow_epoch"
 	KeyRecipeShadow                         Key = "recipe_shadow"

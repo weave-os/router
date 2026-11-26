@@ -24,24 +24,7 @@ func logSwitchShadow(ctx context.Context, shadow switchShadowTurn, res TurnRoute
 	if !flags.BoolOr(ctx, flags.KeySwitchDecideShadow, switchDecideShadowDefault) {
 		return
 	}
-	stayPin, gate, now := shadow.StayPin, shadow.Gate, shadow.Now
-	shape := res.CacheShape()
-	input := SwitchInput{
-		Current:              stayPin.Model,
-		Fresh:                gate.Fresh.Model,
-		EstimatedInputTokens: gate.EstimatedInputTokens,
-		PromptTokens:         PriorPromptTokens(stayPin),
-		CacheCold:            stayPin.Model != "" && PinCacheCold(stayPin, gate.PrefixBroken && providers.UsesBreakpointCache(stayPin.Provider), now),
-		PrefixBroken:         gate.PrefixBroken,
-		SideRequest:          shape.SideRequest,
-		Now:                  now,
-		MessageCount:         shape.MessageCount,
-		UserPrompt:           shape.UserPrompt,
-		CacheWriteTTL:        shape.CacheWriteTTL,
-		ModelCaches:          gate.HMMHistory.ModelCaches,
-		UpgradeConfidence:    shadow.Served.UpgradeConfidence,
-		UpgradeConfidenceLow: shadow.Served.UpgradeConfidenceLow,
-	}
+	input := shadow.switchInput(res)
 	verdict := DecideSwitch(input)
 	fresh := FreshCacheView(input)
 	observability.FromContext(ctx).Info("router.switch_shadow",
@@ -78,4 +61,25 @@ func logSwitchShadow(ctx context.Context, shadow switchShadowTurn, res TurnRoute
 		"cache_write_ttl_seconds", int(input.CacheWriteTTL/time.Second),
 		"tracked_model_caches", len(input.ModelCaches),
 	)
+}
+
+func (shadow switchShadowTurn) switchInput(res TurnRoute) SwitchInput {
+	stayPin, gate, now := shadow.StayPin, shadow.Gate, shadow.Now
+	shape := res.CacheShape()
+	return SwitchInput{
+		Current:              stayPin.Model,
+		Fresh:                gate.Fresh.Model,
+		EstimatedInputTokens: gate.EstimatedInputTokens,
+		PromptTokens:         PriorPromptTokens(stayPin),
+		CacheCold:            stayPin.Model != "" && PinCacheCold(stayPin, gate.PrefixBroken && providers.UsesBreakpointCache(stayPin.Provider), now),
+		PrefixBroken:         gate.PrefixBroken,
+		SideRequest:          shape.SideRequest,
+		Now:                  now,
+		MessageCount:         shape.MessageCount,
+		UserPrompt:           shape.UserPrompt,
+		CacheWriteTTL:        shape.CacheWriteTTL,
+		ModelCaches:          gate.HMMHistory.ModelCaches,
+		UpgradeConfidence:    shadow.Served.UpgradeConfidence,
+		UpgradeConfidenceLow: shadow.Served.UpgradeConfidenceLow,
+	}
 }

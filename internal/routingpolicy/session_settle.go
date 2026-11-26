@@ -57,6 +57,9 @@ func (t SessionTurn) plan(ctx context.Context, res *TurnRoute) TurnRoute {
 	res.PlannerDecision = decision
 
 	outcome := continuity.Settle(decision, t.PinFound, t.PrefixBroken)
+	if authoritative, ok := t.freshPickSwitchOutcome(ctx, *res); ok {
+		outcome = authoritative
+	}
 	if outcome.Stay {
 		anchor := pin.Decision()
 		res.Decision = t.Serving.BandSwap(ctx, res.TurnType, pin, fresh, req)

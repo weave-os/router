@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 40
+const RegistryVersion = 41
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -123,6 +123,11 @@ var Registry = []Definition{
 		Kind:           KindBool,
 		Description:    "Experiment, expires 2026-12-21. Log what the eviction-cost switch rule (routingpolicy.DecideSwitch, downgrade horizon 10 turns, upgrade 25) would serve on HMM cost-gate turns, with its predicted rewrite cost. Observation only; never changes what is served.",
 		OrgOverridable: true,
+	},
+	{
+		Key:         KeySwitchDecideAuthoritative,
+		Kind:        KindBool,
+		Description: "Benchmark-only experiment, expires 2026-12-21. Serve the eviction-cost switch rule's verdict (routingpolicy.DecideSwitch, downgrade horizon 10 turns, upgrade 25) instead of the HMM cost gate's on cost-gate turns. Set by ROUTER_SWITCH_EXPERIMENT=live at deployment; off by default and never org-overridable.",
 	},
 	{
 		Key:            KeyAuthorityCacheShadow,

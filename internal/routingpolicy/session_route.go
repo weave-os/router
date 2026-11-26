@@ -162,7 +162,9 @@ func (t SessionTurn) serveCostGate(ctx context.Context, res *TurnRoute) TurnRout
 		res.StickyRole = t.Ports.History.HistoryRole(res.PinRole)
 	}
 	shadowStayPin, _ := t.Ports.CostGate.StayPin(t.Settings.CostGate, t.Request, activePin, t.SwitchHistory, t.Now())
-	logSwitchShadow(ctx, switchShadowTurn{StayPin: shadowStayPin, Gate: gateInput, Served: served, Now: t.Now()}, *res)
+	shadow := switchShadowTurn{StayPin: shadowStayPin, Gate: gateInput, Served: served, Now: t.Now()}
+	logSwitchShadow(ctx, shadow, *res)
+	t.serveSwitchVerdict(ctx, res, shadow)
 	return *res
 }
 
