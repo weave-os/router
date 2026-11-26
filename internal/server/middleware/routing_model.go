@@ -18,7 +18,14 @@ import (
 const ModelPassthroughHeader = "X-Weave-Model-Passthrough"
 
 func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailability) bool {
-	model := router.CanonicalRoutingModel(requestedModel(c, body))
+	requested := requestedModel(c, body)
+	identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context())
+	if router.IsAutoBetaRoutingModel(requested) && !servesBetaChannel(policyregistry.ServingTarget(identity.Target)) {
+		observability.FromGin(c).Debug("Beta channel routing model refused off the beta channel", "serving_target", identity.Target)
+		abortMisdirectedChannelModel(c, "")
+		return false
+	}
+	model := router.CanonicalRoutingModel(requested)
 	if !router.IsRoutingModel(string(model)) {
 		if strings.HasPrefix(string(model), "weave-") {
 			observability.FromGin(c).Debug("Unknown routing model rejected")
@@ -37,7 +44,6 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "routing_model_conflicts_with_force_model"})
 		return false
 	}
-	identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context())
 	scope := router.RoutingModelScope{
 		Managed:  managed,
 		Internal: managed && policyregistry.ExperimentalRoutingModelsPermitted(policyregistry.ServingTarget(identity.Target), entitlement.Plan(identity.Plan)) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != "",

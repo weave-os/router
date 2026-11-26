@@ -11,12 +11,11 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/postgres"
-	"weave-os/router/internal/postgres/serving"
 	"weave-os/router/internal/router"
 )
 
 func checkRoutingModelSessionContinuity(ctx context.Context, pool *pgxpool.Pool, installationID string) error {
-	admissions, err := serving.NewServingAdmissionRepo(pool, policyregistry.EnvironmentProd)
+	admissions, err := scopedAdmissionRepo(pool, policyregistry.TargetStable)
 	if err != nil {
 		return err
 	}

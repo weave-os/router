@@ -105,7 +105,7 @@ func checkAdmission(ctx context.Context, pool *pgxpool.Pool, created *fixture) e
 	if err != nil {
 		return err
 	}
-	admissions, err := serving.NewServingAdmissionRepo(pool, policyregistry.EnvironmentProd)
+	admissions, err := scopedAdmissionRepo(pool, policyregistry.TargetStable)
 	if err != nil {
 		return err
 	}
@@ -486,4 +486,17 @@ func fixtureBinding(admission policyregistry.SerializedAdmission, now time.Time)
 		binding.CreatedAt = admission.Previous.CreatedAt
 	}
 	return binding
+}
+
+func scopedAdmissionRepo(pool *pgxpool.Pool, worker policyregistry.ServingTarget) (*serving.ServingAdmissionRepo, error) {
+	environment, err := worker.Environment()
+	if err != nil {
+		return nil, err
+	}
+	admissions, err := serving.NewServingAdmissionRepo(pool, environment)
+	if err != nil {
+		return nil, err
+	}
+	channel, _ := worker.Channel()
+	return admissions.ForWorker(worker, channel)
 }

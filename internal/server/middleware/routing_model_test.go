@@ -133,6 +133,40 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 	}
 }
 
+func TestBetaRoutingModelServesOnlyOnTheBetaChannel(t *testing.T) {
+	for _, tc := range []struct {
+		target policyregistry.ServingTarget
+		status int
+	}{
+		{target: policyregistry.TargetBeta, status: http.StatusOK},
+		{target: policyregistry.TargetStable, status: http.StatusMisdirectedRequest},
+		{target: policyregistry.TargetInternal, status: http.StatusMisdirectedRequest},
+		{status: http.StatusMisdirectedRequest},
+	} {
+		t.Run(string(tc.target), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			engine := gin.New()
+			engine.POST("/v1/messages", middleware.WithClassifierThread(&proxy.Service{}, func(router.Strategy) bool { return true }), func(c *gin.Context) {
+				selection := router.StrategySelectionFromContext(c.Request.Context())
+				require.Equal(t, router.ModelAutomatic, selection.RoutingModel)
+				require.Equal(t, router.StrategyHMMEmbedding, selection.Effective())
+				c.Status(http.StatusOK)
+			})
+			ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
+			if tc.target != "" {
+				ctx = requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{Target: string(tc.target), ReleaseID: "reviewed-release", BindingID: "reviewed-binding", CredentialIdentity: "test-principal"})
+			}
+			body := `{"model":"` + string(router.ModelAutoBeta) + `","messages":[{"role":"user","content":"hello"}]}`
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", strings.NewReader(body)))
+			require.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+			if tc.status == http.StatusMisdirectedRequest {
+				require.Contains(t, recorder.Body.String(), "misdirected_serving_channel")
+			}
+		})
+	}
+}
+
 func TestClassifierThreadsRemainExplicitlyEnrolled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	installation := uuid.New()

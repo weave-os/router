@@ -30,6 +30,8 @@ type ServingAdmissionConfig struct {
 	Identity          policyregistry.WorkerIdentity
 	Cache             *policyregistry.ServingRuntimeCache
 	Attribution       policyregistry.RequestAttributionStore
+	StableBaseURL     string
+	BetaBaseURL       string
 }
 
 func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
@@ -55,6 +57,9 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 			}
 		}
 		c.Request.Body = io.NopCloser(bytes.NewReader(body))
+		if rejectMisdirectedChannelModel(c, cfg, body) {
+			return
+		}
 		key := APIKeyFrom(c)
 		installation := InstallationFrom(c)
 		if key == nil || installation == nil {
@@ -64,19 +69,7 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		assertion, err := directAssertion(c.Request.Context(), cfg, installation.ID, key.ID, c.Request, body)
 		if err != nil {
 			observability.FromGin(c).Warn("Worker admission rejected", "err", err)
-			if status, body, rejected := routingModelAdmissionError(err); rejected {
-				c.AbortWithStatusJSON(status, body)
-				return
-			}
-			if isAuthFailure(err) {
-				handleAuthError(c, err)
-				return
-			}
-			if errors.Is(err, errServingFleetMismatch) {
-				abortRefusal(c, refusal.ServingAdmissionRejected, nil)
-				return
-			}
-			abortRefusal(c, refusal.ServingAdmissionUnavailable, nil)
+			abortAdmissionRejected(c, cfg, err)
 			return
 		}
 		snapshot, err := cfg.Cache.Snapshot(c.Request.Context(), assertion.Admission)
@@ -115,6 +108,26 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
+}
+
+func abortAdmissionRejected(c *gin.Context, cfg *ServingAdmissionConfig, err error) {
+	if status, body, rejected := routingModelAdmissionError(err); rejected {
+		c.AbortWithStatusJSON(status, body)
+		return
+	}
+	if status, body, rejected := servingChannelAdmissionError(cfg, err); rejected {
+		c.AbortWithStatusJSON(status, body)
+		return
+	}
+	if isAuthFailure(err) {
+		handleAuthError(c, err)
+		return
+	}
+	if errors.Is(err, errServingFleetMismatch) {
+		abortRefusal(c, refusal.ServingAdmissionRejected, nil)
+		return
+	}
+	abortRefusal(c, refusal.ServingAdmissionUnavailable, nil)
 }
 
 func routingModelAdmissionError(err error) (int, gin.H, bool) {

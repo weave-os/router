@@ -1,10 +1,13 @@
 package router
 
+import "strings"
+
 type RoutingModel string
 
 const (
 	ModelAutomatic     RoutingModel = "weave-auto"
 	ModelAutoEfficient RoutingModel = "weave-auto-efficient"
+	ModelAutoBeta      RoutingModel = "weave-auto-beta"
 	ModelHMM           RoutingModel = "weave-hmm-20261019-0001v1"
 	ModelHMMBeta       RoutingModel = "weave-hmm-beta"
 	ModelQwen          RoutingModel = "weave-qwen-20261008-0001v2"
@@ -34,10 +37,14 @@ func RoutingModelPolicyFor(model RoutingModel) (RoutingModelPolicy, bool) {
 }
 
 func CanonicalRoutingModel(model string) RoutingModel {
-	if model == ModelAutomaticDisplayName {
+	if model == ModelAutomaticDisplayName || IsAutoBetaRoutingModel(model) {
 		return ModelAutomatic
 	}
 	return RoutingModel(model)
+}
+
+func IsAutoBetaRoutingModel(model string) bool {
+	return strings.EqualFold(model, string(ModelAutoBeta))
 }
 
 func UsesAssignedProfile(model RoutingModel) bool {

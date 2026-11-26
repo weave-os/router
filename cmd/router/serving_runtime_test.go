@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"testing"
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/server"
 )
@@ -26,6 +27,7 @@ func TestValidateManagedServingBoot(t *testing.T) {
 		{"stable", "prod/stable", "hmm_embedding", true},
 		{"internal", "prod/weave-internal", "hmm", true},
 		{"staging", "staging", "hmm_embedding", true},
+		{"beta", "prod/beta", "hmm_embedding", true},
 		{"missing target", "", "hmm_embedding", false},
 		{"unknown fleet", "beta", "hmm_embedding", false},
 		{"missing strategy", "prod/stable", "", false},
@@ -106,4 +108,15 @@ func TestLocalServingRegistryOptInLogsAStartupWarning(t *testing.T) {
 	t.Cleanup(closeStore)
 	require.Contains(t, logs.String(), "ROUTER_ALLOW_LOCAL_SERVING_REGISTRY must only be set for a local stack")
 	require.Contains(t, logs.String(), "level=WARN")
+}
+
+func TestManagedWorkerRefusesToStartWithoutItsChannel(t *testing.T) {
+	require.ErrorIs(t, policyregistry.ValidateWorkerChannel(policyregistry.TargetBeta, ""), policyregistry.ErrServingWorkerUnscoped,
+		"a managed beta worker must refuse to start without its channel")
+	require.ErrorIs(t, policyregistry.ValidateWorkerChannel("", ""), policyregistry.ErrServingWorkerUnscoped,
+		"a managed worker must refuse to start without an identity")
+	for _, target := range []policyregistry.ServingTarget{policyregistry.TargetStable, policyregistry.TargetInternal, policyregistry.TargetBeta, policyregistry.TargetStaging} {
+		channel, _ := target.Channel()
+		require.NoError(t, policyregistry.ValidateWorkerChannel(target, channel), target)
+	}
 }

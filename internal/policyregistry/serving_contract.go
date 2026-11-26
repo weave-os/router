@@ -19,16 +19,17 @@ const (
 	TargetStaging  ServingTarget = "staging"
 	TargetStable   ServingTarget = "prod/stable"
 	TargetInternal ServingTarget = "prod/weave-internal"
+	TargetBeta     ServingTarget = "prod/beta"
 )
 
 func (t ServingTarget) Environment() (Environment, error) {
 	switch t {
 	case TargetStaging:
 		return EnvironmentStaging, nil
-	case TargetStable, TargetInternal:
+	case TargetStable, TargetInternal, TargetBeta:
 		return EnvironmentProd, nil
 	default:
-		return "", fmt.Errorf("unsupported managed target %q; beta is retired", t)
+		return "", fmt.Errorf("unsupported managed target %q", t)
 	}
 }
 

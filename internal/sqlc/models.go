@@ -245,6 +245,14 @@ type RouterGlobalAutomaticRoutingExclusion struct {
 	CreatedBy *string
 }
 
+// Opt-in serving channels an installation may be admitted to; stable and internal stay enrollment-decided
+type RouterInstallationChannelPermission struct {
+	InstallationID uuid.UUID
+	Channel        string
+	Generation     int64
+	UpdatedAt      pgtype.Timestamptz
+}
+
 type RouterInstallationLaneEnrollment struct {
 	InstallationID       uuid.UUID
 	InternalEnrolled     bool

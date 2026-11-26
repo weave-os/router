@@ -8,7 +8,7 @@ import (
 )
 
 func TestServingCommandsRejectUnsafeTargetsBeforeOpeningRegistry(t *testing.T) {
-	for _, target := range []string{"beta", "prod/beta", "prod/unknown"} {
+	for _, target := range []string{"beta", "prod/unknown"} {
 		err := run(context.Background(), []string{string(commandServing), string(commandStatus), "--target", target})
 		require.ErrorContains(t, err, "unsupported managed target")
 	}

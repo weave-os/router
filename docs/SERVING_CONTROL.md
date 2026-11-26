@@ -97,8 +97,10 @@ destination validation calls the HTTPS origins the selection set's lanes declare
 <root>/runtime_state/router_serving/v1/targets/<env>/<target>/state.json   v1 state — read-only history
 ```
 
-`<env>` is `staging` or `prod`; `<target>` is `staging`, `prod/stable`, or
-`prod/weave-internal`. Beta targets are rejected.
+`<env>` is `staging` or `prod`; `<target>` is `staging`, `prod/stable`,
+`prod/weave-internal`, or `prod/beta`. `prod/beta` is a production cohort on the
+beta channel: admission there needs the installation's beta channel permission, and
+like stable it enables only the `primary` classifier variant.
 
 Objects under `artifacts/` are content-addressed by the digest of the exact bytes
 published; the object's `schema_version` selects the decoder, and `artifacts/` holds
@@ -448,7 +450,7 @@ error text.
 | `admission_gcs_selection_set_read_ms` | Sum of the selection-set reads |
 | `admission_gcs_selection_set_reads` | Number of distinct selection sets read (2 when a previous binding names another activation) |
 | `admission_decide_ms` | `ServingAdmission.Decide` |
-| `admission_projection_queries_ms` | Identity, lane-enrollment, plan and assignment projection SQL, measured up to the conversation lock so neither the lock wait nor the session-binding read is attributed to it |
+| `admission_projection_queries_ms` | Identity, lane-enrollment, channel-permission, plan and assignment projection SQL, measured up to the conversation lock so neither the lock wait nor the session-binding read is attributed to it |
 | `admission_persistent` | Whether the request carried a conversation |
 | `admission_outcome` | `admitted`, `denied` or `error` |
 | `target`, `activation_id` | Serving target and admitted activation (empty when nothing was admitted) |

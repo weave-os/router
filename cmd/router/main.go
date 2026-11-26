@@ -463,21 +463,9 @@ func main() {
 		panic(err)
 	}
 
-	var admissionDecisions *policyregistry.AdmissionDecisionCache
-	if servingTargetConfigured() {
-		target := policyregistry.ServingTarget(config.MustGet("ROUTER_SERVING_TARGET"))
-		environment, err := target.Environment()
-		if err != nil {
-			panic(err)
-		}
-		admissions, err := servingpostgres.NewServingAdmissionRepo(pool, environment)
-		if err != nil {
-			panic(err)
-		}
-		admissionDecisions, err = policyregistry.NewAdmissionDecisionCache(admissions, 10000, 30*time.Second, time.Now)
-		if err != nil {
-			panic(err)
-		}
+	admissionDecisions, err := buildAdmissionDecisions(pool)
+	if err != nil {
+		panic(err)
 	}
 	cache := auth.NewLRUAPIKeyCache(10000, 50000, 5*time.Minute, 60*time.Second)
 	userCache := auth.NewLRUUserCache(50000, 10*time.Minute)

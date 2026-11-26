@@ -276,6 +276,44 @@ func (q *Queries) GetSessionReleaseBinding(ctx context.Context, arg GetSessionRe
 	return binding, err
 }
 
+const listServingInstallationChannelPermissions = `-- name: ListServingInstallationChannelPermissions :many
+SELECT channel, generation
+FROM router.installation_channel_permissions
+WHERE installation_id = $1::uuid
+ORDER BY channel
+`
+
+type ListServingInstallationChannelPermissionsRow struct {
+	Channel    string
+	Generation int64
+}
+
+// No rows means the enrollment-decided channel; the installation lock protects absence too.
+//
+//	SELECT channel, generation
+//	FROM router.installation_channel_permissions
+//	WHERE installation_id = $1::uuid
+//	ORDER BY channel
+func (q *Queries) ListServingInstallationChannelPermissions(ctx context.Context, installationID uuid.UUID) ([]ListServingInstallationChannelPermissionsRow, error) {
+	rows, err := q.db.Query(ctx, listServingInstallationChannelPermissions, installationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListServingInstallationChannelPermissionsRow
+	for rows.Next() {
+		var i ListServingInstallationChannelPermissionsRow
+		if err := rows.Scan(&i.Channel, &i.Generation); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertSessionReleaseBinding = `-- name: UpsertSessionReleaseBinding :execrows
 INSERT INTO router.session_release_bindings (
     installation_id, credential_scope, conversation_digest, target, activation_id,
