@@ -64,8 +64,8 @@ func DisplaySettingsHandler(accounts SubscriptionAccountLister, resolveCaller Ca
 				hide = experiments.InstallationBlindExperimentEnabled(callerCtx, installation.ID)
 			}
 		}
-		if !hide {
-			ingress.SetServingReleaseHeaders(c.Request.Context(), c.Writer.Header())
+		if !hide && ingress.ServingReleaseHeadersVisible(callerCtx) && !installationExperimentBlindsRelease(callerCtx, installation.ID, experiments) {
+			ingress.SetServingReleaseHeaders(callerCtx, c.Writer.Header())
 		}
 		c.JSON(http.StatusOK, displaySettingsResponse{
 			HideTerminalSurfaces: hide,
@@ -73,6 +73,13 @@ func DisplaySettingsHandler(accounts SubscriptionAccountLister, resolveCaller Ca
 			OwnSeats:             ownSeats(callerCtx, seats),
 		})
 	}
+}
+
+func installationExperimentBlindsRelease(ctx context.Context, installationID string, experiments InstallationExperimentChecker) bool {
+	if experiments == nil {
+		return true
+	}
+	return experiments.InstallationBlindExperimentEnabled(ctx, installationID)
 }
 
 func disconnectedPlans(c *gin.Context, accounts SubscriptionAccountLister) []auth.SubscriptionProvider {
