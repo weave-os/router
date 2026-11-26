@@ -1,0 +1,20 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages_unmanaged_worker",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 403,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "error": "routing_model_not_permitted"
+        }
+      }
+    }
+  ],
+  "scenario": "serving_channel_auto_efficient_refused_on_unmanaged_worker"
+}

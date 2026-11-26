@@ -1,0 +1,24 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages_unmanaged_worker",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "error": {
+            "message": "\"weave-hmm-20261019-0001v1\" is not a known model. Request a full model ID (e.g. claude-opus-5-5 or gpt-5.6-sol).",
+            "type": "invalid_request_error"
+          },
+          "type": "error"
+        }
+      }
+    }
+  ],
+  "scenario": "serving_channel_blind_control_arm_keeps_explicit_hmm_model"
+}

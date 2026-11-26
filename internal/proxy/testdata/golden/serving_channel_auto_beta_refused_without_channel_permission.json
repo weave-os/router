@@ -1,0 +1,23 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages_beta_worker_without_channel_permission",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 403,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "channel": "beta",
+          "error": "serving_channel_not_permitted",
+          "message": "This installation does not have permission for the beta router channel.",
+          "stable_base_url": "https://stable.example.test"
+        }
+      }
+    }
+  ],
+  "scenario": "serving_channel_auto_beta_refused_without_channel_permission"
+}
