@@ -102,6 +102,10 @@ func (t SessionTurn) Serve(ctx context.Context, res *TurnRoute) (TurnRoute, erro
 	if t.holdPin(ctx, res, verdict) {
 		return *res, nil
 	}
+	if t.holdPerTurnPickForSwitchVerdict(ctx, res) {
+		t.Pins.Refresh(ctx, t.InstallationID, res.SessionKey, t.Pin, res.PinRole, res.Decision)
+		return *res, nil
+	}
 	res.Decision = t.Fresh
 	res.PinTier = "authoritative_per_turn"
 	if sliding.Served {

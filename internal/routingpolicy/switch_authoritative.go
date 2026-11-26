@@ -66,3 +66,14 @@ func (t SessionTurn) freshPickSwitchOutcome(ctx context.Context, res TurnRoute) 
 func logSwitchAuthoritative(ctx context.Context, proposed, served string, verdict SwitchVerdict, upgradeConfidence float64) {
 	observability.FromContext(ctx).Info("router.switch_authoritative", "proposed_model", proposed, "served_model", served, "reason", string(verdict.Reason), "eviction_usd", verdict.Economics.EvictionUSD, "move_value_usd", verdict.Economics.MoveValueUSD, "downgrade", verdict.Economics.Downgrade, "upgrade_confidence", upgradeConfidence)
 }
+
+func (t SessionTurn) holdPerTurnPickForSwitchVerdict(ctx context.Context, res *TurnRoute) bool {
+	outcome, ok := t.freshPickSwitchOutcome(ctx, *res)
+	if !ok || !outcome.Stay {
+		return false
+	}
+	res.Decision = t.Pin.Decision()
+	res.StickyHit, res.StickyRole = true, t.Ports.History.HistoryRole(res.PinRole)
+	res.PinTier = outcome.PinTier
+	return true
+}
