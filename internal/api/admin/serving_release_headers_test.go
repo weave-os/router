@@ -61,16 +61,16 @@ func TestServingReleaseHeadersAppearOnlyOnDisplaySettings(t *testing.T) {
 	engine.POST("/v1/messages", managedOptedIn, anthropicapi.MessagesHandler(service, nil, ingress.ErrorVocabulary{Classify: proxy.ClassifyDispatchError, TerminalMessage: proxy.TerminalErrorMessage}))
 	engine.GET("/v1/display-settings", managedOptedIn, admin.DisplaySettingsHandler(&fakeAccountLister{}, nil, fakeExperimentChecker{}, nil))
 
-	model := httptest.NewRecorder()
-	engine.ServeHTTP(model, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages",
+	turnRec := httptest.NewRecorder()
+	engine.ServeHTTP(turnRec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages",
 		strings.NewReader(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}],"max_tokens":4096}`)))
-	require.Equal(t, http.StatusOK, model.Code, model.Body.String())
-	assert.Empty(t, model.Header().Get(requestcontext.HeaderServingReleaseSHA), "a model response never names the release")
-	assert.Empty(t, model.Header().Get(requestcontext.HeaderServingPolicySHA), "a model response never names the policy")
+	require.Equal(t, http.StatusOK, turnRec.Code, turnRec.Body.String())
+	assert.Empty(t, turnRec.Header().Get(requestcontext.HeaderServingReleaseSHA), "a model response never names the release")
+	assert.Empty(t, turnRec.Header().Get(requestcontext.HeaderServingPolicySHA), "a model response never names the policy")
 
-	status := httptest.NewRecorder()
-	engine.ServeHTTP(status, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
-	require.Equal(t, http.StatusOK, status.Code, status.Body.String())
-	assert.Equal(t, releaseDigest[:12], status.Header().Get(requestcontext.HeaderServingReleaseSHA))
-	assert.Equal(t, policyDigest[:12], status.Header().Get(requestcontext.HeaderServingPolicySHA))
+	settingsRec := httptest.NewRecorder()
+	engine.ServeHTTP(settingsRec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
+	require.Equal(t, http.StatusOK, settingsRec.Code, settingsRec.Body.String())
+	assert.Equal(t, releaseDigest[:12], settingsRec.Header().Get(requestcontext.HeaderServingReleaseSHA))
+	assert.Equal(t, policyDigest[:12], settingsRec.Header().Get(requestcontext.HeaderServingPolicySHA))
 }

@@ -18,12 +18,14 @@ import (
 	"weave-os/router/internal/server/middleware"
 )
 
-// Worker ingresses serve /v1/messages through a worker's production admission
-// and routing model middleware ahead of the real messages handler. The
-// unmanaged worker has no admission; each managed worker's admission store
-// answers every request with one outcome. The admitted worker's requests carry
-// the serving identity a completed admission attaches, so the turn is served
-// without building a release snapshot.
+// Worker ingresses serve /v1/messages through the worker's admission and
+// routing model middleware ahead of the real messages handler. Refusal
+// goldens run WithServingAdmission with a store that answers each request with
+// one fixed outcome, so they pin how a refusal is rendered to the client, not
+// the permission decision itself; the decisions are covered by the focused
+// tests named on each scenario. The two served goldens skip admission and
+// inject the identity it would attach, so they pin routing and the upstream
+// request, not the admission gate.
 const (
 	ingressAdmittedWorker         = "anthropic_messages_admitted_worker"
 	ingressUnmanagedWorker        = "anthropic_messages_unmanaged_worker"
@@ -41,19 +43,19 @@ const (
 )
 
 func init() {
-	for ingressName, worker := range map[string]*middleware.ServingAdmissionConfig{
+	for ingressName, admission := range map[string]*middleware.ServingAdmissionConfig{
 		ingressUnmanagedWorker:        nil,
 		ingressAdmittedWorker:         nil,
 		ingressStableWorker:           servingChannelWorkerConfig(policyregistry.TargetStable, nil),
 		ingressStableWorkerNoProfile:  servingChannelWorkerConfig(policyregistry.TargetStable, policyregistry.ErrRoutingModelNotAssigned),
 		ingressBetaWorkerNoPermission: servingChannelWorkerConfig(policyregistry.TargetBeta, policyregistry.ErrServingChannelNotPermitted),
 	} {
-		goldenIngressSurfaces[ingressName] = goldenIngressSurface{path: "/v1/messages", serve: servingChannelWorker(worker)}
+		goldenIngressSurfaces[ingressName] = goldenIngressSurface{path: "/v1/messages", serve: servingChannelWorker(admission)}
 	}
 }
 
-func servingChannelWorker(worker *middleware.ServingAdmissionConfig) func(*proxy.Service, context.Context, []byte, http.ResponseWriter, *http.Request) error {
-	return servingChannelServe(func(svc *proxy.Service) http.Handler { return servingChannelEngine(svc, worker) })
+func servingChannelWorker(admission *middleware.ServingAdmissionConfig) func(*proxy.Service, context.Context, []byte, http.ResponseWriter, *http.Request) error {
+	return servingChannelServe(func(svc *proxy.Service) http.Handler { return servingChannelEngine(svc, admission) })
 }
 
 func servingChannelServe(build func(*proxy.Service) http.Handler) func(*proxy.Service, context.Context, []byte, http.ResponseWriter, *http.Request) error {
@@ -63,13 +65,13 @@ func servingChannelServe(build func(*proxy.Service) http.Handler) func(*proxy.Se
 	}
 }
 
-func servingChannelEngine(svc *proxy.Service, worker *middleware.ServingAdmissionConfig) *gin.Engine {
+func servingChannelEngine(svc *proxy.Service, admission *middleware.ServingAdmissionConfig) *gin.Engine {
 	chain := []gin.HandlerFunc{func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{ID: goldenInstallationID})
 		c.Set("router_api_key", &auth.APIKey{ID: "golden-key", InstallationID: goldenInstallationID})
 	}}
-	if worker != nil {
-		chain = append(chain, middleware.WithServingAdmission(worker))
+	if admission != nil {
+		chain = append(chain, middleware.WithServingAdmission(admission))
 	}
 	chain = append(chain,
 		middleware.WithClassifierThread(svc, func(router.Strategy) bool { return true }),
@@ -85,8 +87,8 @@ func (s servingChannelAdmissionStore) Admit(context.Context, string, string, str
 	return policyregistry.AdmissionScope{}, policyregistry.SessionReleaseBinding{}, s.err
 }
 
-func servingChannelWorkerConfig(target policyregistry.ServingTarget, admission error) *middleware.ServingAdmissionConfig {
-	decisions, err := policyregistry.NewAdmissionDecisionCache(servingChannelAdmissionStore{err: admission}, 8, time.Minute, func() time.Time { return goldenEpoch })
+func servingChannelWorkerConfig(target policyregistry.ServingTarget, admissionErr error) *middleware.ServingAdmissionConfig {
+	decisions, err := policyregistry.NewAdmissionDecisionCache(servingChannelAdmissionStore{err: admissionErr}, 8, time.Minute, func() time.Time { return goldenEpoch })
 	if err != nil {
 		panic(err)
 	}
@@ -123,8 +125,8 @@ func servingChannelBody(model string) string {
 	return `{"model":"` + model + `","max_tokens":4096,"messages":[{"role":"user","content":"Say hi"}]}`
 }
 
-func servingChannelScenario(name, worker string, request goldenRequest) goldenScenario {
-	return goldenScenario{name: "serving_channel_" + name, ingress: worker, upstreams: routingPolicyUpstreams(), requests: []goldenRequest{request},
+func servingChannelScenario(name, ingress string, request goldenRequest) goldenScenario {
+	return goldenScenario{name: "serving_channel_" + name, ingress: ingress, upstreams: routingPolicyUpstreams(), requests: []goldenRequest{request},
 		configure: routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyLow, 0.9))}.configure}
 }
 
