@@ -25,6 +25,9 @@ func (s *runtimeStore) ListSubscriptionAccountsDueForKeepWarm(_ context.Context,
 		if at, ok := s.refreshedAt[account.ID]; ok && !at.Before(refreshedBefore) {
 			continue
 		}
+		if account.CooldownUntil != nil && !account.CooldownUntil.Before(s.clock()) && account.State != auth.SubscriptionAccountStateExhausted {
+			continue
+		}
 		copied := *account
 		due = append(due, &copied)
 		if len(due) == int(limit) {
@@ -163,11 +166,11 @@ func TestRuntimeKeepWarmConcurrentRefreshersExchangeOnce(t *testing.T) {
 	}
 }
 
-func TestRuntimeKeepWarmFailureNeverDisconnectsSeat(t *testing.T) {
+func TestRuntimeKeepWarmTransientFailureNeverStrikesSeat(t *testing.T) {
 	clock := &steppedClock{now: time.Now()}
 	store := newKeepWarmStore(clock.Now, keepWarmSeat("claude-idle", auth.SubscriptionProviderClaude, true, auth.SubscriptionAccountStateActive))
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(_ context.Context, provider subscriptions.Provider, _ string) (subscriptions.RefreshedToken, error) {
-		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: provider, Status: http.StatusBadRequest, Code: "invalid_grant"}
+		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: provider, Status: http.StatusServiceUnavailable}
 	}), clock.Now)
 
 	for range 3 {
@@ -176,9 +179,51 @@ func TestRuntimeKeepWarmFailureNeverDisconnectsSeat(t *testing.T) {
 		require.Equal(t, subscriptions.KeepWarmResult{Due: 1, Failed: 1}, result)
 		clock.Advance(time.Hour)
 	}
-	require.True(t, store.accounts[0].Enabled, "a background refresh failure must not require reconnect")
-	require.NotEqual(t, auth.SubscriptionAccountStateReconnectRequired, store.healthStates["claude-idle"])
+	require.True(t, store.accounts[0].Enabled, "a transient background refresh failure must not require reconnect")
 	require.Zero(t, store.rejections["claude-idle"].Count)
+	require.Nil(t, store.accounts[0].CooldownUntil)
+}
+
+func revokedRefresher(healthy string, calls *atomic.Int32) runtimeRefreshFunc {
+	return func(_ context.Context, provider subscriptions.Provider, token string) (subscriptions.RefreshedToken, error) {
+		if token == "refresh-original-"+healthy {
+			n := calls.Add(1)
+			return subscriptions.RefreshedToken{AccessToken: fmt.Sprintf("access-rotated-%d", n), RefreshToken: fmt.Sprintf("refresh-rotated-%d", n),
+				ExpiresAt: time.Now().Add(8 * time.Hour)}, nil
+		}
+		if provider == subscriptions.ProviderCodex {
+			return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: provider, Status: http.StatusUnauthorized, Code: "refresh_token_invalidated"}
+		}
+		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: provider, Status: http.StatusBadRequest, Code: "invalid_grant"}
+	}
+}
+
+// Reproduces a production sweep where every tick's batch was filled by seats
+// whose refresh tokens the provider had revoked, so a healthy idle seat was
+// never refreshed.
+func TestRuntimeKeepWarmRevokedSeatsDoNotStarveHealthySeat(t *testing.T) {
+	clock := &steppedClock{now: time.Now().Add(-2 * time.Hour)}
+	store := newKeepWarmStore(clock.Now,
+		keepWarmSeat("claude-revoked-1", auth.SubscriptionProviderClaude, true, auth.SubscriptionAccountStateActive),
+		keepWarmSeat("claude-revoked-2", auth.SubscriptionProviderClaude, true, auth.SubscriptionAccountStateExhausted),
+		keepWarmSeat("codex-revoked", auth.SubscriptionProviderCodex, true, auth.SubscriptionAccountStateActive),
+		keepWarmSeat("claude-healthy", auth.SubscriptionProviderClaude, true, auth.SubscriptionAccountStateActive),
+	)
+	var calls atomic.Int32
+	runtime := subscriptions.NewRuntime(store, revokedRefresher("claude-healthy", &calls), clock.Now)
+	policy := subscriptions.KeepWarmPolicy{MaxAge: keepWarmWeek.MaxAge, BatchLimit: 3}
+
+	for tick := 0; tick < 3 && calls.Load() == 0; tick++ {
+		_, err := runtime.KeepWarm(context.Background(), policy)
+		require.NoError(t, err)
+		clock.Advance(15 * time.Minute)
+	}
+	require.Equal(t, int32(1), calls.Load(), "the healthy idle seat must be refreshed once revoked seats leave the batch")
+	for _, id := range []string{"claude-revoked-1", "claude-revoked-2", "codex-revoked"} {
+		require.False(t, store.enabledUpdates[id], "%s: a revoked refresh token requires reconnect", id)
+		require.Contains(t, store.enabledUpdates, id)
+		require.Equal(t, 2, store.rejections[id].Count, "%s: each keep-warm rejection is a credential strike", id)
+	}
 }
 
 func TestRuntimeKeepWarmExchangeSurvivesSweepCancellation(t *testing.T) {

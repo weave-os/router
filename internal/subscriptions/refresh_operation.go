@@ -156,7 +156,7 @@ func (r *Runtime) operationRefreshError(ctx context.Context, op refreshOperation
 		return Account{}, r.releaseRefreshLease(ctx, op.owner, op.account.ID, holder.leaseID, errRefreshLeaseLost)
 	}
 	if op.afterVersion != nil {
-		return r.manualRefreshError(ctx, op, holder, refreshErr)
+		return r.manualRefreshError(ctx, op, holder, credentials, refreshErr)
 	}
 	var terminal terminalRefreshError
 	proactive := r.refreshReason(op, credentials) == RefreshReasonAge

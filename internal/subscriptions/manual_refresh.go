@@ -2,6 +2,7 @@ package subscriptions
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"weave-os/router/internal/auth"
@@ -57,12 +58,17 @@ func (r *Runtime) refreshOwnedAccount(ctx context.Context, owner auth.Subscripti
 		QuotaReactivated: r.reactivateRestoredQuota(ctx, owner, account, after)}, nil
 }
 
-func (r *Runtime) manualRefreshError(ctx context.Context, op refreshOperation, holder refreshHolder, refreshErr error) (Account, error) {
+func (r *Runtime) manualRefreshError(ctx context.Context, op refreshOperation, holder refreshHolder, credentials auth.SubscriptionCredentials, refreshErr error) (Account, error) {
 	account, reloadErr := r.observeRefresh(ctx, op)
 	if reloadErr == nil {
 		return account, r.releaseRefreshLease(ctx, op.owner, op.account.ID, holder.leaseID, nil)
 	}
 	observability.FromContext(ctx).Warn("Requested subscription credential refresh failed", "account_id", op.account.ID,
 		"provider", op.account.Provider, "reason", RefreshReasonManual, "token_refresh_version", *op.afterVersion, "err", refreshErr)
+	var terminal terminalRefreshError
+	if errors.As(refreshErr, &terminal) && terminal.Terminal() {
+		_, err := r.handleRefreshError(ctx, op.owner, op.account, credentials, holder, refreshErr)
+		return Account{}, err
+	}
 	return Account{}, r.releaseRefreshLease(ctx, op.owner, op.account.ID, holder.leaseID, refreshErr)
 }
