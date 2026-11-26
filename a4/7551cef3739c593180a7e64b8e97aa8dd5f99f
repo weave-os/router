@@ -1,0 +1,19 @@
+internal/postgres/billing_repo_test.go
+  s_74c9be4d467ec4::t_adbf07486ecf8e 33-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a47551cef3739c593180a7e64b8e97aa8dd5f99f",
+  "prompts": {},
+  "sessions": {
+    "s_74c9be4d467ec4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c4ef478-774b-4ebc-995e-d3cd2de768ff",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
