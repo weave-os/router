@@ -54,19 +54,19 @@ func recipeShadowFired(ctx context.Context) bool {
 }
 
 func recipeShadowEnabled() context.Context {
-	managed := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: "prod/stable"})
-	return flags.WithOverrides(managed, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyRecipeShadow: true}})
+	servingCtx := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: "prod/stable"})
+	return flags.WithOverrides(servingCtx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyRecipeShadow: true}})
 }
 
 func TestRecipeShadowIgnoresACallerSuppliedFlagOverlay(t *testing.T) {
-	managed := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: "prod/stable"})
+	servingCtx := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: "prod/stable"})
 	overlay := flags.Overrides{Bools: map[flags.Key]bool{flags.KeyRecipeShadow: true}}
 
-	callerEnabled := flags.WithRequestOverlay(managed, flags.Overrides{}, overlay)
-	assert.False(t, recipeShadowFired(callerEnabled), "a caller's x-weave-flag-overrides overlay cannot enrol an installation the operator did not")
+	callerCtx := flags.WithRequestOverlay(servingCtx, flags.Overrides{}, overlay)
+	assert.False(t, recipeShadowFired(callerCtx), "a caller's x-weave-flag-overrides overlay cannot enrol an installation the operator did not")
 
-	operatorEnabled := flags.WithRequestOverlay(managed, overlay, flags.Overrides{})
-	assert.True(t, recipeShadowFired(operatorEnabled), "the operator's stored override still enables the shadow")
+	operatorCtx := flags.WithRequestOverlay(servingCtx, overlay, flags.Overrides{})
+	assert.True(t, recipeShadowFired(operatorCtx), "the operator's stored override still enables the shadow")
 }
 
 func TestRecipeShadowIsOffUnlessFlagged(t *testing.T) {
@@ -74,8 +74,8 @@ func TestRecipeShadowIsOffUnlessFlagged(t *testing.T) {
 }
 
 func TestRecipeShadowSkipsTurnsWithoutAServingIdentity(t *testing.T) {
-	unmanaged := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyRecipeShadow: true}})
-	assert.False(t, recipeShadowFired(unmanaged), "without a serving identity the serving profile is unknown, so nothing is compared")
+	unmanagedCtx := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyRecipeShadow: true}})
+	assert.False(t, recipeShadowFired(unmanagedCtx), "without a serving identity the serving profile is unknown, so nothing is compared")
 }
 
 func TestRecipeShadowObservesOnlyDefaultRecipeTurns(t *testing.T) {
