@@ -56,7 +56,7 @@ func TestGuardTarget_RejectsBeforeProviderIO(t *testing.T) {
 }
 
 func TestGuardTarget_RefusesRoutingModelOnTheWire(t *testing.T) {
-	for _, model := range []string{string(router.ModelAutomatic), router.ModelAutomaticDisplayName, string(router.ModelHMMBeta)} {
+	for _, model := range []string{string(router.ModelAutomatic), router.ModelAutomaticDisplayName, string(router.ModelAutoEfficient), string(router.ModelAutoBeta), "WEAVE-AUTO-BETA", string(router.ModelHMMBeta)} {
 		t.Run(model, func(t *testing.T) {
 			target := primary
 			target.UpstreamID = model

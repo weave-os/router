@@ -73,6 +73,8 @@ func TestBuildCredentialsMap_DropsRoutingModelAliases(t *testing.T) {
 		Plaintext: []byte("sk-ant-byok"),
 		ModelAliases: map[string]string{
 			"claude-sonnet-4-5": "weave-auto",
+			"claude-haiku-4-5":  "weave-auto-efficient",
+			"claude-sonnet-4-6": "weave-auto-beta",
 			"claude-opus-4-1":   "gateway-opus",
 		},
 	}}
