@@ -161,3 +161,75 @@ func TestRoutingModelAdmissionBindsInternalBoostButNotMax(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, maxBinding.RoutingModel)
 }
+
+func TestAutoEfficientAdmissionPinsTheConversationAliasOnStable(t *testing.T) {
+	store := &routingAdmissionStore{projection: AdmissionProjection{Target: TargetStable}}
+	cache := routingAdmissionCache(t, store)
+	_, binding, err := cache.AdmitRoutingModel(context.Background(), "installation", "credential", "efficient", router.ModelAutoEfficient, routingReleaseDecision)
+	require.NoError(t, err)
+	assert.Equal(t, router.ModelAutoEfficient, binding.RoutingModel)
+
+	_, _, err = routingAdmissionCache(t, store).AdmitRoutingModel(context.Background(), "installation", "credential", "efficient", router.ModelAutomatic, routingReleaseDecision)
+	require.ErrorIs(t, err, ErrRoutingModelChanged)
+
+	_, automatic, err := cache.AdmitRoutingModel(context.Background(), "installation", "credential", "automatic", router.ModelAutomatic, routingReleaseDecision)
+	require.NoError(t, err)
+	assert.Empty(t, automatic.RoutingModel, "stable weave-auto bindings stay unchanged")
+	_, _, err = routingAdmissionCache(t, store).AdmitRoutingModel(context.Background(), "installation", "credential", "automatic", router.ModelAutoEfficient, routingReleaseDecision)
+	require.ErrorIs(t, err, ErrRoutingModelChanged)
+}
+
+func TestAutoEfficientAdmissionIsStatelessOnInternal(t *testing.T) {
+	store := &routingAdmissionStore{projection: AdmissionProjection{Target: TargetInternal}}
+	_, binding, err := routingAdmissionCache(t, store).AdmitRoutingModel(context.Background(), "installation", "credential", "", router.ModelAutoEfficient, routingReleaseDecision)
+	require.NoError(t, err, "weave-auto-efficient serves stateless requests on every target")
+	assert.Empty(t, binding.RoutingModel)
+}
+
+func TestAdmitRoutingModelHandsTheRoutingModelToTheStore(t *testing.T) {
+	var seen []router.RoutingModel
+	store := admissionStoreFunc(func(ctx context.Context, _, _, _ string, decide AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error) {
+		seen = append(seen, AdmittedRoutingModel(ctx))
+		binding, err := decide(ctx, SerializedAdmission{Projection: AdmissionProjection{Target: TargetStable}})
+		return AdmissionScope{}, binding, err
+	})
+	cache := routingAdmissionCache(t, store)
+	_, _, err := cache.AdmitRoutingModel(context.Background(), "installation", "credential", "efficient", router.ModelAutoEfficient, routingReleaseDecision)
+	require.NoError(t, err)
+	_, _, err = cache.Admit(context.Background(), "installation", "credential", "automatic", routingReleaseDecision)
+	require.NoError(t, err)
+	assert.Equal(t, []router.RoutingModel{router.ModelAutoEfficient, router.ModelAutomatic}, seen)
+}
+
+type admissionStoreFunc func(context.Context, string, string, string, AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error)
+
+func (f admissionStoreFunc) Admit(ctx context.Context, installation, key, session string, decide AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error) {
+	return f(ctx, installation, key, session, decide)
+}
+
+func TestAdmissionRoutingModelKeepsTheConversationsAssignedProfile(t *testing.T) {
+	t.Parallel()
+
+	efficient := &SessionReleaseBinding{RoutingModel: router.ModelAutoEfficient}
+	automatic := &SessionReleaseBinding{RoutingModel: router.ModelAutomatic}
+	for _, tc := range []struct {
+		name          string
+		ctx           context.Context
+		previous      *SessionReleaseBinding
+		wantModel     router.RoutingModel
+		wantInherited bool
+	}{
+		{name: "unnamed request in an efficient conversation inherits it", ctx: context.Background(), previous: efficient, wantModel: router.ModelAutoEfficient, wantInherited: true},
+		{name: "unnamed request without a binding projects weave-auto", ctx: context.Background(), wantModel: router.ModelAutomatic},
+		{name: "unnamed request in a weave-auto conversation projects weave-auto", ctx: context.Background(), previous: automatic, wantModel: router.ModelAutomatic},
+		{name: "named weave-auto is not overridden by the binding", ctx: context.WithValue(context.Background(), admittedRoutingModelKey{}, router.ModelAutomatic), previous: efficient, wantModel: router.ModelAutomatic},
+		{name: "named efficient request projects efficient", ctx: context.WithValue(context.Background(), admittedRoutingModelKey{}, router.ModelAutoEfficient), wantModel: router.ModelAutoEfficient},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			model, inherited := AdmissionRoutingModel(tc.ctx, tc.previous)
+			assert.Equal(t, tc.wantModel, model)
+			assert.Equal(t, tc.wantInherited, inherited)
+		})
+	}
+}

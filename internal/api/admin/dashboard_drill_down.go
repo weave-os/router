@@ -9,7 +9,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
 
@@ -43,8 +42,9 @@ type dashboardDrillDownPerson struct {
 }
 
 type dashboardDrillDownResponse struct {
-	ComparisonModel string                     `json:"comparison_model"`
-	People          []dashboardDrillDownPerson `json:"people"`
+	ComparisonModel  string                       `json:"comparison_model"`
+	ComparisonModels []dashboardComparisonSavings `json:"comparison_models"`
+	People           []dashboardDrillDownPerson   `json:"people"`
 }
 
 func MetricsDrillDownHandler(queries turnrecord.Queries) gin.HandlerFunc {
@@ -72,9 +72,15 @@ func MetricsDrillDownHandler(queries turnrecord.Queries) gin.HandlerFunc {
 		rows = slices.DeleteFunc(rows, func(row turnrecord.TelemetryDrillDownRow) bool {
 			return !drillDownMatches(row, group, c.Query("key"), models, billing, c.Query("routing_state"))
 		})
+		facts := make([]turnrecord.TelemetryDashboardFact, 0, len(rows))
+		for _, row := range rows {
+			facts = append(facts, row.TelemetryDashboardFact)
+		}
+		comparisonModel, comparisonModels := comparisonSavings(facts)
 		c.JSON(http.StatusOK, dashboardDrillDownResponse{
-			ComparisonModel: policy.SavingsComparisonModelLabel,
-			People:          drillDownPeople(rows),
+			ComparisonModel:  comparisonModel,
+			ComparisonModels: comparisonModels,
+			People:           drillDownPeople(rows),
 		})
 	}
 }

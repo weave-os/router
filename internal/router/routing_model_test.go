@@ -26,3 +26,10 @@ func TestAutomaticRoutingModelAcceptsDisplayName(t *testing.T) {
 		require.Equal(t, RoutingModel(near), CanonicalRoutingModel(near), near)
 	}
 }
+
+func TestAutoEfficientIsAnAutomaticRoutingModel(t *testing.T) {
+	require.True(t, IsRoutingModel("weave-auto-efficient"))
+	require.True(t, UsesAssignedProfile(ModelAutoEfficient))
+	require.False(t, UsesAssignedProfile(ModelAutomatic))
+	require.False(t, IsRoutingModel("weave-auto-efficiency"))
+}

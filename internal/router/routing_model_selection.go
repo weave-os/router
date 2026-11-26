@@ -27,6 +27,13 @@ func SelectRoutingModel(current StrategySelection, model RoutingModel, scope Rou
 		current.RoutingModel = model
 		return RoutingModelChoice{Selection: current}
 	}
+	if model == ModelAutoEfficient {
+		if !scope.Managed {
+			return RoutingModelChoice{Outcome: RoutingModelNotPermitted}
+		}
+		current.RoutingModel = model
+		return RoutingModelChoice{Selection: current}
+	}
 	if ClassifiesThreads(current.Effective()) {
 		return RoutingModelChoice{Outcome: RoutingModelClassifierConflict}
 	}

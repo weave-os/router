@@ -956,8 +956,7 @@ SELECT
         WHEN decision_reason LIKE '%\_hard\_pin' OR decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
         ELSE 'router_pick'
     END)::text AS decision_type,
-    (lower(COALESCE(requested_model, '')) IN ('weave', 'auto', 'weave-auto')
-        OR lower(COALESCE(requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    (CASE WHEN lower(COALESCE(requested_model, '')) = 'weave-auto-efficient' THEN 'weave-auto-efficient' ELSE '' END)::text AS comparison_routing_model,
     COUNT(*)::bigint AS request_count,
     COALESCE(SUM(input_tokens), 0)::bigint AS input_tokens,
     COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens,
@@ -1104,8 +1103,7 @@ SELECT
         WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
         ELSE 'router_pick'
     END)::text AS decision_type,
-    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
-        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    (CASE WHEN lower(COALESCE(t.requested_model, '')) = 'weave-auto-efficient' THEN 'weave-auto-efficient' ELSE '' END)::text AS comparison_routing_model,
     MIN(t.timestamp)::timestamptz AS started_at,
     MAX(t.timestamp)::timestamptz AS finished_at,
     COUNT(*)::bigint AS request_count,
@@ -1144,8 +1142,7 @@ SELECT
         WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
         ELSE 'router_pick'
     END)::text AS decision_type,
-    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
-        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    (CASE WHEN lower(COALESCE(t.requested_model, '')) = 'weave-auto-efficient' THEN 'weave-auto-efficient' ELSE '' END)::text AS comparison_routing_model,
     COUNT(*)::bigint AS request_count,
     COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
     COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,

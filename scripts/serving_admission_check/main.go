@@ -43,6 +43,8 @@ var fixtureTables = []struct {
 	{table: "router.model_router_api_keys", scope: "installation_id = $1"},
 	{table: "router.credential_subject_installations", scope: "installation_id = $1"},
 	{table: "router.installation_profile_assignments", scope: "installation_id = $1"},
+	{table: "router.installation_routing_model_profile_assignments", scope: "installation_id = $1"},
+	{table: "router.installation_lane_enrollments", scope: "installation_id = $1"},
 	{table: "router.session_release_bindings", scope: "installation_id = $1"},
 	{table: "router.serving_request_attribution", scope: "installation_id = $1"},
 	{table: "router.credential_subjects", scope: "id = ANY($1::uuid[])", subjectScoped: true},
@@ -79,7 +81,10 @@ func run() (runErr error) {
 	defer pool.Close()
 	created := &fixture{}
 	defer func() { runErr = errors.Join(runErr, removeFixture(pool, created)) }()
-	return checkAdmission(ctx, pool, created)
+	if err := checkAdmission(ctx, pool, created); err != nil {
+		return err
+	}
+	return checkRoutingModelSessionContinuity(ctx, pool, created.installationID)
 }
 
 func checkAdmission(ctx context.Context, pool *pgxpool.Pool, created *fixture) error {
@@ -464,7 +469,7 @@ func newKey(installationID string) auth.CreateAPIKeyParams {
 
 func fixtureBinding(admission policyregistry.SerializedAdmission, now time.Time) policyregistry.SessionReleaseBinding {
 	projection := admission.Projection
-	if admission.Previous != nil && admission.Previous.Target == projection.Target && admission.Previous.EnrollmentGeneration == projection.EnrollmentGeneration && admission.Previous.AssignmentGeneration == projection.AssignmentGeneration {
+	if admission.Previous != nil && admission.Previous.Target == projection.Target && admission.Previous.ProfileKey == projection.ProfileKey && admission.Previous.EnrollmentGeneration == projection.EnrollmentGeneration && admission.Previous.AssignmentGeneration == projection.AssignmentGeneration {
 		retained := *admission.Previous
 		retained.LastAdmittedAt = now
 		return retained

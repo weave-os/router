@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
 
@@ -77,5 +78,49 @@ func TestListPriceSpendIgnoresLongContextTierForBucketSums(t *testing.T) {
 	// 1M fresh input tokens across 20 turns at the $0.10/MTok base rate, not the $0.50 long-context rate.
 	if len(points) != 1 || points[0].Value != 0.10 {
 		t.Fatalf("points = %+v, want 0.10", points)
+	}
+}
+
+func TestComparisonCostPricesAutoEfficientTurnsAtItsOwnModel(t *testing.T) {
+	automatic := turnrecord.TelemetryDashboardFact{DecisionModel: "claude-haiku-5-5", DecisionType: string(dashboardDecisionRouterPick), RequestCount: 1, InputTokens: 1_000_000, ActualCostUSD: 1}
+	efficient := automatic
+	efficient.ComparisonRoutingModel = string(router.ModelAutoEfficient)
+
+	if got := comparisonCost(automatic); got != 4 {
+		t.Fatalf("weave-auto comparison = %v, want Opus 5.5's $4 per million fresh input tokens", got)
+	}
+	if got := comparisonCost(efficient); got != 2 {
+		t.Fatalf("weave-auto-efficient comparison = %v, want Sonnet 5.5's $2 per million fresh input tokens", got)
+	}
+}
+
+func TestReportSummaryNamesTheComparisonModelItUsed(t *testing.T) {
+	automatic := turnrecord.TelemetryDashboardFact{DecisionModel: "claude-haiku-5-5", DecisionType: string(dashboardDecisionRouterPick), RequestCount: 1, InputTokens: 1_000_000, ActualCostUSD: 1}
+	efficient := automatic
+	efficient.ComparisonRoutingModel = string(router.ModelAutoEfficient)
+
+	if got := reportSummary([]turnrecord.TelemetryDashboardFact{automatic}).ComparisonModel; got != "Claude Opus 5.5" {
+		t.Fatalf("weave-auto report comparison model = %q", got)
+	}
+	if got := reportSummary([]turnrecord.TelemetryDashboardFact{efficient}).ComparisonModel; got != "Claude Sonnet 5.5" {
+		t.Fatalf("weave-auto-efficient report comparison model = %q", got)
+	}
+	if got := reportSummary(nil).ComparisonModel; got != "Claude Opus 5.5" {
+		t.Fatalf("empty report comparison model = %q", got)
+	}
+
+	mixed := reportSummary([]turnrecord.TelemetryDashboardFact{automatic, efficient})
+	if want := "mixed (Claude Opus 5.5 / Claude Sonnet 5.5)"; mixed.ComparisonModel != want {
+		t.Fatalf("mixed report comparison model = %q, want %q", mixed.ComparisonModel, want)
+	}
+	want := []dashboardComparisonSavings{
+		{ComparisonModel: "Claude Opus 5.5", ComparisonCostUSD: 4, SavingsUSD: 3},
+		{ComparisonModel: "Claude Sonnet 5.5", ComparisonCostUSD: 2, SavingsUSD: 1},
+	}
+	if !slices.Equal(mixed.ComparisonModels, want) {
+		t.Fatalf("mixed report breakdown = %+v, want %+v", mixed.ComparisonModels, want)
+	}
+	if mixed.ComparisonCostUSD != 6 || mixed.SavingsUSD != 4 {
+		t.Fatalf("mixed report totals = comparison %v savings %v, want 6 and 4", mixed.ComparisonCostUSD, mixed.SavingsUSD)
 	}
 }

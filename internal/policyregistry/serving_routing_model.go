@@ -12,6 +12,27 @@ var ErrRoutingModelChanged = errors.New("start a new conversation to change rout
 
 var ErrRoutingModelSessionRequired = errors.New("experimental routing models require a conversation ID; send Session-Id")
 
+var ErrRoutingModelNotAssigned = errors.New("routing model has no serving profile for this installation")
+
+type admittedRoutingModelKey struct{}
+
+func AdmittedRoutingModel(ctx context.Context) router.RoutingModel {
+	if model, ok := ctx.Value(admittedRoutingModelKey{}).(router.RoutingModel); ok && router.UsesAssignedProfile(model) {
+		return model
+	}
+	return router.ModelAutomatic
+}
+
+func AdmissionRoutingModel(ctx context.Context, previous *SessionReleaseBinding) (model router.RoutingModel, inherited bool) {
+	if _, named := ctx.Value(admittedRoutingModelKey{}).(router.RoutingModel); named {
+		return AdmittedRoutingModel(ctx), false
+	}
+	if previous != nil && router.UsesAssignedProfile(previous.RoutingModel) {
+		return previous.RoutingModel, true
+	}
+	return router.ModelAutomatic, false
+}
+
 func ExperimentalRoutingModelsPermitted(target ServingTarget, plan entitlement.Plan) bool {
 	return target == TargetInternal && (plan == "" || plan == entitlement.PlanBoost)
 }
@@ -22,21 +43,34 @@ func (c *AdmissionDecisionCache) AdmitRoutingModel(ctx context.Context, installa
 	}
 	bind := func(ctx context.Context, admission SerializedAdmission) (SessionReleaseBinding, error) {
 		if ExperimentalRoutingModelsPermitted(admission.Projection.Target, admission.Projection.Plan) {
-			if sessionID == "" && model != router.ModelAutomatic {
+			if sessionID == "" && model != router.ModelAutomatic && !router.UsesAssignedProfile(model) {
 				return SessionReleaseBinding{}, ErrRoutingModelSessionRequired
 			}
 			if previous := admission.Previous; previous != nil && previous.Target == TargetInternal && previous.RoutingModel != "" && previous.RoutingModel != model {
 				return SessionReleaseBinding{}, ErrRoutingModelChanged
 			}
 		}
+		if previous := admission.Previous; previous != nil && sessionID != "" && routingModelSwitchesAlias(previous.RoutingModel, model) {
+			return SessionReleaseBinding{}, ErrRoutingModelChanged
+		}
 		binding, err := decide(ctx, admission)
 		if err != nil {
 			return SessionReleaseBinding{}, err
 		}
-		if ExperimentalRoutingModelsPermitted(binding.Target, binding.Plan) && sessionID != "" {
+		if sessionID != "" && (ExperimentalRoutingModelsPermitted(binding.Target, binding.Plan) || model == router.ModelAutoEfficient || binding.RoutingModel == router.ModelAutoEfficient) {
 			binding.RoutingModel = model
 		}
 		return binding, nil
 	}
-	return c.admit(ctx, installationID, apiKeyID, sessionID, model, bind)
+	return c.admit(context.WithValue(ctx, admittedRoutingModelKey{}, model), installationID, apiKeyID, sessionID, model, bind)
+}
+
+func routingModelSwitchesAlias(previous, requested router.RoutingModel) bool {
+	if previous == "" {
+		previous = router.ModelAutomatic
+	}
+	if previous == requested {
+		return false
+	}
+	return requested == router.ModelAutoEfficient || previous == router.ModelAutoEfficient
 }

@@ -20,6 +20,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
 - [Per-organization flag overrides](#per-organization-flag-overrides)
   - [Task-arm experiment](#task-arm-experiment)
 - [Plan-aware subscription routing](#plan-aware-subscription-routing)
+- [The `weave-auto-efficient` routing model](#the-weave-auto-efficient-routing-model)
 - [Provider and model exclusions](#provider-and-model-exclusions)
 - [Policy sidecars](#policy-sidecars)
 - [Task-domain classifier](#task-domain-classifier)
@@ -951,6 +952,39 @@ applies only when a paid binding can serve the pick (for example, not when the
 OpenRouter overflow lane is on and the model has no OpenRouter binding). Turns
 with no paid capacity behind them (credits depleted or spend cap reached) still
 serve on the subscription.
+
+## The `weave-auto-efficient` routing model
+
+`weave-auto-efficient` is an automatic routing model served from its own
+serving profile lane, so one installation serves `weave-auto` and
+`weave-auto-efficient` side by side, chosen per request by model name. It is
+not listed in `/v1/models` or the installers.
+
+- **Roster.** The efficient roster is an ordinary profile policy: it is
+  authored, compiled, catalog-validated, published and promoted like any other
+  profile lane (see [SERVING_CONTROL.md](SERVING_CONTROL.md#shared-code-cohorts-and-roster-configuration-selection-v3)).
+- **Assignment.** `router.installation_routing_model_profile_assignments`
+  names, per installation and routing model, the profile key whose policy
+  serves it. `weave-auto` keeps using `router.installation_profile_assignments`.
+  An installation without a `weave-auto-efficient` row, or a request admitted
+  through a subscriber plan, gets `403 routing_model_not_permitted`; it never
+  falls back to the `weave-auto` profile.
+- **Conversation pinning.** A conversation keeps the routing model it started
+  with: switching between `weave-auto` and `weave-auto-efficient` returns
+  `409 start_new_thread_to_change_router`. A request that omits `model` is
+  served as `weave-auto`, so it counts as that switch. A request in that
+  conversation that names no routing model (`/v1/messages/count_tokens`, or a
+  concrete model) keeps the conversation's `weave-auto-efficient` profile
+  instead of rebinding it to the `weave-auto` profile.
+- **Managed only.** The efficient profile exists only under managed serving
+  admission. A self-hosted router without it refuses `weave-auto-efficient`
+  with `403 routing_model_not_permitted` rather than serving the default roster.
+- **Savings.** Its counterfactual and dashboard comparison price turns at
+  `claude-sonnet-5-5` (`policy.SavingsComparisonFor`) instead of
+  the client baseline. The admin dashboard summary and drill-down name the
+  comparison model each report used; a report that spans both reads
+  `mixed (Claude Opus 5.5 / Claude Sonnet 5.5)` and lists savings per
+  comparison model in `comparison_models`.
 
 ## Provider and model exclusions
 
