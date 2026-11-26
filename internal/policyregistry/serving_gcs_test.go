@@ -28,6 +28,8 @@ type servingGCSFixture struct {
 	current    map[string]int64
 	generation int64
 	exactReads int
+	// beforeExactRead runs, under the fixture lock, before each generation-pinned media read.
+	beforeExactRead func(name string)
 }
 
 func (f *servingGCSFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +82,7 @@ func (f *servingGCSFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodGet {
 		_, name, found := strings.Cut(r.URL.Path, "/o/")
+		f.runBeforeExactRead(r, name)
 		if !found || f.current[name] == 0 {
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = io.WriteString(w, `{"error":{"code":404,"message":"not found"}}`)
@@ -109,6 +112,12 @@ func (f *servingGCSFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Error(w, "unsupported fixture request: "+r.Method+" "+r.URL.String(), http.StatusBadRequest)
+}
+
+func (f *servingGCSFixture) runBeforeExactRead(r *http.Request, name string) {
+	if f.beforeExactRead != nil && name != "" && r.URL.Query().Get("alt") == "media" {
+		f.beforeExactRead(name)
+	}
 }
 
 func (f *servingGCSFixture) writeAttrs(w http.ResponseWriter, name string, generation int64) {
@@ -318,6 +327,51 @@ func TestGCSManagedServingGenerationCASAndAuthoritativeExactRead(t *testing.T) {
 	fixture.mu.Lock()
 	require.GreaterOrEqual(t, fixture.exactReads, 2, "reads: %d", fixture.exactReads)
 	fixture.mu.Unlock()
+}
+
+// An apply overwrites the unversioned state object, so the generation a reader saw in the
+// attributes can vanish before the pinned body read. That race is not an absent object: it
+// must re-read the live state, never fall through to the legacy path as "not found".
+func TestGCSManagedServingStateReadSurvivesConcurrentReplacement(t *testing.T) {
+	registry, fixture := newServingGCSFixture(t)
+	ctx := context.Background()
+	set := fixtureSet("active")
+	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	transition, err := policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, servingPayload(t, proposal), proposalRef(t, proposal), testRegistryRoot, "workflow", servingEpoch)
+	require.NoError(t, err)
+	first, err := registry.CompareAndSwapServingState(ctx, transition.Snapshot.State, 0)
+	require.NoError(t, err)
+	replacements := 0
+	replace := func(limit int) func(string) {
+		return func(name string) {
+			if !strings.Contains(name, "/state/") || replacements >= limit {
+				return
+			}
+			replacements++
+			previous := fixture.current[name]
+			fixture.generation++
+			fixture.objects[name][fixture.generation] = fixture.objects[name][previous]
+			delete(fixture.objects[name], previous)
+			fixture.current[name] = fixture.generation
+		}
+	}
+
+	fixture.mu.Lock()
+	fixture.beforeExactRead = replace(1)
+	fixture.mu.Unlock()
+	observed, err := registry.ReadServingState(ctx, policyregistry.TargetStable)
+	require.NoError(t, err)
+	require.Equal(t, first.State, observed.State)
+	require.Greater(t, observed.Generation, first.Generation, "the re-read binds the replacing generation")
+	require.False(t, observed.LegacyPath)
+
+	fixture.mu.Lock()
+	replacements = 0
+	fixture.beforeExactRead = replace(100)
+	fixture.mu.Unlock()
+	_, err = registry.ReadServingState(ctx, policyregistry.TargetStable)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, policyregistry.ErrNotFound, "a state object that keeps changing is not missing")
 }
 
 func TestGCSManagedServingVerifiesExactEvidenceBytesAndGeneration(t *testing.T) {
