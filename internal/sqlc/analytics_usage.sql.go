@@ -15,20 +15,15 @@ import (
 const getAnalyticsUsageRows = `-- name: GetAnalyticsUsageRows :many
 WITH scoped AS (
     SELECT
+        (t.created_at AT TIME ZONE 'utc')::date AS usage_date,
         t.router_user_id,
         t.api_key_id,
         t.decision_model,
         t.decision_provider,
         t.requested_model,
-        t.error_class,
-        t.input_tokens,
-        t.output_tokens,
-        t.cache_read_tokens,
-        t.cache_creation_tokens,
-        t.actual_input_cost_usd,
-        t.actual_output_cost_usd,
-        (t.created_at AT TIME ZONE 'utc')::date AS usage_date,
-        COALESCE(
+        COUNT(*) AS requests,
+        COUNT(*) FILTER (WHERE t.error_class IS NOT NULL) AS failed_requests,
+        COUNT(*) FILTER (WHERE COALESCE(
             t.credential_source IN ('subscription', 'codex_subscription')
             AND ((t.upstream_status_code >= 200 AND t.upstream_status_code < 300)
                  OR (t.upstream_status_code = 0 AND t.error_class IS NULL))
@@ -37,7 +32,26 @@ WITH scoped AS (
                 AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'
             ) IS DISTINCT FROM true,
             false
-        )::boolean AS subscription_served
+        )) AS subscription_requests,
+        SUM(t.input_tokens) AS input_tokens,
+        SUM(t.output_tokens) AS output_tokens,
+        SUM(t.cache_read_tokens) AS cache_read_tokens,
+        SUM(t.cache_creation_tokens) AS cache_write_tokens,
+        SUM(
+            CASE WHEN COALESCE(
+                t.credential_source IN ('subscription', 'codex_subscription')
+                AND ((t.upstream_status_code >= 200 AND t.upstream_status_code < 300)
+                     OR (t.upstream_status_code = 0 AND t.error_class IS NULL))
+                AND (
+                    t.unified_limit_headers->>'anthropic-ratelimit-unified-representative-claim' = 'overage'
+                    AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'
+                ) IS DISTINCT FROM true,
+                false
+            ) THEN 0
+                 ELSE COALESCE(t.actual_input_cost_usd, 0) + COALESCE(t.actual_output_cost_usd, 0)
+            END
+        ) AS cost_usd_micros,
+        SUM(COALESCE(t.actual_input_cost_usd, 0) + COALESCE(t.actual_output_cost_usd, 0)) AS api_rate_cost_usd_micros
     FROM router.model_router_request_telemetry t
     JOIN router.model_router_installations inst
         ON inst.id = t.installation_id
@@ -46,6 +60,7 @@ WITH scoped AS (
       AND t.span_type = 'router.upstream'
       AND t.created_at >= $10::timestamptz
       AND t.created_at < $11::timestamptz
+    GROUP BY 1, 2, 3, 4, 5, 6
 )
 SELECT
     s.usage_date,
@@ -57,19 +72,15 @@ SELECT
     COALESCE(CASE WHEN $3::boolean THEN s.decision_model END, '')::text AS served_model,
     COALESCE(CASE WHEN $3::boolean THEN s.decision_provider END, '')::text AS served_provider,
     COALESCE(CASE WHEN $4::boolean THEN s.requested_model END, '')::text AS requested_model,
-    COUNT(*)::bigint AS requests,
-    COUNT(*) FILTER (WHERE s.error_class IS NOT NULL)::bigint AS failed_requests,
-    COUNT(*) FILTER (WHERE s.subscription_served)::bigint AS subscription_requests,
+    SUM(s.requests)::bigint AS requests,
+    SUM(s.failed_requests)::bigint AS failed_requests,
+    SUM(s.subscription_requests)::bigint AS subscription_requests,
     COALESCE(SUM(s.input_tokens), 0)::bigint AS input_tokens,
     COALESCE(SUM(s.output_tokens), 0)::bigint AS output_tokens,
     COALESCE(SUM(s.cache_read_tokens), 0)::bigint AS cache_read_tokens,
-    COALESCE(SUM(s.cache_creation_tokens), 0)::bigint AS cache_write_tokens,
-    COALESCE(SUM(
-        CASE WHEN s.subscription_served THEN 0
-             ELSE COALESCE(s.actual_input_cost_usd, 0) + COALESCE(s.actual_output_cost_usd, 0)
-        END
-    ), 0)::bigint AS cost_usd_micros,
-    COALESCE(SUM(COALESCE(s.actual_input_cost_usd, 0) + COALESCE(s.actual_output_cost_usd, 0)), 0)::bigint AS api_rate_cost_usd_micros
+    COALESCE(SUM(s.cache_write_tokens), 0)::bigint AS cache_write_tokens,
+    COALESCE(SUM(s.cost_usd_micros), 0)::bigint AS cost_usd_micros,
+    COALESCE(SUM(s.api_rate_cost_usd_micros), 0)::bigint AS api_rate_cost_usd_micros
 FROM scoped s
 LEFT JOIN router.model_router_users u
     ON u.id = s.router_user_id
@@ -153,24 +164,22 @@ type GetAnalyticsUsageRowsRow struct {
 //
 // Filters on emails and api key ids are optional; a NULL array means "no filter".
 // The installation scope is resolved from the organization inside the CTE, so
-// the telemetry scan is bounded by the time window and installation.
+// the telemetry scan is bounded by the time window and installation. The CTE
+// aggregates to the finest grain (date, user, key, model, provider, requested
+// model) before the user and key joins, so those joins and the final grouping
+// run over buckets rather than raw telemetry rows.
 //
 //	WITH scoped AS (
 //	    SELECT
+//	        (t.created_at AT TIME ZONE 'utc')::date AS usage_date,
 //	        t.router_user_id,
 //	        t.api_key_id,
 //	        t.decision_model,
 //	        t.decision_provider,
 //	        t.requested_model,
-//	        t.error_class,
-//	        t.input_tokens,
-//	        t.output_tokens,
-//	        t.cache_read_tokens,
-//	        t.cache_creation_tokens,
-//	        t.actual_input_cost_usd,
-//	        t.actual_output_cost_usd,
-//	        (t.created_at AT TIME ZONE 'utc')::date AS usage_date,
-//	        COALESCE(
+//	        COUNT(*) AS requests,
+//	        COUNT(*) FILTER (WHERE t.error_class IS NOT NULL) AS failed_requests,
+//	        COUNT(*) FILTER (WHERE COALESCE(
 //	            t.credential_source IN ('subscription', 'codex_subscription')
 //	            AND ((t.upstream_status_code >= 200 AND t.upstream_status_code < 300)
 //	                 OR (t.upstream_status_code = 0 AND t.error_class IS NULL))
@@ -179,7 +188,26 @@ type GetAnalyticsUsageRowsRow struct {
 //	                AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'
 //	            ) IS DISTINCT FROM true,
 //	            false
-//	        )::boolean AS subscription_served
+//	        )) AS subscription_requests,
+//	        SUM(t.input_tokens) AS input_tokens,
+//	        SUM(t.output_tokens) AS output_tokens,
+//	        SUM(t.cache_read_tokens) AS cache_read_tokens,
+//	        SUM(t.cache_creation_tokens) AS cache_write_tokens,
+//	        SUM(
+//	            CASE WHEN COALESCE(
+//	                t.credential_source IN ('subscription', 'codex_subscription')
+//	                AND ((t.upstream_status_code >= 200 AND t.upstream_status_code < 300)
+//	                     OR (t.upstream_status_code = 0 AND t.error_class IS NULL))
+//	                AND (
+//	                    t.unified_limit_headers->>'anthropic-ratelimit-unified-representative-claim' = 'overage'
+//	                    AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'
+//	                ) IS DISTINCT FROM true,
+//	                false
+//	            ) THEN 0
+//	                 ELSE COALESCE(t.actual_input_cost_usd, 0) + COALESCE(t.actual_output_cost_usd, 0)
+//	            END
+//	        ) AS cost_usd_micros,
+//	        SUM(COALESCE(t.actual_input_cost_usd, 0) + COALESCE(t.actual_output_cost_usd, 0)) AS api_rate_cost_usd_micros
 //	    FROM router.model_router_request_telemetry t
 //	    JOIN router.model_router_installations inst
 //	        ON inst.id = t.installation_id
@@ -188,6 +216,7 @@ type GetAnalyticsUsageRowsRow struct {
 //	      AND t.span_type = 'router.upstream'
 //	      AND t.created_at >= $10::timestamptz
 //	      AND t.created_at < $11::timestamptz
+//	    GROUP BY 1, 2, 3, 4, 5, 6
 //	)
 //	SELECT
 //	    s.usage_date,
@@ -199,19 +228,15 @@ type GetAnalyticsUsageRowsRow struct {
 //	    COALESCE(CASE WHEN $3::boolean THEN s.decision_model END, '')::text AS served_model,
 //	    COALESCE(CASE WHEN $3::boolean THEN s.decision_provider END, '')::text AS served_provider,
 //	    COALESCE(CASE WHEN $4::boolean THEN s.requested_model END, '')::text AS requested_model,
-//	    COUNT(*)::bigint AS requests,
-//	    COUNT(*) FILTER (WHERE s.error_class IS NOT NULL)::bigint AS failed_requests,
-//	    COUNT(*) FILTER (WHERE s.subscription_served)::bigint AS subscription_requests,
+//	    SUM(s.requests)::bigint AS requests,
+//	    SUM(s.failed_requests)::bigint AS failed_requests,
+//	    SUM(s.subscription_requests)::bigint AS subscription_requests,
 //	    COALESCE(SUM(s.input_tokens), 0)::bigint AS input_tokens,
 //	    COALESCE(SUM(s.output_tokens), 0)::bigint AS output_tokens,
 //	    COALESCE(SUM(s.cache_read_tokens), 0)::bigint AS cache_read_tokens,
-//	    COALESCE(SUM(s.cache_creation_tokens), 0)::bigint AS cache_write_tokens,
-//	    COALESCE(SUM(
-//	        CASE WHEN s.subscription_served THEN 0
-//	             ELSE COALESCE(s.actual_input_cost_usd, 0) + COALESCE(s.actual_output_cost_usd, 0)
-//	        END
-//	    ), 0)::bigint AS cost_usd_micros,
-//	    COALESCE(SUM(COALESCE(s.actual_input_cost_usd, 0) + COALESCE(s.actual_output_cost_usd, 0)), 0)::bigint AS api_rate_cost_usd_micros
+//	    COALESCE(SUM(s.cache_write_tokens), 0)::bigint AS cache_write_tokens,
+//	    COALESCE(SUM(s.cost_usd_micros), 0)::bigint AS cost_usd_micros,
+//	    COALESCE(SUM(s.api_rate_cost_usd_micros), 0)::bigint AS api_rate_cost_usd_micros
 //	FROM scoped s
 //	LEFT JOIN router.model_router_users u
 //	    ON u.id = s.router_user_id
