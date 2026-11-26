@@ -85,6 +85,7 @@ func newGatewayAuthHarness(t *testing.T) *gatewayAuthHarness {
 	h.engine.POST("/v1/messages", probe)
 	h.engine.POST("/v1/messages/count_tokens", probe)
 	h.engine.POST("/v1/chat/completions", probe)
+	h.engine.POST("/v1/display-settings", probe)
 	return h
 }
 
@@ -172,10 +173,12 @@ func TestWithAuth_SessionTokenFromGatewayBoundIssuerGetsGatewayProtections(t *te
 
 func TestWithAuth_UpstreamGatewayTokenOnlyServesMessages(t *testing.T) {
 	h := newGatewayAuthHarness(t)
-	rr := h.serve(t, "/v1/chat/completions", nil)
-	require.Equal(t, http.StatusForbidden, rr.Code)
-	assert.Equal(t, "upstream_gateway_surface_rejected", refusalCode(t, rr))
-	assert.Nil(t, h.seen)
+	for _, path := range []string{"/v1/chat/completions", "/v1/display-settings"} {
+		rr := h.serve(t, path, nil)
+		require.Equal(t, http.StatusForbidden, rr.Code, path)
+		assert.Contains(t, rr.Body.String(), "upstream_gateway_surface_rejected", path)
+		assert.Nil(t, h.seen, "%s must never reach a handler, so the gateway never sees serving release headers", path)
+	}
 }
 
 func TestWithAuth_UpstreamGatewayRejectsTheRoutersOwnInnerCall(t *testing.T) {

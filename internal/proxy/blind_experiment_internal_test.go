@@ -831,3 +831,36 @@ func TestBlindExperimentTelemetryReportsControlModelOnlyWhereItApplied(t *testin
 		})
 	}
 }
+
+func TestBlindPassthroughControlModelIsUnchangedByUpstreamGatewayMode(t *testing.T) {
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	enabled := map[string]struct{}{providers.ProviderAnthropic: {}}
+	gatewayKey := []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, Plaintext: []byte("gateway-key"), BaseURL: "https://gateway.example.test"}}
+	cases := map[string]struct {
+		withKey bool
+		want    string
+	}{
+		"routed on deployment credentials serves the control model": {want: "claude-haiku-4-5"},
+		"routed on the gateway's own key keeps the client baseline": {withKey: true, want: "claude-opus-5-5"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			base := blindExperimentControlContext("claude-haiku-4-5", requestcontext.ClientAppClaudeCode)
+			if tc.withKey {
+				base = context.WithValue(base, credentials.ExternalAPIKeysContextKey{}, gatewayKey)
+			}
+			gateway := requestcontext.WithUpstreamGateway(base, requestcontext.UpstreamGatewaySession{}, http.Header{})
+			request := router.Request{RequestedModel: string(router.ModelAutomatic), EnabledProviders: enabled}
+
+			plain, plainHandled, plainErr := service.blindExperimentPassthroughDecision(base, request)
+			viaGateway, gatewayHandled, gatewayErr := service.blindExperimentPassthroughDecision(gateway, request)
+
+			require.NoError(t, plainErr)
+			require.NoError(t, gatewayErr)
+			assert.True(t, plainHandled)
+			assert.True(t, gatewayHandled)
+			assert.Equal(t, tc.want, viaGateway.Model)
+			assert.Equal(t, plain, viaGateway, "gateway mode must not change which model the control arm serves")
+		})
+	}
+}
