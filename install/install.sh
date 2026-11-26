@@ -3099,6 +3099,25 @@ claude_passthrough_installed() {
 # apply_claude_weave_auto creates $1 when missing and keeps a non-shared
 # settings file private (mode 600). $2 is "force" (select Weave Auto over any
 # saved model), "true" (select it only when no model is set) or "false".
+# Blind experiment subjects pick models freely and their arm decides what
+# serves, so the Weave Auto row would only hint at the treatment. The install
+# leaves it out for them, with a marker the statusline uses to bring the row
+# (and a Weave Auto pick) back once the experiment ends.
+hide_claude_weave_auto_for_experiment() {
+  local target="$1" api_key="$2" marker current
+  jq -e 'any(.modelPicker.options[]?; .model == "weave-auto" or .model == "weave-auto[1m]")' "$target" >/dev/null 2>&1 || return 0
+  models_api GET "/v1/display-settings" || return 0
+  [ "$(printf '%s' "$models_http_body" | jq -r '.hide_weave_auto // false' 2>/dev/null)" = "true" ] || return 0
+  marker="$(dirname "$target")/.weave-auto-hidden-$(basename "$target")"
+  current="$(jq -c '{option: first(.modelPicker.options[] | select(.model == "weave-auto" or .model == "weave-auto[1m]")), model: (if (.model == "weave-auto" or .model == "weave-auto[1m]") then .model else null end)}' "$target")"
+  if [ -f "$marker" ]; then
+    current="$(jq -c --argjson new "$current" '{option: (.option // $new.option), model: (.model // $new.model)}' "$marker" 2>/dev/null || printf '%s' "$current")"
+  fi
+  printf '%s\n' "$current" >"$marker"
+  current="$(jq "$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$target")" || return 0
+  printf '%s\n' "$current" >"$target"
+}
+
 apply_claude_weave_auto() {
   local target="$1" set_model="$2" merged
   [ -f "$target" ] || printf '{}\n' >"$target"
@@ -5719,6 +5738,39 @@ refresh_display_settings() {
   [ "$(jq -r '.hide_terminal_surfaces // false' <<<"$display_body" 2>/dev/null)" = "true" ] && hidden="1"
   printf '%s' "$hidden" >"$hidden_file.tmp.$$" 2>/dev/null && mv "$hidden_file.tmp.$$" "$hidden_file" 2>/dev/null
   rm -f "$hidden_file.tmp.$$" 2>/dev/null
+  sync_weave_auto_model "$(jq -r 'if has("hide_weave_auto") then .hide_weave_auto | tostring else "" end' <<<"$display_body" 2>/dev/null)"
+}
+
+# Blind experiment subjects pick models freely and their arm decides what
+# serves, so the router leaves Weave Auto out of their model list. A config
+# still set to weave-auto falls back to Codex's default model instead, and a
+# marker beside the config brings it back once the experiment ends, unless the
+# user chose another model in between. A response without hide_weave_auto
+# changes nothing.
+sync_weave_auto_model() {
+  local hide="$1" config marker tmp
+  [ "$hide" = "true" ] || [ "$hide" = "false" ] || return 0
+  config="$(codex_config_path)"
+  [ -n "$config" ] || return 0
+  marker="$(dirname "$config")/.weave-auto-hidden"
+  if [ "$hide" = "true" ]; then
+    awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { found = 1 } END { exit(found ? 0 : 1) }' "$config" || return 0
+    : >"$marker" 2>/dev/null && chmod 600 "$marker" 2>/dev/null || return 0
+    tmp="$config.weave-tmp.$$"
+    awk '/^[[:space:]]*\[/ { in_section = 1 } !in_section && /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { next } { print }' "$config" >"$tmp" 2>/dev/null \
+      && chmod 600 "$tmp" 2>/dev/null && mv "$tmp" "$config" 2>/dev/null
+    rm -f "$tmp" 2>/dev/null
+    return 0
+  fi
+  [ -f "$marker" ] || return 0
+  # Restore only while Codex still routes through Weave and has no model of
+  # its own; an "off" config or a newer pick keeps what the user has.
+  if awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*model[[:space:]]*=/ { model = 1 } /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ { routed = 1 } END { exit(routed && !model ? 0 : 1) }' "$config"; then
+    tmp="$config.weave-tmp.$$"
+    awk '/^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ && !done { print; print "model = \"weave-auto\""; done = 1; next } { print }' "$config" >"$tmp" 2>/dev/null \
+      && chmod 600 "$tmp" 2>/dev/null && mv "$tmp" "$config" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+  fi
+  rm -f "$marker" 2>/dev/null
 }
 
 # A cold cache fetches the setting once in the foreground, briefly, so a
@@ -5944,17 +5996,21 @@ context_clause() {
 # as a subtable with the header name unquoted. A marker-scoped, quoted-only read
 # resolved nothing on any config Codex had touched, which silently dropped the
 # savings figure from the title with no error anywhere.
-read_codex_endpoint() {
-  local config=""
-  # Project/custom installs name the helper weave-status.sh and keep it next
-  # to their config.toml. Falling through to ~/.codex would fetch another
-  # installation's session cost with that key. The user-scope helper
-  # (codex-status.sh in ~/.weave) has no adjacent config and owns HOME.
+# Project/custom installs name the helper weave-status.sh and keep it next
+# to their config.toml. Falling through to ~/.codex would fetch another
+# installation's session cost with that key. The user-scope helper
+# (codex-status.sh in ~/.weave) has no adjacent config and owns HOME.
+codex_config_path() {
   if [ -f "$helper_dir/config.toml" ]; then
-    config="$helper_dir/config.toml"
+    printf '%s' "$helper_dir/config.toml"
   elif [ "$(basename "$0")" != "weave-status.sh" ] && [ -f "$HOME/.codex/config.toml" ]; then
-    config="$HOME/.codex/config.toml"
+    printf '%s' "$HOME/.codex/config.toml"
   fi
+}
+
+read_codex_endpoint() {
+  local config
+  config="$(codex_config_path)"
   [ -n "$config" ] || return 0
   awk '
     # Cut a TOML comment, honouring quoted strings so a # inside a value stays.
@@ -7526,6 +7582,49 @@ EOF
 }
 weave_sync_commands 2>/dev/null || true
 
+# ---------- Weave Auto picker sync for blind experiments ----------
+#
+# Blind experiment subjects pick models freely and their arm decides what
+# serves, so the Weave Auto row would only hint at the treatment. When
+# display-settings reports hide_weave_auto, the refresh below removes the row
+# from each settings file that has it and clears a Weave Auto pick so Claude
+# Code falls back to its default. A marker beside the file keeps the row and
+# pick; once the experiment ends the row comes back, and so does the pick
+# unless the user chose another model in between. A response without the
+# field changes nothing.
+weave_sync_weave_auto_picker() { # weave_sync_weave_auto_picker <true|false> <settings files...>
+  local hide="$1" f marker merged mode tmp is_auto='(. == "weave-auto" or . == "weave-auto[1m]")'
+  shift
+  for f in "$@"; do
+    [ -f "$f" ] || continue
+    marker="$(dirname "$f")/.weave-auto-hidden-$(basename "$f")"
+    if [ "$hide" = "true" ]; then
+      jq -e "any(.modelPicker.options[]?; .model | $is_auto)" "$f" >/dev/null 2>&1 || continue
+      merged="$(jq -c "{option: first(.modelPicker.options[] | select(.model | $is_auto)), model: (if (.model | $is_auto) then .model else null end)}" "$f" 2>/dev/null)" || continue
+      if [ -f "$marker" ]; then
+        merged="$(jq -c --argjson new "$merged" '{option: (.option // $new.option), model: (.model // $new.model)}' "$marker" 2>/dev/null)" || continue
+      fi
+      printf '%s\n' "$merged" >"$marker.tmp.$$" && mv "$marker.tmp.$$" "$marker" || { rm -f "$marker.tmp.$$"; continue; }
+      merged="$(jq "(if (.model | $is_auto) then del(.model) else . end)
+        | .modelPicker.options |= map(select(.model | $is_auto | not))
+        | (if (.modelPicker.options | length) == 0 then del(.modelPicker.options) else . end)
+        | (if (.modelPicker | length) == 0 then del(.modelPicker) else . end)" "$f" 2>/dev/null)" || continue
+    elif [ "$hide" = "false" ] && [ -f "$marker" ]; then
+      merged="$(jq --slurpfile hidden "$marker" "\$hidden[0] as \$h
+        | (if \$h.option != null then .modelPicker = ((.modelPicker // {}) | .options = ([\$h.option] + ((.options // []) | map(select(.model | $is_auto | not))))) else . end)
+        | (if \$h.model != null and (has(\"model\") | not) then .model = \$h.model else . end)" "$f" 2>/dev/null)" || continue
+    else
+      continue
+    fi
+    mode="$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f" 2>/dev/null)" || mode=""
+    tmp="$f.weave-tmp.$$"
+    printf '%s\n' "$merged" >"$tmp" 2>/dev/null || { rm -f "$tmp"; continue; }
+    [ -z "$mode" ] || chmod "$mode" "$tmp" 2>/dev/null
+    mv "$tmp" "$f" 2>/dev/null || { rm -f "$tmp"; continue; }
+    [ "$hide" = "true" ] || rm -f "$marker"
+  done
+}
+
 # ---------- org "hide terminal surfaces" gate ----------
 #
 # When the org has hidden the router's terminal surfaces, the statusline
@@ -7689,6 +7788,8 @@ weave_hidden_gate() {
     plans="$(printf '%s' "$body" | jq -r '[.disconnected_plans[]? | select(type == "string" and test("^[a-z]+$"))] | join(" ")' 2>/dev/null)"
     printf '%s' "$plans" >"$tmp" 2>/dev/null && mv "$tmp" "$cache.plans" 2>/dev/null
     rm -f "$tmp" 2>/dev/null
+    weave_sync_weave_auto_picker "$(printf '%s' "$body" | jq -r 'if has("hide_weave_auto") then .hide_weave_auto | tostring else "" end' 2>/dev/null)" \
+      "$settings" "$local_settings"
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
   # A cold cache waits briefly for its first refresh so a subject whose
@@ -8562,6 +8663,7 @@ write_claude_settings() {
     weave_auto_default="true"
   fi
   apply_claude_weave_auto "$context_settings_file" "$weave_auto_default"
+  hide_claude_weave_auto_for_experiment "$context_settings_file" "$block_key"
   context_window_action="install"
   if [ "$mode" = "update" ] && [ ! -f "$settings_dir/.weave-parked.json" ]; then
     context_window_action="update"

@@ -648,6 +648,55 @@ printf '%s\n' '{"session_id":"session-5","model":"gpt-5.6-terra","last_assistant
     WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
 [ "$(cat "$title_file")" = "Codex" ] || { echo "pending cold fetch rendered surfaces: $(cat "$title_file")" >&2; exit 1; }
 
+# A blind experiment subject configured for Weave Auto falls back to Codex's
+# default model; the pick comes back when the experiment ends, unless the user
+# chose another model in between.
+auto_home="$work/home-auto"
+mkdir -p "$auto_home/.codex"
+cat >"$auto_home/.codex/config.toml" <<TOML
+model_provider = "weave"
+model = "weave-auto"
+
+[model_providers.weave]
+base_url = "file://$cost_body"
+http_headers = { "X-Weave-Router-Key" = "rk_test" }
+TOML
+auto_round=0
+run_auto_turn() { # run_auto_turn <display json>
+  auto_round=$((auto_round + 1))
+  printf '%s' "$1" >"$work/display-auto.json"
+  printf '%s\n' '{"session_id":"session-auto","model":"gpt-5.6-terra","last_assistant_message":"done"}' \
+    | HOME="$auto_home" XDG_CACHE_HOME="$work/cache-auto-$auto_round" WEAVE_CODEX_STATUS_SAVINGS=0 WEAVE_CODEX_STATUS_CONTEXT=0 \
+      WEAVE_CODEX_DISPLAY_SETTINGS_URL="file://$work/display-auto.json" \
+      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+}
+top_model() { awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*model[[:space:]]*=/ { print }' "$auto_home/.codex/config.toml"; }
+wait_top_model() { # wait_top_model <expected line>
+  for _ in $(seq 1 50); do
+    [ "$(top_model)" = "$1" ] && return 0
+    sleep 0.1
+  done
+  echo "expected top-level model '$1', got '$(top_model)'" >&2
+  cat "$auto_home/.codex/config.toml" >&2
+  exit 1
+}
+run_auto_turn '{"hide_terminal_surfaces": true, "hide_weave_auto": true}'
+wait_top_model ''
+grep -q '^\[model_providers.weave\]' "$auto_home/.codex/config.toml" || { echo "hiding Weave Auto dropped the provider" >&2; exit 1; }
+grep -q '^model_provider = "weave"' "$auto_home/.codex/config.toml" || { echo "hiding Weave Auto dropped the routing provider" >&2; exit 1; }
+run_auto_turn '{"hide_terminal_surfaces": false, "hide_weave_auto": false}'
+wait_top_model 'model = "weave-auto"'
+[ "$(head -2 "$auto_home/.codex/config.toml" | tail -1)" = 'model = "weave-auto"' ] || { echo "restored model left the top level" >&2; exit 1; }
+run_auto_turn '{"hide_terminal_surfaces": true, "hide_weave_auto": true}'
+wait_top_model ''
+sed -i.bak '1a\
+model = "gpt-5.6-terra"
+' "$auto_home/.codex/config.toml" && rm -f "$auto_home/.codex/config.toml.bak"
+run_auto_turn '{"hide_terminal_surfaces": false, "hide_weave_auto": false}'
+sleep 1
+[ "$(top_model)" = 'model = "gpt-5.6-terra"' ] || { echo "ended experiment overrode the user's pick: $(top_model)" >&2; exit 1; }
+[ ! -e "$auto_home/.codex/.weave-auto-hidden" ] || { echo "ended experiment kept its marker" >&2; exit 1; }
+
 # install.sh embeds this helper as a heredoc so the standalone `curl | sh`
 # install has no sibling asset to copy. Nothing keeps the two copies in sync,
 # so an edit to one silently ships the other stale — which is exactly how the

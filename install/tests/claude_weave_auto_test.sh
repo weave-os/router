@@ -14,7 +14,7 @@ run() {
   local home="$1"
   shift
   HOME="$home" XDG_CACHE_HOME="$home/.cache" PATH="$work/bin:$PATH" ANTHROPIC_MODEL="" \
-    NO_COLOR=1 WEAVE_ROUTER_KEY=rk_test \
+    NO_COLOR=1 WEAVE_ROUTER_KEY=rk_test WEAVE_TEST_DISPLAY_SETTINGS="${WEAVE_TEST_DISPLAY_SETTINGS:-}" \
     bash "$installer" --claude --quiet --non-interactive --base-url http://127.0.0.1:9 "$@" </dev/null >"$work/output" 2>&1
 }
 uninstall() {
@@ -101,5 +101,38 @@ test "$(jq -r '.model' "$user_and_project/.claude/settings.local.json")" = opus
 (cd "$user_and_project" && run "$user_and_project_home" on --scope project)
 test "$(jq -r '.model' "$user_and_project/.claude/settings.local.json")" = 'weave-auto[1m]'
 test "$(picker_rows "$project/.claude/settings.local.json")" = 0
+
+# A blind experiment subject installs without the Weave Auto row or pick; the
+# statusline restores both from the marker once the experiment ends.
+cat >"$work/bin/curl" <<'SHIM'
+#!/usr/bin/env bash
+out="" url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift ;;
+    -w|-X|-H|--header|--max-time|--data-binary|-K) shift ;;
+    -*) ;;
+    *) url="$1" ;;
+  esac
+  shift
+done
+case "$url" in
+  */v1/display-settings) [ -n "${WEAVE_TEST_DISPLAY_SETTINGS:-}" ] || exit 22 ;;
+  *) exit 22 ;;
+esac
+printf '%s' "$WEAVE_TEST_DISPLAY_SETTINGS" >"${out:-/dev/stdout}"
+printf '200'
+SHIM
+chmod +x "$work/bin/curl"
+subject="$work/subject"
+mkdir -p "$subject/.claude"
+printf '%s\n' '{"modelPicker":{"options":[{"model":"my-model","label":"Mine"}]}}' >"$subject/.claude/settings.json"
+WEAVE_TEST_DISPLAY_SETTINGS='{"hide_weave_auto": true}' run "$subject" --scope user
+test "$(jq -r '.model // "unset"' "$subject/.claude/settings.json")" = unset
+test "$(jq -c '[.modelPicker.options[].model]' "$subject/.claude/settings.json")" = '["my-model"]'
+test "$(jq -r '.model' "$subject/.claude/.weave-auto-hidden-settings.json")" = 'weave-auto[1m]'
+test "$(jq -r '.option.label' "$subject/.claude/.weave-auto-hidden-settings.json")" = "Weave Auto"
+WEAVE_TEST_DISPLAY_SETTINGS='{"hide_weave_auto": false}' run "$subject" --scope user
+test "$(picker_rows "$subject/.claude/settings.json")" = 1
 
 echo "Claude Weave Auto installer regression tests passed"

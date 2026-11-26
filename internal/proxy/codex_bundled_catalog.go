@@ -17,5 +17,5 @@ func (s *Service) CodexSelectionCatalog(ctx context.Context, headers http.Header
 		return catalog, nil
 	}
 	observability.FromContext(ctx).Debug("Serving bundled Codex model catalog", "err", err)
-	return addCodexRoutingModels(codexBundledCatalog, internalBetaSession(ctx))
+	return codexCatalogForCaller(ctx, codexBundledCatalog)
 }

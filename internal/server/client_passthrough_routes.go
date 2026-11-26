@@ -26,17 +26,25 @@ func registerClientPassthroughRoutes(engine *gin.Engine, authSvc *auth.Service, 
 	codexImagesGroup.POST("/v1/images/generations", openaiapi.ImagesHandler(ingress.CodexImageGenerations, services.CodexImages))
 	codexImagesGroup.POST("/v1/images/edits", openaiapi.ImagesHandler(ingress.CodexImageEdits, services.CodexImages))
 
+	resolveCaller := func(c *gin.Context) context.Context {
+		ctx := requestcontext.WithClientIdentity(c.Request.Context(), requestcontext.ClientIdentityFromHeaders(c.Request.Header))
+		return auth.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c), requestcontext.CallerFrom(ctx))
+	}
+	withCodexCatalogExperimentState := func(c *gin.Context) {
+		if requestcontext.ClientIdentityFromHeaders(c.Request.Header).ClientApp == requestcontext.ClientAppCodex {
+			c.Request = c.Request.WithContext(resolveCaller(c))
+		}
+		c.Next()
+	}
+
 	passthroughGroup := engine.Group("",
 		middleware.WithTimeout(passthroughTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission),
 	)
 	passthroughGroup.Use(servingAdmissionMiddleware...)
 	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(services.Passthrough, services.ErrorVocab))
-	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(services.Passthrough, services.ErrorVocab), services.CodexModelCatalog))
+	passthroughGroup.GET("/v1/models", withCodexCatalogExperimentState, openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(services.Passthrough, services.ErrorVocab), services.CodexModelCatalog))
 	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(services.Passthrough, services.ErrorVocab))
-	passthroughGroup.GET("/v1/codex/models", openaiapi.CodexCatalogHandler(services.CodexSelectionCatalog))
-	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler(authSvc, func(c *gin.Context) context.Context {
-		ctx := requestcontext.WithClientIdentity(c.Request.Context(), requestcontext.ClientIdentityFromHeaders(c.Request.Header))
-		return auth.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c), requestcontext.CallerFrom(ctx))
-	}, authSvc, features.SeatUsage))
+	passthroughGroup.GET("/v1/codex/models", withCodexCatalogExperimentState, openaiapi.CodexCatalogHandler(services.CodexSelectionCatalog))
+	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler(authSvc, resolveCaller, authSvc, features.SeatUsage))
 }

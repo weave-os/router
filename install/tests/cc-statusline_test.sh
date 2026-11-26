@@ -975,6 +975,55 @@ check_contains "display-settings refresh forwards the user email" "$headers" 'he
 check_not_contains "display-settings refresh drops unsafe identity values" "$headers" "bad"
 check_not_contains "display-settings refresh drops unrelated headers" "$headers" "X-Other"
 
+# A blind experiment subject's picker drops Weave Auto and resets a Weave Auto
+# pick to the default; both come back when the experiment ends. A named model
+# the user picks in between stays.
+run_weave_auto_refresh() { # run_weave_auto_refresh <case_dir>
+  rm -f "$(gate_cache "$1/cache" "$1/proj/.claude/cc-statusline.sh")"
+  echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+    | XDG_CACHE_HOME="$1/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$1/home" \
+      WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
+      bash "$1/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
+  wait_for 5 test -f "$(gate_cache "$1/cache" "$1/proj/.claude/cc-statusline.sh")"
+  wait_for 5 test ! -d "$(gate_cache "$1/cache" "$1/proj/.claude/cc-statusline.sh").lock"
+}
+weave_auto_option='{"model":"weave-auto[1m]","label":"Weave Auto","description":"Weave picks the best model for each turn","behavesAs":"claude-opus-5-5"}'
+c="$work/gauto"; mkdir -p "$c/proj/.claude" "$c/cache"
+write_install "$c/proj" project "rk_proj_auto" "file://$c/ds.json"
+jq --argjson option "$weave_auto_option" '.model = "weave-auto[1m]" | .modelPicker.options = [$option, {"model":"my-model","label":"Mine"}]' \
+  "$c/proj/.claude/settings.json" >"$c/settings.tmp" && mv "$c/settings.tmp" "$c/proj/.claude/settings.json"
+printf '{"hide_terminal_surfaces": true, "hide_weave_auto": true}' > "$c/ds.json"
+run_weave_auto_refresh "$c"
+check "experiment subject's picker drops Weave Auto" \
+  "$(jq -c '[.modelPicker.options[].model]' "$c/proj/.claude/settings.json")" '["my-model"]'
+check "experiment subject on Weave Auto falls back to the default model" \
+  "$(jq -r '.model // "unset"' "$c/proj/.claude/settings.json")" "unset"
+check "hiding Weave Auto keeps the router settings" \
+  "$(jq -r '.env.ANTHROPIC_BASE_URL' "$c/proj/.claude/settings.json")" "file://$c/ds.json"
+run_weave_auto_refresh "$c"
+check "a repeated hidden refresh leaves the picker alone" \
+  "$(jq -c '[.modelPicker.options[].model]' "$c/proj/.claude/settings.json")" '["my-model"]'
+printf '{"hide_terminal_surfaces": false, "hide_weave_auto": false}' > "$c/ds.json"
+run_weave_auto_refresh "$c"
+check "ended experiment restores the Weave Auto row" \
+  "$(jq -c '.modelPicker.options[0]' "$c/proj/.claude/settings.json")" "$(jq -c . <<<"$weave_auto_option")"
+check "ended experiment restores the Weave Auto pick" \
+  "$(jq -r '.model // "unset"' "$c/proj/.claude/settings.json")" "weave-auto[1m]"
+printf '{"hide_terminal_surfaces": true, "hide_weave_auto": true}' > "$c/ds.json"
+run_weave_auto_refresh "$c"
+jq '.model = "claude-sonnet-5-5"' "$c/proj/.claude/settings.json" >"$c/settings.tmp" && mv "$c/settings.tmp" "$c/proj/.claude/settings.json"
+printf '{"hide_terminal_surfaces": false, "hide_weave_auto": false}' > "$c/ds.json"
+run_weave_auto_refresh "$c"
+check "a model picked during the experiment survives its end" \
+  "$(jq -r '.model' "$c/proj/.claude/settings.json")" "claude-sonnet-5-5"
+check "the Weave Auto row still comes back" \
+  "$(jq -c '[.modelPicker.options[].model]' "$c/proj/.claude/settings.json")" '["weave-auto[1m]","my-model"]'
+# A router without the field never touches the picker.
+printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
+run_weave_auto_refresh "$c"
+check "a response without hide_weave_auto keeps Weave Auto" \
+  "$(jq -c '[.modelPicker.options[].model]' "$c/proj/.claude/settings.json")" '["weave-auto[1m]","my-model"]'
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -128,6 +128,39 @@ refresh_display_settings() {
   [ "$(jq -r '.hide_terminal_surfaces // false' <<<"$display_body" 2>/dev/null)" = "true" ] && hidden="1"
   printf '%s' "$hidden" >"$hidden_file.tmp.$$" 2>/dev/null && mv "$hidden_file.tmp.$$" "$hidden_file" 2>/dev/null
   rm -f "$hidden_file.tmp.$$" 2>/dev/null
+  sync_weave_auto_model "$(jq -r 'if has("hide_weave_auto") then .hide_weave_auto | tostring else "" end' <<<"$display_body" 2>/dev/null)"
+}
+
+# Blind experiment subjects pick models freely and their arm decides what
+# serves, so the router leaves Weave Auto out of their model list. A config
+# still set to weave-auto falls back to Codex's default model instead, and a
+# marker beside the config brings it back once the experiment ends, unless the
+# user chose another model in between. A response without hide_weave_auto
+# changes nothing.
+sync_weave_auto_model() {
+  local hide="$1" config marker tmp
+  [ "$hide" = "true" ] || [ "$hide" = "false" ] || return 0
+  config="$(codex_config_path)"
+  [ -n "$config" ] || return 0
+  marker="$(dirname "$config")/.weave-auto-hidden"
+  if [ "$hide" = "true" ]; then
+    awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { found = 1 } END { exit(found ? 0 : 1) }' "$config" || return 0
+    : >"$marker" 2>/dev/null && chmod 600 "$marker" 2>/dev/null || return 0
+    tmp="$config.weave-tmp.$$"
+    awk '/^[[:space:]]*\[/ { in_section = 1 } !in_section && /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { next } { print }' "$config" >"$tmp" 2>/dev/null \
+      && chmod 600 "$tmp" 2>/dev/null && mv "$tmp" "$config" 2>/dev/null
+    rm -f "$tmp" 2>/dev/null
+    return 0
+  fi
+  [ -f "$marker" ] || return 0
+  # Restore only while Codex still routes through Weave and has no model of
+  # its own; an "off" config or a newer pick keeps what the user has.
+  if awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*model[[:space:]]*=/ { model = 1 } /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ { routed = 1 } END { exit(routed && !model ? 0 : 1) }' "$config"; then
+    tmp="$config.weave-tmp.$$"
+    awk '/^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ && !done { print; print "model = \"weave-auto\""; done = 1; next } { print }' "$config" >"$tmp" 2>/dev/null \
+      && chmod 600 "$tmp" 2>/dev/null && mv "$tmp" "$config" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+  fi
+  rm -f "$marker" 2>/dev/null
 }
 
 # A cold cache fetches the setting once in the foreground, briefly, so a
@@ -353,17 +386,21 @@ context_clause() {
 # as a subtable with the header name unquoted. A marker-scoped, quoted-only read
 # resolved nothing on any config Codex had touched, which silently dropped the
 # savings figure from the title with no error anywhere.
-read_codex_endpoint() {
-  local config=""
-  # Project/custom installs name the helper weave-status.sh and keep it next
-  # to their config.toml. Falling through to ~/.codex would fetch another
-  # installation's session cost with that key. The user-scope helper
-  # (codex-status.sh in ~/.weave) has no adjacent config and owns HOME.
+# Project/custom installs name the helper weave-status.sh and keep it next
+# to their config.toml. Falling through to ~/.codex would fetch another
+# installation's session cost with that key. The user-scope helper
+# (codex-status.sh in ~/.weave) has no adjacent config and owns HOME.
+codex_config_path() {
   if [ -f "$helper_dir/config.toml" ]; then
-    config="$helper_dir/config.toml"
+    printf '%s' "$helper_dir/config.toml"
   elif [ "$(basename "$0")" != "weave-status.sh" ] && [ -f "$HOME/.codex/config.toml" ]; then
-    config="$HOME/.codex/config.toml"
+    printf '%s' "$HOME/.codex/config.toml"
   fi
+}
+
+read_codex_endpoint() {
+  local config
+  config="$(codex_config_path)"
   [ -n "$config" ] || return 0
   awk '
     # Cut a TOML comment, honouring quoted strings so a # inside a value stays.
