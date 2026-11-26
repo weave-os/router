@@ -30,6 +30,23 @@ func TestBillingTablesExistDetectsMissingAutopayConfig(t *testing.T) {
 	assert.False(t, ok, "missing subscriber_autopay_config must fail billing readiness")
 }
 
+func TestMalformedSpendIDsEnforceNoCapWithoutError(t *testing.T) {
+	repo := postgres.NewBillingRepo(nil)
+	ctx := context.Background()
+
+	spent, keyCap, found, err := repo.GetAPIKeySpend(ctx, "not-a-uuid")
+	require.NoError(t, err)
+	assert.False(t, found)
+	assert.Nil(t, keyCap)
+	assert.Zero(t, spent)
+
+	spent, limit, granted, err := repo.GetUserMonthlySpendAndLimit(ctx, "org", "not-a-uuid")
+	require.NoError(t, err)
+	assert.Nil(t, limit)
+	assert.Zero(t, spent)
+	assert.Zero(t, granted)
+}
+
 func TestMissingSpendGrantsFailsUserGateClosedWithoutDisablingBilling(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
