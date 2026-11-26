@@ -12,6 +12,7 @@ const (
 	envSwitchExpectedRemainingTurns = "ROUTER_SWITCH_EXPECTED_REMAINING_TURNS"
 	envSwitchTierUpgradeEnabled     = "ROUTER_SWITCH_TIER_UPGRADE_ENABLED"
 	envSwitchCorrectedEconomics     = "ROUTER_SWITCH_CORRECTED_ECONOMICS"
+	envSwitchExperiment             = "ROUTER_SWITCH_EXPERIMENT"
 )
 
 func continuityConfigFromEnv() continuity.Config {
@@ -22,5 +23,6 @@ func continuityConfigFromEnv() continuity.Config {
 	cfg.Planner.ExpectedRemainingTurns = parseEnvInt(envSwitchExpectedRemainingTurns, cfg.Planner.ExpectedRemainingTurns)
 	cfg.Planner.TierUpgradeEnabled = config.GetOr(envSwitchTierUpgradeEnabled, boolDefault(cfg.Planner.TierUpgradeEnabled)) == "true"
 	cfg.Planner.CorrectedEconomics = config.GetOr(envSwitchCorrectedEconomics, boolDefault(cfg.Planner.CorrectedEconomics)) == "true"
+	cfg.SwitchDecideAuthoritative = config.GetOr(envSwitchExperiment, "") == "live"
 	return cfg
 }

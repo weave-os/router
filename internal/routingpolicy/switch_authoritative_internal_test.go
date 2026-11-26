@@ -211,3 +211,27 @@ func TestAuthoritativePerTurnPickHoldsThePinWhenDecideSwitchStaysOnlyWithTheBenc
 	assert.True(t, on.StickyHit)
 	assert.Equal(t, "decide_switch_"+string(SwitchReasonDowngradePending), on.PinTier)
 }
+
+func TestAuthoritativePerTurnPickHoldsThePinFromTheDeploymentDefaultWithoutAnOverride(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	warmOpus := sessionpin.Pin{
+		Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic, LastServedModel: "claude-opus-4-8", LastTurnEndedAt: now.Add(-20 * time.Second),
+		LastInputTokens: 1_000, LastCachedReadTokens: 399_000,
+	}
+	turn := SessionTurn{
+		Pin: warmOpus, PinFound: true, Fresh: router.Decision{Model: "claude-sonnet-4-6", Provider: providers.ProviderAnthropic}, PlannerTokens: 401_000,
+		SwitchHistory: sessionpin.Pin{ModelCaches: sessionpin.ModelCaches{
+			"claude-opus-4-8": {ServedAt: now.Add(-20 * time.Second), PromptTokens: 400_000, MessageCount: 300, WriteTTLSeconds: 3600},
+		}},
+		Ports:    continuity.StrategyPorts{History: roleOnlyHistory{}},
+		Settings: SessionSettings{SwitchDecideAuthoritative: true},
+		Now:      func() time.Time { return now },
+	}
+	res := TurnRoute{PinRole: "main", cacheShape: TurnCacheShape{MessageCount: 302, UserPrompt: true}}
+
+	held := turn.holdPerTurnPickForSwitchVerdict(context.Background(), &res)
+
+	assert.True(t, held)
+	assert.Equal(t, "claude-opus-4-8", res.Decision.Model)
+	assert.Equal(t, "decide_switch_"+string(SwitchReasonDowngradePending), res.PinTier)
+}

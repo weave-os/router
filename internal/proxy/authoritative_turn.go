@@ -60,6 +60,7 @@ func sessionSettingsFor(ctx context.Context, s *Service) routingpolicy.SessionSe
 		PlannerEnabled:                 s.continuityConfig.ResolvePlannerEnabled(ctx),
 		ContinuityPlanner:              s.continuityConfig.Planner,
 		ScoreToolResultTurns:           s.continuityConfig.ResolveScoreToolResultTurns(ctx),
+		SwitchDecideAuthoritative:      s.continuityConfig.ResolveSwitchDecideAuthoritative(ctx),
 	}
 }
 

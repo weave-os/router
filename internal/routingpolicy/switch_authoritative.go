@@ -10,8 +10,12 @@ import (
 
 const switchAuthoritativePinTierPrefix = "decide_switch_"
 
+func (t SessionTurn) switchDecideAuthoritative(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeySwitchDecideAuthoritative, t.Settings.SwitchDecideAuthoritative)
+}
+
 func (t SessionTurn) serveSwitchVerdict(ctx context.Context, res *TurnRoute, shadow switchShadowTurn) {
-	if !flags.BoolOr(ctx, flags.KeySwitchDecideAuthoritative, false) {
+	if !t.switchDecideAuthoritative(ctx) {
 		return
 	}
 	verdict := DecideSwitch(shadow.switchInput(*res))
@@ -34,7 +38,7 @@ func (t SessionTurn) serveSwitchVerdict(ctx context.Context, res *TurnRoute, sha
 }
 
 func (t SessionTurn) freshPickSwitchOutcome(ctx context.Context, res TurnRoute) (continuity.Outcome, bool) {
-	if !t.PinFound || !flags.BoolOr(ctx, flags.KeySwitchDecideAuthoritative, false) {
+	if !t.PinFound || !t.switchDecideAuthoritative(ctx) {
 		return continuity.Outcome{}, false
 	}
 	shadow := switchShadowTurn{

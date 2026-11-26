@@ -15,6 +15,10 @@ func (c Config) ResolveScoreToolResultTurns(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyScoreToolResultTurns, c.ScoreToolResultTurns)
 }
 
+func (c Config) ResolveSwitchDecideAuthoritative(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeySwitchDecideAuthoritative, c.SwitchDecideAuthoritative)
+}
+
 func (p StrategyPorts) ResolveHMMToolResultHold(ctx context.Context, strategy router.Strategy) bool {
 	return p.Ownership.Owns(strategy) && flags.BoolOr(ctx, flags.KeyHMMToolResultHold, false)
 }

@@ -47,6 +47,7 @@ type SessionSettings struct {
 	ContinuityPlanner              planner.EVConfig
 	ScoreToolResultTurns           bool
 	HMMToolResultHold              bool
+	SwitchDecideAuthoritative      bool
 }
 
 type SessionTurn struct {
