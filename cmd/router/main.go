@@ -1119,13 +1119,7 @@ func main() {
 		captureListenHost := config.GetOr("ROUTER_HTTP_CAPTURE_LISTEN_HOST", "127.0.0.1")
 		address = net.JoinHostPort(captureListenHost, port)
 	}
-	srv := &http.Server{
-		Addr:              address,
-		Handler:           engine,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    1 << 20,
-	}
+	srv := newHTTPServer(address, engine)
 
 	providerNames := make([]string, 0, len(providerMap))
 	for name := range providerMap {

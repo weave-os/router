@@ -55,7 +55,10 @@ into `auth.Service` and `proxy.Service`. Operator-facing variables are listed in
   sweeps run hourly on a background context so an idempotent sweep keeps draining
   during shutdown.
 - **HTTP server.** No server-wide `ReadTimeout`/`WriteTimeout` (they would cut
-  streams); non-streaming routes carry per-route timeouts.
+  streams); non-streaming routes carry per-route timeouts. The port serves
+  HTTP/1.1 and cleartext HTTP/2 (h2c prior knowledge), so a Cloud Run service
+  can declare its port `h2c` to lift the 32 MiB HTTP/1 request limit; the
+  router's own body cap still applies.
 - **Shutdown budget.** Cloud Run allows 10 s between SIGTERM and SIGKILL: server
   shutdown 6 s, emitter flush 1.5 s and APM flush 1.5 s leave ~1 s of slack. A
   `ListenAndServe` failure flushes APM itself because it bypasses that path.
