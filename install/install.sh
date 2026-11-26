@@ -2645,20 +2645,24 @@ beta_base_url() {
   esac
 }
 
-# saved_beta_override prints the beta endpoint an earlier install recorded in
-# weave-beta.json, so `beta on|off` and `update` keep a self-hosted beta host
-# without WEAVE_ROUTER_BETA_URL in the caller's shell. A --dir tree may be
-# hostile, so only the copy under $HOME is trusted.
-saved_beta_override() {
-  [ -z "$install_dir" ] || return 0
-  json_get "$settings_dir/$WEAVE_BETA_SETTINGS_NAME" '.env.WEAVE_ROUTER_BETA_URL'
-}
-
 # beta_settings_owned is true when weave-beta.json holds only what
 # write_claude_beta_settings writes; any other file at that path is the user's.
 beta_settings_owned() {
   jq -e '(keys == ["env"]) and (.env | keys - ["ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS",
           "ENABLE_TOOL_SEARCH", "CLAUDE_CODE_AUTO_MODE_SERVER", "WEAVE_ROUTER_BETA_URL"] | length == 0)' "$1" >/dev/null 2>&1
+}
+
+# saved_beta_override prints the beta endpoint an earlier install recorded in
+# weave-beta.json, so `beta on|off` and `update` keep a self-hosted beta host
+# without WEAVE_ROUTER_BETA_URL in the caller's shell. A --dir tree may be
+# hostile, so only the copy under $HOME is trusted, and only when the installer
+# wrote it for this installation's key: a file left from another router must
+# not move this key to that router's beta host.
+saved_beta_override() {
+  local beta_file="$settings_dir/$WEAVE_BETA_SETTINGS_NAME"
+  [ -z "$install_dir" ] && [ -f "$beta_file" ] && beta_settings_owned "$beta_file" || return 0
+  [ "$(json_get "$beta_file" '.env.ANTHROPIC_CUSTOM_HEADERS')" = "$(json_get "$settings_file" '.env.ANTHROPIC_CUSTOM_HEADERS')" ] || return 0
+  json_get "$beta_file" '.env.WEAVE_ROUTER_BETA_URL'
 }
 
 # printable_url drops control characters from a URL read out of a settings

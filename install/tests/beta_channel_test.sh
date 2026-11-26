@@ -164,6 +164,10 @@ install_for "$selfhosted_home" claude --base-url http://127.0.0.1:9
 printf '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.3:9"},"model":"mine"}\n' >"$selfhosted_home/.claude/weave-beta.json"
 install_for "$selfhosted_home" claude --base-url http://127.0.0.1:9
 [ "$(jq -r '.model' "$selfhosted_home/.claude/weave-beta.json")" = mine ] || fail "install removed a user-owned weave-beta.json"
+# A beta override in a file the installer did not write is never used.
+printf '{"env":{"WEAVE_ROUTER_BETA_URL":"http://127.0.0.3:9"},"model":"mine"}\n' >"$selfhosted_home/.claude/weave-beta.json"
+router "$selfhosted_home" beta on || true
+[ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$selfhosted_settings")" = http://127.0.0.1:9 ] || fail "beta on used the override from a user-owned weave-beta.json"
 uninstall_for "$selfhosted_home" claude
 [ -e "$selfhosted_home/.claude/weave-beta.json" ] || fail "uninstall removed a user-owned weave-beta.json"
 
