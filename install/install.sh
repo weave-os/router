@@ -3104,14 +3104,10 @@ claude_passthrough_installed() {
 # leaves it out for them, with a marker the statusline uses to bring the row
 # (and a Weave Auto pick) back once the experiment ends.
 hide_claude_weave_auto_for_experiment() {
-  local target="$1" api_key="$2" marker current headers body tmp user_model
+  local target="$1" api_key="$2" marker current tmp user_model models_user_email="${user_email:-}"
   jq -e 'any(.modelPicker.options[]?; .model == "weave-auto" or .model == "weave-auto[1m]")' "$target" >/dev/null 2>&1 || return 0
-  headers="$(mktemp)" || return 0
-  printf '%s: %s\n' "$router_key_header" "$api_key" >"$headers"
-  [ -z "${user_email:-}" ] || printf 'X-Weave-User-Email: %s\n' "$user_email" >>"$headers"
-  body="$(curl -fsS --max-time 20 --header "@$headers" "$base_url/v1/display-settings" 2>/dev/null)" || body=""
-  rm -f "$headers"
-  [ "$(printf '%s' "$body" | jq -r '.hide_weave_auto // false' 2>/dev/null)" = "true" ] || return 0
+  models_api GET "/v1/display-settings" || return 0
+  [ "$(printf '%s' "$models_http_body" | jq -r '.hide_weave_auto // false' 2>/dev/null)" = "true" ] || return 0
   marker="$(dirname "$target")/.weave-auto-hidden-$(basename "$target")"
   user_model=""
   [ "$target" = "$HOME/.claude/settings.json" ] || user_model="$(jq -c '.model // null' "$HOME/.claude/settings.json" 2>/dev/null || printf 'null')"
@@ -3659,6 +3655,7 @@ models_api() {
   request_headers="$(mktemp)" || { rm -f "$out"; err "Could not create a temp file."; exit 1; }
   chmod 600 "$request_headers"
   printf '%s: %s\n' "$router_key_header" "$api_key" >"$request_headers"
+  [ -z "${models_user_email:-}" ] || printf 'X-Weave-User-Email: %s\n' "$models_user_email" >>"$request_headers"
   if [ -n "$body" ]; then
     request_body="$(mktemp)" || { rm -f "$out" "$request_headers"; err "Could not create a temp file."; exit 1; }
     chmod 600 "$request_body"
@@ -5763,7 +5760,6 @@ sync_weave_auto_model() {
   local hide="$1" config marker tmp
   [ "$hide" = "true" ] || [ "$hide" = "false" ] || return 0
   config="$(codex_config_path)"
-  [ -n "$config" ] || return 0
   marker="$(dirname "$config")/.weave-auto-hidden"
   if [ "$hide" = "true" ]; then
     awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { found = 1 } END { exit(found ? 0 : 1) }' "$config" || return 0
@@ -7638,8 +7634,8 @@ weave_sync_weave_auto_picker() { # weave_sync_weave_auto_picker <true|false> <se
       merged="$(jq --slurpfile hidden "$marker" --arg user_model "$user_model" "\$hidden[0] as \$h
         | (if \$h.option != null then .modelPicker = ((.modelPicker // {}) | .options = ([\$h.option] + ((.options // []) | map(select(.model | $is_auto | not))))) else . end)
         | (if \$h.model != null and (has(\"model\") | not)
-             and ((\$h | has(\"user_model\") | not) or (\$user_model != \"\" and ((\$user_model | fromjson) as \$now
-               | \$now == \$h.user_model or (\$now == null and (\$h.user_model | $is_auto)))))
+             and ((\$h | has(\"user_model\") | not) or (\$user_model != \"\" and ((\$user_model | fromjson) as \$settings_model
+               | \$settings_model == \$h.user_model or (\$settings_model == null and (\$h.user_model | $is_auto)))))
            then .model = \$h.model else . end)" "$f" 2>/dev/null)" || continue
     else
       continue
@@ -7647,7 +7643,7 @@ weave_sync_weave_auto_picker() { # weave_sync_weave_auto_picker <true|false> <se
     mode="$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f" 2>/dev/null)" || mode=""
     tmp="$(mktemp "$f.weave-tmp.XXXXXX" 2>/dev/null)" || continue
     printf '%s\n' "$merged" >"$tmp" 2>/dev/null || { rm -f "$tmp"; continue; }
-    [ -z "$mode" ] || chmod "$mode" "$tmp" 2>/dev/null
+    chmod "$mode" "$tmp" 2>/dev/null
     mv "$tmp" "$f" 2>/dev/null || { rm -f "$tmp"; continue; }
     [ "$hide" = "true" ] || rm -f "$marker"
   done
@@ -8749,3 +8745,4 @@ verify_install
 
 announce_done "Claude Code"
 finish_install
+

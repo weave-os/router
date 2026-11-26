@@ -412,8 +412,8 @@ weave_sync_weave_auto_picker() { # weave_sync_weave_auto_picker <true|false> <se
       merged="$(jq --slurpfile hidden "$marker" --arg user_model "$user_model" "\$hidden[0] as \$h
         | (if \$h.option != null then .modelPicker = ((.modelPicker // {}) | .options = ([\$h.option] + ((.options // []) | map(select(.model | $is_auto | not))))) else . end)
         | (if \$h.model != null and (has(\"model\") | not)
-             and ((\$h | has(\"user_model\") | not) or (\$user_model != \"\" and ((\$user_model | fromjson) as \$now
-               | \$now == \$h.user_model or (\$now == null and (\$h.user_model | $is_auto)))))
+             and ((\$h | has(\"user_model\") | not) or (\$user_model != \"\" and ((\$user_model | fromjson) as \$settings_model
+               | \$settings_model == \$h.user_model or (\$settings_model == null and (\$h.user_model | $is_auto)))))
            then .model = \$h.model else . end)" "$f" 2>/dev/null)" || continue
     else
       continue
@@ -421,7 +421,7 @@ weave_sync_weave_auto_picker() { # weave_sync_weave_auto_picker <true|false> <se
     mode="$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f" 2>/dev/null)" || mode=""
     tmp="$(mktemp "$f.weave-tmp.XXXXXX" 2>/dev/null)" || continue
     printf '%s\n' "$merged" >"$tmp" 2>/dev/null || { rm -f "$tmp"; continue; }
-    [ -z "$mode" ] || chmod "$mode" "$tmp" 2>/dev/null
+    chmod "$mode" "$tmp" 2>/dev/null
     mv "$tmp" "$f" 2>/dev/null || { rm -f "$tmp"; continue; }
     [ "$hide" = "true" ] || rm -f "$marker"
   done
