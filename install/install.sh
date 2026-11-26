@@ -3104,16 +3104,28 @@ claude_passthrough_installed() {
 # leaves it out for them, with a marker the statusline uses to bring the row
 # (and a Weave Auto pick) back once the experiment ends.
 hide_claude_weave_auto_for_experiment() {
-  local target="$1" api_key="$2" marker current
+  local target="$1" api_key="$2" marker current headers body tmp user_model
   jq -e 'any(.modelPicker.options[]?; .model == "weave-auto" or .model == "weave-auto[1m]")' "$target" >/dev/null 2>&1 || return 0
-  models_api GET "/v1/display-settings" || return 0
-  [ "$(printf '%s' "$models_http_body" | jq -r '.hide_weave_auto // false' 2>/dev/null)" = "true" ] || return 0
+  headers="$(mktemp)" || return 0
+  printf '%s: %s\n' "$router_key_header" "$api_key" >"$headers"
+  [ -z "${user_email:-}" ] || printf 'X-Weave-User-Email: %s\n' "$user_email" >>"$headers"
+  body="$(curl -fsS --max-time 20 --header "@$headers" "$base_url/v1/display-settings" 2>/dev/null)" || body=""
+  rm -f "$headers"
+  [ "$(printf '%s' "$body" | jq -r '.hide_weave_auto // false' 2>/dev/null)" = "true" ] || return 0
   marker="$(dirname "$target")/.weave-auto-hidden-$(basename "$target")"
-  current="$(jq -c '{option: first(.modelPicker.options[] | select(.model == "weave-auto" or .model == "weave-auto[1m]")), model: (if (.model == "weave-auto" or .model == "weave-auto[1m]") then .model else null end)}' "$target")"
+  user_model=""
+  [ "$target" = "$HOME/.claude/settings.json" ] || user_model="$(jq -c '.model // null' "$HOME/.claude/settings.json" 2>/dev/null || printf 'null')"
+  current="$(jq -c --arg user_model "$user_model" '{option: first(.modelPicker.options[] | select(.model == "weave-auto" or .model == "weave-auto[1m]")), model: (if (.model == "weave-auto" or .model == "weave-auto[1m]") then .model else null end)}
+    + (if $user_model == "" then {} else {user_model: ($user_model | fromjson)} end)' "$target")"
   if [ -f "$marker" ]; then
-    current="$(jq -c --argjson new "$current" '{option: (.option // $new.option), model: (.model // $new.model)}' "$marker" 2>/dev/null || printf '%s' "$current")"
+    current="$(jq -c --argjson new "$current" '{option: (.option // $new.option), model: (.model // $new.model)}
+      + (if has("user_model") then {user_model} elif ($new | has("user_model")) then {user_model: $new.user_model} else {} end)' "$marker" 2>/dev/null || printf '%s' "$current")"
   fi
-  printf '%s\n' "$current" >"$marker"
+  tmp="$(mktemp "$marker.XXXXXX")" || return 0
+  if ! { printf '%s\n' "$current" >"$tmp" && mv "$tmp" "$marker"; }; then
+    rm -f "$tmp"
+    return 0
+  fi
   current="$(jq "$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$target")" || return 0
   printf '%s\n' "$current" >"$target"
 }
@@ -5755,10 +5767,12 @@ sync_weave_auto_model() {
   marker="$(dirname "$config")/.weave-auto-hidden"
   if [ "$hide" = "true" ]; then
     awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { found = 1 } END { exit(found ? 0 : 1) }' "$config" || return 0
-    : >"$marker" 2>/dev/null && chmod 600 "$marker" 2>/dev/null || return 0
-    tmp="$config.weave-tmp.$$"
-    awk '/^[[:space:]]*\[/ { in_section = 1 } !in_section && /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { next } { print }' "$config" >"$tmp" 2>/dev/null \
-      && chmod 600 "$tmp" 2>/dev/null && mv "$tmp" "$config" 2>/dev/null
+    tmp="$(mktemp "$marker.XXXXXX" 2>/dev/null)" || return 0
+    mv "$tmp" "$marker" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+    tmp="$(mktemp "$config.weave-tmp.XXXXXX" 2>/dev/null)" || return 0
+    if awk '/^[[:space:]]*\[/ { in_section = 1 } !in_section && /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { next } { print }' "$config" >"$tmp" 2>/dev/null; then
+      mv "$tmp" "$config" 2>/dev/null
+    fi
     rm -f "$tmp" 2>/dev/null
     return 0
   fi
@@ -5766,9 +5780,12 @@ sync_weave_auto_model() {
   # Restore only while Codex still routes through Weave and has no model of
   # its own; an "off" config or a newer pick keeps what the user has.
   if awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*model[[:space:]]*=/ { model = 1 } /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ { routed = 1 } END { exit(routed && !model ? 0 : 1) }' "$config"; then
-    tmp="$config.weave-tmp.$$"
-    awk '/^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ && !done { print; print "model = \"weave-auto\""; done = 1; next } { print }' "$config" >"$tmp" 2>/dev/null \
-      && chmod 600 "$tmp" 2>/dev/null && mv "$tmp" "$config" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+    tmp="$(mktemp "$config.weave-tmp.XXXXXX" 2>/dev/null)" || return 0
+    if ! { awk '/^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ && !done { print; print "model = \"weave-auto\""; done = 1; next } { print }' "$config" >"$tmp" 2>/dev/null \
+      && mv "$tmp" "$config" 2>/dev/null; }; then
+      rm -f "$tmp" 2>/dev/null
+      return 0
+    fi
   fi
   rm -f "$marker" 2>/dev/null
 }
@@ -7593,31 +7610,41 @@ weave_sync_commands 2>/dev/null || true
 # unless the user chose another model in between. A response without the
 # field changes nothing.
 weave_sync_weave_auto_picker() { # weave_sync_weave_auto_picker <true|false> <settings files...>
-  local hide="$1" f marker merged mode tmp is_auto='(. == "weave-auto" or . == "weave-auto[1m]")'
+  local hide="$1" f marker merged mode tmp user_model is_auto='(. == "weave-auto" or . == "weave-auto[1m]")'
   shift
   for f in "$@"; do
     [ -f "$f" ] || continue
     marker="$(dirname "$f")/.weave-auto-hidden-$(basename "$f")"
+    user_model=""
+    [ "$f" = "$HOME/.claude/settings.json" ] || user_model="$(jq -c '.model // null' "$HOME/.claude/settings.json" 2>/dev/null || printf 'null')"
     if [ "$hide" = "true" ]; then
       jq -e "any(.modelPicker.options[]?; .model | $is_auto)" "$f" >/dev/null 2>&1 || continue
-      merged="$(jq -c "{option: first(.modelPicker.options[] | select(.model | $is_auto)), model: (if (.model | $is_auto) then .model else null end)}" "$f" 2>/dev/null)" || continue
+      merged="$(jq -c --arg user_model "$user_model" "{option: first(.modelPicker.options[] | select(.model | $is_auto)), model: (if (.model | $is_auto) then .model else null end)}
+        + (if \$user_model == \"\" then {} else {user_model: (\$user_model | fromjson)} end)" "$f" 2>/dev/null)" || continue
       if [ -f "$marker" ]; then
-        merged="$(jq -c --argjson new "$merged" '{option: (.option // $new.option), model: (.model // $new.model)}' "$marker" 2>/dev/null)" || continue
+        merged="$(jq -c --argjson new "$merged" '{option: (.option // $new.option), model: (.model // $new.model)}
+          + (if has("user_model") then {user_model} elif ($new | has("user_model")) then {user_model: $new.user_model} else {} end)' "$marker" 2>/dev/null)" || continue
       fi
-      printf '%s\n' "$merged" >"$marker.tmp.$$" && mv "$marker.tmp.$$" "$marker" || { rm -f "$marker.tmp.$$"; continue; }
+      tmp="$(mktemp "$marker.XXXXXX" 2>/dev/null)" || continue
+      if ! { printf '%s\n' "$merged" >"$tmp" && mv "$tmp" "$marker"; }; then
+        rm -f "$tmp"
+        continue
+      fi
       merged="$(jq "(if (.model | $is_auto) then del(.model) else . end)
         | .modelPicker.options |= map(select(.model | $is_auto | not))
         | (if (.modelPicker.options | length) == 0 then del(.modelPicker.options) else . end)
         | (if (.modelPicker | length) == 0 then del(.modelPicker) else . end)" "$f" 2>/dev/null)" || continue
     elif [ "$hide" = "false" ] && [ -f "$marker" ]; then
-      merged="$(jq --slurpfile hidden "$marker" "\$hidden[0] as \$h
+      merged="$(jq --slurpfile hidden "$marker" --arg user_model "$user_model" "\$hidden[0] as \$h
         | (if \$h.option != null then .modelPicker = ((.modelPicker // {}) | .options = ([\$h.option] + ((.options // []) | map(select(.model | $is_auto | not))))) else . end)
-        | (if \$h.model != null and (has(\"model\") | not) then .model = \$h.model else . end)" "$f" 2>/dev/null)" || continue
+        | (if \$h.model != null and (has(\"model\") | not)
+             and ((\$h | has(\"user_model\") | not) or (\$user_model != \"\" and (\$user_model | fromjson) == \$h.user_model))
+           then .model = \$h.model else . end)" "$f" 2>/dev/null)" || continue
     else
       continue
     fi
     mode="$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f" 2>/dev/null)" || mode=""
-    tmp="$f.weave-tmp.$$"
+    tmp="$(mktemp "$f.weave-tmp.XXXXXX" 2>/dev/null)" || continue
     printf '%s\n' "$merged" >"$tmp" 2>/dev/null || { rm -f "$tmp"; continue; }
     [ -z "$mode" ] || chmod "$mode" "$tmp" 2>/dev/null
     mv "$tmp" "$f" 2>/dev/null || { rm -f "$tmp"; continue; }

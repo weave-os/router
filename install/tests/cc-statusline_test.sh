@@ -1018,6 +1018,22 @@ check "a model picked during the experiment survives its end" \
   "$(jq -r '.model' "$c/proj/.claude/settings.json")" "claude-sonnet-5-5"
 check "the Weave Auto row still comes back" \
   "$(jq -c '[.modelPicker.options[].model]' "$c/proj/.claude/settings.json")" '["weave-auto[1m]","my-model"]'
+# Claude Code saves a /model pick to the user settings, so a project-scope
+# subject who picks a model during the experiment keeps it after the end.
+c2="$work/gauto-user-pick"; mkdir -p "$c2/proj/.claude" "$c2/cache" "$c2/home/.claude"
+write_install "$c2/proj" project "rk_proj_auto" "file://$c2/ds.json"
+jq --argjson option "$weave_auto_option" '.model = "weave-auto[1m]" | .modelPicker.options = [$option]' \
+  "$c2/proj/.claude/settings.json" >"$c2/settings.tmp" && mv "$c2/settings.tmp" "$c2/proj/.claude/settings.json"
+printf '{"hide_weave_auto": true}' > "$c2/ds.json"
+run_weave_auto_refresh "$c2"
+printf '{"model":"haiku"}\n' >"$c2/home/.claude/settings.json"
+printf '{"hide_weave_auto": false}' > "$c2/ds.json"
+run_weave_auto_refresh "$c2"
+check "a user-scope pick during the experiment keeps the project pick unset" \
+  "$(jq -r '.model // "unset"' "$c2/proj/.claude/settings.json")" "unset"
+check "a user-scope pick still brings the Weave Auto row back" \
+  "$(jq -c '[.modelPicker.options[].model]' "$c2/proj/.claude/settings.json")" '["weave-auto[1m]"]'
+
 # A router without the field never touches the picker.
 printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
 run_weave_auto_refresh "$c"

@@ -120,8 +120,12 @@ case "$url" in
   */v1/display-settings) [ -n "${WEAVE_TEST_DISPLAY_SETTINGS:-}" ] || exit 22 ;;
   *) exit 22 ;;
 esac
-printf '%s' "$WEAVE_TEST_DISPLAY_SETTINGS" >"${out:-/dev/stdout}"
-printf '200'
+if [ -n "$out" ]; then
+  printf '%s' "$WEAVE_TEST_DISPLAY_SETTINGS" >"$out"
+  printf '200'
+else
+  printf '%s' "$WEAVE_TEST_DISPLAY_SETTINGS"
+fi
 SHIM
 chmod +x "$work/bin/curl"
 subject="$work/subject"

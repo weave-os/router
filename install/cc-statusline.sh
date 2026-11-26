@@ -384,31 +384,41 @@ weave_sync_commands 2>/dev/null || true
 # unless the user chose another model in between. A response without the
 # field changes nothing.
 weave_sync_weave_auto_picker() { # weave_sync_weave_auto_picker <true|false> <settings files...>
-  local hide="$1" f marker merged mode tmp is_auto='(. == "weave-auto" or . == "weave-auto[1m]")'
+  local hide="$1" f marker merged mode tmp user_model is_auto='(. == "weave-auto" or . == "weave-auto[1m]")'
   shift
   for f in "$@"; do
     [ -f "$f" ] || continue
     marker="$(dirname "$f")/.weave-auto-hidden-$(basename "$f")"
+    user_model=""
+    [ "$f" = "$HOME/.claude/settings.json" ] || user_model="$(jq -c '.model // null' "$HOME/.claude/settings.json" 2>/dev/null || printf 'null')"
     if [ "$hide" = "true" ]; then
       jq -e "any(.modelPicker.options[]?; .model | $is_auto)" "$f" >/dev/null 2>&1 || continue
-      merged="$(jq -c "{option: first(.modelPicker.options[] | select(.model | $is_auto)), model: (if (.model | $is_auto) then .model else null end)}" "$f" 2>/dev/null)" || continue
+      merged="$(jq -c --arg user_model "$user_model" "{option: first(.modelPicker.options[] | select(.model | $is_auto)), model: (if (.model | $is_auto) then .model else null end)}
+        + (if \$user_model == \"\" then {} else {user_model: (\$user_model | fromjson)} end)" "$f" 2>/dev/null)" || continue
       if [ -f "$marker" ]; then
-        merged="$(jq -c --argjson new "$merged" '{option: (.option // $new.option), model: (.model // $new.model)}' "$marker" 2>/dev/null)" || continue
+        merged="$(jq -c --argjson new "$merged" '{option: (.option // $new.option), model: (.model // $new.model)}
+          + (if has("user_model") then {user_model} elif ($new | has("user_model")) then {user_model: $new.user_model} else {} end)' "$marker" 2>/dev/null)" || continue
       fi
-      printf '%s\n' "$merged" >"$marker.tmp.$$" && mv "$marker.tmp.$$" "$marker" || { rm -f "$marker.tmp.$$"; continue; }
+      tmp="$(mktemp "$marker.XXXXXX" 2>/dev/null)" || continue
+      if ! { printf '%s\n' "$merged" >"$tmp" && mv "$tmp" "$marker"; }; then
+        rm -f "$tmp"
+        continue
+      fi
       merged="$(jq "(if (.model | $is_auto) then del(.model) else . end)
         | .modelPicker.options |= map(select(.model | $is_auto | not))
         | (if (.modelPicker.options | length) == 0 then del(.modelPicker.options) else . end)
         | (if (.modelPicker | length) == 0 then del(.modelPicker) else . end)" "$f" 2>/dev/null)" || continue
     elif [ "$hide" = "false" ] && [ -f "$marker" ]; then
-      merged="$(jq --slurpfile hidden "$marker" "\$hidden[0] as \$h
+      merged="$(jq --slurpfile hidden "$marker" --arg user_model "$user_model" "\$hidden[0] as \$h
         | (if \$h.option != null then .modelPicker = ((.modelPicker // {}) | .options = ([\$h.option] + ((.options // []) | map(select(.model | $is_auto | not))))) else . end)
-        | (if \$h.model != null and (has(\"model\") | not) then .model = \$h.model else . end)" "$f" 2>/dev/null)" || continue
+        | (if \$h.model != null and (has(\"model\") | not)
+             and ((\$h | has(\"user_model\") | not) or (\$user_model != \"\" and (\$user_model | fromjson) == \$h.user_model))
+           then .model = \$h.model else . end)" "$f" 2>/dev/null)" || continue
     else
       continue
     fi
     mode="$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f" 2>/dev/null)" || mode=""
-    tmp="$f.weave-tmp.$$"
+    tmp="$(mktemp "$f.weave-tmp.XXXXXX" 2>/dev/null)" || continue
     printf '%s\n' "$merged" >"$tmp" 2>/dev/null || { rm -f "$tmp"; continue; }
     [ -z "$mode" ] || chmod "$mode" "$tmp" 2>/dev/null
     mv "$tmp" "$f" 2>/dev/null || { rm -f "$tmp"; continue; }

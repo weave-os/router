@@ -145,10 +145,12 @@ sync_weave_auto_model() {
   marker="$(dirname "$config")/.weave-auto-hidden"
   if [ "$hide" = "true" ]; then
     awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { found = 1 } END { exit(found ? 0 : 1) }' "$config" || return 0
-    : >"$marker" 2>/dev/null && chmod 600 "$marker" 2>/dev/null || return 0
-    tmp="$config.weave-tmp.$$"
-    awk '/^[[:space:]]*\[/ { in_section = 1 } !in_section && /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { next } { print }' "$config" >"$tmp" 2>/dev/null \
-      && chmod 600 "$tmp" 2>/dev/null && mv "$tmp" "$config" 2>/dev/null
+    tmp="$(mktemp "$marker.XXXXXX" 2>/dev/null)" || return 0
+    mv "$tmp" "$marker" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+    tmp="$(mktemp "$config.weave-tmp.XXXXXX" 2>/dev/null)" || return 0
+    if awk '/^[[:space:]]*\[/ { in_section = 1 } !in_section && /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { next } { print }' "$config" >"$tmp" 2>/dev/null; then
+      mv "$tmp" "$config" 2>/dev/null
+    fi
     rm -f "$tmp" 2>/dev/null
     return 0
   fi
@@ -156,9 +158,12 @@ sync_weave_auto_model() {
   # Restore only while Codex still routes through Weave and has no model of
   # its own; an "off" config or a newer pick keeps what the user has.
   if awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*model[[:space:]]*=/ { model = 1 } /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ { routed = 1 } END { exit(routed && !model ? 0 : 1) }' "$config"; then
-    tmp="$config.weave-tmp.$$"
-    awk '/^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ && !done { print; print "model = \"weave-auto\""; done = 1; next } { print }' "$config" >"$tmp" 2>/dev/null \
-      && chmod 600 "$tmp" 2>/dev/null && mv "$tmp" "$config" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+    tmp="$(mktemp "$config.weave-tmp.XXXXXX" 2>/dev/null)" || return 0
+    if ! { awk '/^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ && !done { print; print "model = \"weave-auto\""; done = 1; next } { print }' "$config" >"$tmp" 2>/dev/null \
+      && mv "$tmp" "$config" 2>/dev/null; }; then
+      rm -f "$tmp" 2>/dev/null
+      return 0
+    fi
   fi
   rm -f "$marker" 2>/dev/null
 }
