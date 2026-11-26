@@ -17,6 +17,7 @@ type (
 	InstallationIDContextKey                             struct{}
 	InstallationPickedModelCreditFallbackContextKey      struct{}
 	InstallationPreferredModelsContextKey                struct{}
+	InstallationServingReleaseHeadersContextKey          struct{}
 	InstallationRoutingKnobsContextKey                   struct{}
 	InstallationShowModelSelectionReasoningContextKey    struct{}
 	InstallationSubscriptionModelsWhenActiveContextKey   struct{}

@@ -303,3 +303,46 @@ func TestOverridesOverlayReplacesOnlyLayeredKeys(t *testing.T) {
 	assert.Nil(t, layered.Floats)
 	assert.True(t, stored.Bools[flags.KeyPlannerEnabled], "overlay must not mutate the stored overrides")
 }
+
+func TestOverridesDigestIsContentAddressed(t *testing.T) {
+	first, err := flags.ParseOverrides([]byte(`{"turn_signal_capture_enabled":false,"task_arm_experiment_treatment_pct":25}`))
+	require.NoError(t, err)
+	reordered, err := flags.ParseOverrides([]byte(`{"task_arm_experiment_treatment_pct":25,"turn_signal_capture_enabled":false}`))
+	require.NoError(t, err)
+	changed, err := flags.ParseOverrides([]byte(`{"turn_signal_capture_enabled":false,"task_arm_experiment_treatment_pct":30}`))
+	require.NoError(t, err)
+
+	digest := func(o flags.Overrides) string {
+		t.Helper()
+		value, err := o.Digest()
+		require.NoError(t, err)
+		return value
+	}
+	assert.Len(t, digest(first), 64)
+	assert.Equal(t, digest(first), digest(reordered))
+	assert.NotEqual(t, digest(first), digest(changed))
+	assert.Empty(t, digest(flags.Overrides{}))
+}
+
+func TestStoredOverridesIgnoreTheRequestOverlay(t *testing.T) {
+	stored, err := flags.ParseOverrides([]byte(`{"turn_signal_capture_enabled":false}`))
+	require.NoError(t, err)
+	requested, err := flags.ParseOverrides([]byte(`{"task_arm_experiment_treatment_pct":25}`))
+	require.NoError(t, err)
+
+	overlaid := flags.WithRequestOverlay(context.Background(), stored, stored.Overlay(requested))
+
+	effective, found := flags.OverridesFromContext(overlaid)
+	require.True(t, found)
+	assert.Equal(t, 25, effective.Ints[flags.KeyTaskArmExperimentTreatmentPct], "serving reads the overlaid overrides")
+	storedOverrides, found := flags.StoredOverridesFromContext(overlaid)
+	require.True(t, found)
+	assert.Equal(t, stored, storedOverrides, "telemetry reads only the installation's stored overrides")
+
+	_, found = flags.StoredOverridesFromContext(flags.WithRequestOverlay(context.Background(), flags.Overrides{}, requested))
+	assert.False(t, found, "an installation without stored overrides records none, whatever the caller overlays")
+
+	storedOverrides, found = flags.StoredOverridesFromContext(flags.WithOverrides(context.Background(), stored))
+	require.True(t, found)
+	assert.Equal(t, stored, storedOverrides)
+}

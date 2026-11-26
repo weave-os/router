@@ -19,6 +19,11 @@ const (
 )
 
 const (
+	HeaderServingReleaseSHA = "X-Weave-Release-SHA"
+	HeaderServingPolicySHA  = "X-Weave-Policy-SHA"
+)
+
+const (
 	ForceModelHeader                 = "x-weave-force-model"
 	AllowedModelsHeader              = "x-weave-allowed-models"
 	ClassifierThreadHeader           = "X-Weave-Classifier-Thread"

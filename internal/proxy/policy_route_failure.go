@@ -49,5 +49,6 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, request route
 	}
 	applyBlindExperimentTelemetry(ctx, &params, nil)
 	applyPolicyPinTelemetry(ctx, &params, nil)
+	applyServingTelemetry(ctx, &params)
 	s.fireTelemetry(ctx, params)
 }

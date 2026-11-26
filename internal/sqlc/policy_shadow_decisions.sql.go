@@ -42,7 +42,10 @@ INSERT INTO router.policy_shadow_decisions (
     serving_policy_group,
     shadow_policy_group,
     serving_roster_arm_id,
-    shadow_roster_arm_id
+    shadow_roster_arm_id,
+    serving_target,
+    requested_model,
+    serving_release_id
 ) VALUES (
     $1::uuid,
     $2::varchar,
@@ -73,7 +76,10 @@ INSERT INTO router.policy_shadow_decisions (
     $27::varchar,
     $28::varchar,
     $29::varchar,
-    $30::varchar
+    $30::varchar,
+    $31::varchar,
+    $32::varchar,
+    $33::varchar
 )
 `
 
@@ -108,6 +114,9 @@ type InsertPolicyShadowDecisionParams struct {
 	ShadowPolicyGroup           *string
 	ServingRosterArmID          *string
 	ShadowRosterArmID           *string
+	ServingTarget               *string
+	RequestedModel              *string
+	ServingReleaseID            *string
 }
 
 // InsertPolicyShadowDecision
@@ -142,7 +151,10 @@ type InsertPolicyShadowDecisionParams struct {
 //	    serving_policy_group,
 //	    shadow_policy_group,
 //	    serving_roster_arm_id,
-//	    shadow_roster_arm_id
+//	    shadow_roster_arm_id,
+//	    serving_target,
+//	    requested_model,
+//	    serving_release_id
 //	) VALUES (
 //	    $1::uuid,
 //	    $2::varchar,
@@ -173,7 +185,10 @@ type InsertPolicyShadowDecisionParams struct {
 //	    $27::varchar,
 //	    $28::varchar,
 //	    $29::varchar,
-//	    $30::varchar
+//	    $30::varchar,
+//	    $31::varchar,
+//	    $32::varchar,
+//	    $33::varchar
 //	)
 func (q *Queries) InsertPolicyShadowDecision(ctx context.Context, arg InsertPolicyShadowDecisionParams) error {
 	_, err := q.db.Exec(ctx, insertPolicyShadowDecision,
@@ -207,6 +222,9 @@ func (q *Queries) InsertPolicyShadowDecision(ctx context.Context, arg InsertPoli
 		arg.ShadowPolicyGroup,
 		arg.ServingRosterArmID,
 		arg.ShadowRosterArmID,
+		arg.ServingTarget,
+		arg.RequestedModel,
+		arg.ServingReleaseID,
 	)
 	return err
 }

@@ -41,6 +41,7 @@ type Installation struct {
 	ByokEnabled                      bool
 	ContentCaptureMode               *string
 	HideTerminalSurfaces             bool
+	ServingReleaseHeadersEnabled     bool
 	ShowModelSelectionReasoning      bool
 	TrialCaptureEnabled              bool
 	TrialEnrollmentID                string

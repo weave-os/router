@@ -748,6 +748,51 @@ classifier API bounds inference by it, answering 503 `classifier_unavailable`
 when it expires, and rejects a malformed or out-of-range budget with 422 before
 inference.
 
+### Per-turn recipe telemetry
+
+A release ID alone does not say what served a turn. A retained conversation runs
+the current worker code with its historical policy and classifier. Each managed
+turn therefore records the recipe that ran, in nullable columns on
+`model_router_request_telemetry` (migration `0168`):
+
+| Column | Source |
+| --- | --- |
+| `worker_revision`, `worker_image_digest`, `worker_configuration_sha256` | The attested identity of the worker that admitted the request |
+| `serving_policy_sha256` | The selection policy that scored the turn. Turns without a classifier decision use the admitted snapshot's policy |
+| `effective_strategy` | The strategy that won precedence (plan, then installation, then managed default). Unscored and passthrough turns record the resolved request strategy |
+| `classifier_release_id`, `classifier_enabled_variants` | The classifier release and its enabled variants (sorted, comma-joined). Both come from the admitted snapshot |
+| `flag_overrides_sha256` | Content digest of the installation's stored flag overrides; NULL when it has none. A per-request `x-weave-flag-overrides` overlay is not included. Deployment defaults are covered by `worker_configuration_sha256` |
+
+Every column is NULL outside managed serving. Beta-versus-stable comparisons
+group by these columns together with `serving_target` and `requested_model`,
+because the host decides the channel and a model name alone does not.
+
+`policy_shadow_decisions` gains nullable `serving_target`, `requested_model` and
+`serving_release_id` columns in the same migration. Shadowing behavior is
+unchanged.
+
+### Release response headers
+
+`GET /v1/display-settings`, the route the installer status line reads, may answer
+with `X-Weave-Release-SHA` and `X-Weave-Policy-SHA`: the first 12 hex characters
+of the admitted release and policy digests. The status line shows them next to its
+channel badge so a user can quote what served them. They appear on that route
+only: never on model, inference, routing or discovery responses, and never on a
+4xx or 5xx refusal, so an API client of the installation cannot read the
+deployment's release from its own traffic.
+
+On `/v1/display-settings` the headers appear only when the installation has
+`serving_release_headers_enabled` set (default false) and terminal surfaces are
+not hidden for the caller: a blind experiment (for the caller or, for an
+unidentified caller, the installation), `hide_terminal_surfaces`, or upstream
+gateway mode removes them, exactly as it sets `hide_terminal_surfaces` in the
+response body. `ServingReleaseHeadersVisible` in
+`internal/ingress/terminal_surfaces.go` is the one predicate to extend.
+
+`serving_release_headers_enabled` is a temporary opt-in. Its owner is serving
+admission. It is removed, or promoted to a documented permanent per-installation
+setting, once the release-attribution rollout is decided.
+
 ## Self-hosted export
 
 `policyctl serving export-selfhosted` turns one managed activation into a

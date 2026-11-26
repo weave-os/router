@@ -433,11 +433,7 @@ func (s *Service) routableUniverse() map[string]struct{} {
 }
 
 func hideTerminalSurfacesForRequest(ctx context.Context) bool {
-	if _, active := auth.BlindExperimentFrom(ctx); active {
-		return true
-	}
-	hide, _ := ctx.Value(requestcontext.InstallationHideTerminalSurfacesContextKey{}).(bool)
-	return hide
+	return ingress.TerminalSurfacesHidden(ctx)
 }
 
 func routingKnobsForRequest(ctx context.Context) *router.Overrides {

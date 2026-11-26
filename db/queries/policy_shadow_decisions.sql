@@ -29,7 +29,10 @@ INSERT INTO router.policy_shadow_decisions (
     serving_policy_group,
     shadow_policy_group,
     serving_roster_arm_id,
-    shadow_roster_arm_id
+    shadow_roster_arm_id,
+    serving_target,
+    requested_model,
+    serving_release_id
 ) VALUES (
     @installation_id::uuid,
     sqlc.narg('organization_id')::varchar,
@@ -60,5 +63,8 @@ INSERT INTO router.policy_shadow_decisions (
     sqlc.narg('serving_policy_group')::varchar,
     sqlc.narg('shadow_policy_group')::varchar,
     sqlc.narg('serving_roster_arm_id')::varchar,
-    sqlc.narg('shadow_roster_arm_id')::varchar
+    sqlc.narg('shadow_roster_arm_id')::varchar,
+    sqlc.narg('serving_target')::varchar,
+    sqlc.narg('requested_model')::varchar,
+    sqlc.narg('serving_release_id')::varchar
 );

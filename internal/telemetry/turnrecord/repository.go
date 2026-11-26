@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/switchpolicy"
 )
 
@@ -144,6 +145,7 @@ type InsertTelemetryParams struct {
 	ServingReleaseID         string
 	ServingBindingID         string
 	ServingTarget            string
+	ServingRecipe            ServingRecipe
 	BoostOptimizerVersion    string
 	RolloutID                string
 
@@ -360,4 +362,10 @@ type AgreementShadowInput struct {
 	Key         switchpolicy.ShadowKey
 	Observation switchpolicy.ShadowObservation
 	Epoch       int
+}
+
+type ServingRecipe struct {
+	requestcontext.ServingRecipe
+	EffectiveStrategy   string
+	FlagOverridesSHA256 string
 }

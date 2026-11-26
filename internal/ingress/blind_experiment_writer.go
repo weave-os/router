@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 
 	"github.com/tidwall/gjson"
@@ -117,6 +118,8 @@ func (b *blindExperimentWriter) release() {
 
 func stripRouterResponseHeaders(h http.Header) {
 	h.Del("Access-Control-Expose-Headers")
+	h.Del(requestcontext.HeaderServingReleaseSHA)
+	h.Del(requestcontext.HeaderServingPolicySHA)
 	for name := range h {
 		if strings.HasPrefix(http.CanonicalHeaderKey(name), routerResponseHeaderPrefix) {
 			delete(h, name)

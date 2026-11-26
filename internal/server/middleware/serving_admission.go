@@ -85,6 +85,7 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		}
 		ctx := policyregistry.WithServingAssertion(c.Request.Context(), assertion)
 		ctx = policyregistry.WithServingSnapshot(ctx, snapshot)
+		ctx = policyregistry.WithServingRecipe(ctx, cfg.Identity, snapshot)
 		if assertion.TestPlan != nil && assertion.TestPlan.Plan != policyregistry.TestPlanStable {
 			ctx = entitlement.WithProductScope(ctx, entitlement.Plan(assertion.TestPlan.Plan))
 		}

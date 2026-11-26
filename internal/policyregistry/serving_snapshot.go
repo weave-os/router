@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -55,6 +56,27 @@ func WithServingAssertion(ctx context.Context, assertion ServingAssertion) conte
 	if !assertion.Scope.Persistent {
 		identity.StateNamespace = uuid.NewString()
 	}
+	return requestcontext.WithServingIdentity(ctx, identity)
+}
+
+func WithServingRecipe(ctx context.Context, worker WorkerIdentity, snapshot *Snapshot) context.Context {
+	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
+	if !managed {
+		return ctx
+	}
+	identity.Recipe = requestcontext.ServingRecipe{
+		WorkerRevision:            worker.Revision,
+		WorkerImageDigest:         worker.ImageDigest,
+		WorkerConfigurationSHA256: worker.Configuration.SHA256,
+	}
+	variants := make([]string, 0, len(snapshot.ClassifierEnabledVariants))
+	for _, variant := range snapshot.ClassifierEnabledVariants {
+		variants = append(variants, string(variant))
+	}
+	slices.Sort(variants)
+	identity.Recipe.PolicySHA256 = snapshot.Release.Policy.SHA256
+	identity.Recipe.ClassifierReleaseID = snapshot.ClassifierReleaseID
+	identity.Recipe.ClassifierEnabledVariants = strings.Join(variants, ",")
 	return requestcontext.WithServingIdentity(ctx, identity)
 }
 

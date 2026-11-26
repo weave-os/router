@@ -5,8 +5,11 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
@@ -23,6 +26,22 @@ func applyServingTelemetry(ctx context.Context, telemetry *turnrecord.InsertTele
 	telemetry.ServingProfileVersion = identity.ProfileRevision
 	telemetry.ServingReleaseID = identity.ReleaseID
 	telemetry.ServingBindingID = identity.BindingID
+	servedPolicySHA256 := telemetry.ServingRecipe.PolicySHA256
+	telemetry.ServingRecipe.ServingRecipe = identity.Recipe
+	if servedPolicySHA256 != "" {
+		telemetry.ServingRecipe.PolicySHA256 = servedPolicySHA256
+	}
+	telemetry.ServingRecipe.EffectiveStrategy = telemetry.Strategy
+	if telemetry.ServingRecipe.EffectiveStrategy == "" {
+		telemetry.ServingRecipe.EffectiveStrategy = string(router.StrategySelectionFromContext(ctx).Effective())
+	}
+	if overrides, found := flags.StoredOverridesFromContext(ctx); found {
+		digest, err := overrides.Digest()
+		if err != nil {
+			observability.FromContext(ctx).Error("Failed to digest flag overrides for turn telemetry", "err", err)
+		}
+		telemetry.ServingRecipe.FlagOverridesSHA256 = digest
+	}
 }
 
 func applySubscriberTelemetry(ctx context.Context, telemetry *turnrecord.InsertTelemetryParams) {

@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials/usage"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/server/middleware"
 
@@ -63,12 +64,22 @@ func DisplaySettingsHandler(accounts SubscriptionAccountLister, resolveCaller Ca
 				hide = experiments.InstallationBlindExperimentEnabled(callerCtx, installation.ID)
 			}
 		}
+		if !hide && ingress.ServingReleaseHeadersVisible(callerCtx) && !installationExperimentBlindsRelease(callerCtx, installation.ID, experiments) {
+			ingress.SetServingReleaseHeaders(callerCtx, c.Writer.Header())
+		}
 		c.JSON(http.StatusOK, displaySettingsResponse{
 			HideTerminalSurfaces: hide,
 			DisconnectedPlans:    disconnectedPlans(c, accounts),
 			OwnSeats:             ownSeats(callerCtx, seats),
 		})
 	}
+}
+
+func installationExperimentBlindsRelease(ctx context.Context, installationID string, experiments InstallationExperimentChecker) bool {
+	if experiments == nil {
+		return true
+	}
+	return experiments.InstallationBlindExperimentEnabled(ctx, installationID)
 }
 
 func disconnectedPlans(c *gin.Context, accounts SubscriptionAccountLister) []auth.SubscriptionProvider {

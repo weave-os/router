@@ -13,6 +13,10 @@ type PolicyShadowDecision struct {
 	ClientApp       string
 	TrainingAllowed bool
 
+	ServingTarget    string
+	RequestedModel   string
+	ServingReleaseID string
+
 	ServingStrategy             string
 	ServingModel                string
 	ServingProvider             string

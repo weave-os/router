@@ -537,6 +537,7 @@ type RouterModelRouterInstallation struct {
 	PickedModelCreditFallbackEnabled       bool
 	WeaveCreditInferenceEnabled            bool
 	PoolSubjectID                          pgtype.UUID
+	ServingReleaseHeadersEnabled           bool
 }
 
 type RouterModelRouterRequestTelemetry struct {
@@ -778,6 +779,14 @@ type RouterModelRouterRequestTelemetry struct {
 	BlindExperimentModelChanged     *bool
 	BlindExperimentMode             *string
 	BlindExperimentSessionKey       *string
+	WorkerRevision                  *string
+	WorkerImageDigest               *string
+	WorkerConfigurationSha256       *string
+	ServingPolicySha256             *string
+	EffectiveStrategy               *string
+	ClassifierReleaseID             *string
+	ClassifierEnabledVariants       *string
+	FlagOverridesSha256             *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {
@@ -983,6 +992,9 @@ type RouterPolicyShadowDecision struct {
 	ShadowPolicyGroup           *string
 	ServingRosterArmID          *string
 	ShadowRosterArmID           *string
+	ServingTarget               *string
+	RequestedModel              *string
+	ServingReleaseID            *string
 }
 
 type RouterProductionRequestTelemetry struct {

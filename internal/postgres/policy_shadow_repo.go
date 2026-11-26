@@ -48,5 +48,8 @@ func (r *TelemetryRepo) InsertPolicyShadowDecision(ctx context.Context, p teleme
 		ShadowPolicyGroup:           stringPtrOrNil(p.ShadowPolicyGroup),
 		ServingRosterArmID:          stringPtrOrNil(p.ServingRosterArmID),
 		ShadowRosterArmID:           stringPtrOrNil(p.ShadowRosterArmID),
+		ServingTarget:               stringPtrOrNil(p.ServingTarget),
+		RequestedModel:              stringPtrOrNil(p.RequestedModel),
+		ServingReleaseID:            stringPtrOrNil(p.ServingReleaseID),
 	})
 }

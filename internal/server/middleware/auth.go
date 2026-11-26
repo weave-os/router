@@ -173,12 +173,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			if installation.PickedModelCreditFallbackEnabled {
 				ctx = context.WithValue(ctx, requestcontext.InstallationPickedModelCreditFallbackContextKey{}, true)
 			}
-			if installation.HideTerminalSurfaces {
-				ctx = context.WithValue(ctx, requestcontext.InstallationHideTerminalSurfacesContextKey{}, true)
-			}
-			if installation.ShowModelSelectionReasoning {
-				ctx = context.WithValue(ctx, requestcontext.InstallationShowModelSelectionReasoningContextKey{}, true)
-			}
+			ctx = withInstallationDisplaySettings(ctx, installation)
 			if installation.TrialCaptureEnabled {
 				ctx = context.WithValue(ctx, requestcontext.InstallationTrialCaptureContextKey{}, true)
 			}
