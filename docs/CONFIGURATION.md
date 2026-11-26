@@ -596,7 +596,7 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 
 ### Admin authentication
 
-- Inference routes accept a router key (`rk_` as a bearer token, `x-api-key` or the router key header) or a delegated session token, never the admin cookie. `/v1/analytics/*` takes only `ra_` analytics keys, and public discovery routes such as `/v1/version` need no key.
+- Inference routes accept a router key (`rk_` as a bearer token, `x-api-key` or the router key header) or a delegated session token, never the admin cookie. The deprecated `/v1/analytics/*` routes take only `ra_` analytics keys, and public discovery routes such as `/v1/version` need no key.
 - Read-only `/admin/v1/*` routes accept the admin cookie or a router key. A missing, stale or tampered cookie falls through to router-key auth.
 - Control-plane mutations (minting or rotating keys, provider credentials) require the admin cookie; a leaked router key is rejected.
 - Login is throttled per immediate TCP peer, not `X-Forwarded-For`, so rotating that header cannot bypass the failure limit.

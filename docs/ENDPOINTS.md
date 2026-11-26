@@ -11,8 +11,8 @@
 | `GET /health` &nbsp;·&nbsp; `GET /readyz` &nbsp;·&nbsp; `GET /validate` | responsive-check alias + dependency diagnostics + key check |
 | `POST /v1/client-events`       | Harness CLI's `off`/`on`/`uninstall` report, or the Claude Desktop proxy's one-time `connected` report (`harness` = `claude_code`/`codex`/`opencode`/`pi`/`copilot`/`claude_desktop`); logged + exported as `router.harness_lifecycle` (`connected` as `router.harness_connected`), nothing stored |
 | `GET /v1/sessions/:session_id/cost` | One session's committed cost + savings, scoped to your key's installation; `rk_` or `ra_` key ([docs](SESSION_COST.md)) |
-| `GET /v1/analytics/routing-decisions` | Raw routing decisions as cursor-paginated NDJSON ([docs](ANALYTICS_EXPORT.md)) |
-| `GET /v1/analytics/schema` &nbsp;·&nbsp; `GET /v1/analytics/models` | Export field dictionary + price book |
+| `GET /v1/analytics/routing-decisions` | **Deprecated.** Raw routing decisions as cursor-paginated NDJSON ([docs](ANALYTICS_EXPORT.md)) |
+| `GET /v1/analytics/schema` &nbsp;·&nbsp; `GET /v1/analytics/models` | **Deprecated.** Export field dictionary + price book |
 
 Use `/startupz` for Cloud Run startup and `/livez` for its process responsive
 check. The listener starts after artifact/client initialization and bounded
