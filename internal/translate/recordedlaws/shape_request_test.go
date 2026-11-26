@@ -83,13 +83,24 @@ func validateChatRequest(body gjson.Result) []string {
 	return p
 }
 
+func validateClientReplay(format wireFormat, body []byte) []string {
+	if format == responsesReq {
+		return validateResponsesInput(gjson.ParseBytes(body), withoutThoughtCarrier)
+	}
+	return validateRequest(format, body)
+}
+
 func validateResponsesRequest(body gjson.Result) []string {
+	return validateResponsesInput(body, func(id string) string { return id })
+}
+
+func validateResponsesInput(body gjson.Result, boundedCallID func(string) string) []string {
 	var p problems
 	pr := newPairing(&p)
 	for _, item := range body.Get("input").Array() {
 		switch item.Get("type").String() {
 		case "function_call":
-			p.require(len(item.Get("call_id").String()) <= 64, "call_id %q is longer than 64 characters", item.Get("call_id").String())
+			p.require(len(boundedCallID(item.Get("call_id").String())) <= 64, "call_id %q is longer than 64 characters", item.Get("call_id").String())
 			pr.call("function_call", item.Get("call_id").String())
 		case "function_call_output":
 			pr.result("function_call_output", item.Get("call_id").String())

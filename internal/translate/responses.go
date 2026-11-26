@@ -2048,7 +2048,7 @@ func (t *ResponsesWriter) appendToolCall(idx int, tc gjson.Result) error {
 	if !mapped {
 		mapping = ResponsesToolMapping{Name: entry.Name}
 	}
-	item := &responsesToolItem{mapping: mapping, name: mapping.Name, callID: t.toolLedger.ProjectID(idx, clampOpenAIToolCallID), itemID: newResponsesID(toolCallItemIDPrefix(mapping.Custom))}
+	item := &responsesToolItem{mapping: mapping, name: mapping.Name, callID: t.toolLedger.ProjectID(idx, clampResponsesCallID), itemID: newResponsesID(toolCallItemIDPrefix(mapping.Custom))}
 	t.toolItems[idx] = item
 	item.outputIndex = t.nextOutputIndex()
 	if err := t.lifecycle.Output(item.outputIndex); err != nil {
@@ -2444,7 +2444,7 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 		item := map[string]any{
 			"id":      newResponsesID(toolCallItemIDPrefix(mapping.Custom)),
 			"status":  "completed",
-			"call_id": wireIDs.ProjectID(index, clampOpenAIToolCallID),
+			"call_id": wireIDs.ProjectID(index, clampResponsesCallID),
 			"name":    mapping.Name,
 		}
 		if mapping.Namespace != "" {

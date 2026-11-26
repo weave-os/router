@@ -192,7 +192,7 @@ func TestRecordedTurnsReplayIntoTheNextRequest(t *testing.T) {
 			}
 			t.Run(string(rec.origin)+"/"+rec.name+"/"+h.name(), func(t *testing.T) {
 				req := clientReplay(h.to, h.run(t, rec.body), upstream)
-				for _, problem := range validateRequest(req.format, req.body) {
+				for _, problem := range validateClientReplay(req.format, req.body) {
 					t.Errorf("client replay request is not valid %s: %s", req.format, problem)
 				}
 				emitted := emitReplay(hops, req, rec.format)
