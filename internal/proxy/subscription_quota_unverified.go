@@ -21,7 +21,6 @@ func (l *accountLoop) retryUnverifiedQuotaOnSameLogin(ctx, credentialCtx context
 		return false
 	}
 	l.quotaUnverifiedRetries++
-	observability.FromContext(ctx).Info("Codex quota could not be verified; retrying the same login",
-		"model", l.decision.Model, "provider", l.decision.Provider, "quota_unverified_retry", l.quotaUnverifiedRetries)
+	observability.FromContext(ctx).Info("Codex quota could not be verified; retrying the same login", "quota_unverified_retry", l.quotaUnverifiedRetries)
 	return true
 }

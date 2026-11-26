@@ -78,8 +78,7 @@ func TestCodexQuotaUnverifiedKeepsPickedModel(t *testing.T) {
 		require.Equal(t, goldenCodexModel, attempt.Model, "an unverified quota check moved the turn off the picked model")
 		require.Equal(t, "codex_subscription", attempt.Credential)
 	}
-	last := served.Attempts[len(served.Attempts)-1]
-	require.Equal(t, "ok", last.Outcome)
+	require.Equal(t, "ok", served.Attempts[len(served.Attempts)-1].Outcome)
 	raw, err := json.Marshal(served.Response)
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "had no subscription capacity")
