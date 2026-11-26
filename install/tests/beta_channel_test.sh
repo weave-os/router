@@ -48,24 +48,24 @@ claude_home="$work/claude"
 mkdir -p "$claude_home"
 install_for "$claude_home" claude --base-url "$hosted"
 settings="$claude_home/.claude/settings.json"
-beta="$claude_home/.claude/weave-beta.json"
+beta_file="$claude_home/.claude/weave-beta.json"
 launcher="$claude_home/.weave/bin/claude-beta"
-[ -f "$beta" ] || fail "weave-beta.json was not written"
-[ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$beta")" = "$beta_default" ] || fail "beta settings do not point at the beta host"
-[ "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$beta")" = "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$settings")" ] \
+[ -f "$beta_file" ] || fail "weave-beta.json was not written"
+[ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$beta_file")" = "$beta_default" ] || fail "beta settings do not point at the beta host"
+[ "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$beta_file")" = "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$settings")" ] \
   || fail "beta settings do not carry the same router key headers"
-[ "$(jq -r '.env | has("WEAVE_ROUTER_BETA_URL")' "$beta")" = false ] || fail "default beta host was written as an override"
-[ "$(stat -c %a "$beta" 2>/dev/null || stat -f %Lp "$beta")" = 600 ] || fail "weave-beta.json is not mode 600"
+[ "$(jq -r '.env | has("WEAVE_ROUTER_BETA_URL")' "$beta_file")" = false ] || fail "default beta host was written as an override"
+[ "$(stat -c %a "$beta_file" 2>/dev/null || stat -f %Lp "$beta_file")" = 600 ] || fail "weave-beta.json is not mode 600"
 [ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$settings")" = "$hosted" ] || fail "stable settings were changed"
 [ -x "$launcher" ] || fail "claude-beta launcher was not installed"
 grep -Fq -- "--settings" "$launcher" || fail "claude-beta does not pass --settings"
-grep -Fq "$beta" "$launcher" || fail "claude-beta does not point at weave-beta.json"
+grep -Fq "$beta_file" "$launcher" || fail "claude-beta does not point at weave-beta.json"
 
 # The launcher runs claude with the beta settings and forwards arguments.
 # shellcheck disable=SC2016 # the stub expands these when it runs
 printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "$@" >"$CLAUDE_ARGS_OUT"' >"$work/bin/claude"
 CLAUDE_ARGS_OUT="$work/claude-args" PATH="$work/bin:$PATH" "$launcher" --resume abc
-[ "$(cat "$work/claude-args")" = "$(printf '%s\n' --settings "$beta" --resume abc)" ] || fail "claude-beta argv: $(cat "$work/claude-args")"
+[ "$(cat "$work/claude-args")" = "$(printf '%s\n' --settings "$beta_file" --resume abc)" ] || fail "claude-beta argv: $(cat "$work/claude-args")"
 printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$work/bin/claude"
 
 # A user-owned file at the launcher path is left alone on reinstall.
@@ -91,7 +91,7 @@ grep -q 'stable' "$work/output" || fail "beta status did not report stable: $(ca
 router "$claude_home" beta on || fail "beta on failed"
 grep -q 'Restart Claude Code' "$work/output" || fail "beta on did not ask for a restart"
 [ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$settings")" = "$beta_default" ] || fail "beta on did not move the base URL"
-[ "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$settings")" = "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$beta")" ] \
+[ "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$settings")" = "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$beta_file")" ] \
   || fail "beta on changed the router key"
 router "$claude_home" beta status || fail "beta status failed"
 grep -q 'beta' "$work/output" || fail "beta status did not report beta"
@@ -102,11 +102,13 @@ grep -q 'already on beta' "$work/output" || fail "repeat beta on was not a no-op
 # rewrote before that check are what matter here.
 router "$claude_home" update --claude --quiet --scope user || true
 [ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$settings")" = "$beta_default" ] || fail "update dropped the beta switch"
-[ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$beta")" = "$beta_default" ] || fail "update rewrote beta settings off the beta host"
+[ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$beta_file")" = "$beta_default" ] || fail "update rewrote beta settings off the beta host"
 router "$claude_home" beta off || fail "beta off failed"
 [ "$(jq -r '.env.ANTHROPIC_BASE_URL' "$settings")" = "$hosted" ] || fail "beta off did not restore the stable URL"
 [ ! -e "$claude_home/.claude/.weave-beta-switch.json" ] || fail "beta off left its sidecar"
 if router "$claude_home" beta --codex on; then fail "beta accepted --codex"; fi
+router "$claude_home" beta --status || fail "beta --status failed"
+grep -q 'Claude Code: stable' "$work/output" || fail "beta --status did not report the channel: $(cat "$work/output")"
 if router "$claude_home" beta sideways; then fail "beta accepted an unknown action"; fi
 
 # beta on refuses while the router is off.
@@ -164,10 +166,12 @@ git -C "$project_home/repo" init -q
 # --- Uninstall removes the beta assets. ---
 router "$claude_home" beta on || fail "beta on failed"
 uninstall_for "$claude_home" claude
-[ ! -e "$beta" ] || fail "uninstall left weave-beta.json"
+[ ! -e "$beta_file" ] || fail "uninstall left weave-beta.json"
 [ ! -e "$launcher" ] || fail "uninstall left claude-beta"
 [ ! -e "$claude_home/.claude/.weave-beta-switch.json" ] || fail "uninstall left the beta switch sidecar"
+ln -sf "$work/elsewhere-beta.json" "$user_home/.claude/weave-beta.json"
 uninstall_for "$user_home" claude
+[ ! -L "$user_home/.claude/weave-beta.json" ] || fail "uninstall left a symlinked weave-beta.json"
 [ -e "$user_home/.weave/bin/claude-beta" ] || fail "uninstall removed a user-owned claude-beta"
 
 # --- Codex: a weave-beta provider and profile, no jq needed. ---

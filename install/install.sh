@@ -1824,9 +1824,9 @@ while [ $# -gt 0 ]; do
     off|--off|on|--on|status|--status)
       # Toggle/report verbs. Bare (off) or dashed (--off) both accepted; the
       # npm wrapper forwards argv verbatim so either form reaches us. After
-      # `beta`, the bare word is that command's action instead.
-      if [ "$mode" = "beta" ] && [ "${1#-}" = "$1" ]; then
-        models_args="${models_args}${models_args:+$'\n'}$1"; shift
+      # `beta`, either form is that command's action instead.
+      if [ "$mode" = "beta" ]; then
+        models_args="${models_args}${models_args:+$'\n'}${1#--}"; shift
       else
         mode="${1#--}"; shift
       fi

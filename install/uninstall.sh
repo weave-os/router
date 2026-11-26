@@ -1541,8 +1541,9 @@ fi
 # Beta channel assets: weave-beta.json (carries the router key), the
 # `beta on` sidecar, and the claude-beta launcher when it is ours.
 for beta_asset in "$(dirname "$settings_file")/weave-beta.json" "$(dirname "$settings_file")/.weave-beta-switch.json"; do
+  # rm -f removes a symlink itself, never its target, so a linked file cannot
+  # stop the cleanup of the key-bearing files that follow.
   if [ -f "$beta_asset" ] || [ -L "$beta_asset" ]; then
-    refuse_if_symlink "$beta_asset"
     rm -f "$beta_asset"
     ok "Removed $beta_asset"
   fi
