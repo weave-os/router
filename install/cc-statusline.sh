@@ -412,7 +412,8 @@ weave_sync_weave_auto_picker() { # weave_sync_weave_auto_picker <true|false> <se
       merged="$(jq --slurpfile hidden "$marker" --arg user_model "$user_model" "\$hidden[0] as \$h
         | (if \$h.option != null then .modelPicker = ((.modelPicker // {}) | .options = ([\$h.option] + ((.options // []) | map(select(.model | $is_auto | not))))) else . end)
         | (if \$h.model != null and (has(\"model\") | not)
-             and ((\$h | has(\"user_model\") | not) or (\$user_model != \"\" and (\$user_model | fromjson) == \$h.user_model))
+             and ((\$h | has(\"user_model\") | not) or (\$user_model != \"\" and ((\$user_model | fromjson) as \$now
+               | \$now == \$h.user_model or (\$now == null and (\$h.user_model | $is_auto)))))
            then .model = \$h.model else . end)" "$f" 2>/dev/null)" || continue
     else
       continue

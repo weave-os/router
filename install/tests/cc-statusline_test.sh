@@ -1034,6 +1034,21 @@ check "a user-scope pick during the experiment keeps the project pick unset" \
 check "a user-scope pick still brings the Weave Auto row back" \
   "$(jq -c '[.modelPicker.options[].model]' "$c2/proj/.claude/settings.json")" '["weave-auto[1m]"]'
 
+# A user-scope Weave Auto pick that is itself hidden when the project restores
+# is not a new choice, so the project pick comes back.
+c3="$work/gauto-user-auto"; mkdir -p "$c3/proj/.claude" "$c3/cache" "$c3/home/.claude"
+write_install "$c3/proj" project "rk_proj_auto" "file://$c3/ds.json"
+jq --argjson option "$weave_auto_option" '.model = "weave-auto[1m]" | .modelPicker.options = [$option]' \
+  "$c3/proj/.claude/settings.json" >"$c3/settings.tmp" && mv "$c3/settings.tmp" "$c3/proj/.claude/settings.json"
+printf '{"model":"weave-auto[1m]"}\n' >"$c3/home/.claude/settings.json"
+printf '{"hide_weave_auto": true}' > "$c3/ds.json"
+run_weave_auto_refresh "$c3"
+printf '{}\n' >"$c3/home/.claude/settings.json"
+printf '{"hide_weave_auto": false}' > "$c3/ds.json"
+run_weave_auto_refresh "$c3"
+check "a hidden user-scope Weave Auto pick does not block the project restore" \
+  "$(jq -r '.model // "unset"' "$c3/proj/.claude/settings.json")" "weave-auto[1m]"
+
 # A router without the field never touches the picker.
 printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
 run_weave_auto_refresh "$c"
