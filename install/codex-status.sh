@@ -20,16 +20,55 @@
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
 
+# ---------- release channel ----------
+#
+# Everything this file updates comes from the newest published
+# @weave-os/router npm package, never from a branch: only the approval-gated
+# release workflow can publish, so a repository push alone cannot reach an
+# installed machine. A published version can never be overwritten, and the
+# tarball must match the SHA-512 the registry lists for it. Every failure
+# returns non-zero and the caller keeps what it has.
+#
+# weave_release_fetch DEST MEMBER... extracts package/MEMBER from the release
+# into DEST/package/MEMBER. WEAVE_RELEASE_REGISTRY points at a mirror.
+weave_release_fetch() {
+  local dest="$1"
+  shift
+  local registry="${WEAVE_RELEASE_REGISTRY:-https://registry.npmjs.org}"
+  registry="${registry%/}"
+  local meta tarball integrity expected actual tgz="$dest/release.tgz"
+  meta="$(curl -fsSL --max-time 15 "$registry/@weave-os/router/latest" 2>/dev/null)" || return 1
+  tarball="$(printf '%s' "$meta" | sed -n 's#.*"tarball"[[:space:]]*:[[:space:]]*"\([^"]*\)".*#\1#p' | head -n 1)"
+  integrity="$(printf '%s' "$meta" | sed -n 's#.*"integrity"[[:space:]]*:[[:space:]]*"sha512-\([A-Za-z0-9+/=]*\)".*#\1#p' | head -n 1)"
+  case "$tarball" in
+    "$registry"/@weave-os/router/-/router-*.tgz) ;;
+    *) return 1 ;;
+  esac
+  [ -n "$integrity" ] || return 1
+  expected="$({ printf '%s' "$integrity" | base64 -d 2>/dev/null || printf '%s' "$integrity" | base64 -D 2>/dev/null; } | od -An -v -tx1 | tr -d ' \n')"
+  [ "${#expected}" -eq 128 ] || return 1
+  curl -fsSL --max-time 60 "$tarball" -o "$tgz" 2>/dev/null || return 1
+  if command -v sha512sum >/dev/null 2>&1; then
+    actual="$(sha512sum <"$tgz" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 512 <"$tgz" | awk '{print $1}')"
+  else
+    return 1
+  fi
+  [ "$actual" = "$expected" ] || return 1
+  tar -xzf "$tgz" -C "$dest" "${@/#/package/}" 2>/dev/null
+}
+
 # ---------- background self-refresh ----------
 #
 # Codex runs this helper on SessionStart and after every turn. Once per
 # interval, use that lifecycle as the update check so installed helpers pick
-# up router fixes without requiring the user to rerun the installer. The
+# up the published release (weave_release_fetch) without requiring the user to
+# rerun the installer. The
 # download is detached and swapped atomically; the current hook always
 # finishes against the copy it started with.
 #
-# Set WEAVE_CODEX_STATUS_UPDATE=0 to disable it. Self-hosters can point
-# WEAVE_CODEX_STATUS_URL at their own helper source. The common
+# Set WEAVE_CODEX_STATUS_UPDATE=0 to disable it. The common
 # WEAVE_STATUSLINE_UPDATE and WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS variables
 # remain accepted as aliases for users who configure both clients together.
 weave_self_refresh() {
@@ -71,11 +110,16 @@ weave_self_refresh() {
   # download. A failed download consumes the interval; the next hook retries.
   : >"$stamp" 2>/dev/null || return 0
 
-  local url="${WEAVE_CODEX_STATUS_URL:-https://raw.githubusercontent.com/weave-os/router/main/install/codex-status.sh}"
   local tmp="${self}.tmp.$$"
   (
     exec </dev/null
-    if curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null \
+    release="$(mktemp -d "$cache_dir/.release.XXXXXX")" || exit 0
+    trap 'rm -rf "$release"' EXIT
+    # A release that predates this fetcher would update from a branch again,
+    # so never swap in a copy that cannot verify its own next update.
+    if weave_release_fetch "$release" codex-status.sh \
+       && mv "$release/package/codex-status.sh" "$tmp" 2>/dev/null \
+       && grep -q '^weave_release_fetch() {$' "$tmp" \
        && [ -s "$tmp" ] \
        && head -n 1 "$tmp" | grep -q '^#!.*bash' \
        && [ "$(wc -c <"$tmp")" -ge 1024 ]; then

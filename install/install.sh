@@ -1647,6 +1647,45 @@ EOF
   fi
 }
 
+# ---------- release channel ----------
+#
+# Everything this file updates comes from the newest published
+# @weave-os/router npm package, never from a branch: only the approval-gated
+# release workflow can publish, so a repository push alone cannot reach an
+# installed machine. A published version can never be overwritten, and the
+# tarball must match the SHA-512 the registry lists for it. Every failure
+# returns non-zero and the caller keeps what it has.
+#
+# weave_release_fetch DEST MEMBER... extracts package/MEMBER from the release
+# into DEST/package/MEMBER. WEAVE_RELEASE_REGISTRY points at a mirror.
+weave_release_fetch() {
+  local dest="$1"
+  shift
+  local registry="${WEAVE_RELEASE_REGISTRY:-https://registry.npmjs.org}"
+  registry="${registry%/}"
+  local meta tarball integrity expected actual tgz="$dest/release.tgz"
+  meta="$(curl -fsSL --max-time 15 "$registry/@weave-os/router/latest" 2>/dev/null)" || return 1
+  tarball="$(printf '%s' "$meta" | sed -n 's#.*"tarball"[[:space:]]*:[[:space:]]*"\([^"]*\)".*#\1#p' | head -n 1)"
+  integrity="$(printf '%s' "$meta" | sed -n 's#.*"integrity"[[:space:]]*:[[:space:]]*"sha512-\([A-Za-z0-9+/=]*\)".*#\1#p' | head -n 1)"
+  case "$tarball" in
+    "$registry"/@weave-os/router/-/router-*.tgz) ;;
+    *) return 1 ;;
+  esac
+  [ -n "$integrity" ] || return 1
+  expected="$({ printf '%s' "$integrity" | base64 -d 2>/dev/null || printf '%s' "$integrity" | base64 -D 2>/dev/null; } | od -An -v -tx1 | tr -d ' \n')"
+  [ "${#expected}" -eq 128 ] || return 1
+  curl -fsSL --max-time 60 "$tarball" -o "$tgz" 2>/dev/null || return 1
+  if command -v sha512sum >/dev/null 2>&1; then
+    actual="$(sha512sum <"$tgz" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 512 <"$tgz" | awk '{print $1}')"
+  else
+    return 1
+  fi
+  [ "$actual" = "$expected" ] || return 1
+  tar -xzf "$tgz" -C "$dest" "${@/#/package/}" 2>/dev/null
+}
+
 # ---------- uninstall delegation ----------
 #
 # `--uninstall` flips this script into a thin shim for uninstall.sh: the
@@ -1661,8 +1700,7 @@ EOF
 #
 # Resolution order for the uninstall script:
 #   1. Sibling file next to install.sh on disk (npm tarball / git checkout).
-#   2. WEAVE_UNINSTALL_URL override (self-hosters who fork).
-#   3. Default: raw.githubusercontent.com canonical copy (curl|sh path).
+#   2. The published release (curl|sh path), never a branch.
 for arg in "$@"; do
   if [ "$arg" = "--uninstall" ]; then
     cleaned_args=()
@@ -1679,18 +1717,17 @@ for arg in "$@"; do
     fi
 
     require_cmd curl "https://curl.se"
-    url="${WEAVE_UNINSTALL_URL:-https://raw.githubusercontent.com/weave-os/router/main/install/uninstall.sh}"
-    # Pull the body into memory and exec via `bash -c` so we never touch
-    # disk: `exec` replaces this process, so any temp file we wrote would
-    # outlive the EXIT trap and leak indefinitely. Loading into a variable
-    # also gives us a chance to fail closed on 404 HTML pages before
-    # handing the content to bash.
-    if ! uninstall_body="$(curl -fsSL --max-time 30 "$url" 2>/dev/null)"; then
-      err "Failed to fetch uninstall.sh from $url."
-      exit 1
+    # Pull the body into memory and exec via `bash -c`: `exec` replaces this
+    # process, so a file left on disk would outlive any cleanup.
+    release_dir="$(mktemp -d "${TMPDIR:-/tmp}/weave-uninstall.XXXXXX")" || exit 1
+    if weave_release_fetch "$release_dir" uninstall.sh; then
+      uninstall_body="$(cat "$release_dir/package/uninstall.sh")"
+    else
+      uninstall_body=""
     fi
+    rm -rf "$release_dir"
     if [ -z "$uninstall_body" ] || [ "${uninstall_body:0:2}" != "#!" ]; then
-      err "Fetched content from $url doesn't look like a bash script."
+      err "Could not fetch a verified uninstall.sh from the published @weave-os/router release."
       exit 1
     fi
     exec bash -c "$uninstall_body" weave-uninstall "${cleaned_args[@]+"${cleaned_args[@]}"}"
@@ -5611,16 +5648,55 @@ install_codex_status_script() {
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
 
+# ---------- release channel ----------
+#
+# Everything this file updates comes from the newest published
+# @weave-os/router npm package, never from a branch: only the approval-gated
+# release workflow can publish, so a repository push alone cannot reach an
+# installed machine. A published version can never be overwritten, and the
+# tarball must match the SHA-512 the registry lists for it. Every failure
+# returns non-zero and the caller keeps what it has.
+#
+# weave_release_fetch DEST MEMBER... extracts package/MEMBER from the release
+# into DEST/package/MEMBER. WEAVE_RELEASE_REGISTRY points at a mirror.
+weave_release_fetch() {
+  local dest="$1"
+  shift
+  local registry="${WEAVE_RELEASE_REGISTRY:-https://registry.npmjs.org}"
+  registry="${registry%/}"
+  local meta tarball integrity expected actual tgz="$dest/release.tgz"
+  meta="$(curl -fsSL --max-time 15 "$registry/@weave-os/router/latest" 2>/dev/null)" || return 1
+  tarball="$(printf '%s' "$meta" | sed -n 's#.*"tarball"[[:space:]]*:[[:space:]]*"\([^"]*\)".*#\1#p' | head -n 1)"
+  integrity="$(printf '%s' "$meta" | sed -n 's#.*"integrity"[[:space:]]*:[[:space:]]*"sha512-\([A-Za-z0-9+/=]*\)".*#\1#p' | head -n 1)"
+  case "$tarball" in
+    "$registry"/@weave-os/router/-/router-*.tgz) ;;
+    *) return 1 ;;
+  esac
+  [ -n "$integrity" ] || return 1
+  expected="$({ printf '%s' "$integrity" | base64 -d 2>/dev/null || printf '%s' "$integrity" | base64 -D 2>/dev/null; } | od -An -v -tx1 | tr -d ' \n')"
+  [ "${#expected}" -eq 128 ] || return 1
+  curl -fsSL --max-time 60 "$tarball" -o "$tgz" 2>/dev/null || return 1
+  if command -v sha512sum >/dev/null 2>&1; then
+    actual="$(sha512sum <"$tgz" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 512 <"$tgz" | awk '{print $1}')"
+  else
+    return 1
+  fi
+  [ "$actual" = "$expected" ] || return 1
+  tar -xzf "$tgz" -C "$dest" "${@/#/package/}" 2>/dev/null
+}
+
 # ---------- background self-refresh ----------
 #
 # Codex runs this helper on SessionStart and after every turn. Once per
 # interval, use that lifecycle as the update check so installed helpers pick
-# up router fixes without requiring the user to rerun the installer. The
+# up the published release (weave_release_fetch) without requiring the user to
+# rerun the installer. The
 # download is detached and swapped atomically; the current hook always
 # finishes against the copy it started with.
 #
-# Set WEAVE_CODEX_STATUS_UPDATE=0 to disable it. Self-hosters can point
-# WEAVE_CODEX_STATUS_URL at their own helper source. The common
+# Set WEAVE_CODEX_STATUS_UPDATE=0 to disable it. The common
 # WEAVE_STATUSLINE_UPDATE and WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS variables
 # remain accepted as aliases for users who configure both clients together.
 weave_self_refresh() {
@@ -5662,11 +5738,16 @@ weave_self_refresh() {
   # download. A failed download consumes the interval; the next hook retries.
   : >"$stamp" 2>/dev/null || return 0
 
-  local url="${WEAVE_CODEX_STATUS_URL:-https://raw.githubusercontent.com/weave-os/router/main/install/codex-status.sh}"
   local tmp="${self}.tmp.$$"
   (
     exec </dev/null
-    if curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null \
+    release="$(mktemp -d "$cache_dir/.release.XXXXXX")" || exit 0
+    trap 'rm -rf "$release"' EXIT
+    # A release that predates this fetcher would update from a branch again,
+    # so never swap in a copy that cannot verify its own next update.
+    if weave_release_fetch "$release" codex-status.sh \
+       && mv "$release/package/codex-status.sh" "$tmp" 2>/dev/null \
+       && grep -q '^weave_release_fetch() {$' "$tmp" \
        && [ -s "$tmp" ] \
        && head -n 1 "$tmp" | grep -q '^#!.*bash' \
        && [ "$(wc -c <"$tmp")" -ge 1024 ]; then
@@ -7245,10 +7326,49 @@ if [ "${1:-}" = "--prompt-hook" ]; then
   exit 0
 fi
 
+# ---------- release channel ----------
+#
+# Everything this file updates comes from the newest published
+# @weave-os/router npm package, never from a branch: only the approval-gated
+# release workflow can publish, so a repository push alone cannot reach an
+# installed machine. A published version can never be overwritten, and the
+# tarball must match the SHA-512 the registry lists for it. Every failure
+# returns non-zero and the caller keeps what it has.
+#
+# weave_release_fetch DEST MEMBER... extracts package/MEMBER from the release
+# into DEST/package/MEMBER. WEAVE_RELEASE_REGISTRY points at a mirror.
+weave_release_fetch() {
+  local dest="$1"
+  shift
+  local registry="${WEAVE_RELEASE_REGISTRY:-https://registry.npmjs.org}"
+  registry="${registry%/}"
+  local meta tarball integrity expected actual tgz="$dest/release.tgz"
+  meta="$(curl -fsSL --max-time 15 "$registry/@weave-os/router/latest" 2>/dev/null)" || return 1
+  tarball="$(printf '%s' "$meta" | sed -n 's#.*"tarball"[[:space:]]*:[[:space:]]*"\([^"]*\)".*#\1#p' | head -n 1)"
+  integrity="$(printf '%s' "$meta" | sed -n 's#.*"integrity"[[:space:]]*:[[:space:]]*"sha512-\([A-Za-z0-9+/=]*\)".*#\1#p' | head -n 1)"
+  case "$tarball" in
+    "$registry"/@weave-os/router/-/router-*.tgz) ;;
+    *) return 1 ;;
+  esac
+  [ -n "$integrity" ] || return 1
+  expected="$({ printf '%s' "$integrity" | base64 -d 2>/dev/null || printf '%s' "$integrity" | base64 -D 2>/dev/null; } | od -An -v -tx1 | tr -d ' \n')"
+  [ "${#expected}" -eq 128 ] || return 1
+  curl -fsSL --max-time 60 "$tarball" -o "$tgz" 2>/dev/null || return 1
+  if command -v sha512sum >/dev/null 2>&1; then
+    actual="$(sha512sum <"$tgz" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 512 <"$tgz" | awk '{print $1}')"
+  else
+    return 1
+  fi
+  [ "$actual" = "$expected" ] || return 1
+  tar -xzf "$tgz" -C "$dest" "${@/#/package/}" 2>/dev/null
+}
+
 # ---------- background self-refresh ----------
 #
-# Once every WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS (default 7), check
-# raw.githubusercontent.com for a newer copy of this script and swap it in
+# Once every WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS (default 7), take this
+# script from the published release (weave_release_fetch) and swap it in
 # atomically. Runs in a forked subshell so the current Claude turn never
 # blocks; the next turn picks up the new version. Applies to both user-scope
 # (~/.weave/cc-statusline.sh) and project-scope (<repo>/.claude/cc-statusline.sh)
@@ -7259,8 +7379,7 @@ fi
 # A pricing-table miss also triggers a refresh off-schedule — see
 # weave_refresh_on_price_miss below.
 #
-# Opt out entirely with `export WEAVE_STATUSLINE_UPDATE=0`. Override the
-# source with `WEAVE_STATUSLINE_URL=...`, e.g. for self-hosters who fork.
+# Opt out entirely with `export WEAVE_STATUSLINE_UPDATE=0`.
 #
 # $1 is an optional stamp suffix, so a caller refreshing for a reason other than
 # "the interval elapsed" rate-limits on its own clock rather than sharing the
@@ -7310,7 +7429,6 @@ weave_self_refresh() {
   # (Claude calls us on every turn) don't all kick off downloads.
   : > "$stamp" 2>/dev/null || return 0
 
-  local url="${WEAVE_STATUSLINE_URL:-https://raw.githubusercontent.com/weave-os/router/main/install/cc-statusline.sh}"
   # $$ alone is not unique: two calls can run in one invocation (the periodic
   # check and a pricing-miss retry both fire on a cold cache) and would then
   # curl -o into the same path and mv over each other, installing a truncated
@@ -7322,7 +7440,13 @@ weave_self_refresh() {
     # Detach stdin (CC pipes JSON to us) so curl can't accidentally consume
     # it, and silence all output so nothing leaks into the statusline.
     exec </dev/null
-    if curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null \
+    release="$(mktemp -d "$cache_dir/.release.XXXXXX")" || exit 0
+    trap 'rm -rf "$release"' EXIT
+    # A release that predates this fetcher would update from a branch again,
+    # so never swap in a copy that cannot verify its own next update.
+    if weave_release_fetch "$release" cc-statusline.sh \
+       && mv "$release/package/cc-statusline.sh" "$tmp" 2>/dev/null \
+       && grep -q '^weave_release_fetch() {$' "$tmp" \
        && [ -s "$tmp" ] \
        && head -n 1 "$tmp" | grep -q '^#!.*bash' \
        && [ "$(wc -c < "$tmp")" -ge 1024 ]; then
@@ -7372,8 +7496,8 @@ weave_self_refresh 2>/dev/null || true
 # Only the installer changes tracked files, and only when a human runs it.
 #
 # Opt out with WEAVE_COMMANDS_UPDATE=0 (WEAVE_STATUSLINE_UPDATE=0 disables this
-# too, along with every other network path here). Override the source with
-# WEAVE_COMMANDS_URL_BASE=..., e.g. for self-hosters who fork.
+# too, along with every other network path here). Wrappers come from the same
+# published release as the script itself.
 
 # weave_command_tracked_by_git returns 0 when $1 is a file git tracks. Used to
 # leave repo-committed wrappers alone; no git (or no repo) means untracked.
@@ -7466,12 +7590,14 @@ weave_sync_commands() {
     scope_args="$(sed -En 's#^`npx @(workweave/router|weave-os/router) off --claude(.*)`$#\2#p' "$off" | head -n 1)"
   fi
 
-  local url_base="${WEAVE_COMMANDS_URL_BASE:-https://raw.githubusercontent.com/weave-os/router/main/install/commands}"
-  local name installed raw prev tmp new_body prev_body installed_body
+  local name installed raw prev tmp new_body prev_body installed_body release
   (
     # Detach stdin (CC pipes JSON to us) so curl can't consume it, and silence
     # everything so no output leaks into the statusline.
     exec </dev/null
+    release="$(mktemp -d "$cache_dir/.release.XXXXXX")" || exit 0
+    trap 'rm -rf "$release"' EXIT
+    weave_release_fetch "$release" commands || exit 0
     while IFS= read -r name; do
       installed="$cmd_dir/$name.md"
       # Only ever refresh a wrapper that is already installed: a missing one
@@ -7484,7 +7610,7 @@ weave_sync_commands() {
       weave_command_tracked_by_git "$installed" && continue
 
       raw="$baseline_dir/$name.md.tmp.$$"
-      curl -fsSL --max-time 15 "$url_base/$name.md" -o "$raw" 2>/dev/null || { rm -f "$raw"; continue; }
+      cp "$release/package/commands/$name.md" "$raw" 2>/dev/null || { rm -f "$raw"; continue; }
       # Shape check: every wrapper opens with YAML front matter, so a 404 page
       # or a truncated body can never be installed as a command.
       if [ ! -s "$raw" ] || [ "$(head -n 1 "$raw")" != "---" ]; then

@@ -2,8 +2,8 @@
 #
 # Regression tests for install/cc-statusline.sh.
 #
-# Fully offline: every case points WEAVE_STATUSLINE_URL at a file:// copy under
-# a temp dir, so no test ever reaches raw.githubusercontent.com. Run directly or
+# Fully offline: every case points WEAVE_RELEASE_REGISTRY at a file:// fake npm
+# registry under a temp dir, so no test ever reaches the network. Run directly or
 # via `make test-statusline`.
 #
 # Deliberately exercises the script through its real entrypoint (JSON on stdin,
@@ -120,6 +120,26 @@ JSONL
 upstream="$work/upstream.sh"
 cp "$statusline" "$upstream"
 
+# The updaters read only the published npm release, so the fixtures publish
+# one: a file:// registry whose tarball holds $upstream and the wrappers in
+# $commands_upstream. Cases that mutate a wrapper republish before syncing.
+release_pkg="$work/release/package"
+commands_upstream="$release_pkg/commands"
+mkdir -p "$commands_upstream"
+cp "$upstream" "$release_pkg/cc-statusline.sh"
+cp "$script_dir/../commands"/*.md "$commands_upstream/"
+registry="file://$work/registry"
+publish_release() {
+  local dir="$work/registry/@weave-os/router" tgz
+  mkdir -p "$dir/-"
+  tgz="$dir/-/router-0.0.0.tgz"
+  tar -czf "$tgz" -C "$work/release" package
+  printf '{"dist":{"integrity":"sha512-%s","tarball":"%s"}}\n' \
+    "$(openssl dgst -sha512 -binary "$tgz" | openssl base64 -A)" \
+    "$registry/@weave-os/router/-/router-0.0.0.tgz" >"$dir/latest"
+}
+publish_release
+
 # Strip a model's price entries to simulate a copy written before that model
 # shipped. PRICED_MODEL stays in the table; STALE_MODEL is removed.
 STALE_MODEL="claude-opus-5"
@@ -148,9 +168,9 @@ make_installed_bad_prices() { # make_installed_bad_prices <dest>
   chmod +x "$dest"
 }
 
-render() { # render <installed_script> <cache_home> <url> <model_id> [transcript]
+render() { # render <installed_script> <cache_home> <registry> <model_id> [transcript]
   echo "{\"model\":{\"id\":\"$4\"},\"transcript_path\":\"${5-$transcript}\"}" \
-    | XDG_CACHE_HOME="$2" WEAVE_STATUSLINE_URL="$3" bash "$1" 2>&1 \
+    | XDG_CACHE_HOME="$2" WEAVE_RELEASE_REGISTRY="$3" bash "$1" 2>&1 \
     | sed 's/\x1b\[[0-9;]*m//g'
 }
 
@@ -166,7 +186,7 @@ for response_model in claude-sonnet-4-5 deepseek/deepseek-v4-pro; do
   jq -cn --arg model "$response_model" '{type:"assistant",message:{id:"msg_local",model:$model,usage:{input_tokens:1000,output_tokens:200,cache_read_input_tokens:3000,cache_creation_input_tokens:500}}}' > "$c/transcript.jsonl"
   out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
     WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
-    render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/transcript.jsonl")"
+    render "$c/cc.sh" "$c/cache" "$registry" claude-sonnet-4-5 "$c/transcript.jsonl")"
   check_not_contains "$response_model does not show a routing warning" "$out" "routing unverified"
   check_contains "$response_model has a clear response label" "$out" "served ${response_model#claude-}"
   check_not_contains "$response_model does not use transcript jargon" "$out" "transcript model:"
@@ -183,7 +203,7 @@ cat > "$c/pin.jsonl" <<'JSONL'
 JSONL
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
-  render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/pin.jsonl")"
+  render "$c/cc.sh" "$c/cache" "$registry" claude-sonnet-4-5 "$c/pin.jsonl")"
 check_not_contains "historical pin does not show a routing warning" "$out" "routing unverified"
 check_contains "historical pin is labeled as historical" "$out" "last pin: claude-opus-4-7"
 check_contains "historical pin does not replace the latest response model" "$out" "served sonnet-4-5"
@@ -193,7 +213,7 @@ check_not_contains "historical pin does not claim an active force" "$out" "[forc
 for ack in 'session id: synthetic-session' 'models this installation can be routed to' 'Feedback recorded' 'force-model rejected: provider is excluded'; do
   head -n 1 "$c/pin.jsonl" > "$c/control.jsonl"
   jq -cn --arg ack "$ack" '{type:"assistant",message:{model:"weave-router",content:[{type:"text",text:$ack}]}}' >> "$c/control.jsonl"
-  out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/control.jsonl")"
+  out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 render "$c/cc.sh" "$c/cache" "$registry" claude-sonnet-4-5 "$c/control.jsonl")"
   check_contains "$ack preserves the historical pin" "$out" "last pin: claude-opus-4-7"
 done
 
@@ -203,7 +223,7 @@ for malformed_position in before after; do
   if [ "$malformed_position" = before ]; then printf 'not-json\n' >> "$c/partial.jsonl"; fi
   head -n 1 "$c/pin.jsonl" >> "$c/partial.jsonl"
   if [ "$malformed_position" = after ]; then printf '{"partial":\n' >> "$c/partial.jsonl"; fi
-  out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/partial.jsonl")"
+  out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 render "$c/cc.sh" "$c/cache" "$registry" claude-sonnet-4-5 "$c/partial.jsonl")"
   check_contains "malformed line $malformed_position acknowledgment preserves history" "$out" "last pin: claude-opus-4-7"
 done
 
@@ -220,7 +240,7 @@ for transition in unchanged applied cleared malformed unsupported duplicate; do
   if [ "$transition" = duplicate ]; then
     jq -cn '{type:"assistant",message:{model:"weave-router",router_command:{version:1,id:"11111111-2222-4333-8444-555555555555",command:"force_model",disposition:"accepted",pin:{transition:"cleared"}},content:[]}}' >> "$c/typed.jsonl"
   fi
-  out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/typed.jsonl")"
+  out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 render "$c/cc.sh" "$c/cache" "$registry" claude-sonnet-4-5 "$c/typed.jsonl")"
   case "$transition" in
     applied) check_contains "structured apply ignores prose" "$out" "last pin: synthetic-model" ;;
     cleared) check_not_contains "structured clear removes pin" "$out" "last pin:" ;;
@@ -230,19 +250,19 @@ done
 sed 's/force-model applied:/force-parent applied:/' "$c/pin.jsonl" > "$c/parent-pin.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
-  render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/parent-pin.jsonl")"
+  render "$c/cc.sh" "$c/cache" "$registry" claude-sonnet-4-5 "$c/parent-pin.jsonl")"
 check_contains "parent pin is shown in the statusline" "$out" "last pin: claude-opus-4-7"
 
 printf '{"type":"assistant","message":{"model":"<synthetic>"}}\n' >> "$c/pin.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
-  render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/pin.jsonl")"
+  render "$c/cc.sh" "$c/cache" "$registry" claude-sonnet-4-5 "$c/pin.jsonl")"
 check_contains "historical pin cannot mask a later failure" "$out" "last response failed"
 check_not_contains "failed response does not show a routing warning" "$out" "routing unverified"
 
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
-  render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/missing.jsonl")"
+  render "$c/cc.sh" "$c/cache" "$registry" claude-sonnet-4-5 "$c/missing.jsonl")"
 check_not_contains "missing transcript does not show a routing warning" "$out" "routing unverified"
 check_contains "missing transcript labels the selected model" "$out" "you picked sonnet-4-5"
 check_not_contains "missing transcript does not invent a response model" "$out" "served "
@@ -252,7 +272,7 @@ for transcript_state in empty malformed; do
   if [ "$transcript_state" = malformed ]; then printf 'not-json\n' > "$c/$transcript_state.jsonl"; fi
   out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
     WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
-    render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/$transcript_state.jsonl")"
+    render "$c/cc.sh" "$c/cache" "$registry" claude-sonnet-4-5 "$c/$transcript_state.jsonl")"
   check_not_contains "$transcript_state transcript does not show a routing warning" "$out" "routing unverified"
   check_not_contains "$transcript_state transcript does not invent a price comparison" "$out" "this session"
   check_not_contains "$transcript_state transcript does not invent a response model" "$out" "served "
@@ -261,7 +281,7 @@ done
 head -n 1 "$c/pin.jsonl" > "$c/ack.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
-  render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/ack.jsonl")"
+  render "$c/cc.sh" "$c/cache" "$registry" claude-sonnet-4-5 "$c/ack.jsonl")"
 check_not_contains "control acknowledgement does not show a routing warning" "$out" "routing unverified"
 check_contains "control acknowledgement is not labeled as an inference response" "$out" "control acknowledgement"
 check_not_contains "control acknowledgement does not imply an active force" "$out" "[forced]"
@@ -272,19 +292,19 @@ cat > "$c/duplicate.jsonl" <<'JSONL'
 JSONL
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
-  render "$c/cc.sh" "$c/cache" "file://$upstream" deepseek/deepseek-v4-pro "$c/duplicate.jsonl")"
+  render "$c/cc.sh" "$c/cache" "$registry" deepseek/deepseek-v4-pro "$c/duplicate.jsonl")"
 check_contains "more expensive transcript preserves a signed comparison" "$out" "cost ~\$0.08 more than deepseek/deepseek-v4-pro this session"
 check_not_contains "content-block copies do not display token totals" "$out" " in / "
 
 jq -c '.message.usage = {input_tokens:100,output_tokens:20}' "$c/duplicate.jsonl" > "$c/tiny-difference.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
-  render "$c/cc.sh" "$c/cache" "file://$upstream" deepseek/deepseek-v4-pro "$c/tiny-difference.jsonl")"
+  render "$c/cc.sh" "$c/cache" "$registry" deepseek/deepseek-v4-pro "$c/tiny-difference.jsonl")"
 check_contains "sub-cent negative comparison keeps its sign" "$out" "cost <\$0.01 more than deepseek/deepseek-v4-pro this session"
 
 # Pin the hypothetical price comparison independently of routing verification.
 c="$work/c1"; mkdir -p "$c/cache"; make_installed "$c/cc.sh"
-out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
+out="$(render "$c/cc.sh" "$c/cache" "$registry" "$STALE_MODEL")"
 check_contains "priced selection reports the estimated difference" "$out" "saved ~\$0.08 this session"
 check_contains "priced selection still names the routed model" "$out" "deepseek/deepseek-v4-pro"
 check "priced selection writes no miss stamp" "$(count_stamps "$c/cache" .miss.)" 0
@@ -292,44 +312,44 @@ check "priced selection writes no miss stamp" "$(count_stamps "$c/cache" .miss.)
 for sentinel_model in '<synthetic>' weave-router; do
   jq -cn --arg model "$sentinel_model" '{type:"assistant",message:{id:"msg_control",model:$model,usage:{input_tokens:5000,output_tokens:3000}}}' > "$c/sentinel.jsonl"
   cat "$transcript" >> "$c/sentinel.jsonl"
-  out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL" "$c/sentinel.jsonl")"
+  out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "$registry" "$STALE_MODEL" "$c/sentinel.jsonl")"
   check_contains "$sentinel_model does not poison later inference estimates" "$out" "saved ~\$0.08 this session"
   check_not_contains "$sentinel_model followed by inference does not display token totals" "$out" " in / "
   check_not_contains "$sentinel_model followed by inference does not show a routing warning" "$out" "routing unverified"
 
   head -n 1 "$c/sentinel.jsonl" > "$c/sentinel-only.jsonl"
-  out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL" "$c/sentinel-only.jsonl")"
+  out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "$registry" "$STALE_MODEL" "$c/sentinel-only.jsonl")"
   check_not_contains "$sentinel_model alone does not invent an estimate" "$out" "this session"
   check_not_contains "$sentinel_model alone does not count as inference tokens" "$out" " in / "
 done
 
 jq -c 'select(.type == "assistant") | .message.model = "model-nobody-prices"' "$transcript" > "$c/unpriced.jsonl"
-out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" model-nobody-prices "$c/unpriced.jsonl")"
+out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "$registry" model-nobody-prices "$c/unpriced.jsonl")"
 check_not_contains "same unpriced model does not invent a zero comparison" "$out" "this session"
 check_contains "same unpriced model still names the response model" "$out" "served model-nobody-prices"
 check_not_contains "same unpriced model does not display token totals" "$out" " in / "
 
 cat "$transcript" >> "$c/unpriced.jsonl"
-out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL" "$c/unpriced.jsonl")"
+out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "$registry" "$STALE_MODEL" "$c/unpriced.jsonl")"
 check_not_contains "unpriced inference still prevents a session estimate" "$out" "this session"
 
-out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" deepseek/deepseek-v4-pro)"
+out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "$registry" deepseek/deepseek-v4-pro)"
 check_contains "same priced model retains a zero comparison" "$out" "no savings yet this session"
 
 # Cache-heavy routes must price each side with its own catalog multiplier.
 c="$work/c-cache"; mkdir -p "$c/cache"; make_installed "$c/cc.sh"
-out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "gpt-5.4-pro" "$cache_transcript")"
+out="$(render "$c/cc.sh" "$c/cache" "$registry" "gpt-5.4-pro" "$cache_transcript")"
 check_contains "cache reads use per-model multipliers" "$out" "saved ~\$29.75 this session"
 
 # The bug this path exists for: an unpriced selection renders $0.00, and the
 # script restores the missing comparison instead of waiting out the interval.
 c="$work/c2"; mkdir -p "$c/cache"; make_installed "$c/cc.sh" stale
 seed_periodic_stamp "$c/cache" "$c/cc.sh"
-out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
+out="$(render "$c/cc.sh" "$c/cache" "$registry" "$STALE_MODEL")"
 check_not_contains "unpriced selection does not invent a price comparison" "$out" "this session"
 if wait_for 20 grep -q "\"$STALE_MODEL\":" "$c/cc.sh"; then
   ok "unpriced selection refreshes the on-disk copy"
-  out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
+  out="$(render "$c/cc.sh" "$c/cache" "$registry" "$STALE_MODEL")"
   check_contains "next turn reports the estimated difference" "$out" "saved ~\$0.08 this session"
 else
   no "unpriced selection refreshes the on-disk copy" "price entries restored" "still missing after 20s"
@@ -339,13 +359,13 @@ fi
 # Before the retry_on_fail flag this left the user on $0.00 for a full 7 days.
 c="$work/c3"; mkdir -p "$c/cache"; make_installed "$c/cc.sh" stale
 seed_periodic_stamp "$c/cache" "$c/cc.sh"
-render "$c/cc.sh" "$c/cache" "file://$work/does-not-exist.sh" "$STALE_MODEL" >/dev/null
+render "$c/cc.sh" "$c/cache" "file://$work/no-such-registry" "$STALE_MODEL" >/dev/null
 if wait_for 20 stamp_count_is "$c/cache" .miss. 0; then
   ok "failed download does not consume the retry interval"
 else
   no "failed download does not consume the retry interval" "miss stamp removed" "stamp still present"
 fi
-out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
+out="$(render "$c/cc.sh" "$c/cache" "$registry" "$STALE_MODEL")"
 if wait_for 20 grep -q "\"$STALE_MODEL\":" "$c/cc.sh"; then
   ok "retry after a failed download heals the copy"
 else
@@ -355,7 +375,7 @@ fi
 # Cost guardrail: a model nothing will ever price must not download per turn.
 c="$work/c4"; mkdir -p "$c/cache"; make_installed "$c/cc.sh"
 for _ in 1 2 3 4 5; do
-  render "$c/cc.sh" "$c/cache" "file://$upstream" "model-nobody-prices" >/dev/null
+  render "$c/cc.sh" "$c/cache" "$registry" "model-nobody-prices" >/dev/null
 done
 sleep 1
 check "never-priced model refreshes at most once per interval" \
@@ -385,7 +405,7 @@ chmod +x "$c/bin/curl"
 curl_log="$c/targets.log"; : > "$curl_log"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | PATH="$c/bin:$PATH" WEAVE_TEST_CURL_LOG="$curl_log" WEAVE_TEST_REAL_CURL="$real_curl" \
-    XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_URL="file://$upstream" \
+    XDG_CACHE_HOME="$c/cache" WEAVE_RELEASE_REGISTRY="$registry" \
     bash "$c/cc.sh" >/dev/null 2>&1
 wait_for 20 line_count_at_least "$curl_log" 2
 downloads="$(wc -l < "$curl_log" | tr -d ' ')"
@@ -408,7 +428,7 @@ fi
 
 # Malformed pricing must fail closed: no crash, no refresh loop.
 c="$work/c5"; mkdir -p "$c/cache"; make_installed_bad_prices "$c/cc.sh"
-out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
+out="$(render "$c/cc.sh" "$c/cache" "$registry" "$STALE_MODEL")"
 check_contains "malformed prices still render the routed model" "$out" "deepseek/deepseek-v4-pro"
 check_not_contains "malformed prices do not invent a price comparison" "$out" "this session"
 sleep 1
@@ -419,7 +439,7 @@ check "malformed prices trigger no refresh" "$(count_stamps "$c/cache" .miss.)" 
 for sentinel in "?" "failure" "weave-router"; do
   c="$work/c6-$(printf '%s' "$sentinel" | tr -c 'A-Za-z0-9' '_')"
   mkdir -p "$c/cache"; make_installed "$c/cc.sh" stale
-  render "$c/cc.sh" "$c/cache" "file://$upstream" "$sentinel" >/dev/null
+  render "$c/cc.sh" "$c/cache" "$registry" "$sentinel" >/dev/null
   sleep 0.5
   check "sentinel '$sentinel' triggers no refresh" "$(count_stamps "$c/cache" .miss.)" 0
 done
@@ -428,14 +448,14 @@ done
 c="$work/c7"; mkdir -p "$c/cache"; make_installed "$c/cc.sh" stale
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 \
-    WEAVE_STATUSLINE_URL="file://$upstream" bash "$c/cc.sh" >/dev/null 2>&1
+    WEAVE_RELEASE_REGISTRY="$registry" bash "$c/cc.sh" >/dev/null 2>&1
 sleep 0.5
 check "WEAVE_STATUSLINE_UPDATE=0 writes no stamps" "$(count_stamps "$c/cache")" 0
 
 # A missing transcript is normal on a fresh session.
 c="$work/c8"; mkdir -p "$c/cache"; make_installed "$c/cc.sh"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"}}" \
-  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_URL="file://$upstream" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_RELEASE_REGISTRY="$registry" \
     bash "$c/cc.sh" >/dev/null 2>&1
 check "missing transcript exits 0" "$?" 0
 
@@ -443,11 +463,8 @@ check "missing transcript exits 0" "$?" 0
 #
 # The wrappers under <install>/.claude/commands/ have no other refresh point —
 # the statusline is the only thing Claude Code runs every turn. Same offline
-# technique: a file:// "upstream" commands dir the fixtures mutate per case.
+# technique: the fixtures mutate the release's commands dir per case.
 
-commands_upstream="$work/commands-upstream"
-mkdir -p "$commands_upstream"
-cp "$script_dir/../commands"/*.md "$commands_upstream/"
 
 # Lay out a user-scope install: statusline under .weave/, wrappers under
 # .claude/commands/, and a seeded baseline (what install.sh writes) holding the
@@ -471,11 +488,12 @@ make_command_install() { # make_command_install <root> <cache_home> [scope_args]
 }
 
 # WEAVE_STATUSLINE_UPDATE=0 is a master kill switch that covers this path too,
-# so these cases can't use it to isolate the wrapper refresh. Point the script's
-# own refresh at the same offline fixture instead — it lands as a content no-op.
-sync_commands() { # sync_commands <root> <cache_home> <commands_url_base>
+# so these cases can't use it to isolate the wrapper refresh. The script's own
+# refresh reads the same release and lands as a content no-op.
+sync_commands() { # sync_commands <root> <cache_home> <registry>
+  publish_release
   echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
-    | XDG_CACHE_HOME="$2" WEAVE_STATUSLINE_URL="file://$upstream" WEAVE_COMMANDS_URL_BASE="$3" \
+    | XDG_CACHE_HOME="$2" WEAVE_RELEASE_REGISTRY="$3" \
       bash "$1/.weave/cc-statusline.sh" >/dev/null 2>&1
 }
 
@@ -483,7 +501,7 @@ sync_commands() { # sync_commands <root> <cache_home> <commands_url_base>
 c="$work/cmd1"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
 printf '%s\n' '---' 'description: refreshed fm.' '---' '' "/force-model \$ARGUMENTS" \
   >"$commands_upstream/fm.md"
-sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
+sync_commands "$c/root" "$c/cache" "$registry"
 if wait_for 20 grep -q 'refreshed fm.' "$c/root/.claude/commands/fm.md"; then
   ok "an upstream wrapper change reaches the install"
 else
@@ -498,7 +516,7 @@ c="$work/cmd2"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
 printf '%s\n' 'MY OWN WRAPPER' >"$c/root/.claude/commands/rf.md"
 printf '%s\n' '---' 'description: refreshed rf.' '---' '' "/router-feedback \$ARGUMENTS" \
   >"$commands_upstream/rf.md"
-sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
+sync_commands "$c/root" "$c/cache" "$registry"
 sleep 1
 check "a user-edited wrapper is never overwritten" \
   "$(cat "$c/root/.claude/commands/rf.md")" "MY OWN WRAPPER"
@@ -512,7 +530,7 @@ c="$work/cmd2b"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
 before="$(cat "$c/root/.claude/commands/fm.md")"
 printf '%s\n' '---' 'description: refreshed fm again.' '---' '' "/force-model \$ARGUMENTS" \
   >"$commands_upstream/fm.md"
-sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
+sync_commands "$c/root" "$c/cache" "$registry"
 sleep 1
 check "a git-tracked wrapper is never overwritten" \
   "$(cat "$c/root/.claude/commands/fm.md")" "$before"
@@ -525,7 +543,7 @@ make_command_install "$c/root" "$c/cache" " --scope project"
 printf '%s\n' '---' 'description: refreshed off.' 'allowed-tools: Bash(npx:*)' '---' '' \
   'Turn it off:' '' "\`npx @workweave/router off --claude{{SCOPE}}\`" \
   >"$commands_upstream/router-off.md"
-sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
+sync_commands "$c/root" "$c/cache" "$registry"
 if wait_for 20 grep -q 'refreshed off.' "$c/root/.claude/commands/router-off.md"; then
   check_contains "refreshed router-off keeps this install's scope" \
     "$(cat "$c/root/.claude/commands/router-off.md")" 'off --claude --scope project'
@@ -536,7 +554,7 @@ fi
 # A 404 (or any HTML error page) must never land as a slash command.
 c="$work/cmd4"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
 before="$(cat "$c/root/.claude/commands/fm.md")"
-sync_commands "$c/root" "$c/cache" "file://$work/no-such-commands-dir"
+sync_commands "$c/root" "$c/cache" "file://$work/no-such-registry"
 sleep 1
 check "a failed fetch leaves the installed wrapper alone" \
   "$(cat "$c/root/.claude/commands/fm.md")" "$before"
@@ -545,7 +563,7 @@ check "a failed fetch leaves the installed wrapper alone" \
 # surprise, and the refresh has no way to know it was ever wanted.
 c="$work/cmd5"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
 rm -f "$c/root/.claude/commands/ufm.md"
-sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
+sync_commands "$c/root" "$c/cache" "$registry"
 sleep 1
 if [ -e "$c/root/.claude/commands/ufm.md" ]; then
   no "a removed wrapper is not resurrected" "still absent" "file re-created"
@@ -557,8 +575,7 @@ fi
 c="$work/cmd6"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
 before="$(cat "$c/root/.claude/commands/fm.md")"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
-  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_URL="file://$upstream" WEAVE_COMMANDS_UPDATE=0 \
-    WEAVE_COMMANDS_URL_BASE="file://$commands_upstream" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_RELEASE_REGISTRY="$registry" WEAVE_COMMANDS_UPDATE=0 \
     bash "$c/root/.weave/cc-statusline.sh" >/dev/null 2>&1
 sleep 1
 check "WEAVE_COMMANDS_UPDATE=0 suppresses the wrapper refresh" \
@@ -570,7 +587,6 @@ c="$work/cmd7"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
 before="$(cat "$c/root/.claude/commands/fm.md")"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 \
-    WEAVE_COMMANDS_URL_BASE="file://$commands_upstream" \
     bash "$c/root/.weave/cc-statusline.sh" >/dev/null 2>&1
 sleep 1
 check "WEAVE_STATUSLINE_UPDATE=0 suppresses the wrapper refresh too" \

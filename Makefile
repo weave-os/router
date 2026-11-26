@@ -100,6 +100,7 @@ test-install: ## Run offline installer regression tests (after make setup-instal
 	@bash install/tests/models_test.sh
 	@bash install/tests/registry_test.sh
 	@bash install/tests/packaging_test.sh
+	@bash install/tests/release_channel_test.sh
 	@bash install/tests/tool_search_test.sh
 	@bash install/tests/context_window_test.sh
 	@bash install/tests/claude_weave_auto_test.sh
