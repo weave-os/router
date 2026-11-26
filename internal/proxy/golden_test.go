@@ -565,6 +565,7 @@ func TestGolden(t *testing.T) {
 	scenarios = append(scenarios, goldenUsageBypassScenarios()...)
 	scenarios = append(scenarios, goldenSubscriptionThrottleScenarios()...)
 	scenarios = append(scenarios, goldenCodexPlanSpentFallbackScenarios()...)
+	scenarios = append(scenarios, goldenCodexQuotaUnverifiedScenarios()...)
 	scenarios = append(scenarios, goldenShortSeatThrottleScenarios()...)
 	scenarios = append(scenarios, goldenOpenCodeProviderScenarios()...)
 	scenarios = append(scenarios, goldenSubscriptionClientRefusalScenarios()...)
