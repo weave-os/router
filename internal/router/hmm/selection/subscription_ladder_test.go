@@ -136,3 +136,31 @@ func TestNoSubscriptionLadderServesEachGroupWithinTheHarness(t *testing.T) {
 		})
 	}
 }
+
+func TestBothSubscriptionsLadderLeadsWhenAnthropicAndOpenAIAreSelectable(t *testing.T) {
+	roster := ladderRoster()
+	roster.SubscriptionLadders[selection.BothSubscriptionsLadder] = map[string]string{"medium": "openai/terra"}
+	everyArm := candidateSet("openai/luna", "anthropic/haiku", "openai/sol", "anthropic/sonnet", "openai/terra", "xiaomi/mimo")
+	both := []string{providers.ProviderAnthropic, providers.ProviderOpenAI}
+	for _, tc := range []struct {
+		name                  string
+		harness               string
+		subscriptionProviders []string
+		candidates            map[string]struct{}
+		wantArm               string
+	}{
+		{name: "both in claude code serves the both ladder", harness: "claude_code", subscriptionProviders: both, candidates: everyArm, wantArm: "openai/terra"},
+		{name: "both in codex serves the both ladder", harness: "codex", subscriptionProviders: both, candidates: everyArm, wantArm: "openai/terra"},
+		{name: "both in an unknown harness serves the both ladder", harness: "pi", subscriptionProviders: both, candidates: everyArm, wantArm: "openai/terra"},
+		{name: "claude only in claude code keeps the claude ladder", harness: "claude_code", subscriptionProviders: []string{providers.ProviderAnthropic}, candidates: everyArm, wantArm: "anthropic/sonnet"},
+		{name: "codex only in codex keeps the codex ladder", harness: "codex", subscriptionProviders: []string{providers.ProviderOpenAI}, candidates: everyArm, wantArm: "openai/terra"},
+		{name: "both with an ineligible ladder arm keeps the claude code order", harness: "claude_code", subscriptionProviders: both, candidates: candidateSet("openai/luna", "anthropic/haiku", "anthropic/sonnet"), wantArm: "anthropic/haiku"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, []selection.Group{{Label: "medium"}}, tc.harness, tc.subscriptionProviders, tc.candidates, nil, nil, nil, nil)
+
+			require.True(t, ok)
+			assert.Equal(t, tc.wantArm, pick.Arm)
+		})
+	}
+}
