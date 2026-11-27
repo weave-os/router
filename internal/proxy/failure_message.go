@@ -92,6 +92,9 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	if limit, ok := codexUsageLimitOf(a); ok {
 		return limit.wording()
 	}
+	if quotaUnverified(a.Err) {
+		return failureWording{"could not verify its subscription quota", "subscription quota unverified"}
+	}
 	if errors.Is(a.Err, credentials.ErrSubscriptionPoolExhausted) && (status == http.StatusUnauthorized || status == http.StatusForbidden) {
 		return failureWording{"rejected the subscription login", "subscription login rejected"}
 	}
