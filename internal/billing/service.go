@@ -37,9 +37,13 @@ const EntryTypeInference = "inference"
 
 const EntryTypeByokFee = "byok_fee"
 
+const EntryTypeUnfunded = "unfunded"
+
 const DefaultByokFeeRate = 0.0
 
 const MinBalanceMicros int64 = 0
+
+const OrganizationBalanceFloorMicros int64 = -1_000_000_000
 
 type Service struct {
 	repo           Repo

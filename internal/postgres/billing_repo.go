@@ -49,28 +49,33 @@ func (r *BillingRepo) DebitInference(ctx context.Context, p billing.DebitParams)
 	if p.FeeUsdMicros == 0 {
 		feeEntryType = p.EntryType
 	}
-	balanceAfter, err := q.DebitOrgCredits(ctx, sqlc.DebitOrgCreditsParams{
-		OrganizationID:     p.OrganizationID,
-		ChargedUsdMicros:   p.DeltaUsdMicros + p.FeeUsdMicros,
-		DeltaUsdMicros:     p.DeltaUsdMicros,
-		NotionalCostMicros: p.NotionalCostMicros,
-		EntryType:          p.EntryType,
-		FeeUsdMicros:       p.FeeUsdMicros,
-		FeeEntryType:       feeEntryType,
-		RouterRequestID:    stringPtrOrNil(p.RouterRequestID),
-		RouterModel:        stringPtrOrNil(p.RouterModel),
-		APIKeyID:           uuidOrNil(p.APIKeyID),
-		DelegatedSessionID: stringPtrOrNil(p.DelegatedSessionID),
-		DelegatedTaskID:    stringPtrOrNil(p.DelegatedTaskID),
-		RouterUserID:       uuidOrNil(p.RouterUserID),
+	row, err := q.DebitOrgCredits(ctx, sqlc.DebitOrgCreditsParams{
+		OrganizationID:        p.OrganizationID,
+		ChargedUsdMicros:      p.DeltaUsdMicros + p.FeeUsdMicros,
+		UnfundedEntryType:     billing.EntryTypeUnfunded,
+		BalanceFloorUsdMicros: billing.OrganizationBalanceFloorMicros,
+		DeltaUsdMicros:        p.DeltaUsdMicros,
+		NotionalCostMicros:    p.NotionalCostMicros,
+		EntryType:             p.EntryType,
+		FeeUsdMicros:          p.FeeUsdMicros,
+		FeeEntryType:          feeEntryType,
+		RouterRequestID:       stringPtrOrNil(p.RouterRequestID),
+		RouterModel:           stringPtrOrNil(p.RouterModel),
+		APIKeyID:              uuidOrNil(p.APIKeyID),
+		DelegatedSessionID:    stringPtrOrNil(p.DelegatedSessionID),
+		DelegatedTaskID:       stringPtrOrNil(p.DelegatedTaskID),
+		RouterUserID:          uuidOrNil(p.RouterUserID),
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, billing.ErrBalanceRowMissing
+	}
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, billing.ErrBalanceRowMissing
-		}
 		return 0, err
 	}
-	return balanceAfter, nil
+	if !row.Applied {
+		return row.BalanceAfterMicros, billing.ErrBalanceFloorExceeded
+	}
+	return row.BalanceAfterMicros, nil
 }
 
 func (r *BillingRepo) GetDelegatedTokenSpend(ctx context.Context, issuerKeyID, sessionID, taskID string) (int64, int64, error) {
