@@ -72,6 +72,13 @@ func AnthropicSubscriptionThirdPartyRefused(err error) bool {
 	return strings.Contains(message, "third-party apps") && strings.Contains(message, "extra usage")
 }
 
+// AnthropicSubscriptionExtraUsageSpent reports Anthropic's 400 for a subscription
+// seat whose workspace extra usage is spent, which is what third-party clients
+// draw from even while the seat still has included weekly usage left.
+func AnthropicSubscriptionExtraUsageSpent(err error) bool {
+	return strings.Contains(anthropicInvalidRequestMessage(err), "extra usage")
+}
+
 func AnthropicClientAppRefused(ctx context.Context, err error) bool {
 	if AnthropicSubscriptionThirdPartyRefused(err) {
 		return true
