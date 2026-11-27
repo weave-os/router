@@ -397,7 +397,8 @@ type RouterModelRouterAPIKey struct {
 	SharedSubscriptionAccess          bool
 	PaidFallbackOnSubscriptionRefusal bool
 	// Ed25519 public key (RFC 8037 OKP JWK: kty, crv, x) of a session_issuer row; NULL for every other scope
-	PublicJwk []byte
+	PublicJwk        []byte
+	FundingSubjectID pgtype.UUID
 }
 
 // Customer-owned provider API keys for BYOK routing

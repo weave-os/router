@@ -52,6 +52,7 @@ type APIKey struct {
 	DeletedAt                         *time.Time
 	CreatedBy                         *string
 	CredentialSubjectID               string
+	FundingSubjectID                  string
 	Harness                           string
 	PaidFallbackOnSubscriptionRefusal bool
 	IssuerPublicKey                   ed25519.PublicKey

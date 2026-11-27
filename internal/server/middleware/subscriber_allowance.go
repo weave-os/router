@@ -78,13 +78,12 @@ func allowanceSubscriber(c *gin.Context) entitlement.SubscriberID {
 	if owner := SubscriptionOwnerFrom(c); owner.SubscriberID != "" {
 		return entitlement.SubscriberID(owner.SubscriberID)
 	}
-	ctx := c.Request.Context()
-	if _, internalTest := requestcontext.InternalTestIdentityFrom(ctx); internalTest {
+	if _, internalTest := requestcontext.InternalTestIdentityFrom(c.Request.Context()); internalTest {
 		return ""
 	}
-	installation := InstallationFrom(c)
-	if installation == nil {
+	apiKey := APIKeyFrom(c)
+	if apiKey == nil {
 		return ""
 	}
-	return entitlement.SubscriberID(installation.PoolSubjectID)
+	return entitlement.SubscriberID(apiKey.FundingSubjectID)
 }
