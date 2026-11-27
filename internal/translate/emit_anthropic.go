@@ -40,7 +40,10 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	var err error
 	switch e.format {
 	case FormatOpenAI:
-		body = e.buildAnthropicFromOpenAI(opts)
+		body, err = e.buildAnthropicFromOpenAI(opts)
+		if err != nil {
+			return providers.PreparedRequest{}, err
+		}
 	case FormatAnthropic:
 		body, err = e.buildAnthropicFromAnthropic(opts)
 		if err != nil {
@@ -228,7 +231,7 @@ func joinKept(beta string, keep func(string) bool) string {
 	return strings.Join(kept, ",")
 }
 
-func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) []byte {
+func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) ([]byte, error) {
 	jw := newJSONWriter()
 	jw.Obj()
 	jw.Key("model")
@@ -239,7 +242,9 @@ func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) []byte {
 		jw.Raw(r.Raw)
 	}
 
-	writeAnthropicSystemAndMessages(jw, e.body)
+	if err := writeAnthropicSystemAndMessages(jw, e.body); err != nil {
+		return nil, err
+	}
 	writeAnthropicMaxTokens(jw, e.body, opts.TargetModel, opts.Capabilities)
 	writeAnthropicStopSequences(jw, e.body)
 	writeAnthropicSamplingParams(jw, e.body, opts.Capabilities)
@@ -251,13 +256,13 @@ func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) []byte {
 		writeAnthropicToolChoice(jw, e.body, opts.Capabilities.Supports(router.CapAutoToolChoiceOnly))
 	}
 	jw.EndObj()
-	return jw.Bytes()
+	return jw.Bytes(), nil
 }
 
-func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
+func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) error {
 	messages := gjson.GetBytes(body, "messages")
 	if !messages.Exists() {
-		return
+		return nil
 	}
 
 	type pendingToolBatch struct {
@@ -269,6 +274,7 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 	var msgParts []string
 	var pending pendingToolBatch
 	leading := true
+	var walkErr error
 
 	flushToolBatch := func() {
 		if !pending.active {
@@ -298,7 +304,12 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 		switch {
 		case isInstruction && !leading:
 			flushToolBatch()
-			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(buildAnthropicUserMessage("user", content), sourceMessageCacheControl(msg)))
+			userMsg, err := buildAnthropicUserMessage("user", content)
+			if err != nil {
+				walkErr = err
+				return false
+			}
+			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(userMsg, sourceMessageCacheControl(msg)))
 
 		case isInstruction:
 			policy := sourceMessageCacheControl(msg)
@@ -323,10 +334,18 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 		default:
 			leading = false
 			flushToolBatch()
-			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(buildAnthropicUserMessage(role, content), sourceMessageCacheControl(msg)))
+			userMsg, err := buildAnthropicUserMessage(role, content)
+			if err != nil {
+				walkErr = err
+				return false
+			}
+			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(userMsg, sourceMessageCacheControl(msg)))
 		}
 		return true
 	})
+	if walkErr != nil {
+		return walkErr
+	}
 	flushToolBatch()
 
 	if len(systemBlocks) > 0 {
@@ -346,6 +365,7 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 		}
 		jw.EndArr()
 	}
+	return nil
 }
 
 func appendCacheControlRaw(block, policy string) string {
@@ -531,17 +551,6 @@ func buildAnthropicAssistantMessage(msg gjson.Result) string {
 	return string(jw.Bytes())
 }
 
-func buildAnthropicUserMessage(role string, content gjson.Result) string {
-	jw := newJSONWriter()
-	jw.Obj()
-	jw.Key("role")
-	jw.Str(role)
-	jw.Key("content")
-	writeAnthropicContentValue(jw, content)
-	jw.EndObj()
-	return string(jw.Bytes())
-}
-
 func writeAnthropicContentValue(jw *jsonWriter, content gjson.Result) {
 	if content.Type == gjson.String {
 		jw.Str(content.String())
@@ -574,31 +583,6 @@ func writeAnthropicContentValue(jw *jsonWriter, content gjson.Result) {
 		return true
 	})
 	jw.EndArr()
-}
-
-func buildAnthropicImageBlock(urlStr string) string {
-	jw := newJSONWriter()
-	jw.Obj()
-	jw.Key("type")
-	jw.Str("image")
-	jw.Key("source")
-	jw.Obj()
-	if mime, data, ok := parseDataURL(urlStr); ok {
-		jw.Key("type")
-		jw.Str("base64")
-		jw.Key("media_type")
-		jw.Str(mime)
-		jw.Key("data")
-		jw.Str(data)
-	} else {
-		jw.Key("type")
-		jw.Str("url")
-		jw.Key("url")
-		jw.Str(urlStr)
-	}
-	jw.EndObj()
-	jw.EndObj()
-	return string(jw.Bytes())
 }
 
 func writeAnthropicMaxTokens(jw *jsonWriter, body []byte, targetModel string, capabilities router.ModelSpec) {

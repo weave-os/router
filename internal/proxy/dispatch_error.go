@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -256,8 +257,22 @@ func ClassifyDispatchError(err error) (ingress.DispatchErrorClass, bool) {
 	case errors.As(err, &resolution):
 		return classifyResolutionError(resolution), true
 	default:
-		return classifyPolicyDispatchError(err)
+		return classifyUnsupportedUserPartOrPolicyError(err)
 	}
+}
+
+func classifyUnsupportedUserPartOrPolicyError(err error) (ingress.DispatchErrorClass, bool) {
+	var unsupportedPart *translate.UnsupportedUserPartError
+	if errors.As(err, &unsupportedPart) {
+		return ingress.DispatchErrorClass{
+			Kind:       ingress.DispatchErrorTranslationIntrinsicallyIncompatible,
+			Status:     http.StatusBadRequest,
+			Message:    unsupportedUserPartMessage(unsupportedPart),
+			LogLevel:   "warn",
+			LogMessage: "Rejected request: unsupported user content part in cross-format translation",
+		}, true
+	}
+	return classifyPolicyDispatchError(err)
 }
 
 func unwrapToSentinelMessage(err error) string {
@@ -271,6 +286,11 @@ func unwrapToSentinelMessage(err error) string {
 		}
 	}
 	return err.Error()
+}
+
+func unsupportedUserPartMessage(partErr *translate.UnsupportedUserPartError) string {
+	detail := strings.TrimSuffix(partErr.PartType+" ("+partErr.Reason+")", " ()")
+	return "Unsupported user content for " + partErr.TargetFamily + ": " + detail + ". Remove the part or use a provider that accepts it."
 }
 
 var allowanceWindowNames = map[entitlement.PeriodKind]string{

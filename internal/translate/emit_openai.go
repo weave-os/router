@@ -262,15 +262,9 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 	body, stats.ServerToolsStripped = websearch.StripServerTools(body)
 	jw := newJSONWriter()
 	jw.Obj()
-	jw.Key("model")
-	jw.Str(opts.TargetModel)
-
-	if r := gjson.GetBytes(body, "stream"); r.Exists() {
-		jw.Key("stream")
-		jw.Raw(r.Raw)
+	if err := writeOpenAIModelAndMessagesFromAnthropic(jw, body, opts); err != nil {
+		return nil, stats, err
 	}
-
-	writeOpenAISystemAndMessagesFromAnthropic(jw, body, opts)
 
 	if r := gjson.GetBytes(body, "stop_sequences"); r.Exists() &&
 		!opts.Capabilities.Supports(router.CapReasoning) {
@@ -412,7 +406,19 @@ func applyQwen3SamplersIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
 	return body, nil
 }
 
-func writeOpenAISystemAndMessagesFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) {
+func writeOpenAIModelAndMessagesFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) error {
+	jw.Key("model")
+	jw.Str(opts.TargetModel)
+
+	if r := gjson.GetBytes(body, "stream"); r.Exists() {
+		jw.Key("stream")
+		jw.Raw(r.Raw)
+	}
+
+	return writeOpenAISystemAndMessagesFromAnthropic(jw, body, opts)
+}
+
+func writeOpenAISystemAndMessagesFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) error {
 	systemText := flattenAnthropicSystemGJSON(gjson.GetBytes(body, "system"))
 	if targetIsOpenRouter(opts) && hasNonEmptyTools(body) {
 		if reminder := openRouterSystemReminder(opts.TargetModel); reminder != "" {
@@ -436,18 +442,23 @@ func writeOpenAISystemAndMessagesFromAnthropic(jw *jsonWriter, body []byte, opts
 		jw.EndObj()
 	}
 
+	var walkErr error
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		role := msg.Get("role").String()
 		switch role {
 		case "assistant":
 			writeOpenAIAssistantFromAnthropic(jw, msg)
 		default:
-			writeOpenAIUserFromAnthropic(jw, msg)
+			if err := writeOpenAIUserFromAnthropic(jw, msg); err != nil {
+				walkErr = err
+				return false
+			}
 		}
 		return true
 	})
 
 	jw.EndArr()
+	return walkErr
 }
 
 func flattenAnthropicSystemGJSON(system gjson.Result) string {
@@ -556,7 +567,7 @@ func buildOpenAIToolCall(block gjson.Result) string {
 	return string(inner.Bytes())
 }
 
-func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
+func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) error {
 	content := msg.Get("content")
 	switch content.Type {
 	case gjson.String:
@@ -566,53 +577,31 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 		jw.Key("content")
 		jw.Raw(content.Raw)
 		jw.EndObj()
-		return
+		return nil
 	case gjson.JSON:
 		if !content.IsArray() {
-			return
+			return nil
 		}
 	default:
-		return
+		return nil
 	}
 
 	var toolResultRaws []string
-	var userPartRaws []string
-
+	var collector userPartCollector
 	content.ForEach(func(_, block gjson.Result) bool {
-		switch block.Get("type").String() {
-		case "tool_result":
-			toolResultRaws = append(toolResultRaws, buildOpenAIToolResultMessage(block))
-			block.Get("content").ForEach(func(_, inner gjson.Result) bool {
-				if inner.Get("type").String() == "image" {
-					if part := buildOpenAIImagePart(inner); part != "" {
-						userPartRaws = append(userPartRaws, part)
-					}
-				}
-				return true
-			})
-		case "text":
-			inner := newJSONWriter()
-			inner.Obj()
-			inner.Key("type")
-			inner.Str("text")
-			inner.Key("text")
-			inner.Str(block.Get("text").String())
-			inner.EndObj()
-			userPartRaws = append(userPartRaws, string(inner.Bytes()))
-		case "image":
-			if part := buildOpenAIImagePart(block); part != "" {
-				userPartRaws = append(userPartRaws, part)
-			}
-		}
-		return true
+		return openAIPartFromAnthropicBlock(&collector, &toolResultRaws, block)
 	})
+	userPartRaws, err := collector.finish(FormatAnthropic, "openai", "no OpenAI Chat equivalent; the part would be dropped")
+	if err != nil {
+		return err
+	}
 
 	for _, raw := range toolResultRaws {
 		jw.Raw(raw)
 	}
 
 	if len(userPartRaws) == 0 {
-		return
+		return nil
 	}
 
 	if len(userPartRaws) == 1 {
@@ -624,7 +613,7 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 			jw.Key("content")
 			jw.Str(p.Get("text").String())
 			jw.EndObj()
-			return
+			return nil
 		}
 	}
 
@@ -638,6 +627,7 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 	}
 	jw.EndArr()
 	jw.EndObj()
+	return nil
 }
 
 func buildOpenAIToolResultMessage(block gjson.Result) string {
