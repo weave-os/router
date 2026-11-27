@@ -1,0 +1,38 @@
+internal/sqlc/models.go
+  s_da0f5e9a9a7390::t_f78f98f41338fb 400-401
+internal/auth/api_key.go
+  s_da0f5e9a9a7390::t_48682b38b95e26 42-54
+  s_da0f5e9a9a7390::t_009336f849372f 55-57
+db/migrations/0170_api-key-funding-subject.up.sql
+  s_da0f5e9a9a7390::t_3be53da49dbd1a 1-6
+internal/server/middleware/subscriber_allowance.go
+  s_da0f5e9a9a7390::t_009336f849372f 77-79,84,87-88,91
+internal/sqlc/model_router_api_keys.sql.go
+  s_da0f5e9a9a7390::t_f78f98f41338fb 39,83,118,124,143,172,250,259,293
+internal/sqlc/credential_subjects.sql.go
+  s_da0f5e9a9a7390::t_f78f98f41338fb 97,117,149
+internal/postgres/converters.go
+  s_da0f5e9a9a7390::t_009336f849372f 120
+internal/server/middleware/subscriber_allowance_test.go
+  s_da0f5e9a9a7390::t_2388f400b5a3ee 549-551,558-559,573-575,577-578,583-599,601-602
+db/migrations/0170_api-key-funding-subject.down.sql
+  s_da0f5e9a9a7390::t_3be53da49dbd1a 1-5
+internal/postgres/converters_test.go
+  s_da0f5e9a9a7390::t_76ff52c90dbb84 110-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "506f4f123cc248ad3e0eb4cc42c6e8d7fcf82e00",
+  "prompts": {},
+  "sessions": {
+    "s_da0f5e9a9a7390": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "03542d02-70ec-4cbb-b1e1-db140e5efcf8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
