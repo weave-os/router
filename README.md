@@ -59,6 +59,7 @@ For example, with an OpenRouter key:
 git clone https://github.com/weave-os/router.git
 cd router
 echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> .env.local
+# Or: echo 'TRUSTEDROUTER_API_KEY=sk-tr-v1-...' >> .env.local
 echo 'ROUTER_ADMIN_PASSWORD=replace-with-a-strong-password' >> .env.local
 make full-setup
 ```

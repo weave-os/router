@@ -116,7 +116,7 @@ func (e *RequestEnvelope) PrepareOpenAI(in http.Header, opts EmitOptions) (provi
 
 func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([]byte, error) {
 	switch opts.TargetProvider {
-	case providers.ProviderOpenRouter:
+	case providers.ProviderOpenRouter, providers.ProviderTrustedRouter:
 		if opts.SessionAffinity != "" {
 			headers.Set("x-session-id", opts.SessionAffinity)
 		}
@@ -246,7 +246,7 @@ func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error
 
 func targetIsOpenRouter(opts EmitOptions) bool {
 	if opts.TargetProvider != "" {
-		return opts.TargetProvider == providers.ProviderOpenRouter
+		return opts.TargetProvider == providers.ProviderOpenRouter || opts.TargetProvider == providers.ProviderTrustedRouter
 	}
 	return true
 }

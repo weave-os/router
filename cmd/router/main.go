@@ -298,6 +298,15 @@ func main() {
 	}
 
 	{
+		trustedRouterBaseURL := config.GetOr("TRUSTEDROUTER_BASE_URL", openaiCompatProvider.TrustedRouterBaseURL)
+		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
+			providers.ProviderTrustedRouter, "TrustedRouter", "TRUSTEDROUTER_API_KEY", trustedRouterBaseURL, byokOnly,
+			func(key, baseURL string) providers.Client {
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderTrustedRouter), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
+			})
+	}
+
+	{
 		fireworksBaseURL := config.GetOr("FIREWORKS_BASE_URL", openaiCompatProvider.FireworksBaseURL)
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderFireworks, "Fireworks", "FIREWORKS_API_KEY", fireworksBaseURL, byokOnly,

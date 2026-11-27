@@ -32,10 +32,11 @@ const (
 // mechanism here (if the provider needs bespoke affinity handling) or add it to
 // defaultMechanismProviders below to affirm the generic header is correct.
 var expectedSessionAffinityMechanism = map[string]sessionAffinityMechanism{
-	providers.ProviderOpenRouter: mechanismSessionIDHeader,
-	providers.ProviderOpenAI:     mechanismPromptCacheKeyBody,
-	providers.ProviderXAI:        mechanismGrokConvIDHeader,
-	providers.ProviderBedrock:    mechanismNone,
+	providers.ProviderOpenRouter:    mechanismSessionIDHeader,
+	providers.ProviderTrustedRouter: mechanismSessionIDHeader,
+	providers.ProviderOpenAI:        mechanismPromptCacheKeyBody,
+	providers.ProviderXAI:           mechanismGrokConvIDHeader,
+	providers.ProviderBedrock:       mechanismNone,
 	// A customer endpoint may reject unknown headers, so the hint rides the spec
 	// prompt_cache_key body field — a gateway that forwards the body forwards the hint.
 	providers.ProviderOpenAIGateway: mechanismPromptCacheKeyBody,
