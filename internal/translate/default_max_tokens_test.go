@@ -195,6 +195,58 @@ func TestOpenAISameFormat_DefaultNotInjectedWhenMaxCompletionTokensPresent(t *te
 	assert.NotContains(t, out, "max_tokens")
 }
 
+func TestOpenAISameFormat_NullMaxTokenFieldsAreUnsetForReasoningTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		fields string
+		want   float64
+	}{
+		{name: "null max_tokens", fields: `"max_tokens":null`, want: 8192},
+		{name: "null max_completion_tokens beside max_tokens", fields: `"max_tokens":512,"max_completion_tokens":null`, want: 512},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],` + tc.fields + `}`)
+			out := parseAndEmit(t, body, "openai", translate.EmitOptions{
+				TargetModel:  "o3",
+				Capabilities: router.Lookup("o3"),
+			})
+			assert.InDelta(t, tc.want, out["max_completion_tokens"], 1e-9)
+			assert.NotContains(t, out, "max_tokens")
+		})
+	}
+}
+
+func TestOpenAISameFormat_NullTokenLimitIsReplacedByDefault(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		model  string
+		fields string
+		key    string
+	}{
+		{name: "null max_tokens on a non-reasoning target", model: "gpt-4o", fields: `"max_tokens":null`, key: "max_tokens"},
+		{name: "null max_completion_tokens on a reasoning target", model: "o3", fields: `"max_completion_tokens":null`, key: "max_completion_tokens"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],` + tc.fields + `}`)
+			out := parseAndEmit(t, body, "openai", translate.EmitOptions{
+				TargetModel:  tc.model,
+				Capabilities: router.Lookup(tc.model),
+			})
+			assert.InDelta(t, float64(8192), out[tc.key], 1e-9)
+		})
+	}
+}
+
+func TestOpenAISameFormat_NumericStringMaxTokensKeepsCallerCeiling(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":"512"}`)
+	out := parseAndEmit(t, body, "openai", translate.EmitOptions{
+		TargetModel:  "o3",
+		Capabilities: router.Lookup("o3"),
+	})
+	assert.InDelta(t, float64(512), out["max_completion_tokens"], 1e-9)
+	assert.NotContains(t, out, "max_tokens")
+}
+
 // Regression: pullMaxTokens previously hardcoded 4096; the per-model default replaces it.
 func TestCrossFormat_OpenAIToAnthropic_DefaultMaxTokensInjectedWhenAbsent(t *testing.T) {
 	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)

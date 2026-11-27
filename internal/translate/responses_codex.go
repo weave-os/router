@@ -694,13 +694,13 @@ func (c *portableCodexResponsesConverter) copyRequestControls(root gjson.Result,
 	if parallel := root.Get("parallel_tool_calls"); parallel.Exists() {
 		out["parallel_tool_calls"] = parallel.Bool()
 	}
-	if temperature := root.Get("temperature"); temperature.Exists() {
+	if temperature := root.Get("temperature"); temperature.Type == gjson.Number {
 		out["temperature"] = temperature.Num
 	}
-	if topP := root.Get("top_p"); topP.Exists() {
+	if topP := root.Get("top_p"); topP.Type == gjson.Number {
 		out["top_p"] = topP.Num
 	}
-	if maxOutput := root.Get("max_output_tokens"); maxOutput.Exists() {
+	if maxOutput := root.Get("max_output_tokens"); maxOutput.Type != gjson.Null {
 		out["max_completion_tokens"] = maxOutput.Int()
 	}
 	if metadata := root.Get("metadata"); metadata.IsObject() {

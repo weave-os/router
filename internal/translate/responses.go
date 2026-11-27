@@ -179,13 +179,13 @@ func ConvertResponsesToChatCompletions(body []byte) (ResponsesConversion, error)
 	if pt := root.Get("parallel_tool_calls"); pt.Exists() {
 		out["parallel_tool_calls"] = pt.Bool()
 	}
-	if temp := root.Get("temperature"); temp.Exists() {
+	if temp := root.Get("temperature"); temp.Type == gjson.Number {
 		out["temperature"] = temp.Num
 	}
-	if topP := root.Get("top_p"); topP.Exists() {
+	if topP := root.Get("top_p"); topP.Type == gjson.Number {
 		out["top_p"] = topP.Num
 	}
-	if max := root.Get("max_output_tokens"); max.Exists() {
+	if max := root.Get("max_output_tokens"); max.Type != gjson.Null {
 		out["max_completion_tokens"] = max.Int()
 	}
 	if md := root.Get("metadata"); md.IsObject() {
