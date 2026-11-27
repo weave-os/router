@@ -1,0 +1,19 @@
+internal/auth/api_key.go
+  s_da0f5e9a9a7390::t_8280077dc64c02 42-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "08ed751ced1d4c560e0741d34e63b01bff23e3e8",
+  "prompts": {},
+  "sessions": {
+    "s_da0f5e9a9a7390": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "03542d02-70ec-4cbb-b1e1-db140e5efcf8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
