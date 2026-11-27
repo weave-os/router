@@ -1,0 +1,19 @@
+internal/api/admin/version_test.go
+  s_771cc636e12898::t_05df665ca8142b 92,111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "db32db1e243a9bd4cf4a3c806bbe51a0dea6c9fb",
+  "prompts": {},
+  "sessions": {
+    "s_771cc636e12898": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "44f12d68-997e-4402-bc11-8fb34984afa0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

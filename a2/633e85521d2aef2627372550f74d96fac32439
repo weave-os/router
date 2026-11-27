@@ -1,0 +1,19 @@
+internal/api/admin/display_settings.go
+  s_04587c8eec3bcb::t_dcbc43afd6a7f0 67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a2633e85521d2aef2627372550f74d96fac32439",
+  "prompts": {},
+  "sessions": {
+    "s_04587c8eec3bcb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af1e22df-7616-4781-bcbf-329fc00bdabb",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+internal/proxy/blind_experiment.go
+  s_ce9e4105348e97::t_614bf1ed7ba913 227
+internal/proxy/blind_experiment_internal_test.go
+  s_ce9e4105348e97::t_f68ca00a36b1c2 705-707
+  s_ce9e4105348e97::t_614bf1ed7ba913 693-704,708-709
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cd11207af81d4c2dece6b90297a62add7e016dbf",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

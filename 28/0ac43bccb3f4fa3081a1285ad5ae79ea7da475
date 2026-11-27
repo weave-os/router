@@ -1,0 +1,25 @@
+db/migrations/0062_struggle-escalation-events.up.sql
+  s_daddca850ac23d::t_4acdda713a315f 22
+internal/proxy/struggle_escalation.go
+  s_daddca850ac23d::t_4acdda713a315f 92-93
+internal/proxy/service.go
+  s_daddca850ac23d::t_4acdda713a315f 575-576,578-583,1453,1459-1464
+internal/translate/force_model.go
+  s_daddca850ac23d::t_ea2194641bf568 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "280ac43bccb3f4fa3081a1285ad5ae79ea7da475",
+  "prompts": {},
+  "sessions": {
+    "s_daddca850ac23d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e3098e4-eb30-4e8b-823c-74a083bc8bae",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

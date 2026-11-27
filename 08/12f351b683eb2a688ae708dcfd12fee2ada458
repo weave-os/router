@@ -1,0 +1,116 @@
+internal/postgres/analytics_usage_repo_test.go
+  s_74c9be4d467ec4::t_feade2cd9abd50 1-132
+db/queries/analytics_usage.sql
+  s_74c9be4d467ec4::t_5d5adf6a606439 99-103
+  s_74c9be4d467ec4::t_1d5732a92b8526 15-17,104-105
+  s_74c9be4d467ec4::t_5e490f84703f94 1-2,5-11,18,21,56,66,73,76-77,80,82-83,87,90-91,93,97
+  s_74c9be4d467ec4::t_874f8ab80c00c4 3-4,19-20,22-55,57,67-72,74-75,78-79,81,84-86,88-89,92,94-96,98
+  s_74c9be4d467ec4::t_3f8c7b94868c7e 12-14,58-65
+internal/sqlc/analytics_usage.sql.go
+  s_74c9be4d467ec4::t_5d5adf6a606439 93-97,235-239
+  s_74c9be4d467ec4::t_3f8c7b94868c7e 52-59,118,121,148-150,194-201
+  s_74c9be4d467ec4::t_b3f7fe1a5b7782 119-120,122-125
+  s_74c9be4d467ec4::t_c41fafa656041e 1-15,50,60,67,70-71,74,76-77,81,84-85,87,91,100-108,110,114-117,126-138,141-147,154,157,192,202,209,212-213,216,218-219,223,226-227,229,233,242-249,251,255-291
+  s_74c9be4d467ec4::t_387c306992ff26 16-44,46,49,51,61-66,68-69,72-73,75,78-80,82-83,86,88-90,92,111-113,139-140,155-156,158-186,188,191,193,203-208,210-211,214-215,217,220-222,224-225,228,230-232,234,252-254
+  s_74c9be4d467ec4::t_1d5732a92b8526 45,47-48,98-99,109,151-153,187,189-190,240-241,250
+internal/billing/README.md
+  s_74c9be4d467ec4::t_aa208dfa96f38d 34-37
+internal/server/analytics_routes_test.go
+  s_74c9be4d467ec4::t_a0996a4386fb5c 58
+  s_74c9be4d467ec4::t_d38abd31f2ef8c 1-57,59-69
+internal/proxy/spend_limit_exemption_test.go
+  s_74c9be4d467ec4::t_eaf6b756d2bee6 32-33
+  s_74c9be4d467ec4::t_5fcf84c5f5d228 54
+  s_74c9be4d467ec4::t_9e8d4485a5c3b1 34
+  s_74c9be4d467ec4::t_9f4422f68e92d2 53
+internal/postgres/billing_repo.go
+  s_74c9be4d467ec4::t_eaf6b756d2bee6 104,107,115,121
+internal/sqlc/models.go
+  s_74c9be4d467ec4::t_51e5a235bc1ac1 848-859,1151-1162
+  s_74c9be4d467ec4::t_5e211c01d54244 1163
+internal/billing/repo.go
+  s_74c9be4d467ec4::t_9f4422f68e92d2 14
+internal/analytics/usage_service.go
+  s_74c9be4d467ec4::t_1fe61c0af9d1f1 1-41
+internal/api/analytics/usage.go
+  s_74c9be4d467ec4::t_4576bcce13de95 1-191
+docs/ANALYTICS_EXPORT.md
+  s_74c9be4d467ec4::t_5a7ed6f39eb4ee 3-15
+internal/server/middleware/analytics_deprecation.go
+  s_74c9be4d467ec4::t_37776fee8dd9fd 1-4,6-8,10-12
+  s_74c9be4d467ec4::t_b2934e2aaf793c 5,9
+internal/billing/service.go
+  s_74c9be4d467ec4::t_6a2945612a891f 144-152,156-157,161,165
+  s_74c9be4d467ec4::t_1938181ee9216a 142-143
+internal/analytics/usage_cursor.go
+  s_74c9be4d467ec4::t_cbac43d145e710 6,22,37-38
+  s_74c9be4d467ec4::t_06573577a316fa 1-5,7-21,23-36,39-42
+internal/billing/service_test.go
+  s_74c9be4d467ec4::t_e38886c7eabb39 58,106,108
+  s_74c9be4d467ec4::t_9f4422f68e92d2 104
+internal/server/server.go
+  s_74c9be4d467ec4::t_37776fee8dd9fd 415
+  s_74c9be4d467ec4::t_95be567653dd6d 109,222
+  s_74c9be4d467ec4::t_efb004879482ea 225
+  s_74c9be4d467ec4::t_9e8d4485a5c3b1 223-224
+db/migrations/0163_spend-grants-and-limit-changes.down.sql
+  s_74c9be4d467ec4::t_fbfaab6c548e13 1-6
+db/queries/spend_limits.sql
+  s_74c9be4d467ec4::t_dcdcfaf23a672b 8-14,32-38
+internal/postgres/billing_repo_test.go
+  s_74c9be4d467ec4::t_30bfba5ac467d5 42,46
+internal/billing/user_spend_limit.go
+  s_74c9be4d467ec4::t_6952505140102b 25-26,34-35,37
+internal/proxy/golden_fakes_test.go
+  s_74c9be4d467ec4::t_9f4422f68e92d2 527-528
+internal/server/middleware/balance_check_test.go
+  s_74c9be4d467ec4::t_9f4422f68e92d2 57-58
+internal/billing/monthly_spend_test.go
+  s_74c9be4d467ec4::t_aa2e0d2fdd07c6 55-72
+internal/api/analytics/usage_test.go
+  s_74c9be4d467ec4::t_1f8ba7f7c740a3 1-25,29,35-118,127
+  s_74c9be4d467ec4::t_1d5732a92b8526 26-28,30-34,119-126
+internal/postgres/analytics_usage_repo.go
+  s_74c9be4d467ec4::t_5d5adf6a606439 67,70
+  s_74c9be4d467ec4::t_b2934e2aaf793c 15-16,52
+  s_74c9be4d467ec4::t_1d5732a92b8526 36
+  s_74c9be4d467ec4::t_43947f711b2d27 1-14,17-35,37-51,53-66,68-69,71-85
+  s_74c9be4d467ec4::t_001677d48b431f 86-92
+cmd/router/main.go
+  s_74c9be4d467ec4::t_2a69d2b9389027 1122
+internal/postgres/repository.go
+  s_74c9be4d467ec4::t_2a69d2b9389027 29
+  s_74c9be4d467ec4::t_b2934e2aaf793c 49
+internal/postgres/spend_grants_repo_test.go
+  s_74c9be4d467ec4::t_b58e73d4be94ba 1-56
+internal/sqlc/spend_limits.sql.go
+  s_74c9be4d467ec4::t_51e5a235bc1ac1 94-100,113,116-122,140-146,155
+db/migrations/0163_spend-grants-and-limit-changes.up.sql
+  s_74c9be4d467ec4::t_eb67e4f8feb0b5 1-52
+internal/proxy/auxiliary_inference_internal_test.go
+  s_74c9be4d467ec4::t_9f4422f68e92d2 134-135
+internal/proxy/spend_limit_internal_test.go
+  s_74c9be4d467ec4::t_9f4422f68e92d2 39
+  s_74c9be4d467ec4::t_eaf6b756d2bee6 23-26
+  s_74c9be4d467ec4::t_aa2e0d2fdd07c6 204-221
+  s_74c9be4d467ec4::t_e38886c7eabb39 40
+internal/analytics/usage.go
+  s_74c9be4d467ec4::t_f8fed88443cebe 1-10,13-87
+  s_74c9be4d467ec4::t_1938181ee9216a 11-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0812f351b683eb2a688ae708dcfd12fee2ada458",
+  "prompts": {},
+  "sessions": {
+    "s_74c9be4d467ec4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c4ef478-774b-4ebc-995e-d3cd2de768ff",
+        "model": "claude-haiku-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

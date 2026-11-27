@@ -1,0 +1,24 @@
+internal/proxy/serving_recipe_internal_test.go
+  s_ce9e4105348e97::t_6d2453512360d2 48-57
+internal/telemetry/turnrecord/repository.go
+  s_ce9e4105348e97::t_97ad029189d719 368-370
+  s_ce9e4105348e97::t_8e9747de6685eb 12
+internal/proxy/subscriber_telemetry.go
+  s_ce9e4105348e97::t_97ad029189d719 29-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b084be0022390bcd70db5bcf664c5fab2aa032ac",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+internal/router/cluster/diff_v2_test.go
+  s_69cd46bfa4ee2a::t_2a6ab28bdbdd84 16-17
+sidecars/hmm/pyproject.toml
+  s_69cd46bfa4ee2a::t_2965de8ae88e7d 28-46
+bench/README.md
+  s_69cd46bfa4ee2a::t_75ed4f142afd13 39
+  s_69cd46bfa4ee2a::t_2a6ab28bdbdd84 37,225-227
+sidecars/hmm/uv.lock
+  s_69cd46bfa4ee2a::t_93b72bcd81b36e 5-23,26,28,30,35,37,39,44,48,50,52,89,91,93,98,100-103,105,171,173,175,198-244,249,252-253,258,260,262,276,278,280,294,302,304,309,314-379,384,386,388,462,467-508,535,540,542
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9a4ceac2276bd2a229ae6db81beceecdf376e2b6",
+  "prompts": {},
+  "sessions": {
+    "s_69cd46bfa4ee2a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a087c3-7213-71e0-8b05-3ddedb15d03b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

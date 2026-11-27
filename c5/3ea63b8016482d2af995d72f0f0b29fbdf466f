@@ -1,0 +1,60 @@
+internal/api/anthropic/messages.go
+  s_475f2da3c27e85::t_0e0cbc8987b966 18,59,104-114
+docs/CONFIGURATION.md
+  s_475f2da3c27e85::t_ab568b140630aa 573,584-587,591-598
+internal/providers/anthropic/client_test.go
+  s_475f2da3c27e85::t_01c8a95ff982d6 759-802
+internal/auth/upstream_gateway_test.go
+  s_475f2da3c27e85::t_2119006bab21df 203-213
+  s_475f2da3c27e85::t_ad161dc7b9dd18 102-117,190,194
+internal/requestcontext/upstream_gateway.go
+  s_475f2da3c27e85::t_e121ef35fd1315 11,14-16,21-24,26
+internal/server/middleware/serving_admission_test.go
+  s_475f2da3c27e85::t_82fa95617c178d 415
+internal/router/sessionpin/flag_gate_test.go
+  s_475f2da3c27e85::t_82fa95617c178d 74,77
+internal/api/anthropic/messages_test.go
+  s_475f2da3c27e85::t_ea4c431a7b2f48 640-681
+internal/requestcontext/identity.go
+  s_475f2da3c27e85::t_e121ef35fd1315 57,60
+internal/proxy/session_key_internal_test.go
+  s_475f2da3c27e85::t_87c0d3e917e318 213
+internal/server/middleware/upstream_gateway_auth_test.go
+  s_475f2da3c27e85::t_a09307938408c4 6,20,33-36,45-50,52,57,68-79,86,93-98,100,123-125,135-170
+docs/UPSTREAM_GATEWAY_SERVICE.md
+  s_475f2da3c27e85::t_ab568b140630aa 38-44,48-50,54-61
+internal/server/middleware/upstream_gateway_auth.go
+  s_475f2da3c27e85::t_139b5817e4b1b1 15,18
+  s_475f2da3c27e85::t_18a9bda63c56c0 31-32
+  s_475f2da3c27e85::t_e121ef35fd1315 52-54
+internal/proxy/golden_credentials_test.go
+  s_475f2da3c27e85::t_82fa95617c178d 208
+  s_475f2da3c27e85::t_69eec75f858853 421-425
+internal/server/middleware/organization_allowlist.go
+  s_475f2da3c27e85::t_2bb2f981429bc7 68-70
+internal/auth/upstream_gateway.go
+  s_475f2da3c27e85::t_2bb2f981429bc7 40-43,65-67,112-114,193-195,232-242
+  s_475f2da3c27e85::t_44968b182d667e 243
+internal/proxy/testdata/golden/anthropic_messages_stream_credentials_upstream_gateway_mode_streams_without_router_surfaces.json
+  s_475f2da3c27e85::t_87c0d3e917e318 1-235
+internal/ingress/blind_experiment_writer_internal_test.go
+  s_475f2da3c27e85::t_d67e63e0fabad6 200
+internal/requestcontext/upstream_gateway_test.go
+  s_475f2da3c27e85::t_1c325d298d8c3e 15,18,34,40,44,52,59,68-76,78-80,86,89-91,98,101,115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c53ea63b8016482d2af995d72f0f0b29fbdf466f",
+  "prompts": {},
+  "sessions": {
+    "s_475f2da3c27e85": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3ead3e48-fda9-47d8-bdea-11c326575400",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

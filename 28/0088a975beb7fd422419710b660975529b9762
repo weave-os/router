@@ -1,0 +1,44 @@
+internal/api/admin/serving_release_headers_test.go
+  s_4cd22983350ba2::t_f524445fdd7c15 1-61,63-76
+  s_4cd22983350ba2::t_75d31368524aeb 62
+internal/proxy/testdata/golden/serving_channel_auto_efficient_refused_without_assigned_profile.json
+  s_4cd22983350ba2::t_1460a88bd8c521 1-20
+internal/proxy/testdata/golden/serving_channel_auto_efficient_refused_on_unmanaged_worker.json
+  s_4cd22983350ba2::t_18ef26026b9cb8 1-20
+internal/proxy/golden_test.go
+  s_4cd22983350ba2::t_b4f8c2d5eaac5a 574
+internal/proxy/testdata/golden/serving_channel_auto_beta_refused_without_channel_permission.json
+  s_4cd22983350ba2::t_62a6d6275d3e2c 1-23
+internal/proxy/testdata/golden/serving_channel_auto_efficient_served_on_managed_worker.json
+  s_4cd22983350ba2::t_89171ea89c2aa4 1-210
+internal/proxy/golden_serving_channel_test.go
+  s_4cd22983350ba2::t_699bb85b2d73b1 64-65,67-79
+  s_4cd22983350ba2::t_a387faf516d6d5 56-61,66
+  s_4cd22983350ba2::t_c3bdebc744cddd 1-55,62-63,80-151
+internal/proxy/testdata/golden/serving_channel_auto_beta_served_as_auto_on_beta_worker.json
+  s_4cd22983350ba2::t_6e43a266061f32 1-207
+internal/proxy/testdata/golden/serving_channel_blind_control_arm_keeps_explicit_hmm_model.json
+  s_4cd22983350ba2::t_5a7e90343fd917 1-24
+internal/proxy/testdata/golden/serving_channel_blind_control_arm_serves_control_model_for_auto.json
+  s_4cd22983350ba2::t_4f980f3f7815d5 1-136
+internal/proxy/testdata/golden/serving_channel_auto_beta_case_variant_misdirected_on_stable_worker.json
+  s_4cd22983350ba2::t_f4631fc43cd6f0 1-22
+internal/proxy/testdata/golden/serving_channel_auto_beta_misdirected_on_stable_worker.json
+  s_4cd22983350ba2::t_58fcfc5356d120 1-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "280088a975beb7fd422419710b660975529b9762",
+  "prompts": {},
+  "sessions": {
+    "s_4cd22983350ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "132b2d77-b4ec-4ae3-99d9-a1255f4bbc9e",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": null
+    }
+  }
+}

@@ -1,0 +1,117 @@
+db/migrations/0057_installation-allowed-models.up.sql
+  s_2f40bb97923467::t_5c82b9536bfb64 1-13
+db/migrations/0057_installation-allowed-models.down.sql
+  s_2f40bb97923467::t_6741724ca179d9 1-6
+internal/sqlc/model_router_api_keys.sql.go
+  s_2f40bb97923467::t_e134458f32484d 172
+  s_2f40bb97923467::t_a8430564d66844 105,124
+internal/sqlc/model_router_installations.sql.go
+  s_2f40bb97923467::t_e134458f32484d 75,128,182
+  s_2f40bb97923467::t_a8430564d66844 25,46,81,95,134,143
+  s_2f40bb97923467::t_7af839c0c5052b 219-252
+internal/sqlc/models.go
+  s_2f40bb97923467::t_e134458f32484d 125-126
+internal/proxy/dispatch_error_test.go
+  s_2f40bb97923467::t_6d7896451c3b70 73-85
+  s_2f40bb97923467::t_3c194474fa3df8 71-72
+db/queries/model_router_installations.sql
+  s_2f40bb97923467::t_dd4efedf6b2575 48-59
+internal/proxy/gemini.go
+  s_2f40bb97923467::t_791c601e226aa8 114
+internal/router/cluster/scorer.go
+  s_2f40bb97923467::t_4bf6d82116582c 27-28
+  s_2f40bb97923467::t_a064b8787f7d5b 536-543
+  s_2f40bb97923467::t_388267398e8880 25-26
+  s_2f40bb97923467::t_eba598fb8b0e1d 534-535
+internal/router/router.go
+  s_2f40bb97923467::t_977444a587d6c3 150,154
+  s_2f40bb97923467::t_388267398e8880 151-153
+internal/postgres/converters.go
+  s_2f40bb97923467::t_d4e931a781f6b2 27-30,40
+internal/router/policy/resolver.go
+  s_2f40bb97923467::t_642ad53a7c24fb 261-267
+  s_2f40bb97923467::t_f3ed4d9923340c 39-42
+internal/api/admin/allowed_models.go
+  s_2f40bb97923467::t_1c5eb68a0dbde5 1-83
+internal/auth/service.go
+  s_2f40bb97923467::t_a1ffaf404a39cc 385,390,394-415
+  s_2f40bb97923467::t_abaf13375767c4 384
+  s_2f40bb97923467::t_3bea1e09b08dc4 386-389
+  s_2f40bb97923467::t_cc7c19966b77d8 391-393
+internal/postgres/repository.go
+  s_2f40bb97923467::t_b7e80d2921caf1 113,116,120-135
+  s_2f40bb97923467::t_f7d2170c3f1761 114-115
+  s_2f40bb97923467::t_4e660d5f944b3d 117-119
+internal/proxy/service.go
+  s_2f40bb97923467::t_c526cf659a790a 640-664,678-692
+  s_2f40bb97923467::t_733645e3ee0d48 360-364
+  s_2f40bb97923467::t_f094c580855001 756-765
+  s_2f40bb97923467::t_7fa9d85ff3cc5c 2566
+  s_2f40bb97923467::t_76da315724754a 4972
+  s_2f40bb97923467::t_79cf8a1ca24cbf 744-746
+  s_2f40bb97923467::t_9747741c2096c5 665,669-677,3102
+  s_2f40bb97923467::t_e8e26001596d28 3109
+  s_2f40bb97923467::t_3c194474fa3df8 666-668
+internal/server/middleware/auth.go
+  s_2f40bb97923467::t_339a886e7f18c6 111-113
+internal/auth/service_test.go
+  s_2f40bb97923467::t_ec7b053c055a86 139-140
+  s_2f40bb97923467::t_116a08d3142c43 181-194
+internal/server/middleware/auth_test.go
+  s_2f40bb97923467::t_2022b75a907923 117-120
+internal/proxy/allowlist_internal_test.go
+  s_2f40bb97923467::t_f60dbe2fd28593 1-75,78-126
+  s_2f40bb97923467::t_eba598fb8b0e1d 76-77
+internal/proxy/dispatch_error.go
+  s_2f40bb97923467::t_2b225a05256b8a 302
+  s_2f40bb97923467::t_4037c0ae2358c7 35
+  s_2f40bb97923467::t_0d710145bad0c7 174-184
+internal/proxy/usage_bypass.go
+  s_2f40bb97923467::t_2f39479a017f87 95-99
+  s_2f40bb97923467::t_79cf8a1ca24cbf 92-94
+internal/server/server.go
+  s_2f40bb97923467::t_3419440ead1082 169-170
+internal/auth/installation.go
+  s_2f40bb97923467::t_aaed2e8d84577f 26
+  s_2f40bb97923467::t_17de609ee9d2a0 106
+  s_2f40bb97923467::t_388267398e8880 23-25
+  s_2f40bb97923467::t_eba598fb8b0e1d 104-105
+internal/router/cluster/scorer_test.go
+  s_2f40bb97923467::t_a314cb04a9e54f 1006-1026
+  s_2f40bb97923467::t_3c194474fa3df8 1004-1005
+internal/router/policy/resolver_test.go
+  s_2f40bb97923467::t_fa955f6a7643a2 255,258-302
+  s_2f40bb97923467::t_3c194474fa3df8 256-257
+internal/proxy/usage_bypass_test.go
+  s_2f40bb97923467::t_9c15bf1270d6c7 194-219
+  s_2f40bb97923467::t_79cf8a1ca24cbf 192-193
+internal/proxy/force_model_exclusions.go
+  s_2f40bb97923467::t_6ba1f47585cf4e 42
+  s_2f40bb97923467::t_9747741c2096c5 38-41
+internal/proxy/force_model_exclusions_internal_test.go
+  s_2f40bb97923467::t_55b22089622fb7 402,405
+  s_2f40bb97923467::t_c8d766fafa7547 396,399-401,406-442
+  s_2f40bb97923467::t_3c194474fa3df8 397-398,403-404
+internal/proxy/route_preview.go
+  s_2f40bb97923467::t_9eecdea0892f60 86
+internal/proxy/baseline_internal_test.go
+  s_2f40bb97923467::t_7a6d9e769e5982 4,37,40-50
+  s_2f40bb97923467::t_15272c4ceb974c 51
+  s_2f40bb97923467::t_46c54dd59dced9 38-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "85beb98e74397df6cc4bb32cd68c0a3b7ac42484",
+  "prompts": {},
+  "sessions": {
+    "s_2f40bb97923467": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "94fcecb7-2f4d-43f6-bda6-f33d59ff2276",
+        "model": "qwen/qwen3.8-max"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

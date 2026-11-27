@@ -1,0 +1,20 @@
+CONTRIBUTING.md
+  s_2ee6de3320ea90::t_0ef0fe08603d31 205-209
+  s_2ee6de3320ea90::t_ef0f30cc6bb616 127-150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "252e6897d4e4095f1b4168052b35523612b4707c",
+  "prompts": {},
+  "sessions": {
+    "s_2ee6de3320ea90": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f9231fb4-727b-4e67-adbe-7a4b766e0f0c",
+        "model": "deepseek/deepseek-v4-pro"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

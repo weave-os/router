@@ -1,0 +1,21 @@
+db/migrations/0168_policy-shadow-recipe-columns.up.sql
+  s_04587c8eec3bcb::t_52872d10ead697 1-20
+db/migrations/0168_policy-shadow-recipe-columns.down.sql
+  s_04587c8eec3bcb::t_52872d10ead697 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b85bc4111b7b5637ffa62824e331bcf01e1fa418",
+  "prompts": {},
+  "sessions": {
+    "s_04587c8eec3bcb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af1e22df-7616-4781-bcbf-329fc00bdabb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+internal/credentials/credential_map_test.go
+  s_f697b16075d222::t_cbd33b29b79273 76-77
+internal/dispatch/target_test.go
+  s_f697b16075d222::t_385a451db9fc1c 59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "23b7cb67550616b838e8dac1b0c6de1a87cbad4e",
+  "prompts": {},
+  "sessions": {
+    "s_f697b16075d222": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af654d34-b0a5-4014-82fa-bfb1cbd36748",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "review <r@x>"
+    }
+  }
+}

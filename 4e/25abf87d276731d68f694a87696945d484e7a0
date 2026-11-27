@@ -1,0 +1,19 @@
+cmd/router/beta_channel_admission_test.go
+  s_ce9e4105348e97::t_16c7d6917bdab4 40-43,74,79,86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4e25abf87d276731d68f694a87696945d484e7a0",
+  "prompts": {},
+  "sessions": {
+    "s_ce9e4105348e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee986a83-ba53-41f8-a303-a3237a1c3287",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

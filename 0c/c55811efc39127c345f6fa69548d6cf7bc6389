@@ -1,0 +1,23 @@
+db/queries/billing.sql
+  s_74c9be4d467ec4::t_1156f589339802 211,213
+internal/sqlc/billing.sql.go
+  s_74c9be4d467ec4::t_553dc18974c9b9 28,30,53,55
+internal/postgres/billing_repo_test.go
+  s_74c9be4d467ec4::t_dfec364f26d592 7,33,42,44,46-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0cc55811efc39127c345f6fa69548d6cf7bc6389",
+  "prompts": {},
+  "sessions": {
+    "s_74c9be4d467ec4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c4ef478-774b-4ebc-995e-d3cd2de768ff",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

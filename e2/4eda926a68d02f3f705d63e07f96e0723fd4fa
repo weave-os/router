@@ -1,0 +1,21 @@
+internal/proxy/blind_experiment_internal_test.go
+  s_f697b16075d222::t_9cd70066f873d1 834-866
+internal/server/middleware/upstream_gateway_auth_test.go
+  s_f697b16075d222::t_3b08e6d75431dd 88,176-181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e24eda926a68d02f3f705d63e07f96e0723fd4fa",
+  "prompts": {},
+  "sessions": {
+    "s_f697b16075d222": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af654d34-b0a5-4014-82fa-bfb1cbd36748",
+        "model": "claude-haiku-5-5"
+      },
+      "human_author": "review <r@x>"
+    }
+  }
+}

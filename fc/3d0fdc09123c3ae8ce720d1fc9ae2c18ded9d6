@@ -1,0 +1,28 @@
+CLAUDE.md
+  s_a5fffe734a3fbc::t_5dd75abdb7156f 31-32,35-38
+  s_a5fffe734a3fbc::t_547a3d30a5c4a8 28-30,33-34,39
+.agents/skills/test-harness-integration/SKILL.md
+  s_a5fffe734a3fbc::t_5dd75abdb7156f 10-11
+  s_a5fffe734a3fbc::t_547a3d30a5c4a8 1-2,4-9,12-36,42-46,75-96,186-196,203-234,238-241
+  s_a5fffe734a3fbc::t_1a064ce7b554ba 197-202
+  s_a5fffe734a3fbc::t_39727ea5eb992d 3,37-41,47-74,97-185,235-237
+AGENTS.md
+  s_a5fffe734a3fbc::t_5dd75abdb7156f 31-32,35-38
+  s_a5fffe734a3fbc::t_547a3d30a5c4a8 28-30,33-34,39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fc3d0fdc09123c3ae8ce720d1fc9ae2c18ded9d6",
+  "prompts": {},
+  "sessions": {
+    "s_a5fffe734a3fbc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1db80-a263-7d50-9b91-9b6daa3811db",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

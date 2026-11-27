@@ -1,0 +1,29 @@
+internal/proxy/dispatch_error.go
+  s_296c123684759c::t_c33983492ae2f4 55,198-206
+internal/proxy/dispatch_error_test.go
+  s_296c123684759c::t_33a3904baf0646 59
+internal/proxy/failure_owner.go
+  s_296c123684759c::t_8e27a3501c1554 116
+internal/proxy/managed_subscriptions.go
+  s_296c123684759c::t_3bc471c183478e 6,71,86-88,458,497-505
+internal/proxy/subscription_funding.go
+  s_296c123684759c::t_0f3a6c40970800 142,154-157,160-162,300-311
+internal/proxy/subscription_throttle_internal_test.go
+  s_296c123684759c::t_4205650a33b6d3 1-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "759071643978a0f1afdba02e8222eab8253c73c5",
+  "prompts": {},
+  "sessions": {
+    "s_296c123684759c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "54b4bd91-187b-4039-9096-ade788ad7e52",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
