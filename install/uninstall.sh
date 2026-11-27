@@ -827,7 +827,8 @@ strip_codex_block() {
     skip        { next }
     /^[[:space:]]*\[/ {
       in_section = 1
-      if ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/) {
+      if ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/ \
+          || $0 ~ /^[[:space:]]*\[[[:space:]]*(model_providers|profiles)[[:space:]]*\.[[:space:]]*"?weave-beta"?[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/) {
         in_weave_provider = 1
         next
       }
@@ -1458,6 +1459,7 @@ else
 fi
 
 skip_if_not_installed "$settings_file" 'ANTHROPIC_BASE_URL|Weave Router|cc-statusline' \
+  "$(dirname "$settings_file")/weave-beta.json" \
   "$(dirname "$settings_file")/.weave-parked.json" "$(dirname "$settings_file")/.weave-context-window.json" "$statusline_file"
 statusline_file_owned="false"
 statusline_setting_owned="false"
@@ -1534,6 +1536,31 @@ if [ -n "$local_settings_file" ] && [ -f "$local_settings_file" ]; then
   ' "$local_settings_file")"
   printf '%s\n' "$cleaned" >"$local_settings_file"
   ok "Cleaned $local_settings_file"
+fi
+
+# Beta channel assets: weave-beta.json (carries the router key), the
+# `beta on` sidecar, and the claude-beta launcher when it is ours.
+for beta_asset in "$(dirname "$settings_file")/weave-beta.json" "$(dirname "$settings_file")/.weave-beta-switch.json"; do
+  # rm -f removes a symlink itself, never its target, so a linked file cannot
+  # stop the cleanup of the key-bearing files that follow.
+  if [ "${beta_asset##*/}" = "weave-beta.json" ] && [ -f "$beta_asset" ] && [ ! -L "$beta_asset" ] \
+      && ! jq -e '(keys == ["env"]) and (.env | keys - ["ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS",
+            "ENABLE_TOOL_SEARCH", "CLAUDE_CODE_AUTO_MODE_SERVER", "WEAVE_ROUTER_BETA_URL"] | length == 0)' "$beta_asset" >/dev/null 2>&1; then
+    warn "Leaving user-owned $beta_asset untouched."
+  elif [ -f "$beta_asset" ] || [ -L "$beta_asset" ]; then
+    rm -f "$beta_asset"
+    ok "Removed $beta_asset"
+  fi
+done
+beta_launcher="$(dirname "$(dirname "$settings_file")")/.weave/bin/claude-beta"
+if [ -f "$beta_launcher" ]; then
+  refuse_if_symlink "$beta_launcher"
+  if grep -Fq "# Weave Router beta launcher." "$beta_launcher"; then
+    rm -f "$beta_launcher"
+    ok "Removed $beta_launcher"
+  else
+    warn "Leaving user-owned $beta_launcher untouched."
+  fi
 fi
 
 # Drop the toggle parked sidecar (carries the router key header when off).
