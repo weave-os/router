@@ -7,7 +7,7 @@ export interface ModelPricing {
 	cacheReadMultiplier: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:0d33dc4d29fa3947";
+export const PRICING_VERSION = "catalog-sha256:02124320efe77d8b";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50, cacheReadMultiplier: 0.1 },
@@ -46,8 +46,8 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"gemini-3.6-flash": { inputUsdPerMillion: 1.5, outputUsdPerMillion: 7.5, cacheReadMultiplier: 0.1 },
 	"gemini-3.7-flash": { inputUsdPerMillion: 1.5, outputUsdPerMillion: 7.5, cacheReadMultiplier: 0.1 },
 	"gemini-3.8-flash": { inputUsdPerMillion: 1.5, outputUsdPerMillion: 7.5, cacheReadMultiplier: 0.1 },
-	"gemini-4-argon": { inputUsdPerMillion: 2, outputUsdPerMillion: 10, cacheReadMultiplier: 0.1 },
-	"gemini-4-carbon": { inputUsdPerMillion: 2, outputUsdPerMillion: 10, cacheReadMultiplier: 0.05 },
+	"gemini-4-argon": { inputUsdPerMillion: 4, outputUsdPerMillion: 20, cacheReadMultiplier: 0.1 },
+	"gemini-4-carbon": { inputUsdPerMillion: 4, outputUsdPerMillion: 20, cacheReadMultiplier: 0.05 },
 	"gemini-4-hydrogen": { inputUsdPerMillion: 1.5, outputUsdPerMillion: 7.5, cacheReadMultiplier: 0.05 },
 	"gemini-4-neon": { inputUsdPerMillion: 3, outputUsdPerMillion: 15, cacheReadMultiplier: 0.05 },
 	"google/gemma-4-26b-a4b-it": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 0.6, cacheReadMultiplier: 0.1 },
