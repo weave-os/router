@@ -39,21 +39,19 @@ func (s APIKeyScope) TokenPrefix() string {
 }
 
 type APIKey struct {
-	ID                  string
-	InstallationID      string
-	ExternalID          string
-	Name                *string
-	KeyPrefix           string
-	KeyHash             string
-	KeySuffix           string
-	Scope               APIKeyScope
-	LastUsedAt          *time.Time
-	CreatedAt           time.Time
-	DeletedAt           *time.Time
-	CreatedBy           *string
-	CredentialSubjectID string
-	// FundingSubjectID is the person whose subscription allowance a shared
-	// key spends. Empty means no subscription allowance covers the key.
+	ID                                string
+	InstallationID                    string
+	ExternalID                        string
+	Name                              *string
+	KeyPrefix                         string
+	KeyHash                           string
+	KeySuffix                         string
+	Scope                             APIKeyScope
+	LastUsedAt                        *time.Time
+	CreatedAt                         time.Time
+	DeletedAt                         *time.Time
+	CreatedBy                         *string
+	CredentialSubjectID               string
 	FundingSubjectID                  string
 	Harness                           string
 	PaidFallbackOnSubscriptionRefusal bool

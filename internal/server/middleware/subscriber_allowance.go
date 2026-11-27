@@ -74,9 +74,6 @@ func subscriberAllowanceCovers(c *gin.Context) bool {
 	return false
 }
 
-// allowanceSubscriber is the one person whose allowance funds the request. A
-// shared key spends its funding subject's allowance rather than a separate
-// installation pool, so nobody holds more than one allowance.
 func allowanceSubscriber(c *gin.Context) entitlement.SubscriberID {
 	if owner := SubscriptionOwnerFrom(c); owner.SubscriberID != "" {
 		return entitlement.SubscriberID(owner.SubscriberID)
