@@ -107,3 +107,16 @@ func TestToAuthInstallationSubscriptionStateModelsDisabledIgnoresLegacyLists(t *
 	assert.Empty(t, inst.ModelsWhenSubscriptionActive)
 	assert.Empty(t, inst.ModelsWhenSubscriptionInactive)
 }
+
+func TestToAuthAPIKeyFundingSubject(t *testing.T) {
+	fundingSubjectID := uuid.New()
+	funded := toAuthAPIKey(sqlc.RouterModelRouterAPIKey{
+		ID:               uuid.New(),
+		InstallationID:   uuid.New(),
+		FundingSubjectID: pgtype.UUID{Bytes: fundingSubjectID, Valid: true},
+	})
+	assert.Equal(t, fundingSubjectID.String(), funded.FundingSubjectID)
+
+	unfunded := toAuthAPIKey(sqlc.RouterModelRouterAPIKey{ID: uuid.New(), InstallationID: uuid.New()})
+	assert.Empty(t, unfunded.FundingSubjectID)
+}

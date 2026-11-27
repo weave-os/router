@@ -546,15 +546,17 @@ func TestWithSubscriberAllowance_StampsSpentWindow(t *testing.T) {
 	}
 }
 
-func runPoolAllowanceMiddleware(t *testing.T, entitlements *stubEntitlements, prepare func(context.Context) context.Context) (bool, entitlement.Coverage) {
+const poolSubscriberID = "44444444-4444-4444-4444-444444444444"
+
+func runSharedKeyAllowanceMiddleware(t *testing.T, entitlements *stubEntitlements, apiKey *auth.APIKey, prepare func(context.Context) context.Context) (bool, entitlement.Coverage) {
 	t.Helper()
 	svc := entitlement.NewService(entitlements, &stubAllowances{}).WithClock(func() time.Time { return allowanceNow })
 	reached := false
 	var observed entitlement.Coverage
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
-		c.Set("router_api_key", &auth.APIKey{ID: "33333333-3333-3333-3333-333333333333"})
-		c.Set("router_installation", &auth.Installation{ID: "installation", PoolSubjectID: allowanceSubscriberID})
+		c.Set("router_api_key", apiKey)
+		c.Set("router_installation", &auth.Installation{ID: "installation", PoolSubjectID: poolSubscriberID})
 		c.Request = c.Request.WithContext(prepare(c.Request.Context()))
 		middleware.WithSubscriberAllowance(svc, credentials.RequestPresentsCoveringSubscription)(c)
 		if c.IsAborted() {
@@ -568,16 +570,36 @@ func runPoolAllowanceMiddleware(t *testing.T, entitlements *stubEntitlements, pr
 	return reached, observed
 }
 
-func TestWithSubscriberAllowance_OwnerlessKeyUsesInstallationPool(t *testing.T) {
+// A shared key spends the allowance of the person it was issued under, so one
+// person holds a single allowance however many keys they create.
+func TestWithSubscriberAllowance_SharedKeyUsesFundingSubject(t *testing.T) {
 	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
-	reached, coverage := runPoolAllowanceMiddleware(t, entitlements, func(ctx context.Context) context.Context { return ctx })
+	sharedKey := &auth.APIKey{ID: "33333333-3333-3333-3333-333333333333", FundingSubjectID: allowanceSubscriberID}
+	reached, coverage := runSharedKeyAllowanceMiddleware(t, entitlements, sharedKey, func(ctx context.Context) context.Context { return ctx })
 	require.True(t, reached)
 	assert.Equal(t, entitlement.SubscriberID(allowanceSubscriberID), coverage.SubscriberID)
 }
 
-func TestWithSubscriberAllowance_InternalTestIgnoresInstallationPool(t *testing.T) {
+// The installation pool no longer funds anything: a shared key with no
+// funding subject is not covered by any subscription allowance.
+func TestWithSubscriberAllowance_SharedKeyWithoutFundingSubjectIgnoresInstallationPool(t *testing.T) {
+	var observed []entitlement.SubscriberID
+	entitlements := &stubEntitlements{
+		current: activeSubscriberEntitlement(),
+		found:   true,
+		observe: func(subscriberID entitlement.SubscriberID) { observed = append(observed, subscriberID) },
+	}
+	sharedKey := &auth.APIKey{ID: "33333333-3333-3333-3333-333333333333"}
+	reached, coverage := runSharedKeyAllowanceMiddleware(t, entitlements, sharedKey, func(ctx context.Context) context.Context { return ctx })
+	require.True(t, reached)
+	assert.Empty(t, coverage.SubscriberID)
+	assert.Empty(t, observed)
+}
+
+func TestWithSubscriberAllowance_InternalTestIgnoresFundingSubject(t *testing.T) {
 	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
-	reached, coverage := runPoolAllowanceMiddleware(t, entitlements, func(ctx context.Context) context.Context {
+	sharedKey := &auth.APIKey{ID: "33333333-3333-3333-3333-333333333333", FundingSubjectID: allowanceSubscriberID}
+	reached, coverage := runSharedKeyAllowanceMiddleware(t, entitlements, sharedKey, func(ctx context.Context) context.Context {
 		return requestcontext.WithInternalTestIdentity(ctx, requestcontext.InternalTestIdentity{SubjectID: "subject", SessionID: "session"})
 	})
 	require.True(t, reached)
