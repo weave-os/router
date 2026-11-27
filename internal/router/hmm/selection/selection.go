@@ -64,7 +64,10 @@ func SelectGroupsWithDomainPreferences(
 	return selectGroups(roster, groups, harness, "", candidates, qualityBias, preferredModels, evidence, profile)
 }
 
-const NoSubscriptionLadder = "none"
+const (
+	NoSubscriptionLadder    = "none"
+	BothSubscriptionsLadder = "both"
+)
 
 func SelectGroupsWithSubscriptions(
 	roster *rosterdata.Roster,
@@ -83,7 +86,15 @@ func SelectGroupsWithSubscriptions(
 	if len(subscriptionProviders) == 0 {
 		return selectGroups(roster, groups, harness, NoSubscriptionLadder, candidates, qualityBias, preferredModels, evidence, profile)
 	}
-	return selectGroups(roster, groups, harness, SubscriptionLadderProvider(harness, subscriptionProviders), candidates, qualityBias, preferredModels, evidence, profile)
+	return selectGroups(roster, groups, harness, subscriptionLadder(roster, harness, subscriptionProviders), candidates, qualityBias, preferredModels, evidence, profile)
+}
+
+func subscriptionLadder(roster *rosterdata.Roster, harness string, subscriptionProviders []string) string {
+	_, hasBothLadder := roster.SubscriptionLadders[BothSubscriptionsLadder]
+	if hasBothLadder && slices.Contains(subscriptionProviders, providers.ProviderAnthropic) && slices.Contains(subscriptionProviders, providers.ProviderOpenAI) {
+		return BothSubscriptionsLadder
+	}
+	return SubscriptionLadderProvider(harness, subscriptionProviders)
 }
 
 func SubscriptionLadderProvider(harness string, subscriptionProviders []string) string {
