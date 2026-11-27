@@ -108,6 +108,136 @@
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
 
+# ---------- release signing key ----------
+#
+# PLACEHOLDER — release signing key is installed by the release pipeline.
+# Verify-only RSA-2048 public key (SPKI PEM) for install/MANIFEST.sig.b64,
+# the signature over install/MANIFEST. Fetched code is admitted only when
+# MANIFEST verifies under this key and the body's SHA-256 matches its row.
+# Nobody holds the private half of the placeholder, so until the pipeline
+# stamps the real key every verification fails closed. See
+# install/RELEASE_SIGNING.md.
+IFS= read -r -d '' WEAVE_RELEASE_PUBKEY_PEM <<'WEAVE_RELEASE_PUBKEY_EOF' || true
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqGz9B3LhWVSNpBZ1cck6
+EGUcKmUuAickojEl+En+d2ZtcD3pl63A3Yk0CpfpsFd0TF1/ALseyfNfkYRXl6B1
+CZJcbJ8+MTSM4XzCNp3ELLwPqDmVGd0xGnB4e6aTYi63DJrUC5q9gmn5lLQLM1NW
+AWPzXlOH/+goGDRcycuqjZxdpAhdsPKbkzCquEmdsT2/ftbqskcmAOTMwWsKR5Tf
+GH3LCbInZUgVi64Y5wqgMy3jlooPAVZXa5GqwOgV2fXwWT+UJRf4MKtx80DzWhGk
+E56DB1TSwErC9jp6jTWqKgdcdgMBTykjN58gD/7AIDbUhcgdIx9+tF6yoezyjuoE
+jQIDAQAB
+-----END PUBLIC KEY-----
+WEAVE_RELEASE_PUBKEY_EOF
+
+# ---------- release manifest verification ----------
+#
+# Shared by every fetched-code path: a downloaded body may replace an
+# installed file only after weave_verify_manifest accepts the fetched MANIFEST
+# and weave_verify_file matches the body against that MANIFEST's row. These
+# helpers are duplicated verbatim in cc-statusline.sh, codex-status.sh and
+# install.sh (and the copies install.sh embeds); keep them identical.
+#
+# They add the first openssl call to the installed statusline and Codex hook;
+# before this only install.sh needed openssl. Both return 0 when verified,
+# 1 when verification fails, and WEAVE_VERIFY_UNAVAILABLE (2) when openssl or
+# a SHA-256 tool is missing. Callers refuse the swap on any non-zero status,
+# so a machine without openssl never auto-updates (fail closed);
+# WEAVE_STATUSLINE_UPDATE=0 remains the way to turn the refresh off.
+WEAVE_VERIFY_UNAVAILABLE=2
+
+# weave_verify_manifest <manifest> <sig.b64> <pubkey-pem>
+# Checks the base64 RSA/SHA-256 signature in <sig.b64> over <manifest> with
+# `openssl dgst -sha256 -verify`, using the PEM text in <pubkey-pem>.
+weave_verify_manifest() {
+  local manifest="${1:-}" sig_b64="${2:-}" pubkey_pem="${3:-}" dir out rc=1
+  command -v openssl >/dev/null 2>&1 || return "$WEAVE_VERIFY_UNAVAILABLE"
+  [[ -f "$manifest" && -s "$manifest" && -f "$sig_b64" && -s "$sig_b64" ]] || return 1
+  [[ "$pubkey_pem" == *"-----BEGIN PUBLIC KEY-----"* ]] || return 1
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/weave-verify.XXXXXX")" || return 1
+  if printf '%s\n' "$pubkey_pem" >"$dir/pub.pem" \
+     && tr -d ' \t\r\n' <"$sig_b64" >"$dir/sig.b64" \
+     && [[ -s "$dir/sig.b64" ]] \
+     && openssl base64 -d -A -in "$dir/sig.b64" -out "$dir/sig" 2>/dev/null \
+     && [[ -s "$dir/sig" ]]; then
+    if out="$(openssl dgst -sha256 -verify "$dir/pub.pem" -signature "$dir/sig" "$manifest" 2>/dev/null)" \
+       && [[ "$out" == "Verified OK" ]]; then
+      rc=0
+    fi
+  fi
+  rm -rf "$dir"
+  return "$rc"
+}
+
+# weave_sha256 <file>: print the lowercase hex SHA-256 of <file>.
+weave_sha256() {
+  local out
+  if command -v sha256sum >/dev/null 2>&1; then
+    out="$(sha256sum <"$1")" || return 1
+  elif command -v shasum >/dev/null 2>&1; then
+    out="$(shasum -a 256 <"$1")" || return 1
+  else
+    return "$WEAVE_VERIFY_UNAVAILABLE"
+  fi
+  printf '%s\n' "${out%% *}"
+}
+
+# weave_verify_file <manifest> <path-in-manifest> <candidate>
+# Succeeds only when <manifest> has exactly one well-formed row for
+# <path-in-manifest> (e.g. install/cc-statusline.sh) and its digest equals the
+# SHA-256 of <candidate>. Call only after weave_verify_manifest accepted
+# <manifest>.
+weave_verify_file() {
+  local manifest="${1:-}" path_in_manifest="${2:-}" candidate="${3:-}" rows got rc
+  [[ -n "$path_in_manifest" && -f "$manifest" && -f "$candidate" ]] || return 1
+  rows="$(awk -v n="$path_in_manifest" 'NF == 2 && $2 == n { print $1 }' "$manifest")" || return 1
+  [[ "$rows" =~ ^[0-9a-f]{64}$ ]] || return 1
+  got="$(weave_sha256 "$candidate")" && rc=0 || rc=$?
+  [[ "$rc" -eq 0 ]] || return "$rc"
+  [[ "$got" =~ ^[0-9a-f]{64}$ && "$got" == "$rows" ]]
+}
+
+# ---------- unsigned self-hoster opt-in ----------
+#
+# WEAVE_STATUSLINE_TRUST_UNSIGNED=1 lets a self-hoster fork that serves its own
+# copies skip the signed-manifest check, so the fork does not need a signing
+# pipeline of its own. It is honored only for a source URL the user overrode
+# to a host other than raw.githubusercontent.com; the default publisher always
+# verifies. It provides no security property: a tampered replacement can
+# remove this gate along with everything else. These helpers are duplicated
+# verbatim in cc-statusline.sh, codex-status.sh and install.sh (and the copies
+# install.sh embeds); keep them identical.
+WEAVE_TRUST_UNSIGNED_WARNING='WEAVE_STATUSLINE_TRUST_UNSIGNED=1: skipping signature verification. This is advisory only — a tampered replacement script can remove this gate. The real trust boundary is the signed manifest on the default publisher.'
+
+# weave_trust_unsigned <url>: succeeds when WEAVE_STATUSLINE_TRUST_UNSIGNED=1
+# and <url>'s host is set and is not the default publisher.
+weave_trust_unsigned() {
+  [ "${WEAVE_STATUSLINE_TRUST_UNSIGNED:-}" = "1" ] || return 1
+  local host="${1:-}"
+  [ -n "$host" ] || return 1
+  case "$host" in
+    *://*) host="${host#*://}" ;;
+  esac
+  host="${host%%[/?#]*}"
+  host="${host##*@}"
+  host="${host%%:*}"
+  host="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
+  host="${host%.}"
+  [ "$host" != "raw.githubusercontent.com" ]
+}
+
+# weave_warn_trust_unsigned <url>...: prints WEAVE_TRUST_UNSIGNED_WARNING to
+# stderr once when any <url> is trusted unsigned.
+weave_warn_trust_unsigned() {
+  local url
+  for url in "$@"; do
+    if weave_trust_unsigned "$url"; then
+      printf '%s\n' "$WEAVE_TRUST_UNSIGNED_WARNING" >&2
+      return 0
+    fi
+  done
+  return 0
+}
+
 # ---------- defaults ----------
 
 # The public hosted Weave Router URL. Override with --base-url for self-hosted.
@@ -1662,7 +1792,29 @@ EOF
 # Resolution order for the uninstall script:
 #   1. Sibling file next to install.sh on disk (npm tarball / git checkout).
 #   2. WEAVE_UNINSTALL_URL override (self-hosters who fork).
-#   3. Default: raw.githubusercontent.com canonical copy (curl|sh path).
+#   3. Default (curl|sh path): uninstall.sh from the newest signed release
+#      tag, found the same way as the statusline self-refresh (the
+#      WEAVE_RELEASE_TAG line of cc-statusline.sh on main), never from main.
+# A fetched body runs only after the MANIFEST beside it verifies under the
+# embedded key and its SHA-256 matches the install/uninstall.sh row. Any
+# failure exits without running anything and points at the bundled
+# uninstaller (`npx @weave-os/router --uninstall`). WEAVE_STATUSLINE_TRUST_UNSIGNED=1
+# skips verification only for a WEAVE_UNINSTALL_URL on another host.
+#
+# Fetched-code surfaces. Every path under install/ that downloads bytes and
+# runs them, or writes them where a later run executes them, is listed here and
+# carries a matching "Fetched-code surface N" comment at its fetch site:
+#   1. cc-statusline.sh weave_self_refresh: replaces the statusline script
+#      (also reached off-schedule through weave_refresh_on_price_miss).
+#   2. cc-statusline.sh weave_sync_commands: rewrites .claude/commands/*.md.
+#   3. codex-status.sh weave_self_refresh: replaces the Codex lifecycle hook.
+#   4. The fetched uninstaller below: `exec bash -c` on the downloaded body.
+# Each verifies its download against the signed MANIFEST before using it.
+# This file embeds 1-3 verbatim in its heredocs. uninstall.sh downloads no
+# code; its BASH_EXECUTION_STRING re-run reuses the body fetched by 4. npm's
+# bin.js runs only the scripts bundled beside it. Every other download is data
+# parsed by jq, or the jq binary pinned by SHA-256 in ensure_jq. A new path
+# that runs downloaded bytes belongs on this list and must verify them first.
 for arg in "$@"; do
   if [ "$arg" = "--uninstall" ]; then
     cleaned_args=()
@@ -1678,17 +1830,55 @@ for arg in "$@"; do
       fi
     fi
 
+    # Fetched-code surface 4: the downloaded body runs only after the MANIFEST
+    # beside it verifies under the embedded key and the body's SHA-256 matches
+    # its install/uninstall.sh row; the `#!` prefix check stays as a belt.
     require_cmd curl "https://curl.se"
-    url="${WEAVE_UNINSTALL_URL:-https://raw.githubusercontent.com/weave-os/router/main/install/uninstall.sh}"
-    # Pull the body into memory and exec via `bash -c` so we never touch
-    # disk: `exec` replaces this process, so any temp file we wrote would
-    # outlive the EXIT trap and leak indefinitely. Loading into a variable
-    # also gives us a chance to fail closed on 404 HTML pages before
-    # handing the content to bash.
-    if ! uninstall_body="$(curl -fsSL --max-time 30 "$url" 2>/dev/null)"; then
+    uninstall_fallback="Run \`npx @weave-os/router --uninstall\` instead; it uses the uninstaller bundled with the package."
+    uninstall_repo_url="https://raw.githubusercontent.com/weave-os/router"
+    if ! uninstall_tmp="$(mktemp -d "${TMPDIR:-/tmp}/weave-uninstall.XXXXXX")"; then
+      err "Could not create a temporary directory for the uninstaller."
+      exit 1
+    fi
+    uninstall_unsigned=0
+    if [ -n "${WEAVE_UNINSTALL_URL:-}" ]; then
+      url="$WEAVE_UNINSTALL_URL"
+      weave_trust_unsigned "$url" && uninstall_unsigned=1
+    else
+      release_tag=""
+      if curl -fsSL --max-time 30 "$uninstall_repo_url/main/install/cc-statusline.sh" \
+           -o "$uninstall_tmp/channel" 2>/dev/null; then
+        release_tag="$(sed -n 's/^WEAVE_RELEASE_TAG="\(router-v[0-9.]*\)"$/\1/p' "$uninstall_tmp/channel" | head -n 1)"
+      fi
+      if ! [[ "$release_tag" =~ ^router-v[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$ ]]; then
+        rm -rf "$uninstall_tmp"
+        err "Could not determine the current signed release from $uninstall_repo_url."
+        err "$uninstall_fallback"
+        exit 1
+      fi
+      url="$uninstall_repo_url/$release_tag/install/uninstall.sh"
+    fi
+    # The body is read back into memory and the temp dir removed before
+    # `exec bash -c`: `exec` replaces this process, so anything left on disk
+    # would outlive the EXIT trap and leak indefinitely.
+    if ! curl -fsSL --max-time 30 "$url" -o "$uninstall_tmp/uninstall.sh" 2>/dev/null; then
+      rm -rf "$uninstall_tmp"
       err "Failed to fetch uninstall.sh from $url."
       exit 1
     fi
+    if [ "$uninstall_unsigned" = "1" ]; then
+      printf '%s\n' "$WEAVE_TRUST_UNSIGNED_WARNING" >&2
+    elif ! curl -fsSL --max-time 30 "${url%/*}/MANIFEST" -o "$uninstall_tmp/MANIFEST" 2>/dev/null \
+         || ! curl -fsSL --max-time 30 "${url%/*}/MANIFEST.sig.b64" -o "$uninstall_tmp/MANIFEST.sig.b64" 2>/dev/null \
+         || ! weave_verify_manifest "$uninstall_tmp/MANIFEST" "$uninstall_tmp/MANIFEST.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" \
+         || ! weave_verify_file "$uninstall_tmp/MANIFEST" "install/uninstall.sh" "$uninstall_tmp/uninstall.sh"; then
+      rm -rf "$uninstall_tmp"
+      err "Refusing to run uninstall.sh from $url: it does not match a release manifest signed with the embedded key."
+      err "$uninstall_fallback"
+      exit 1
+    fi
+    uninstall_body="$(cat "$uninstall_tmp/uninstall.sh")" || uninstall_body=""
+    rm -rf "$uninstall_tmp"
     if [ -z "$uninstall_body" ] || [ "${uninstall_body:0:2}" != "#!" ]; then
       err "Fetched content from $url doesn't look like a bash script."
       exit 1
@@ -5611,6 +5801,175 @@ install_codex_status_script() {
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
 
+# ---------- release signing key ----------
+#
+# PLACEHOLDER — release signing key is installed by the release pipeline.
+# Verify-only RSA-2048 public key (SPKI PEM) for install/MANIFEST.sig.b64,
+# the signature over install/MANIFEST. Fetched code is admitted only when
+# MANIFEST verifies under this key and the body's SHA-256 matches its row.
+# Nobody holds the private half of the placeholder, so until the pipeline
+# stamps the real key every verification fails closed. See
+# install/RELEASE_SIGNING.md.
+IFS= read -r -d '' WEAVE_RELEASE_PUBKEY_PEM <<'WEAVE_RELEASE_PUBKEY_EOF' || true
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqGz9B3LhWVSNpBZ1cck6
+EGUcKmUuAickojEl+En+d2ZtcD3pl63A3Yk0CpfpsFd0TF1/ALseyfNfkYRXl6B1
+CZJcbJ8+MTSM4XzCNp3ELLwPqDmVGd0xGnB4e6aTYi63DJrUC5q9gmn5lLQLM1NW
+AWPzXlOH/+goGDRcycuqjZxdpAhdsPKbkzCquEmdsT2/ftbqskcmAOTMwWsKR5Tf
+GH3LCbInZUgVi64Y5wqgMy3jlooPAVZXa5GqwOgV2fXwWT+UJRf4MKtx80DzWhGk
+E56DB1TSwErC9jp6jTWqKgdcdgMBTykjN58gD/7AIDbUhcgdIx9+tF6yoezyjuoE
+jQIDAQAB
+-----END PUBLIC KEY-----
+WEAVE_RELEASE_PUBKEY_EOF
+
+# ---------- release manifest verification ----------
+#
+# Shared by every fetched-code path: a downloaded body may replace an
+# installed file only after weave_verify_manifest accepts the fetched MANIFEST
+# and weave_verify_file matches the body against that MANIFEST's row. These
+# helpers are duplicated verbatim in cc-statusline.sh, codex-status.sh and
+# install.sh (and the copies install.sh embeds); keep them identical.
+#
+# They add the first openssl call to the installed statusline and Codex hook;
+# before this only install.sh needed openssl. Both return 0 when verified,
+# 1 when verification fails, and WEAVE_VERIFY_UNAVAILABLE (2) when openssl or
+# a SHA-256 tool is missing. Callers refuse the swap on any non-zero status,
+# so a machine without openssl never auto-updates (fail closed);
+# WEAVE_STATUSLINE_UPDATE=0 remains the way to turn the refresh off.
+WEAVE_VERIFY_UNAVAILABLE=2
+
+# weave_verify_manifest <manifest> <sig.b64> <pubkey-pem>
+# Checks the base64 RSA/SHA-256 signature in <sig.b64> over <manifest> with
+# `openssl dgst -sha256 -verify`, using the PEM text in <pubkey-pem>.
+weave_verify_manifest() {
+  local manifest="${1:-}" sig_b64="${2:-}" pubkey_pem="${3:-}" dir out rc=1
+  command -v openssl >/dev/null 2>&1 || return "$WEAVE_VERIFY_UNAVAILABLE"
+  [[ -f "$manifest" && -s "$manifest" && -f "$sig_b64" && -s "$sig_b64" ]] || return 1
+  [[ "$pubkey_pem" == *"-----BEGIN PUBLIC KEY-----"* ]] || return 1
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/weave-verify.XXXXXX")" || return 1
+  if printf '%s\n' "$pubkey_pem" >"$dir/pub.pem" \
+     && tr -d ' \t\r\n' <"$sig_b64" >"$dir/sig.b64" \
+     && [[ -s "$dir/sig.b64" ]] \
+     && openssl base64 -d -A -in "$dir/sig.b64" -out "$dir/sig" 2>/dev/null \
+     && [[ -s "$dir/sig" ]]; then
+    if out="$(openssl dgst -sha256 -verify "$dir/pub.pem" -signature "$dir/sig" "$manifest" 2>/dev/null)" \
+       && [[ "$out" == "Verified OK" ]]; then
+      rc=0
+    fi
+  fi
+  rm -rf "$dir"
+  return "$rc"
+}
+
+# weave_sha256 <file>: print the lowercase hex SHA-256 of <file>.
+weave_sha256() {
+  local out
+  if command -v sha256sum >/dev/null 2>&1; then
+    out="$(sha256sum <"$1")" || return 1
+  elif command -v shasum >/dev/null 2>&1; then
+    out="$(shasum -a 256 <"$1")" || return 1
+  else
+    return "$WEAVE_VERIFY_UNAVAILABLE"
+  fi
+  printf '%s\n' "${out%% *}"
+}
+
+# weave_verify_file <manifest> <path-in-manifest> <candidate>
+# Succeeds only when <manifest> has exactly one well-formed row for
+# <path-in-manifest> (e.g. install/cc-statusline.sh) and its digest equals the
+# SHA-256 of <candidate>. Call only after weave_verify_manifest accepted
+# <manifest>.
+weave_verify_file() {
+  local manifest="${1:-}" path_in_manifest="${2:-}" candidate="${3:-}" rows got rc
+  [[ -n "$path_in_manifest" && -f "$manifest" && -f "$candidate" ]] || return 1
+  rows="$(awk -v n="$path_in_manifest" 'NF == 2 && $2 == n { print $1 }' "$manifest")" || return 1
+  [[ "$rows" =~ ^[0-9a-f]{64}$ ]] || return 1
+  got="$(weave_sha256 "$candidate")" && rc=0 || rc=$?
+  [[ "$rc" -eq 0 ]] || return "$rc"
+  [[ "$got" =~ ^[0-9a-f]{64}$ && "$got" == "$rows" ]]
+}
+
+# ---------- unsigned self-hoster opt-in ----------
+#
+# WEAVE_STATUSLINE_TRUST_UNSIGNED=1 lets a self-hoster fork that serves its own
+# copies skip the signed-manifest check, so the fork does not need a signing
+# pipeline of its own. It is honored only for a source URL the user overrode
+# to a host other than raw.githubusercontent.com; the default publisher always
+# verifies. It provides no security property: a tampered replacement can
+# remove this gate along with everything else. These helpers are duplicated
+# verbatim in cc-statusline.sh, codex-status.sh and install.sh (and the copies
+# install.sh embeds); keep them identical.
+WEAVE_TRUST_UNSIGNED_WARNING='WEAVE_STATUSLINE_TRUST_UNSIGNED=1: skipping signature verification. This is advisory only — a tampered replacement script can remove this gate. The real trust boundary is the signed manifest on the default publisher.'
+
+# weave_trust_unsigned <url>: succeeds when WEAVE_STATUSLINE_TRUST_UNSIGNED=1
+# and <url>'s host is set and is not the default publisher.
+weave_trust_unsigned() {
+  [ "${WEAVE_STATUSLINE_TRUST_UNSIGNED:-}" = "1" ] || return 1
+  local host="${1:-}"
+  [ -n "$host" ] || return 1
+  case "$host" in
+    *://*) host="${host#*://}" ;;
+  esac
+  host="${host%%[/?#]*}"
+  host="${host##*@}"
+  host="${host%%:*}"
+  host="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
+  host="${host%.}"
+  [ "$host" != "raw.githubusercontent.com" ]
+}
+
+# weave_warn_trust_unsigned <url>...: prints WEAVE_TRUST_UNSIGNED_WARNING to
+# stderr once when any <url> is trusted unsigned.
+weave_warn_trust_unsigned() {
+  local url
+  for url in "$@"; do
+    if weave_trust_unsigned "$url"; then
+      printf '%s\n' "$WEAVE_TRUST_UNSIGNED_WARNING" >&2
+      return 0
+    fi
+  done
+  return 0
+}
+
+# ---------- pinned release source ----------
+#
+# The self-refresh downloads only from an immutable release tag, never from a
+# mutable branch. WEAVE_RELEASE_TAG is the release this copy belongs to and is
+# stamped by the release pipeline. The copy on main carries the newest signed
+# release's tag, so a refresh reads that line from main to learn which tag to
+# fetch, refuses any tag that is not strictly newer than its own (no
+# downgrades), and then downloads MANIFEST, MANIFEST.sig.b64 and the script
+# from that tag. The tag only picks where to download from; the signature over
+# MANIFEST is the trust boundary. See install/RELEASE_SIGNING.md.
+WEAVE_RELEASE_TAG="router-v0.2.39"
+WEAVE_RELEASE_REPO_URL="https://raw.githubusercontent.com/weave-os/router"
+
+# weave_release_tag_newer <candidate> <floor>: succeeds when both are
+# router-vX.Y.Z tags and <candidate> is strictly newer than <floor>.
+weave_release_tag_newer() {
+  local re='^router-v([0-9]{1,9})\.([0-9]{1,9})\.([0-9]{1,9})$' cand_parts floor_parts i
+  [[ "${1:-}" =~ $re ]] || return 1
+  cand_parts=("${BASH_REMATCH[@]:1}")
+  [[ "${2:-}" =~ $re ]] || return 1
+  floor_parts=("${BASH_REMATCH[@]:1}")
+  for i in 0 1 2; do
+    (( 10#${cand_parts[i]} > 10#${floor_parts[i]} )) && return 0
+    (( 10#${cand_parts[i]} < 10#${floor_parts[i]} )) && return 1
+  done
+  return 1
+}
+
+# weave_release_advertised_tag <file>: print the WEAVE_RELEASE_TAG assignment
+# found in a downloaded copy of this script, if it is a well-formed tag.
+weave_release_advertised_tag() {
+  local tag
+  [ -f "${1:-}" ] || return 1
+  tag="$(sed -n 's/^WEAVE_RELEASE_TAG="\(router-v[0-9.]*\)"$/\1/p' "$1" 2>/dev/null)" || return 1
+  tag="${tag%%$'\n'*}"
+  [[ "$tag" =~ ^router-v[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$ ]] || return 1
+  printf '%s\n' "$tag"
+}
+
 # ---------- background self-refresh ----------
 #
 # Codex runs this helper on SessionStart and after every turn. Once per
@@ -5619,10 +5978,23 @@ export PATH="$PATH:$HOME/.weave/bin"
 # download is detached and swapped atomically; the current hook always
 # finishes against the copy it started with.
 #
+# Downloads come from the newest signed release tag (see "pinned release
+# source" above) and are swapped in only after the signed MANIFEST verifies.
+#
 # Set WEAVE_CODEX_STATUS_UPDATE=0 to disable it. Self-hosters can point
-# WEAVE_CODEX_STATUS_URL at their own helper source. The common
-# WEAVE_STATUSLINE_UPDATE and WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS variables
-# remain accepted as aliases for users who configure both clients together.
+# WEAVE_CODEX_STATUS_URL at their own helper source; MANIFEST and
+# MANIFEST.sig.b64 are then read from the same directory and must still verify
+# under the embedded key, unless WEAVE_STATUSLINE_TRUST_UNSIGNED=1 and that URL
+# is on another host (see "unsigned self-hoster opt-in" above), in which case
+# only the shape checks apply. The common WEAVE_STATUSLINE_UPDATE and
+# WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS variables remain accepted as aliases
+# for users who configure both clients together.
+#
+# Fetched-code surface 3 (inventory in install.sh, "uninstall delegation"):
+# the downloaded body replaces this hook and runs on the next Codex lifecycle
+# event. It is swapped in only after weave_verify_manifest accepts the fetched
+# MANIFEST and weave_verify_file matches the body to its row; on any failure
+# the installed copy is left as it is.
 weave_self_refresh() {
   # The published helper may predate classifier lifecycle forwarding. Do not
   # replace the hook implementation underneath an opted-in session.
@@ -5662,14 +6034,63 @@ weave_self_refresh() {
   # download. A failed download consumes the interval; the next hook retries.
   : >"$stamp" 2>/dev/null || return 0
 
-  local url="${WEAVE_CODEX_STATUS_URL:-https://raw.githubusercontent.com/weave-os/router/main/install/codex-status.sh}"
   local tmp="${self}.tmp.$$"
   (
+    # Detach stdin so curl can't accidentally consume it, and silence all
+    # output so nothing leaks into the client's display.
     exec </dev/null
-    if curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null \
-       && [ -s "$tmp" ] \
-       && head -n 1 "$tmp" | grep -q '^#!.*bash' \
-       && [ "$(wc -c <"$tmp")" -ge 1024 ]; then
+    local base url outcome=fail unsigned=0 tag="" body_tag=""
+    if [ -n "${WEAVE_CODEX_STATUS_URL:-}" ]; then
+      url="$WEAVE_CODEX_STATUS_URL"
+      base="${url%/*}"
+      weave_trust_unsigned "$url" && unsigned=1
+    else
+      base=""
+      if curl -fsSL --max-time 15 "$WEAVE_RELEASE_REPO_URL/main/install/codex-status.sh" -o "$tmp.channel" 2>/dev/null; then
+        tag="$(weave_release_advertised_tag "$tmp.channel")" || tag=""
+        if weave_release_tag_newer "$tag" "$WEAVE_RELEASE_TAG"; then
+          base="$WEAVE_RELEASE_REPO_URL/$tag/install"
+        else
+          outcome=current
+        fi
+      fi
+      rm -f "$tmp.channel"
+      url="$base/codex-status.sh"
+    fi
+    # Verify before anything touches $self: the MANIFEST signature under the
+    # embedded key, then this body's SHA-256 against its MANIFEST row. The
+    # signature does not name a release, so the body's own WEAVE_RELEASE_TAG
+    # must be newer than this copy's and, when fetched from a tag, equal it; an
+    # older signed release replayed under a newer name or URL is refused. The shape checks stay as a second line of defence, and are
+    # the only check for a source trusted unsigned. A body that downloaded but
+    # failed a check is "rejected", not "fail": retrying it next turn would
+    # fetch the same bytes again.
+    if [ "$unsigned" = "1" ]; then
+      curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null && outcome=fetched
+    elif [ -n "$base" ] \
+       && curl -fsSL --max-time 15 "$base/MANIFEST" -o "$tmp.MANIFEST" 2>/dev/null \
+       && curl -fsSL --max-time 15 "$base/MANIFEST.sig.b64" -o "$tmp.MANIFEST.sig.b64" 2>/dev/null \
+       && curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null; then
+      outcome=rejected
+      if weave_verify_manifest "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" \
+         && weave_verify_file "$tmp.MANIFEST" "install/codex-status.sh" "$tmp" \
+         && body_tag="$(weave_release_advertised_tag "$tmp")" \
+         && weave_release_tag_newer "$body_tag" "$WEAVE_RELEASE_TAG" \
+         && { [ -z "$tag" ] || [ "$body_tag" = "$tag" ]; }; then
+        outcome=fetched
+      fi
+    fi
+    if [ "$outcome" = "fetched" ]; then
+      if [ -s "$tmp" ] \
+         && head -n 1 "$tmp" | grep -q '^#!.*bash' \
+         && [ "$(wc -c <"$tmp")" -ge 1024 ]; then
+        outcome=verified
+      else
+        outcome=rejected
+      fi
+    fi
+    rm -f "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64"
+    if [ "$outcome" = "verified" ]; then
       if cmp -s "$tmp" "$self"; then
         rm -f "$tmp"
       else
@@ -6197,6 +6618,8 @@ esac
 
 payload="$(cat)"
 [ -n "$payload" ] || exit 0
+[ "${WEAVE_CODEX_STATUS_UPDATE:-${WEAVE_STATUSLINE_UPDATE:-1}}" = "0" ] \
+  || weave_warn_trust_unsigned "${WEAVE_CODEX_STATUS_URL:-}"
 weave_self_refresh 2>/dev/null || true
 command -v jq >/dev/null 2>&1 || exit 0
 jq -e . >/dev/null 2>&1 <<<"$payload" || exit 0
@@ -7172,6 +7595,175 @@ cat > "$statusline_file" << 'STATUSLINE_EOF'
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
 
+# ---------- release signing key ----------
+#
+# PLACEHOLDER — release signing key is installed by the release pipeline.
+# Verify-only RSA-2048 public key (SPKI PEM) for install/MANIFEST.sig.b64,
+# the signature over install/MANIFEST. Fetched code is admitted only when
+# MANIFEST verifies under this key and the body's SHA-256 matches its row.
+# Nobody holds the private half of the placeholder, so until the pipeline
+# stamps the real key every verification fails closed. See
+# install/RELEASE_SIGNING.md.
+IFS= read -r -d '' WEAVE_RELEASE_PUBKEY_PEM <<'WEAVE_RELEASE_PUBKEY_EOF' || true
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqGz9B3LhWVSNpBZ1cck6
+EGUcKmUuAickojEl+En+d2ZtcD3pl63A3Yk0CpfpsFd0TF1/ALseyfNfkYRXl6B1
+CZJcbJ8+MTSM4XzCNp3ELLwPqDmVGd0xGnB4e6aTYi63DJrUC5q9gmn5lLQLM1NW
+AWPzXlOH/+goGDRcycuqjZxdpAhdsPKbkzCquEmdsT2/ftbqskcmAOTMwWsKR5Tf
+GH3LCbInZUgVi64Y5wqgMy3jlooPAVZXa5GqwOgV2fXwWT+UJRf4MKtx80DzWhGk
+E56DB1TSwErC9jp6jTWqKgdcdgMBTykjN58gD/7AIDbUhcgdIx9+tF6yoezyjuoE
+jQIDAQAB
+-----END PUBLIC KEY-----
+WEAVE_RELEASE_PUBKEY_EOF
+
+# ---------- release manifest verification ----------
+#
+# Shared by every fetched-code path: a downloaded body may replace an
+# installed file only after weave_verify_manifest accepts the fetched MANIFEST
+# and weave_verify_file matches the body against that MANIFEST's row. These
+# helpers are duplicated verbatim in cc-statusline.sh, codex-status.sh and
+# install.sh (and the copies install.sh embeds); keep them identical.
+#
+# They add the first openssl call to the installed statusline and Codex hook;
+# before this only install.sh needed openssl. Both return 0 when verified,
+# 1 when verification fails, and WEAVE_VERIFY_UNAVAILABLE (2) when openssl or
+# a SHA-256 tool is missing. Callers refuse the swap on any non-zero status,
+# so a machine without openssl never auto-updates (fail closed);
+# WEAVE_STATUSLINE_UPDATE=0 remains the way to turn the refresh off.
+WEAVE_VERIFY_UNAVAILABLE=2
+
+# weave_verify_manifest <manifest> <sig.b64> <pubkey-pem>
+# Checks the base64 RSA/SHA-256 signature in <sig.b64> over <manifest> with
+# `openssl dgst -sha256 -verify`, using the PEM text in <pubkey-pem>.
+weave_verify_manifest() {
+  local manifest="${1:-}" sig_b64="${2:-}" pubkey_pem="${3:-}" dir out rc=1
+  command -v openssl >/dev/null 2>&1 || return "$WEAVE_VERIFY_UNAVAILABLE"
+  [[ -f "$manifest" && -s "$manifest" && -f "$sig_b64" && -s "$sig_b64" ]] || return 1
+  [[ "$pubkey_pem" == *"-----BEGIN PUBLIC KEY-----"* ]] || return 1
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/weave-verify.XXXXXX")" || return 1
+  if printf '%s\n' "$pubkey_pem" >"$dir/pub.pem" \
+     && tr -d ' \t\r\n' <"$sig_b64" >"$dir/sig.b64" \
+     && [[ -s "$dir/sig.b64" ]] \
+     && openssl base64 -d -A -in "$dir/sig.b64" -out "$dir/sig" 2>/dev/null \
+     && [[ -s "$dir/sig" ]]; then
+    if out="$(openssl dgst -sha256 -verify "$dir/pub.pem" -signature "$dir/sig" "$manifest" 2>/dev/null)" \
+       && [[ "$out" == "Verified OK" ]]; then
+      rc=0
+    fi
+  fi
+  rm -rf "$dir"
+  return "$rc"
+}
+
+# weave_sha256 <file>: print the lowercase hex SHA-256 of <file>.
+weave_sha256() {
+  local out
+  if command -v sha256sum >/dev/null 2>&1; then
+    out="$(sha256sum <"$1")" || return 1
+  elif command -v shasum >/dev/null 2>&1; then
+    out="$(shasum -a 256 <"$1")" || return 1
+  else
+    return "$WEAVE_VERIFY_UNAVAILABLE"
+  fi
+  printf '%s\n' "${out%% *}"
+}
+
+# weave_verify_file <manifest> <path-in-manifest> <candidate>
+# Succeeds only when <manifest> has exactly one well-formed row for
+# <path-in-manifest> (e.g. install/cc-statusline.sh) and its digest equals the
+# SHA-256 of <candidate>. Call only after weave_verify_manifest accepted
+# <manifest>.
+weave_verify_file() {
+  local manifest="${1:-}" path_in_manifest="${2:-}" candidate="${3:-}" rows got rc
+  [[ -n "$path_in_manifest" && -f "$manifest" && -f "$candidate" ]] || return 1
+  rows="$(awk -v n="$path_in_manifest" 'NF == 2 && $2 == n { print $1 }' "$manifest")" || return 1
+  [[ "$rows" =~ ^[0-9a-f]{64}$ ]] || return 1
+  got="$(weave_sha256 "$candidate")" && rc=0 || rc=$?
+  [[ "$rc" -eq 0 ]] || return "$rc"
+  [[ "$got" =~ ^[0-9a-f]{64}$ && "$got" == "$rows" ]]
+}
+
+# ---------- unsigned self-hoster opt-in ----------
+#
+# WEAVE_STATUSLINE_TRUST_UNSIGNED=1 lets a self-hoster fork that serves its own
+# copies skip the signed-manifest check, so the fork does not need a signing
+# pipeline of its own. It is honored only for a source URL the user overrode
+# to a host other than raw.githubusercontent.com; the default publisher always
+# verifies. It provides no security property: a tampered replacement can
+# remove this gate along with everything else. These helpers are duplicated
+# verbatim in cc-statusline.sh, codex-status.sh and install.sh (and the copies
+# install.sh embeds); keep them identical.
+WEAVE_TRUST_UNSIGNED_WARNING='WEAVE_STATUSLINE_TRUST_UNSIGNED=1: skipping signature verification. This is advisory only — a tampered replacement script can remove this gate. The real trust boundary is the signed manifest on the default publisher.'
+
+# weave_trust_unsigned <url>: succeeds when WEAVE_STATUSLINE_TRUST_UNSIGNED=1
+# and <url>'s host is set and is not the default publisher.
+weave_trust_unsigned() {
+  [ "${WEAVE_STATUSLINE_TRUST_UNSIGNED:-}" = "1" ] || return 1
+  local host="${1:-}"
+  [ -n "$host" ] || return 1
+  case "$host" in
+    *://*) host="${host#*://}" ;;
+  esac
+  host="${host%%[/?#]*}"
+  host="${host##*@}"
+  host="${host%%:*}"
+  host="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
+  host="${host%.}"
+  [ "$host" != "raw.githubusercontent.com" ]
+}
+
+# weave_warn_trust_unsigned <url>...: prints WEAVE_TRUST_UNSIGNED_WARNING to
+# stderr once when any <url> is trusted unsigned.
+weave_warn_trust_unsigned() {
+  local url
+  for url in "$@"; do
+    if weave_trust_unsigned "$url"; then
+      printf '%s\n' "$WEAVE_TRUST_UNSIGNED_WARNING" >&2
+      return 0
+    fi
+  done
+  return 0
+}
+
+# ---------- pinned release source ----------
+#
+# The self-refresh downloads only from an immutable release tag, never from a
+# mutable branch. WEAVE_RELEASE_TAG is the release this copy belongs to and is
+# stamped by the release pipeline. The copy on main carries the newest signed
+# release's tag, so a refresh reads that line from main to learn which tag to
+# fetch, refuses any tag that is not strictly newer than its own (no
+# downgrades), and then downloads MANIFEST, MANIFEST.sig.b64 and the script
+# from that tag. The tag only picks where to download from; the signature over
+# MANIFEST is the trust boundary. See install/RELEASE_SIGNING.md.
+WEAVE_RELEASE_TAG="router-v0.2.39"
+WEAVE_RELEASE_REPO_URL="https://raw.githubusercontent.com/weave-os/router"
+
+# weave_release_tag_newer <candidate> <floor>: succeeds when both are
+# router-vX.Y.Z tags and <candidate> is strictly newer than <floor>.
+weave_release_tag_newer() {
+  local re='^router-v([0-9]{1,9})\.([0-9]{1,9})\.([0-9]{1,9})$' cand_parts floor_parts i
+  [[ "${1:-}" =~ $re ]] || return 1
+  cand_parts=("${BASH_REMATCH[@]:1}")
+  [[ "${2:-}" =~ $re ]] || return 1
+  floor_parts=("${BASH_REMATCH[@]:1}")
+  for i in 0 1 2; do
+    (( 10#${cand_parts[i]} > 10#${floor_parts[i]} )) && return 0
+    (( 10#${cand_parts[i]} < 10#${floor_parts[i]} )) && return 1
+  done
+  return 1
+}
+
+# weave_release_advertised_tag <file>: print the WEAVE_RELEASE_TAG assignment
+# found in a downloaded copy of this script, if it is a well-formed tag.
+weave_release_advertised_tag() {
+  local tag
+  [ -f "${1:-}" ] || return 1
+  tag="$(sed -n 's/^WEAVE_RELEASE_TAG="\(router-v[0-9.]*\)"$/\1/p' "$1" 2>/dev/null)" || return 1
+  tag="${tag%%$'\n'*}"
+  [[ "$tag" =~ ^router-v[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$ ]] || return 1
+  printf '%s\n' "$tag"
+}
+
 # ---------- /router-status prompt hook ----------
 #
 # Registered as a UserPromptSubmit hook with --prompt-hook. Every other prompt
@@ -7247,9 +7839,9 @@ fi
 
 # ---------- background self-refresh ----------
 #
-# Once every WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS (default 7), check
-# raw.githubusercontent.com for a newer copy of this script and swap it in
-# atomically. Runs in a forked subshell so the current Claude turn never
+# Once every WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS (default 7), check for a
+# newer signed release of this script (see "pinned release source" above) and
+# swap it in atomically once its signed MANIFEST verifies. Runs in a forked subshell so the current Claude turn never
 # blocks; the next turn picks up the new version. Applies to both user-scope
 # (~/.weave/cc-statusline.sh) and project-scope (<repo>/.claude/cc-statusline.sh)
 # installs — project teammates rate-limit independently because the stamp
@@ -7259,14 +7851,24 @@ fi
 # A pricing-table miss also triggers a refresh off-schedule — see
 # weave_refresh_on_price_miss below.
 #
-# Opt out entirely with `export WEAVE_STATUSLINE_UPDATE=0`. Override the
-# source with `WEAVE_STATUSLINE_URL=...`, e.g. for self-hosters who fork.
+# Opt out entirely with `export WEAVE_STATUSLINE_UPDATE=0`. Self-hosters who
+# fork can point `WEAVE_STATUSLINE_URL=...` at their own copy; MANIFEST and
+# MANIFEST.sig.b64 are then read from the same directory and must still verify
+# under the embedded key, unless WEAVE_STATUSLINE_TRUST_UNSIGNED=1 and that URL
+# is on another host (see "unsigned self-hoster opt-in" above), in which case
+# only the shape checks apply.
 #
 # $1 is an optional stamp suffix, so a caller refreshing for a reason other than
 # "the interval elapsed" rate-limits on its own clock rather than sharing the
 # periodic check's budget. $2=1 drops the stamp again if the download fails, for
 # callers recovering from a known-bad state where waiting out the full interval
 # on a transient network error is worse than retrying next turn.
+#
+# Fetched-code surface 1 (inventory in install.sh, "uninstall delegation"):
+# the downloaded body replaces this script and runs on the next turn. It is
+# swapped in only after weave_verify_manifest accepts the fetched MANIFEST and
+# weave_verify_file matches the body to its row; on any failure the installed
+# copy is left as it is.
 weave_self_refresh() {
   local stamp_suffix="${1:-}"
   local retry_on_fail="${2:-0}"
@@ -7310,22 +7912,69 @@ weave_self_refresh() {
   # (Claude calls us on every turn) don't all kick off downloads.
   : > "$stamp" 2>/dev/null || return 0
 
-  local url="${WEAVE_STATUSLINE_URL:-https://raw.githubusercontent.com/weave-os/router/main/install/cc-statusline.sh}"
   # $$ alone is not unique: two calls can run in one invocation (the periodic
   # check and a pricing-miss retry both fire on a cold cache) and would then
-  # curl -o into the same path and mv over each other, installing a truncated
+  # download into the same paths and mv over each other, installing a truncated
   # script that can never self-heal. The stamp suffix is the right key — it is
   # what makes two callers mutually exclusive in the first place, so callers
   # that could overlap necessarily have different suffixes.
   local tmp="${self}.tmp.$$${stamp_suffix}"
   (
-    # Detach stdin (CC pipes JSON to us) so curl can't accidentally consume
-    # it, and silence all output so nothing leaks into the statusline.
+    # Detach stdin so curl can't accidentally consume it, and silence all
+    # output so nothing leaks into the client's display.
     exec </dev/null
-    if curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null \
-       && [ -s "$tmp" ] \
-       && head -n 1 "$tmp" | grep -q '^#!.*bash' \
-       && [ "$(wc -c < "$tmp")" -ge 1024 ]; then
+    local base url outcome=fail unsigned=0 tag="" body_tag=""
+    if [ -n "${WEAVE_STATUSLINE_URL:-}" ]; then
+      url="$WEAVE_STATUSLINE_URL"
+      base="${url%/*}"
+      weave_trust_unsigned "$url" && unsigned=1
+    else
+      base=""
+      if curl -fsSL --max-time 15 "$WEAVE_RELEASE_REPO_URL/main/install/cc-statusline.sh" -o "$tmp.channel" 2>/dev/null; then
+        tag="$(weave_release_advertised_tag "$tmp.channel")" || tag=""
+        if weave_release_tag_newer "$tag" "$WEAVE_RELEASE_TAG"; then
+          base="$WEAVE_RELEASE_REPO_URL/$tag/install"
+        else
+          outcome=current
+        fi
+      fi
+      rm -f "$tmp.channel"
+      url="$base/cc-statusline.sh"
+    fi
+    # Verify before anything touches $self: the MANIFEST signature under the
+    # embedded key, then this body's SHA-256 against its MANIFEST row. The
+    # signature does not name a release, so the body's own WEAVE_RELEASE_TAG
+    # must be newer than this copy's and, when fetched from a tag, equal it; an
+    # older signed release replayed under a newer name or URL is refused. The shape checks stay as a second line of defence, and are
+    # the only check for a source trusted unsigned. A body that downloaded but
+    # failed a check is "rejected", not "fail": retrying it next turn would
+    # fetch the same bytes again.
+    if [ "$unsigned" = "1" ]; then
+      curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null && outcome=fetched
+    elif [ -n "$base" ] \
+       && curl -fsSL --max-time 15 "$base/MANIFEST" -o "$tmp.MANIFEST" 2>/dev/null \
+       && curl -fsSL --max-time 15 "$base/MANIFEST.sig.b64" -o "$tmp.MANIFEST.sig.b64" 2>/dev/null \
+       && curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null; then
+      outcome=rejected
+      if weave_verify_manifest "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" \
+         && weave_verify_file "$tmp.MANIFEST" "install/cc-statusline.sh" "$tmp" \
+         && body_tag="$(weave_release_advertised_tag "$tmp")" \
+         && weave_release_tag_newer "$body_tag" "$WEAVE_RELEASE_TAG" \
+         && { [ -z "$tag" ] || [ "$body_tag" = "$tag" ]; }; then
+        outcome=fetched
+      fi
+    fi
+    if [ "$outcome" = "fetched" ]; then
+      if [ -s "$tmp" ] \
+         && head -n 1 "$tmp" | grep -q '^#!.*bash' \
+         && [ "$(wc -c <"$tmp")" -ge 1024 ]; then
+        outcome=verified
+      else
+        outcome=rejected
+      fi
+    fi
+    rm -f "$tmp.MANIFEST" "$tmp.MANIFEST.sig.b64"
+    if [ "$outcome" = "verified" ]; then
       # No-op when the download matches what's already on disk — keeps git
       # status clean for project-scope teammates during a routine refresh.
       if cmp -s "$tmp" "$self"; then
@@ -7336,9 +7985,10 @@ weave_self_refresh() {
       fi
     else
       rm -f "$tmp"
-      # A download that never landed shouldn't spend the caller's whole
-      # interval; drop the stamp so the next turn can try again.
-      if [ "$retry_on_fail" = "1" ]; then
+      # A download that failed shouldn't spend the caller's whole interval;
+      # drop the stamp so the next turn can try again. Being on the newest
+      # release already, or a rejected body, is not a transient failure.
+      if [ "$outcome" = "fail" ] && [ "$retry_on_fail" = "1" ]; then
         rm -f "$stamp"
       fi
     fi
@@ -7346,6 +7996,8 @@ weave_self_refresh() {
   disown 2>/dev/null || true
   return 0
 }
+[ "${WEAVE_STATUSLINE_UPDATE:-1}" = "0" ] \
+  || weave_warn_trust_unsigned "${WEAVE_STATUSLINE_URL:-}" "${WEAVE_COMMANDS_URL_BASE:-}"
 weave_self_refresh 2>/dev/null || true
 
 # ---------- background slash-command refresh ----------
@@ -7362,8 +8014,29 @@ weave_self_refresh 2>/dev/null || true
 # cached (unrendered) per install under the user cache dir and a wrapper is
 # replaced only when its bytes still match that baseline. With no baseline yet
 # we can't prove anything, so the first run only seeds the cache and a swap can
-# happen from the next one on. install.sh seeds it too, so fresh installs skip
-# that warm-up round.
+# happen from the next one on.
+#
+# Every downloaded body must match its row in a MANIFEST whose signature
+# verifies under the embedded release key (see "release manifest verification"
+# above). MANIFEST and MANIFEST.sig.b64 are fetched once per refresh cycle,
+# along with the cc-statusline.sh beside them, whose WEAVE_RELEASE_TAG must be
+# this copy's or newer. If any of these fails to download or verify, the cycle
+# touches neither the baseline cache nor any wrapper. A body that does not match its row is skipped and its
+# baseline is left as it is.
+#
+# A baseline written before this check existed (by install.sh, or by an older
+# statusline that installed unverified downloads) can't be trusted as the
+# "what we shipped" reference. The sentinel $baseline_dir/.manifest-seeded
+# marks a cache seeded under the manifest. While it is absent, the first
+# refresh whose MANIFEST verifies re-seeds once: each verified body becomes
+# the baseline, an installed wrapper Router owns (in-body marker, a sidecar
+# recording its exact body, or a body equal to the old baseline) that differs
+# from it is replaced with it, and the sentinel is written. A wrapper
+# whose body could not be fetched or verified in that cycle has its untrusted
+# baseline removed, so it can only be refreshed against a verified one later.
+# A marker-carrying wrapper edited before upgrading is therefore reset once on
+# the first post-upgrade refresh; from then on the baseline comparison
+# preserves local edits as before.
 #
 # Never touch a wrapper git tracks either. A project-scope install writes the
 # wrappers into the repo's own .claude/commands/, and unlike cc-statusline.sh
@@ -7372,8 +8045,15 @@ weave_self_refresh 2>/dev/null || true
 # Only the installer changes tracked files, and only when a human runs it.
 #
 # Opt out with WEAVE_COMMANDS_UPDATE=0 (WEAVE_STATUSLINE_UPDATE=0 disables this
-# too, along with every other network path here). Override the source with
-# WEAVE_COMMANDS_URL_BASE=..., e.g. for self-hosters who fork.
+# too, along with every other network path here). Wrappers come from this
+# copy's own release tag (WEAVE_RELEASE_TAG), never a mutable branch; the
+# self-refresh moves the tag forward. Self-hosters who fork can point
+# WEAVE_COMMANDS_URL_BASE=... at their own commands/ directory; MANIFEST and
+# MANIFEST.sig.b64 are then read from its parent directory and must still
+# verify under the embedded key. With WEAVE_STATUSLINE_TRUST_UNSIGNED=1 and
+# that base on another host, bodies are admitted on the `---` and baseline
+# checks alone; such a cycle never re-seeds or writes the sentinel, so a later
+# return to a signed source still re-seeds once.
 
 # weave_command_tracked_by_git returns 0 when $1 is a file git tracks. Used to
 # leave repo-committed wrappers alone; no git (or no repo) means untracked.
@@ -7408,6 +8088,12 @@ weave_render_command() {
   printf '%s' "${body//\{\{SCOPE\}\}/$2}"
 }
 
+# Fetched-code surface 2 (inventory in install.sh, "uninstall delegation"):
+# downloaded commands/*.md bodies overwrite installed wrappers that Claude Code
+# runs as prompts. A body is admitted only after weave_verify_manifest accepts
+# the fetched MANIFEST and weave_verify_file matches the body to its
+# install/commands/<name>.md row; the `---` first line and the baseline
+# comparison stay as further checks.
 weave_sync_commands() {
   [ "${WEAVE_STATUSLINE_UPDATE:-1}" = "0" ] && return 0
   [ "${WEAVE_COMMANDS_UPDATE:-1}" = "0" ] && return 0
@@ -7464,14 +8150,71 @@ weave_sync_commands() {
     # Backticks are literal Markdown delimiters.
     # shellcheck disable=SC2016
     scope_args="$(sed -En 's#^`npx @(workweave/router|weave-os/router) off --claude(.*)`$#\2#p' "$off" | head -n 1)"
+    # The installed copy is local and unverified, so it may only name this
+    # install: a scope flag, or the --dir selector install_slash_commands
+    # writes for the directory holding .claude/commands. Any other text would
+    # be copied into verified wrappers.
+    local install_base="${self_dir%/*}" logical_base
+    logical_base="$(cd "$(dirname "$self")" 2>/dev/null && pwd)" || logical_base=""
+    logical_base="${logical_base%/*}"
+    case "$scope_args" in
+      "" | " --scope project" | " --dir $(printf '%q' "$install_base")" | " --dir $(printf '%q' "$logical_base")") ;;
+      *) scope_args="" scope_known="false" ;;
+    esac
   fi
 
-  local url_base="${WEAVE_COMMANDS_URL_BASE:-https://raw.githubusercontent.com/weave-os/router/main/install/commands}"
-  local name installed raw prev tmp new_body prev_body installed_body
+  local url_base="${WEAVE_COMMANDS_URL_BASE:-$WEAVE_RELEASE_REPO_URL/$WEAVE_RELEASE_TAG/install/commands}"
+  url_base="${url_base%/}"
+  # MANIFEST sits in the parent of the wrapper directory; a wrapper directory
+  # at the host root keeps the authority and uses the root.
+  local manifest_base="$url_base" url_path="${url_base#*://}"
+  case "$url_path" in
+    */*) manifest_base="${url_base%/*}" ;;
+  esac
+  local sentinel="$baseline_dir/.manifest-seeded"
+  local name installed raw prev tmp new_body prev_body installed_body owned
+  local manifest="$baseline_dir/.MANIFEST.tmp.$$" seeding="false" unsigned="false" listed_tag=""
+  local release_floor="$WEAVE_RELEASE_TAG" floor_file="$baseline_dir/.manifest-tag" recorded_tag
+  if [ -n "${WEAVE_COMMANDS_URL_BASE:-}" ] && weave_trust_unsigned "$url_base"; then
+    unsigned="true"
+  fi
+  [ -f "$sentinel" ] || [ "$unsigned" = "true" ] || seeding="true"
   (
     # Detach stdin (CC pipes JSON to us) so curl can't consume it, and silence
     # everything so no output leaks into the statusline.
     exec </dev/null
+    trap 'rm -f "$manifest" "$manifest.sig.b64" "$manifest.release" "$floor_file.tmp.$$"' EXIT
+    if [ "$unsigned" != "true" ]; then
+      curl -fsSL --max-time 15 "$manifest_base/MANIFEST" -o "$manifest" 2>/dev/null || exit 0
+      curl -fsSL --max-time 15 "$manifest_base/MANIFEST.sig.b64" -o "$manifest.sig.b64" 2>/dev/null || exit 0
+      weave_verify_manifest "$manifest" "$manifest.sig.b64" "$WEAVE_RELEASE_PUBKEY_PEM" || exit 0
+      # The signature covers digests, not a release name, so bind the MANIFEST
+      # to a release through the statusline it lists: that body's own
+      # WEAVE_RELEASE_TAG must be no older than this copy's or the release the
+      # wrappers were last refreshed from (.manifest-tag), or an older signed
+      # release served from a mutable source would roll the wrappers back. The
+      # slug can collide, so each command directory keeps its own floor file,
+      # named by the SHA-256 of its path, and never rewrites another's.
+      floor_file="$floor_file.$(printf '%s' "$cmd_dir" | weave_sha256 /dev/stdin)" || exit 0
+      # A floor that exists but does not read as a release tag stops the cycle.
+      recorded_tag=""
+      if [ -e "$floor_file" ]; then
+        [ -f "$floor_file" ] && [ -r "$floor_file" ] || exit 0
+        recorded_tag="$(sed -n '1p' "$floor_file" 2>/dev/null)" || exit 0
+        [[ "$recorded_tag" =~ ^router-v[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$ ]] || exit 0
+      fi
+      weave_release_tag_newer "$recorded_tag" "$release_floor" && release_floor="$recorded_tag"
+      curl -fsSL --max-time 15 "$manifest_base/cc-statusline.sh" -o "$manifest.release" 2>/dev/null || exit 0
+      weave_verify_file "$manifest" "install/cc-statusline.sh" "$manifest.release" || exit 0
+      listed_tag="$(weave_release_advertised_tag "$manifest.release")" || listed_tag=""
+      [ -n "$listed_tag" ] || exit 0
+      [ "$listed_tag" = "$release_floor" ] \
+        || weave_release_tag_newer "$listed_tag" "$release_floor" || exit 0
+      # Record the floor before any wrapper moves, so a cycle that dies
+      # mid-loop still guards what it installed; no record, no refresh.
+      printf '%s\n' "$listed_tag" >"$floor_file.tmp.$$" 2>/dev/null \
+        && mv -f "$floor_file.tmp.$$" "$floor_file" 2>/dev/null && [ -f "$floor_file" ] || exit 0
+    fi
     while IFS= read -r name; do
       installed="$cmd_dir/$name.md"
       # Only ever refresh a wrapper that is already installed: a missing one
@@ -7484,25 +8227,49 @@ weave_sync_commands() {
       weave_command_tracked_by_git "$installed" && continue
 
       raw="$baseline_dir/$name.md.tmp.$$"
-      curl -fsSL --max-time 15 "$url_base/$name.md" -o "$raw" 2>/dev/null || { rm -f "$raw"; continue; }
-      # Shape check: every wrapper opens with YAML front matter, so a 404 page
-      # or a truncated body can never be installed as a command.
-      if [ ! -s "$raw" ] || [ "$(head -n 1 "$raw")" != "---" ]; then
+      prev="$baseline_dir/$name.md"
+      # Signed-manifest digest first, then the shape check: every wrapper opens
+      # with YAML front matter, so a 404 page or a truncated body can never be
+      # installed as a command. On any failure the baseline stays as it is,
+      # except while re-seeding, when the untrusted one is dropped.
+      if ! curl -fsSL --max-time 15 "$url_base/$name.md" -o "$raw" 2>/dev/null \
+         || { [ "$unsigned" != "true" ] \
+              && ! weave_verify_file "$manifest" "install/commands/$name.md" "$raw"; } \
+         || [ ! -s "$raw" ] || [ "$(head -n 1 "$raw")" != "---" ]; then
         rm -f "$raw"
+        [ "$seeding" = "true" ] && rm -f "$prev"
         continue
       fi
 
-      prev="$baseline_dir/$name.md"
       if grep -q '{{SCOPE}}' "$raw" && [ "$scope_known" != "true" ]; then
         mv "$raw" "$prev" 2>/dev/null || rm -f "$raw"
         continue
       fi
 
-      if [ -f "$prev" ]; then
+      if [ -f "$prev" ] || [ "$seeding" = "true" ]; then
         new_body="$(weave_render_command "$raw" "$scope_args")"
-        prev_body="$(weave_render_command "$prev" "$scope_args")"
         installed_body="$(sed '/^<!-- weave-router managed command: .* -->$/d' "$installed" 2>/dev/null)" || installed_body=""
-        if [ "$prev_body" = "$installed_body" ] && [ "$new_body" != "$installed_body" ]; then
+        owned="true"
+        if [ "$seeding" = "true" ]; then
+          # The re-seed may only replace a wrapper Router owns: one carrying the
+          # in-body marker, a sidecar that still records its exact body, or a
+          # body equal to the old baseline (a pre-marker install). A verified download proves
+          # where the replacement came from, not who owns the destination.
+          ownership_file="$installed.weave-router"
+          if grep -Fqx "<!-- weave-router managed command: $name -->" "$installed" 2>/dev/null \
+             || { [ -f "$ownership_file" ] && [ ! -L "$ownership_file" ] \
+                  && [ "$(sed -n '1p' "$ownership_file" 2>/dev/null)" = "weave-router managed command: $name" ] \
+                  && [ "$(sed '1d' "$ownership_file" 2>/dev/null)" = "$(cat "$installed" 2>/dev/null)" ]; } \
+             || { [ -f "$prev" ] && [ "$(weave_render_command "$prev" "$scope_args")" = "$installed_body" ]; }; then
+            prev_body="$installed_body"
+          else
+            owned="false"
+          fi
+        else
+          prev_body="$(weave_render_command "$prev" "$scope_args")"
+        fi
+        if [ "$owned" = "true" ] && [ "$prev_body" = "$installed_body" ] \
+           && [ "$new_body" != "$installed_body" ]; then
           tmp="$installed.tmp.$$"
           if printf '%s\n' "$new_body" >"$tmp" 2>/dev/null; then
             mv "$tmp" "$installed" 2>/dev/null || rm -f "$tmp"
@@ -7520,6 +8287,8 @@ weave_sync_commands() {
     done <<EOF
 $(weave_installed_command_names "$cmd_dir")
 EOF
+    [ "$seeding" = "true" ] && : >"$sentinel" 2>/dev/null
+    true
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
   return 0

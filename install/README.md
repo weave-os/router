@@ -568,11 +568,13 @@ endpoint in the tracked project settings is one you approved. If the endpoint
 was changed in the checkout, repeat it with `--base-url <url>` (or reinstall
 against that endpoint) before the update can send a local router key there.
 
-**Claude Code also refreshes itself.** `cc-statusline.sh` checks
-`raw.githubusercontent.com` for a newer copy of itself at most once every
+**Claude Code also refreshes itself.** `cc-statusline.sh` checks for a newer
+signed release of itself at most once every
 `$WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS` (default 7) in a detached background
 fork, and on the same schedule refreshes the `.claude/commands/*.md` slash-command
-wrappers. Both swap only on a real content change, and a wrapper is replaced
+wrappers. Every download is verified against a signed release manifest before
+anything is swapped (see [Signed releases](#signed-releases)). Both swap only
+on a real content change, and a wrapper is replaced
 only when its bytes still match the last canonical copy — a wrapper you edited
 is never overwritten, and one you deleted is never resurrected. All state
 (stamps, baselines) lives under `${XDG_CACHE_HOME:-~/.cache}/weave-router/`, so
@@ -583,18 +585,20 @@ nothing lands in a repo working tree.
 | `WEAVE_STATUSLINE_UPDATE=0`                 | on      | Disable every background network path in the statusline.       |
 | `WEAVE_COMMANDS_UPDATE=0`                   | on      | Disable only the slash-command refresh.                        |
 | `WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS`     | `7`     | How often either check may run.                                |
-| `WEAVE_STATUSLINE_URL`                      | GitHub raw | Source for the statusline (self-hosters who fork).          |
-| `WEAVE_COMMANDS_URL_BASE`                   | GitHub raw | Source directory for the slash-command wrappers.            |
+| `WEAVE_STATUSLINE_URL`                      | release tag | Source for the statusline (self-hosters who fork).         |
+| `WEAVE_COMMANDS_URL_BASE`                   | release tag | Source directory for the slash-command wrappers.           |
 | `WEAVE_CODEX_STATUS_UPDATE=0`               | on      | Disable the Codex status helper's self-refresh.                |
 | `WEAVE_CODEX_STATUS_UPDATE_INTERVAL_DAYS`   | `7`     | How often the Codex helper may check for a new copy.           |
-| `WEAVE_CODEX_STATUS_URL`                    | GitHub raw | Source for the Codex status helper (self-hosters who fork). |
+| `WEAVE_CODEX_STATUS_URL`                    | release tag | Source for the Codex status helper (self-hosters who fork). |
+| `WEAVE_STATUSLINE_TRUST_UNSIGNED=1`         | off     | Skip signature verification for an overridden source on another host (self-hosters only; no security property). |
 
 **Codex refreshes itself too.** The status helper checks for a newer copy of
 itself on the same schedule and swaps it in atomically, so an install picks up
 router fixes without waiting for someone to remember to re-run the installer.
 The check runs only on a real lifecycle hook — never on the `off`/`on`/`status`
 toggles — in a detached fork, so no Codex turn blocks on it, and it skips the
-replacement when the bytes are unchanged. The `WEAVE_STATUSLINE_*` variables
+replacement when the bytes are unchanged. Its downloads go through the same
+[signed-release verification](#signed-releases). The `WEAVE_STATUSLINE_*` variables
 above are accepted as fallbacks for users who configure both clients together.
 
 **Codex skill invocations are answered by the router.** `$fm`/`$force-model`, `$force-parent`,
@@ -659,6 +663,82 @@ The skill and its script remain installed as a fallback for older routers.
 **Session savings.** The title also carries `· saved $X.XX` when the router has beaten the model Codex asked for. The number comes from the router — the hook reads `GET <base-url>/v1/sessions/<session-id>/cost` with the router key already in `config.toml` — and is never computed locally: Codex records only its *requested* model on every turn, never the one that served, so client-side pricing would compare a model against itself and always report zero. The fetch is detached and its result is cached for the following turn, so no turn ever blocks on the network; a slow, unreachable, or older router simply leaves the title model-only. A session where the router spent more than the requested model would have shows no clause at all rather than a negative number, and a total under a cent reads `saved <$0.01`. Set `WEAVE_CODEX_STATUS_SAVINGS=0` to turn the lookup off entirely.
 
 The helper requires `jq` for per-turn updates. If `jq` is unavailable, the install still succeeds and the initial active terminal title remains available; no model metadata is updated by the hook. Disable or remove the integration with the normal Codex off/uninstall commands.
+
+### Signed releases
+
+Every path that downloads code and later runs it checks the download against a
+signed release manifest first: the statusline self-refresh, the slash-command
+wrapper refresh, the Codex status helper self-refresh, and the uninstaller that
+`install.sh --uninstall` fetches when it runs without a local copy. On any
+failure the download is discarded and the installed copy keeps running
+unchanged until the next check.
+
+**Manifest contract.** `install/MANIFEST` has one `<sha256>  <path>` row per
+fetched file, in `sha256sum` format with repository-relative paths, covering
+`install/cc-statusline.sh`, `install/codex-status.sh`, `install/uninstall.sh`
+and every file under `install/commands/`. `install/MANIFEST.sig.b64` is the
+base64 signature over that file. A client admits a downloaded body only when:
+
+1. the signature verifies with `openssl dgst -sha256 -verify` against the
+   verify-only key `WEAVE_RELEASE_PUBKEY_PEM` embedded in the script doing the
+   download, and
+2. the body's SHA-256 equals its row in that manifest.
+
+The older shape checks (bash shebang, minimum size, a `---` first line for
+wrappers) still run afterwards. Verification needs `openssl` and `sha256sum` or
+`shasum` at runtime; when either is missing the refresh fails closed and
+nothing is swapped. The committed key is a placeholder until the release
+pipeline stamps the real one, so until then every refresh is refused and
+installs stay on the copy they were installed with.
+
+**Pinned release tag.** Downloads come from an immutable release tag, never
+from the mutable `main` branch. Each installed script carries
+`WEAVE_RELEASE_TAG`, the release it belongs to. A refresh reads the tag that the
+copy on `main` advertises, ignores it unless it is strictly newer than its own,
+then fetches `MANIFEST`, `MANIFEST.sig.b64` and the script from that tag. The
+wrappers are fetched from the installed copy's own tag, and their `MANIFEST` is
+accepted only when the `cc-statusline.sh` it lists carries a release no older
+than that one or than the release the wrappers were last refreshed from (kept in
+the baseline cache as `.manifest-tag.<sha256 of the command directory>`), so an older signed release cannot roll
+them back. The tag only chooses
+where to download from; the signature is the trust boundary, so a push to `main`
+alone cannot change what runs on an installed machine.
+
+**First refresh after upgrading.** Wrapper baselines written before manifest
+verification existed are not trusted. The first verified refresh re-seeds them
+once from the signed bodies and writes a `.manifest-seeded` sentinel next to
+them in the cache. Only wrappers Router owns are replaced at that point; a
+command you wrote or edited is left alone unless it still carries Router's
+in-body marker. After that, local edits are preserved as before.
+
+**Turning updates off.** `WEAVE_STATUSLINE_UPDATE=0` disables every
+background network path in the statusline, including both refreshes, and is
+unchanged by this. `WEAVE_COMMANDS_UPDATE=0` disables only the wrapper
+refresh, and `WEAVE_CODEX_STATUS_UPDATE=0` the Codex helper's.
+
+**Unsigned self-hosted sources.** A fork that serves its own copies through
+`WEAVE_STATUSLINE_URL`, `WEAVE_COMMANDS_URL_BASE`, `WEAVE_CODEX_STATUS_URL` or
+`WEAVE_UNINSTALL_URL` must still serve a `MANIFEST` signed with the embedded
+key, read from the same directory as the overridden file (the parent of
+`WEAVE_COMMANDS_URL_BASE`), unless it sets `WEAVE_STATUSLINE_TRUST_UNSIGNED=1`.
+That opt-in skips signature and digest verification for a source only when its
+URL points at a host other than `raw.githubusercontent.com`; the default
+publisher always verifies, with or without it. Each use prints a warning on
+stderr. **The opt-in provides no security property.** It exists only so
+self-hoster forks are not forced to run their own signing pipeline: whoever
+controls the overridden host controls what runs, and a tampered replacement
+script can remove this gate. To stop fetching code altogether, use
+`WEAVE_STATUSLINE_UPDATE=0`.
+
+**Uninstalling through `curl | sh`.** `install.sh --uninstall` without an
+`uninstall.sh` beside it downloads one from the newest signed release tag and
+runs it only if it verifies against that tag's signed `MANIFEST`. Until the
+release pipeline stamps the real key, that check always fails; use
+`npx @weave-os/router --uninstall`, which runs the uninstaller bundled with the
+package.
+
+Key format, the signing command, private-key custody, the `main`-branch alias
+and key rotation are in [RELEASE_SIGNING.md](RELEASE_SIGNING.md).
 
 ## Adding or changing a directive
 

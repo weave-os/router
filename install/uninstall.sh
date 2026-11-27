@@ -386,6 +386,10 @@ client_label() {
 # A bare --uninstall removes Weave Router from every client it configured. Each
 # client runs as its own child so its path stays exactly the --<client> one. A
 # piped run with no recoverable source keeps the old Claude Code-only default.
+# A piped source is the body install.sh fetched, verified against the signed
+# MANIFEST and ran with `bash -c` (fetched-code surface 4 there); re-running it
+# fetches nothing new. This script never downloads code; if adding a fetched
+# path, route it through weave_verify_manifest and weave_verify_file first.
 uninstall_self="$0"
 [ -f "$uninstall_self" ] || uninstall_self=""
 if [ "$target_explicit" = "false" ] && [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] \
