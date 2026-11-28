@@ -185,10 +185,10 @@ func TestAsyncAttemptSinkDropsWhenFullWithoutBlocking(t *testing.T) {
 	require.Len(t, store.rows(), 2)
 }
 
-func TestAsyncAttemptSinkCapacityTwoSingleInstallation(t *testing.T) {
+func TestAsyncAttemptSinkLimitsSingleInstallationBacklog(t *testing.T) {
 	store := newBlockingAttemptStore()
 	t.Cleanup(store.release)
-	sink := proxy.NewAsyncAttemptSink(store, nil, 2)
+	sink := proxy.NewAsyncAttemptSink(store, nil, 8)
 
 	sink.RecordAttempt(attemptSinkContext(), inference.AttemptEvent{OperationID: "in-flight"})
 	waitForAttemptSignal(t, store.started)
@@ -219,12 +219,13 @@ func TestAsyncAttemptSinkIsolatesInstallationsUnderBurst(t *testing.T) {
 
 	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationID), inference.AttemptEvent{OperationID: "inst1-in-flight"})
 	waitForEntered(t, store.entered, attemptSinkInstallationID)
-	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationIDTwo), inference.AttemptEvent{OperationID: "inst2-in-flight"})
-	waitForEntered(t, store.entered, attemptSinkInstallationIDTwo)
 	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationID), inference.AttemptEvent{OperationID: "inst1-q1"})
 	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationID), inference.AttemptEvent{OperationID: "inst1-q2"})
 	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationID), inference.AttemptEvent{OperationID: "inst1-dropped"})
 
+	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationIDTwo), inference.AttemptEvent{OperationID: "inst2-in-flight"})
+	waitForEntered(t, store.entered, attemptSinkInstallationIDTwo)
+	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationIDTwo), inference.AttemptEvent{OperationID: "inst2-q1"})
 	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationIDTwo), inference.AttemptEvent{OperationID: "inst2-dropped"})
 
 	store.release()
@@ -234,7 +235,7 @@ func TestAsyncAttemptSinkIsolatesInstallationsUnderBurst(t *testing.T) {
 	for _, row := range store.rows() {
 		opIDs = append(opIDs, row.Event.OperationID)
 	}
-	require.ElementsMatch(t, []string{"inst1-in-flight", "inst2-in-flight", "inst1-q1", "inst1-q2"}, opIDs)
+	require.ElementsMatch(t, []string{"inst1-in-flight", "inst2-in-flight", "inst1-q1", "inst2-q1"}, opIDs)
 }
 
 func waitForEntered(t *testing.T, ch <-chan string, want string) {

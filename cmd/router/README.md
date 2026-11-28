@@ -59,7 +59,8 @@ into `auth.Service` and `proxy.Service`. Operator-facing variables are listed in
 - **Attempt telemetry.** Inference attempt rows go through a bounded
   per-installation fair queue (`DefaultAttemptQueueCapacity` total across all
   installations, drained round-robin by 4 workers with at most one in-flight
-  write per installation) so a slow insert cannot stall failover. A full queue
+  write per installation) so a slow insert cannot stall failover. Each installation
+  can queue at most a quarter of the total (minimum one row). Hitting either limit
   drops the incoming row and keeps all accepted rows. Buffered contexts retain
   only trace and client-session correlation (not request bodies), and drops log
   at power-of-two drop counts. The worker count stays below the 6-connection

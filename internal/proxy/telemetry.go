@@ -221,20 +221,21 @@ type bufferedAttempt struct {
 }
 
 type AsyncAttemptSink struct {
-	inner     attemptSink
-	logger    *slog.Logger
-	mu        sync.Mutex
-	cond      *sync.Cond
-	queues    map[string][]bufferedAttempt
-	active    map[string]bool
-	order     []string
-	cursor    int
-	pending   int
-	capacity  int
-	closed    bool
-	dropped   atomic.Uint64
-	done      chan struct{}
-	closeOnce sync.Once
+	inner             attemptSink
+	logger            *slog.Logger
+	mu                sync.Mutex
+	cond              *sync.Cond
+	queues            map[string][]bufferedAttempt
+	active            map[string]bool
+	order             []string
+	cursor            int
+	pending           int
+	capacity          int
+	installationLimit int
+	closed            bool
+	dropped           atomic.Uint64
+	done              chan struct{}
+	closeOnce         sync.Once
 }
 
 var _ dispatch.AttemptSink = (*AsyncAttemptSink)(nil)
@@ -251,12 +252,13 @@ func newAsyncAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Log
 		workers = 1
 	}
 	sink := &AsyncAttemptSink{
-		inner:    attemptSink{store: store, logger: logger},
-		logger:   logger,
-		queues:   make(map[string][]bufferedAttempt),
-		active:   make(map[string]bool),
-		capacity: capacity,
-		done:     make(chan struct{}),
+		inner:             attemptSink{store: store, logger: logger},
+		logger:            logger,
+		queues:            make(map[string][]bufferedAttempt),
+		active:            make(map[string]bool),
+		capacity:          capacity,
+		installationLimit: max(1, capacity/attemptDrainWorkers),
+		done:              make(chan struct{}),
 	}
 	sink.cond = sync.NewCond(&sink.mu)
 	if store == nil {
@@ -289,17 +291,14 @@ func (s *AsyncAttemptSink) RecordAttempt(ctx context.Context, event inference.At
 		event:          event,
 	}
 	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		s.dropped.Add(1)
-		return
-	}
-	if s.pending >= s.capacity {
-		s.mu.Unlock()
-		s.recordDrop(event)
-		return
-	}
 	queued := s.queues[installationID]
+	if s.closed || s.pending >= s.capacity || len(queued) >= s.installationLimit {
+		dropped := s.dropped.Add(1)
+		closed := s.closed
+		s.mu.Unlock()
+		s.warnDrop(dropped, installationID, event.OperationID, closed)
+		return
+	}
 	if len(queued) == 0 {
 		s.order = append(s.order, installationID)
 	}
@@ -336,11 +335,10 @@ func (s *AsyncAttemptSink) removeOrderLocked(installationID string) {
 	}
 }
 
-func (s *AsyncAttemptSink) recordDrop(event inference.AttemptEvent) {
-	dropped := s.dropped.Add(1)
+func (s *AsyncAttemptSink) warnDrop(dropped uint64, installationID, operationID string, closed bool) {
 	if dropped&(dropped-1) == 0 && s.logger != nil {
 		observability.SafeGo(s.logger, 2*time.Second, "attempt_sink_drop_warn", func(context.Context) {
-			s.logger.Warn("inference attempt queue full; dropping events", "dropped", dropped, "operation_id", event.OperationID)
+			s.logger.Warn("inference attempt dropped", "dropped", dropped, "installation_id", installationID, "operation_id", operationID, "sink_closed", closed)
 		})
 	}
 }
