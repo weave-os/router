@@ -3,6 +3,8 @@ package proxy
 import (
 	"context"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 	"weave-os/router/internal/routingpolicy"
 
 	"weave-os/router/internal/auth"
@@ -180,14 +182,15 @@ type attemptSink struct {
 }
 
 func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptEvent) {
-	if s.store == nil {
-		return
-	}
 	installationID, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
-	if installationID == "" {
+	if s.store == nil || installationID == "" {
 		return
 	}
-	if err := s.store.InsertInferenceAttempt(context.WithoutCancel(ctx), telemetry.InsertInferenceAttemptParams{
+	s.persist(context.WithoutCancel(ctx), installationID, event)
+}
+
+func (s attemptSink) persist(ctx context.Context, installationID string, event inference.AttemptEvent) {
+	if err := s.store.InsertInferenceAttempt(ctx, telemetry.InsertInferenceAttemptParams{
 		InstallationID: installationID,
 		Event:          event,
 	}); err != nil && s.logger != nil {
@@ -200,6 +203,90 @@ func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptE
 
 func NewAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Logger) dispatch.AttemptSink {
 	return attemptSink{store: store, logger: logger}
+}
+
+const DefaultAttemptQueueCapacity = 1024
+
+type bufferedAttempt struct {
+	installationID string
+	event          inference.AttemptEvent
+}
+
+type AsyncAttemptSink struct {
+	inner     attemptSink
+	logger    *slog.Logger
+	queue     chan bufferedAttempt
+	done      chan struct{}
+	closeOnce sync.Once
+	mu        sync.RWMutex
+	closed    bool
+	dropped   atomic.Uint64
+	warned    atomic.Bool
+}
+
+var _ dispatch.AttemptSink = (*AsyncAttemptSink)(nil)
+
+func NewAsyncAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Logger, capacity int) *AsyncAttemptSink {
+	if capacity <= 0 {
+		capacity = DefaultAttemptQueueCapacity
+	}
+	sink := &AsyncAttemptSink{
+		inner:  attemptSink{store: store, logger: logger},
+		logger: logger,
+		queue:  make(chan bufferedAttempt, capacity),
+		done:   make(chan struct{}),
+	}
+	if store == nil {
+		close(sink.done)
+	} else {
+		go sink.drain()
+	}
+	return sink
+}
+
+func (s *AsyncAttemptSink) RecordAttempt(ctx context.Context, event inference.AttemptEvent) {
+	installationID, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
+	if s.inner.store == nil || installationID == "" {
+		return
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.closed {
+		return
+	}
+	select {
+	case s.queue <- bufferedAttempt{installationID: installationID, event: event}:
+	default:
+		s.dropped.Add(1)
+		if s.warned.CompareAndSwap(false, true) && s.logger != nil {
+			s.logger.Warn("inference attempt queue full; dropping events", "operation_id", event.OperationID)
+		}
+	}
+}
+
+func (s *AsyncAttemptSink) drain() {
+	defer close(s.done)
+	for attempt := range s.queue {
+		s.inner.persist(context.Background(), attempt.installationID, attempt.event)
+	}
+}
+
+func (s *AsyncAttemptSink) Close(ctx context.Context) error {
+	s.closeOnce.Do(func() {
+		s.mu.Lock()
+		s.closed = true
+		close(s.queue)
+		s.mu.Unlock()
+	})
+	select {
+	case <-s.done:
+		if dropped := s.dropped.Load(); dropped > 0 && s.logger != nil {
+			s.logger.Warn("inference attempt events dropped", "count", dropped)
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 const DecisionReasonPolicyPinUnservable = router.PolicyPinUnavailableReason

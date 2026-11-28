@@ -448,8 +448,9 @@ func main() {
 	for name := range providerMap {
 		availableProviders[name] = struct{}{}
 	}
+	attemptSink := proxy.NewAsyncAttemptSink(repo.Telemetry, logger, proxy.DefaultAttemptQueueCapacity)
 	inferenceExecutor, err := dispatch.NewExecutor(dispatch.NewClients(providerMap),
-		dispatch.WithAttemptSink(proxy.NewAttemptSink(repo.Telemetry, logger)))
+		dispatch.WithAttemptSink(attemptSink))
 	if err != nil {
 		panic(fmt.Sprintf("inference executor: %v", err))
 	}
@@ -1140,28 +1141,7 @@ func main() {
 		}
 	}()
 
-	select {
-	case err := <-serverErr:
-		logger.Error("Server exited with error", "err", err)
-		apmFailCtx, apmFailCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-		defer apmFailCancel()
-		apm.ShutdownWithContext(apmFailCtx)
-		return
-	case <-processCtx.Done():
-		logger.Info("Received shutdown signal; draining")
-	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
-	defer cancel()
-	drainServer(shutdownCtx, srv, logger, waitForKeepWarm)
-	emitterCtx, emitterCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer emitterCancel()
-	if err := emitter.Shutdown(emitterCtx); err != nil {
-		logger.Warn("OTel emitter shutdown incomplete", "err", err)
-	}
-	apmCtx, apmCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer apmCancel()
-	apm.ShutdownWithContext(apmCtx)
+	serveUntilShutdown(processCtx, serverErr, srv, logger, waitForKeepWarm, attemptSink, emitter)
 }
 
 func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscriptions.CandidateSignal {
