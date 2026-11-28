@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/observability"
 )
 
 const admissionStateKey = "router_billing_admission"
@@ -25,6 +26,7 @@ func loadBillingAdmission(c *gin.Context, svc *billing.Service, orgID string) {
 	}
 	state, err := reader.ReadAdmission(c.Request.Context(), scope)
 	if err != nil {
+		observability.FromGin(c).Warn("Billing admission read failed; checking gates individually", "err", err, "organization_id", orgID)
 		return
 	}
 	c.Set(admissionStateKey, &state)
