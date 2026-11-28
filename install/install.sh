@@ -6262,6 +6262,10 @@ case "${1:-hook}" in
     emit_title "Codex · direct"
     exit 0
     ;;
+  --sync-weave-auto)
+    sync_weave_auto_model "${2:-}"
+    exit 0
+    ;;
 esac
 
 payload="$(cat)"
@@ -6733,6 +6737,19 @@ CODEX_TOGGLE_EOF
   ok "Codex local-toggle hook installed at $codex_directive_file"
 }
 
+# The status hooks keep a blind experiment subject's Codex config off Weave
+# Auto, but an install that skipped them (existing hooks, no jq) never runs
+# them, so the install applies the same display setting once itself.
+sync_codex_weave_auto_for_experiment() {
+  local hide="false" models_user_email="${user_email:-}"
+  weave_owns_codex_helper "$codex_status_file" '<!-- weave-router managed codex status -->' rewrite || return 0
+  models_api GET "/v1/display-settings" || return 0
+  printf '%s' "$models_http_body" | grep -Eq '"hide_weave_auto"[[:space:]]*:' || return 0
+  if printf '%s' "$models_http_body" | grep -Eq '"hide_weave_auto"[[:space:]]*:[[:space:]]*true'; then
+    hide="true"
+  fi
+  "$codex_status_file" --sync-weave-auto "$hide" >/dev/null 2>&1 || true
+}
 
 if [ "$target" = "codex" ]; then
   if ! install_codex_status_script; then
@@ -6746,6 +6763,7 @@ if [ "$target" = "codex" ]; then
   # not off an exit status.
   install_codex_directive_script
   write_codex_config "$codex_config_file" "$base_url" "$api_key" "$user_email" "$user_name"
+  sync_codex_weave_auto_for_experiment
   ok "Codex config written to $codex_config_file"
   remove_obsolete_codex_prompt_wrappers "$codex_dir/prompts"
   install_codex_prompt_skills

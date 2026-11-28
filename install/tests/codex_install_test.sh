@@ -975,4 +975,48 @@ if [ -f "$config" ] && grep -Fq 'base_url = "http://127.0.0.1:41984/v1"' "$confi
   fail "failed classifier probe modified the Codex provider"
 fi
 
+# A blind experiment subject whose install skipped the Weave hooks still loses
+# the Weave Auto default at install time, and gets it back after the
+# experiment ends.
+cat >"$fake_bin/curl" <<'SHIM'
+#!/usr/bin/env bash
+out="" url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift ;;
+    -w|-X|-H|--header|--max-time|--data-binary|-K) shift ;;
+    -*) ;;
+    *) url="$1" ;;
+  esac
+  shift
+done
+case "$url" in
+  */v1/display-settings) [ -n "${WEAVE_TEST_DISPLAY_SETTINGS:-}" ] || exit 22 ;;
+  *) exit 22 ;;
+esac
+printf '%s' "$WEAVE_TEST_DISPLAY_SETTINGS" >"$out"
+printf '200'
+SHIM
+chmod +x "$fake_bin/curl"
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex"
+printf '%s\n' '[hooks]' 'SessionStart = []' >"$config"
+WEAVE_TEST_DISPLAY_SETTINGS='{"hide_weave_auto": true}' run_hosted_install
+if grep -q 'weave-router managed codex status' "$config" || grep -Fq 'weave-status.sh' "$config"; then
+  fail "the install registered Weave hooks over existing hooks"
+fi
+if grep -qx 'model = "weave-auto"' "$config"; then
+  fail "a blind experiment subject kept the Weave Auto default after install"
+fi
+grep -qx 'model_provider = "weave"' "$config" \
+  || fail "hiding Weave Auto removed the Weave provider"
+WEAVE_TEST_DISPLAY_SETTINGS='{"hide_weave_auto": false}' run_hosted_install
+grep -qx 'model = "weave-auto"' "$config" \
+  || fail "Weave Auto did not come back after the experiment ended"
+sed 's/^model = "weave-auto"$/model = "gpt-6-sol"/' "$config" >"$work/named.toml" && mv "$work/named.toml" "$config"
+WEAVE_TEST_DISPLAY_SETTINGS='{"hide_weave_auto": true}' run_hosted_install
+grep -qx 'model = "gpt-6-sol"' "$config" \
+  || fail "a subject's named model did not survive the install"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 22' >"$fake_bin/curl"
+
 echo "Codex installer routing regression tests passed"

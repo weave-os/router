@@ -643,6 +643,10 @@ case "${1:-hook}" in
     emit_title "Codex · direct"
     exit 0
     ;;
+  --sync-weave-auto)
+    sync_weave_auto_model "${2:-}"
+    exit 0
+    ;;
 esac
 
 payload="$(cat)"
