@@ -49,6 +49,15 @@ func (m *usageMarks) releaseOnPanic(id string, claim *time.Time) {
 	}
 }
 
+func (s *Service) markClaimedKeyUsed(ctx context.Context, id string, claim *time.Time) (bool, error) {
+	defer s.keyUsageMarks.releaseOnPanic(id, claim)
+	firstUse, err := s.apiKeys.MarkUsed(ctx, id)
+	if err != nil {
+		s.keyUsageMarks.release(id, claim)
+	}
+	return firstUse, err
+}
+
 func (s *Service) fireMarkFirstRequestServed(ctx context.Context, installationID string, installation *Installation) {
 	if installation != nil && installation.FirstRequestServedAt != nil {
 		return
