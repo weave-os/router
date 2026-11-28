@@ -6803,7 +6803,6 @@ if [ "$target" = "codex" ]; then
   # not off an exit status.
   install_codex_directive_script
   write_codex_config "$codex_config_file" "$base_url" "$api_key" "$user_email" "$user_name"
-  sync_codex_weave_auto_for_experiment
   ok "Codex config written to $codex_config_file"
   remove_obsolete_codex_prompt_wrappers "$codex_dir/prompts"
   install_codex_prompt_skills
@@ -6830,6 +6829,7 @@ if [ "$target" = "codex" ]; then
   fi
 
   verify_install
+  sync_codex_weave_auto_for_experiment
 
   announce_done "Codex"
   if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then

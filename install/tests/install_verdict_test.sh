@@ -173,6 +173,45 @@ if script --version 2>/dev/null | grep -q util-linux; then
   check "a terminal setup does not offer to start a client" lacks "$out" "now? [Y/n]"
   check "a terminal setup does not start Claude Code" lacks "$out" "FAKE CLAUDE STARTED"
   check "a terminal setup does not start Codex" lacks "$out" "FAKE CODEX STARTED"
+  # A rejected saved key replaced at the prompt is the one the experiment
+  # check runs with, so a subject whose Codex hooks were skipped still loses
+  # the Weave Auto default.
+  rekey_home="$work/pty-codex-rekey"
+  install "$rekey_home" 200 WEAVE_ROUTER_KEY=rk_old -- --codex --non-interactive >/dev/null
+  printf '%s\n' '[hooks]' 'SessionStart = []' >"$rekey_home/.codex/config.toml.hooks"
+  cat "$rekey_home/.codex/config.toml.hooks" >>"$rekey_home/.codex/config.toml"
+  rekey_bin="$work/rekey-bin"
+  mkdir -p "$rekey_bin"
+  cat >"$rekey_bin/curl" <<'FAKE_CURL'
+#!/usr/bin/env bash
+url="${!#}" out="" key="" header=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift ;;
+    --header|-H) header="$2"; shift ;;
+  esac
+  shift
+done
+case "$header" in
+  @-) key="$(cat)" ;;
+  @*) key="$(cat "${header#@}")" ;;
+esac
+case "$key" in *rk_new*) status=200 ;; *) status=401 ;; esac
+case "$url" in
+  */health) exit 0 ;;
+  */validate) printf '%s' "$status"; [ "$status" = 200 ] || exit 22 ;;
+  */v1/display-settings)
+    [ -z "$out" ] || printf '{"hide_weave_auto": true}' >"$out"
+    printf '%s' "$status" ;;
+  *) exit 0 ;;
+esac
+FAKE_CURL
+  chmod +x "$rekey_bin/curl"
+  printf '%s\n' rk_new | env HOME="$rekey_home" XDG_CACHE_HOME="$rekey_home/.cache" TMPDIR="$work/tmp" PATH="$rekey_bin:$test_path" NO_COLOR=1 \
+    FAKE_CLIENT_LOGGED_IN=1 \
+    script -qe -c "bash $(printf '%q' "$installer") --codex --scope user --email dev@example.com --base-url http://127.0.0.1:9" /dev/null >/dev/null 2>&1
+  check "a replaced key is written to the Codex config" test "$(codex_key "$rekey_home/.codex/config.toml")" = rk_new
+  check "a replaced key runs the experiment check" lacks "$(cat "$rekey_home/.codex/config.toml")" 'model = "weave-auto"'
 else
   echo "  skip terminal checks (needs util-linux script)"
 fi
