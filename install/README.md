@@ -524,7 +524,7 @@ The same three pieces map onto standard device-management payloads:
 | `--base-url <url>`         | `https://router.weaveos.com` | Override the router endpoint. Use for self-hosted / custom port.        |
 | `--email <email>`          | auto-detected                 | Set the router identity email and skip the email prompt.                |
 | `--return-url <url>`       | off                           | Open the URL in the default browser after `/health` and `/validate` both succeed. |
-| `--non-interactive`        | off                           | Fail if `$WEAVE_ROUTER_KEY` isn't set instead of prompting. Defaults target to Claude Code so existing CI pipelines don't shift semantics. |
+| `--non-interactive`        | off                           | Fail if `$WEAVE_ROUTER_KEY` isn't set instead of prompting, and exit with status 3 when the router rejects the key. Defaults target to Claude Code so existing CI pipelines don't shift semantics. |
 | `--no-attribution`         | off                           | Don't add the `Co-Authored-By: Weave Router` commit trailer or PR line to Claude Code's settings. Reinstalls keep the choice; an `attribution` you set yourself is never replaced. |
 | `--rotate-key`             | off                           | Ignore the key already installed and prompt for a new one (or take `$WEAVE_ROUTER_KEY`). Use when rotating a key. |
 

@@ -17,7 +17,8 @@ const server = http.createServer((request, response) => {
   const keyIsAccepted = request.headers["x-weave-router-key"] !== "rk_rejected";
   const routerIsDown = request.url.startsWith("/down/");
   const route = request.url.replace(/^\/down/, "");
-  response.writeHead((route === "/health" && !routerIsDown) || (route === "/validate" && keyIsAccepted) ? 200 : 404);
+  if (route === "/validate" && !keyIsAccepted) response.writeHead(401);
+  else response.writeHead((route === "/health" && !routerIsDown) || route === "/validate" ? 200 : 404);
   response.end("{}");
 });
 
@@ -400,7 +401,7 @@ test("the return URL opens only after the router and key both verify", { skip: p
   }
   const returnUrl = "https://app.example.test/continue?selection=enterprise&harness=claude_code";
   const env = { PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` };
-  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl, "--return-url", returnUrl], { envOverrides: { ...env, WEAVE_ROUTER_KEY: "rk_rejected" } });
+  await assert.rejects(runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl, "--return-url", returnUrl], { envOverrides: { ...env, WEAVE_ROUTER_KEY: "rk_rejected" } }));
   await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", `${baseUrl}/down`, "--return-url", returnUrl], { envOverrides: env });
   assert.equal(fs.existsSync(openLog), false);
   await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl, "--return-url", returnUrl], { envOverrides: env });
@@ -408,6 +409,14 @@ test("the return URL opens only after the router and key both verify", { skip: p
   fs.rmSync(openLog);
   await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl], { envOverrides: { ...env, WEAVE_ROUTER_RETURN_URL: returnUrl } });
   assert.equal(fs.readFileSync(openLog, "utf8"), `${returnUrl}\n`);
+});
+
+test("a non-interactive install exits 3 when the router rejects the key, and 0 when it cannot be checked", async () => {
+  const home = path.join(temporaryHome, "rejected-key");
+  const install = ["--claude", "--non-interactive", "--base-url"];
+  await assert.rejects(runInstallerAt(home, [...install, baseUrl], { envOverrides: { WEAVE_ROUTER_KEY: "rk_rejected" } }), { code: 3 });
+  assert.ok(fs.existsSync(path.join(home, ".claude", "settings.json")));
+  await runInstallerAt(home, [...install, "http://127.0.0.1:9"]);
 });
 
 test("native installer rejects a non-http return URL and a return URL on uninstall", async () => {

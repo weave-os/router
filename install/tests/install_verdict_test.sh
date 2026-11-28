@@ -107,6 +107,15 @@ out="$(install "$work/bad-key" 401 WEAVE_ROUTER_KEY=rk_secret_401 -- --claude)"
 check "a 401 says the key was not recognized" has "$out" "not working yet: the router did not recognize this key"
 check "a 401 suggests --rotate-key" has "$out" "npx @weave-os/router --claude --rotate-key"
 
+install "$work/bad-key-scripted" 401 WEAVE_ROUTER_KEY=rk_secret_401 -- --claude --non-interactive >/dev/null
+check "a rejected key fails a non-interactive install" test $? -eq 3
+install "$work/wrong-fleet-scripted" 403 WEAVE_ROUTER_KEY=rk_secret_403 -- --codex --non-interactive >/dev/null
+check "a refused key fails a non-interactive install" test $? -eq 3
+install "$work/bad-key-prompting" 401 WEAVE_ROUTER_KEY=rk_secret_401 -- --claude >/dev/null
+check "a rejected key still exits zero without --non-interactive" test $? -eq 0
+install "$work/offline-scripted" 000 WEAVE_ROUTER_KEY=rk_secret_offline -- --claude --non-interactive >/dev/null
+check "an unreachable router does not fail a non-interactive install" test $? -eq 0
+
 out="$(install "$work/offline" 000 WEAVE_ROUTER_KEY=rk_secret_offline -- --codex)"
 check "an unreachable router is not announced as installed" lacks "$out" "Weave Router installed"
 check "an unreachable router says so" has "$out" "not working yet: could not reach http://127.0.0.1:9"
@@ -197,6 +206,9 @@ home="$work/setup"
 out="$(install "$home" 200 WEAVE_ROUTER_KEY=rk_setup -- setup --non-interactive)"
 check "setup installs Claude Code" has "$out" "✓ Weave Router installed for Claude Code."
 check "setup installs Codex" has "$out" "✓ Weave Router installed for Codex."
+out="$(install "$work/setup-rejected" 401 WEAVE_ROUTER_KEY=rk_setup -- setup --non-interactive)"; setup_status=$?
+check "a rejected Claude Code key does not stop setup before Codex" has "$out" "Weave Router is configured for Codex, but not working yet"
+check "setup reports the rejected key in its exit status" test "$setup_status" -eq 3
 check "setup removes its handoff file" no_setup_handoff_left
 check "installs leave no validation or capture temp files behind" no_temp_files_left
 

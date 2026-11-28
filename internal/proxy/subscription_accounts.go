@@ -49,6 +49,8 @@ type accountLoop struct {
 	decision            router.Decision
 	trace               *dispatch.AttemptTrace
 	lastSubscriptionErr error
+
+	quotaUnverifiedRetries int
 }
 
 type leasedAccount struct {
@@ -254,6 +256,9 @@ func (l *accountLoop) rotationAfterFailure(bookkeepingCtx, credentialCtx, attemp
 	rotate := leased.managed && (s.recordManagedSubscriptionFailure(bookkeepingCtx, decision.Provider, decision.Model, leased.lease, attemptErr) || providers.IsRetryable(attemptErr))
 	if leased.managed && !committed(l.in.Prelude) {
 		recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr, s.clock.Now())
+	}
+	if !leased.managed && !committed(l.in.Prelude) && l.retryUnverifiedQuotaOnSameLogin(bookkeepingCtx, credentialCtx, attemptErr) {
+		return attemptCtx, true
 	}
 	if !leased.managed && !committed(l.in.Prelude) && credentials.CodexSubscriptionRotates(credentialCtx, attemptErr) {
 		s.recordCodexCredentialUnusable(bookkeepingCtx, credentials.CredentialsFromContext(credentialCtx), attemptErr)

@@ -182,6 +182,10 @@ rotate_key="false"
 api_key_source=""
 # Set by verify_install; a return URL is opened only after both probes pass.
 install_verification_succeeded="false"
+# Exit status of a non-interactive install whose key the router refused. It is
+# its own status so `setup` can tell it from a failed write and still install
+# the next client, which may hold a different key.
+EXIT_KEY_REJECTED=3
 # Set by verify_install: valid | rejected | unverified (router unreachable),
 # or empty when there was no key to check.
 key_verdict=""
@@ -1112,8 +1116,31 @@ $(weave_owned_codex_helpers)
 EOF
     strip_weave_codex_hooks "$tmp" ${owned_helpers[@]+"${owned_helpers[@]}"}
     local first_section
-    first_section="$(awk '/^[[:space:]]*\[/ { print NR; exit }' "$tmp")"
-    if [ -n "$first_section" ]; then
+    # The Weave Codex telemetry plugin opens its marked region with a begin
+    # marker above its first table and deletes everything between its markers
+    # when it reinstalls. When that table is the first header, splice above
+    # the marker so the managed block stays outside the region. Keys
+    # between the marker and its table move out with it: left below the
+    # block they would become members of its last table. Comments stay.
+    local first_section telemetry_begin_line
+    read -r first_section telemetry_begin_line <<EOF
+$(awk '
+      /^[[:space:]]*\[/ { print NR, telemetry_begin_line + 0; exit }
+      index($0, "# --- BEGIN WEAVE TELEMETRY") == 1 { telemetry_begin_line = NR }
+    ' "$tmp")
+EOF
+    if [ "${telemetry_begin_line:-0}" -gt 0 ]; then
+      {
+        if [ "$telemetry_begin_line" -gt 1 ]; then
+          head -n "$((telemetry_begin_line - 1))" "$tmp"
+        fi
+        awk -v begin="$telemetry_begin_line" -v table_line="$first_section" \
+          'NR > begin && NR < table_line && !/^[[:space:]]*(#.*)?$/' "$tmp"
+        printf "%s\n" "$codex_insertion"
+        awk -v begin="$telemetry_begin_line" -v table_line="$first_section" \
+          'NR == begin || NR >= table_line || (NR > begin && /^[[:space:]]*(#.*)?$/)' "$tmp"
+      } >"$config_file"
+    elif [ -n "$first_section" ]; then
       # BSD `head -n 0` (macOS default) errors with "illegal line count"
       # and trips `set -euo pipefail`, leaving an empty config. Skip the
       # head call entirely when the file starts with a section header.
@@ -1869,6 +1896,7 @@ if [ "$mode" = "setup" ]; then
   # handoff file so the Codex run doesn't ask again. The key travels by file
   # and environment, never argv.
   setup_handoff=""
+  setup_status=0
   shared_key=""
   shared_email=""
   identity_resolved=""
@@ -1878,7 +1906,11 @@ if [ "$mode" = "setup" ]; then
   fi
   if [ "$setup_claude" = "true" ]; then
     WEAVE_SETUP_HANDOFF_FILE="$setup_handoff" bash "$0" "${setup_args[@]}" --claude \
-      || { setup_status=$?; [ -z "$setup_handoff" ] || rm -f "$setup_handoff"; exit "$setup_status"; }
+      || setup_status=$?
+    if [ "$setup_status" -ne 0 ] && [ "$setup_status" -ne "$EXIT_KEY_REJECTED" ]; then
+      [ -z "$setup_handoff" ] || rm -f "$setup_handoff"
+      exit "$setup_status"
+    fi
   fi
   if [ -n "$setup_handoff" ]; then
     if [ -s "$setup_handoff" ]; then
@@ -1890,9 +1922,9 @@ if [ "$mode" = "setup" ]; then
   if [ "$setup_codex" = "true" ]; then
     WEAVE_SETUP_SHARED_KEY="$shared_key" WEAVE_SETUP_SHARED_EMAIL="$shared_email" \
       WEAVE_SETUP_IDENTITY_RESOLVED="$identity_resolved" \
-      bash "$0" "${setup_args[@]}" --codex
+      bash "$0" "${setup_args[@]}" --codex || exit $?
   fi
-  exit 0
+  exit "$setup_status"
 fi
 
 if [ -n "$return_url" ] && [ "$mode" != "install" ]; then
@@ -5490,6 +5522,13 @@ announce_done() {
       printf "%s✗%s %sWeave Router is configured for %s, but not working yet:%s %s.\n" \
         "$C_RED" "$C_RESET" "$C_BOLD" "$1" "$C_RESET" "$(key_problem)"
       printf "  Fix: %s\n" "$(key_fix_hint "--$target")"
+      # A script that asked for no prompts reads the exit status, not the
+      # output, so a key the router refused is a failed install. An unreachable
+      # router proves nothing about the key and stays a success.
+      if [ "$key_verdict" = "rejected" ] && [ "$non_interactive" = "true" ]; then
+        print_uninstall_hint
+        exit "$EXIT_KEY_REJECTED"
+      fi
       ;;
     *)
       printf "%s✓%s %s%sWeave Router installed for %s.%s\n" \
