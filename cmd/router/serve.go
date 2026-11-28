@@ -29,7 +29,7 @@ func serveUntilShutdown(processCtx context.Context, serverErr <-chan error, srv 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
 	drainServer(shutdownCtx, srv, logger, waitForKeepWarm)
-	sinkCtx, sinkCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	sinkCtx, sinkCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer sinkCancel()
 	closeAttemptSink(sinkCtx, logger, attemptSink)
 	emitterCtx, emitterCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)

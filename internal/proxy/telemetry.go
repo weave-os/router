@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"hash/fnv"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -205,9 +206,13 @@ func NewAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Logger) 
 	return attemptSink{store: store, logger: logger}
 }
 
-const DefaultAttemptQueueCapacity = 1024
+const (
+	DefaultAttemptQueueCapacity = 1024
+	attemptQueueShards          = 8
+)
 
 type bufferedAttempt struct {
+	ctx            context.Context
 	installationID string
 	event          inference.AttemptEvent
 }
@@ -215,13 +220,12 @@ type bufferedAttempt struct {
 type AsyncAttemptSink struct {
 	inner     attemptSink
 	logger    *slog.Logger
-	queue     chan bufferedAttempt
+	shards    []chan bufferedAttempt
 	done      chan struct{}
 	closeOnce sync.Once
 	mu        sync.RWMutex
 	closed    bool
 	dropped   atomic.Uint64
-	warned    atomic.Bool
 }
 
 var _ dispatch.AttemptSink = (*AsyncAttemptSink)(nil)
@@ -230,17 +234,35 @@ func NewAsyncAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Log
 	if capacity <= 0 {
 		capacity = DefaultAttemptQueueCapacity
 	}
+	shardCapacity := capacity / attemptQueueShards
+	if shardCapacity < 1 {
+		shardCapacity = 1
+	}
 	sink := &AsyncAttemptSink{
 		inner:  attemptSink{store: store, logger: logger},
 		logger: logger,
-		queue:  make(chan bufferedAttempt, capacity),
+		shards: make([]chan bufferedAttempt, attemptQueueShards),
 		done:   make(chan struct{}),
+	}
+	for i := range sink.shards {
+		sink.shards[i] = make(chan bufferedAttempt, shardCapacity)
 	}
 	if store == nil {
 		close(sink.done)
-	} else {
-		go sink.drain()
+		return sink
 	}
+	var workers sync.WaitGroup
+	for _, shard := range sink.shards {
+		workers.Add(1)
+		go func(queue <-chan bufferedAttempt) {
+			defer workers.Done()
+			sink.drain(queue)
+		}(shard)
+	}
+	go func() {
+		workers.Wait()
+		close(sink.done)
+	}()
 	return sink
 }
 
@@ -249,33 +271,55 @@ func (s *AsyncAttemptSink) RecordAttempt(ctx context.Context, event inference.At
 	if s.inner.store == nil || installationID == "" {
 		return
 	}
+	attempt := bufferedAttempt{
+		ctx:            context.WithoutCancel(ctx),
+		installationID: installationID,
+		event:          event,
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.closed {
+		s.dropped.Add(1)
 		return
 	}
 	select {
-	case s.queue <- bufferedAttempt{installationID: installationID, event: event}:
+	case s.shards[attemptShard(installationID)] <- attempt:
 	default:
-		s.dropped.Add(1)
-		if s.warned.CompareAndSwap(false, true) && s.logger != nil {
-			s.logger.Warn("inference attempt queue full; dropping events", "operation_id", event.OperationID)
+		dropped := s.dropped.Add(1)
+		if dropped&(dropped-1) == 0 && s.logger != nil {
+			go s.logger.Warn("inference attempt queue full; dropping events", "dropped", dropped, "operation_id", event.OperationID)
 		}
 	}
 }
 
-func (s *AsyncAttemptSink) drain() {
-	defer close(s.done)
-	for attempt := range s.queue {
-		s.inner.persist(context.Background(), attempt.installationID, attempt.event)
+func attemptShard(installationID string) int {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(installationID))
+	return int(hash.Sum32() % attemptQueueShards)
+}
+
+func (s *AsyncAttemptSink) drain(queue <-chan bufferedAttempt) {
+	for attempt := range queue {
+		s.persist(attempt)
 	}
+}
+
+func (s *AsyncAttemptSink) persist(attempt bufferedAttempt) {
+	defer func() {
+		if r := recover(); r != nil && s.logger != nil {
+			s.logger.Error("Inference attempt persist panicked", "panic", r, "operation_id", attempt.event.OperationID)
+		}
+	}()
+	s.inner.persist(attempt.ctx, attempt.installationID, attempt.event)
 }
 
 func (s *AsyncAttemptSink) Close(ctx context.Context) error {
 	s.closeOnce.Do(func() {
 		s.mu.Lock()
 		s.closed = true
-		close(s.queue)
+		for _, shard := range s.shards {
+			close(shard)
+		}
 		s.mu.Unlock()
 	})
 	select {
