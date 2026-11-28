@@ -138,7 +138,7 @@ func (e *RequestEnvelope) anthropicRoutingFeatures() RoutingFeatures {
 		appendText(&b, contentTextGJSON(msg.Get("content")))
 		lastMsg = msg
 		if msg.Get("role").String() == "user" {
-			if text := userPromptTextGJSON(msg.Get("content")); text != "" {
+			if text := userPromptTextWithClientWrappers(msg.Get("content"), true); text != "" {
 				appendText(&onlyUserB, text)
 			}
 		}
