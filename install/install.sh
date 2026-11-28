@@ -3092,7 +3092,7 @@ gitignore_add() {
   local gi="$git_root/.gitignore" entry="$1"
   refuse_if_symlink "$gi"
   if [ ! -f "$gi" ] || ! grep -qxF "$entry" "$gi"; then
-    printf '%s\n' "$entry" >>"$gi"
+    append_gitignore_entry "$gi" "$entry"
   fi
 }
 

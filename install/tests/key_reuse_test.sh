@@ -354,6 +354,21 @@ proj_off_local="$proj_off/.claude/settings.local.json"
 check "project off overrides settings.local.json's base URL" \
   "$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$proj_off_local")" "https://api.anthropic.com"
 
+# The parked file holds the router key, so its ignore rule must survive a
+# .gitignore whose last line has no newline.
+proj_unterm_home="$work/project-off-unterminated"; proj_unterm="$work/project-off-unterminated-repo"
+mkdir -p "$proj_unterm_home" "$proj_unterm"
+git -C "$proj_unterm" init -q .
+( cd "$proj_unterm" && HOME="$proj_unterm_home" XDG_CACHE_HOME="$proj_unterm_home/.cache" PATH="$test_path" NO_COLOR=1 \
+    WEAVE_ROUTER_KEY="rk_proj_unterm" \
+    bash "$installer" --claude --scope project --quiet --non-interactive </dev/null >/dev/null 2>&1 )
+printf '%s' "$(cat "$proj_unterm/.gitignore")" >"$proj_unterm/.gitignore.new"
+mv "$proj_unterm/.gitignore.new" "$proj_unterm/.gitignore"
+( cd "$proj_unterm" && HOME="$proj_unterm_home" PATH="$test_path" NO_COLOR=1 \
+    bash "$installer" off --claude --scope project </dev/null >/dev/null 2>&1 )
+check "project off ignores the parked key after an unterminated .gitignore line" \
+  "$(grep -cxF .claude/.weave-parked.json "$proj_unterm/.gitignore")" "1"
+
 ( cd "$proj_off" && HOME="$proj_off_home" XDG_CACHE_HOME="$proj_off_home/.cache" PATH="$test_path" NO_COLOR=1 \
     bash "$installer" update --claude --scope project </dev/null >/dev/null 2>&1 )
 check "update while off (project scope) recovers the key into settings.local.json" \
