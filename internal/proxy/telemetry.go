@@ -2,8 +2,13 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
-	"weave-os/router/internal/routingpolicy"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"go.opentelemetry.io/otel/trace"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -13,6 +18,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/gitcontext"
 	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
@@ -180,14 +186,15 @@ type attemptSink struct {
 }
 
 func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptEvent) {
-	if s.store == nil {
-		return
-	}
 	installationID, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
-	if installationID == "" {
+	if s.store == nil || installationID == "" {
 		return
 	}
-	if err := s.store.InsertInferenceAttempt(context.WithoutCancel(ctx), telemetry.InsertInferenceAttemptParams{
+	s.persist(context.WithoutCancel(ctx), installationID, event)
+}
+
+func (s attemptSink) persist(ctx context.Context, installationID string, event inference.AttemptEvent) {
+	if err := s.store.InsertInferenceAttempt(ctx, telemetry.InsertInferenceAttemptParams{
 		InstallationID: installationID,
 		Event:          event,
 	}); err != nil && s.logger != nil {
@@ -200,6 +207,250 @@ func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptE
 
 func NewAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Logger) dispatch.AttemptSink {
 	return attemptSink{store: store, logger: logger}
+}
+
+const (
+	DefaultAttemptQueueCapacity = 1024
+	attemptDrainWorkers         = 4
+)
+
+type bufferedAttempt struct {
+	ctx            context.Context
+	installationID string
+	event          inference.AttemptEvent
+}
+
+type AsyncAttemptSink struct {
+	inner             attemptSink
+	logger            *slog.Logger
+	mu                sync.Mutex
+	cond              *sync.Cond
+	queues            map[string][]bufferedAttempt
+	active            map[string]bool
+	order             []string
+	cursor            int
+	pending           int
+	capacity          int
+	installationLimit int
+	closed            bool
+	dropped           atomic.Uint64
+	done              chan struct{}
+	closeOnce         sync.Once
+}
+
+var _ dispatch.AttemptSink = (*AsyncAttemptSink)(nil)
+
+func NewAsyncAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Logger, capacity int) *AsyncAttemptSink {
+	return newAsyncAttemptSink(store, logger, capacity, attemptDrainWorkers)
+}
+
+func newAsyncAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Logger, capacity, workers int) *AsyncAttemptSink {
+	if capacity <= 0 {
+		capacity = DefaultAttemptQueueCapacity
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	sink := &AsyncAttemptSink{
+		inner:             attemptSink{store: store, logger: logger},
+		logger:            logger,
+		queues:            make(map[string][]bufferedAttempt),
+		active:            make(map[string]bool),
+		capacity:          capacity,
+		installationLimit: max(1, capacity/attemptDrainWorkers),
+		done:              make(chan struct{}),
+	}
+	sink.cond = sync.NewCond(&sink.mu)
+	if store == nil {
+		close(sink.done)
+		return sink
+	}
+	var running sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		running.Add(1)
+		observability.StartLifecycleWorker(logger, "attempt_sink_drain", func() {
+			defer running.Done()
+			sink.drain()
+		})
+	}
+	observability.StartLifecycleWorker(logger, "attempt_sink_wait", func() {
+		running.Wait()
+		close(sink.done)
+	})
+	return sink
+}
+
+func (s *AsyncAttemptSink) RecordAttempt(ctx context.Context, event inference.AttemptEvent) {
+	installationID, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
+	if s.inner.store == nil || installationID == "" {
+		return
+	}
+	attempt := bufferedAttempt{
+		ctx:            detachedAttemptContext(ctx),
+		installationID: installationID,
+		event:          event,
+	}
+	s.mu.Lock()
+	queued := s.queues[installationID]
+	if s.closed || s.pending >= s.capacity || len(queued) >= s.installationLimit {
+		dropped := s.dropped.Add(1)
+		closed := s.closed
+		s.mu.Unlock()
+		s.warnDrop(dropped, installationID, event.OperationID, closed)
+		return
+	}
+	if len(queued) == 0 {
+		s.order = append(s.order, installationID)
+	}
+	s.queues[installationID] = append(queued, attempt)
+	s.pending++
+	s.cond.Signal()
+	s.mu.Unlock()
+}
+
+func (s *AsyncAttemptSink) storeQueueLocked(installationID string, queued []bufferedAttempt) {
+	if len(queued) == 0 {
+		delete(s.queues, installationID)
+		s.removeOrderLocked(installationID)
+		return
+	}
+	if cap(queued) > 32 && len(queued) <= cap(queued)/4 {
+		queued = append([]bufferedAttempt(nil), queued...)
+	}
+	s.queues[installationID] = queued
+}
+
+func (s *AsyncAttemptSink) removeOrderLocked(installationID string) {
+	for i, id := range s.order {
+		if id != installationID {
+			continue
+		}
+		s.order = append(s.order[:i], s.order[i+1:]...)
+		if i < s.cursor && s.cursor > 0 {
+			s.cursor--
+		} else if s.cursor >= len(s.order) {
+			s.cursor = 0
+		}
+		return
+	}
+}
+
+func (s *AsyncAttemptSink) warnDrop(dropped uint64, installationID, operationID string, closed bool) {
+	if dropped&(dropped-1) == 0 && s.logger != nil {
+		observability.SafeGo(s.logger, 2*time.Second, "attempt_sink_drop_warn", func(context.Context) {
+			s.logger.Warn("inference attempt dropped", "dropped", dropped, "installation_id", installationID, "operation_id", operationID, "sink_closed", closed)
+		})
+	}
+}
+
+func detachedAttemptContext(ctx context.Context) context.Context {
+	detached := context.Background()
+	if spanContext := trace.SpanContextFromContext(ctx); spanContext.IsValid() {
+		detached = trace.ContextWithSpanContext(detached, spanContext)
+	}
+	if sessionID := observability.ClientSessionIDFromContext(ctx); sessionID != "" {
+		detached = observability.WithClientSessionID(detached, sessionID)
+	}
+	return detached
+}
+
+func (s *AsyncAttemptSink) drain() {
+	for {
+		attempt, ok := s.next()
+		if !ok {
+			return
+		}
+		s.persist(attempt)
+		s.finish(attempt.installationID)
+	}
+}
+
+func (s *AsyncAttemptSink) finish(installationID string) {
+	s.mu.Lock()
+	delete(s.active, installationID)
+	if s.closed && s.pending == 0 {
+		s.cond.Broadcast()
+	} else if s.pending > 0 {
+		s.cond.Signal()
+	}
+	s.mu.Unlock()
+}
+
+func (s *AsyncAttemptSink) next() (bufferedAttempt, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for {
+		if attempt, ok := s.popReadyLocked(); ok {
+			return attempt, true
+		}
+		if s.closed && s.pending == 0 {
+			return bufferedAttempt{}, false
+		}
+		s.cond.Wait()
+	}
+}
+
+func (s *AsyncAttemptSink) popReadyLocked() (bufferedAttempt, bool) {
+	checked := 0
+	for checked < len(s.order) {
+		if s.cursor >= len(s.order) {
+			s.cursor = 0
+		}
+		installationID := s.order[s.cursor]
+		queued := s.queues[installationID]
+		if len(queued) == 0 {
+			delete(s.queues, installationID)
+			s.removeOrderLocked(installationID)
+			continue
+		}
+		if s.active[installationID] {
+			s.cursor++
+			checked++
+			continue
+		}
+		attempt := queued[0]
+		queued[0] = bufferedAttempt{}
+		queued = queued[1:]
+		s.pending--
+		s.active[installationID] = true
+		if len(queued) > 0 {
+			s.cursor++
+		}
+		s.storeQueueLocked(installationID, queued)
+		return attempt, true
+	}
+	return bufferedAttempt{}, false
+}
+
+func (s *AsyncAttemptSink) persist(attempt bufferedAttempt) {
+	defer func() {
+		if r := recover(); r != nil && s.logger != nil {
+			s.logger.Error("Inference attempt persist panicked", "panic", r, "operation_id", attempt.event.OperationID)
+		}
+	}()
+	s.inner.persist(attempt.ctx, attempt.installationID, attempt.event)
+}
+
+func (s *AsyncAttemptSink) Close(ctx context.Context) error {
+	s.closeOnce.Do(func() {
+		s.mu.Lock()
+		s.closed = true
+		s.cond.Broadcast()
+		s.mu.Unlock()
+	})
+	select {
+	case <-s.done:
+		if dropped := s.dropped.Load(); dropped > 0 && s.logger != nil {
+			s.logger.Warn("inference attempt events dropped", "count", dropped)
+		}
+		return nil
+	case <-ctx.Done():
+		s.mu.Lock()
+		queued := s.pending
+		inFlight := len(s.active)
+		s.mu.Unlock()
+		return fmt.Errorf("attempt sink drain timed out (queued=%d in_flight=%d dropped=%d): %w", queued, inFlight, s.dropped.Load(), ctx.Err())
+	}
 }
 
 const DecisionReasonPolicyPinUnservable = router.PolicyPinUnavailableReason

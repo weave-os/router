@@ -56,9 +56,23 @@ into `auth.Service` and `proxy.Service`. Operator-facing variables are listed in
   during shutdown.
 - **HTTP server.** No server-wide `ReadTimeout`/`WriteTimeout` (they would cut
   streams); non-streaming routes carry per-route timeouts.
+- **Attempt telemetry.** Inference attempt rows go through a bounded
+  per-installation fair queue (`DefaultAttemptQueueCapacity` total across all
+  installations, drained round-robin by 4 workers with at most one in-flight
+  write per installation) so a slow insert cannot stall failover. Each installation
+  can queue at most a quarter of the total (minimum one row). Hitting either limit
+  drops the incoming row and keeps all accepted rows. Buffered contexts retain
+  only trace and client-session correlation (not request bodies), and drops log
+  at power-of-two drop counts. The worker count stays below the 6-connection
+  Postgres pool so request-path queries keep capacity. `StartLifecycleWorker`
+  runs the sink workers until `Close` drains their queues; a task timeout would
+  stop consumption while the router is still serving. Use `SafeGo` or
+  `SafeGoContext` for individual background tasks.
 - **Shutdown budget.** Cloud Run allows 10 s between SIGTERM and SIGKILL: server
-  shutdown 6 s, emitter flush 1.5 s and APM flush 1.5 s leave ~1 s of slack. A
-  `ListenAndServe` failure flushes APM itself because it bypasses that path.
+  shutdown 6 s, then the OTel emitter flush (1.5 s) runs concurrently with the
+  attempt-sink drain (1.5 s) followed by APM shutdown (1.5 s), preserving queued
+  attempt spans within ~1 s of slack. A `ListenAndServe` failure flushes the
+  attempt sink and APM itself because it bypasses that path.
 - **Flag registry.** Boot publishes the compiled-in flag registry with the
   defaults this process resolved, best effort; nothing on the request path reads
   it.
