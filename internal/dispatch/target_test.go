@@ -54,3 +54,19 @@ func TestGuardTarget_RejectsBeforeProviderIO(t *testing.T) {
 		})
 	}
 }
+
+func TestGuardTarget_RefusesRoutingModelOnTheWire(t *testing.T) {
+	for _, model := range []string{string(router.ModelAutomatic), router.ModelAutomaticDisplayName, string(router.ModelAutoEfficient), string(router.ModelAutoBeta), "WEAVE-AUTO-BETA", string(router.ModelHMMBeta)} {
+		t.Run(model, func(t *testing.T) {
+			target := primary
+			target.UpstreamID = model
+			upstream := &fakeUpstream{name: target.Provider}
+			guarded := dispatch.GuardTarget(upstream, target)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
+			err := guarded.Proxy(context.Background(), router.Decision{Model: target.CatalogID, Provider: target.Provider},
+				providers.PreparedRequest{Body: []byte(`{"model":"` + model + `"}`)}, httptest.NewRecorder(), req)
+			require.ErrorIs(t, err, dispatch.ErrRoutingModelOnWire, "got %v", err)
+			assert.Empty(t, upstream.models, "provider must not be called")
+		})
+	}
+}

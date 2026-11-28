@@ -407,3 +407,18 @@ func TestDirectConversationIDFallsBackToConversationFingerprint(t *testing.T) {
 	explicit.Header.Set("Session-Id", "client-session")
 	assert.Equal(t, "client-session", directConversationID(explicit, firstTurn))
 }
+
+func TestDirectConversationIDUsesUpstreamGatewaySession(t *testing.T) {
+	body := []byte(`{"model":"weave-auto","messages":[{"role":"user","content":"same opener"}]}`)
+	conversation := func(session string) string {
+		headers := http.Header{"X-Gateway-Session": {session}}
+		ctx := requestcontext.WithUpstreamGateway(t.Context(), requestcontext.UpstreamGatewaySession{Headers: []string{"X-Gateway-Session"}}, headers)
+		request := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil)
+		request.Header = headers
+		return directConversationID(request, body)
+	}
+
+	assert.NotEqual(t, conversation("gateway-a"), conversation("gateway-b"), "separate gateway sessions must not share an admission binding")
+	first := conversation("gateway-a")
+	assert.Equal(t, first, conversation("gateway-a"), "the same gateway session keeps one admission binding")
+}

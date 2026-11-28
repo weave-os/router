@@ -514,7 +514,7 @@ func main() {
 		WithAnthropicFederationTokenSource(buildAnthropicFederationTokenSource(deploymentMode)).
 		WithEntraTokenSource(buildEntraTokenSource(logger)).
 		WithFlagOverridesDisabled(flagOverridesDisabled).
-		WithSessionSpendCaps(billingSvc != nil)
+		WithSessionSpendCaps(billingSvc != nil).WithUpstreamGatewayIssuers(upstreamGatewayIssuers(logger))
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
 	subscriptionRuntime, subscriptionLogins := buildSubscriptionRuntime(subscriptionPoolsEnabled, authSvc, repo.SubscriptionAccounts, subscriptionQuotaProber(providerMap[providers.ProviderOpenAI]), logger)
 

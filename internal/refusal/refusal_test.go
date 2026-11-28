@@ -65,6 +65,8 @@ func TestContractTable(t *testing.T) {
 		ServingAttributionUnavailable:  {Status: 503, Code: "serving_attribution_unavailable"},
 		SubscriptionUnavailableForTurn: {Status: 402, Code: "subscription_unavailable_for_turn", NoClientRetry: true},
 		FlagOverridesMalformed:         {Status: 400, Code: "flag_overrides_malformed"},
+		UpstreamGatewaySurfaceRejected: {Status: 403, Code: "upstream_gateway_surface_rejected"},
+		UpstreamGatewayLoopDetected:    {Status: 403, Code: "upstream_gateway_loop_detected", NoClientRetry: true},
 	}
 	assert.Len(t, want, int(kindCount), "every kind must be pinned here")
 	for kind, expected := range want {

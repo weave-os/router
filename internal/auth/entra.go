@@ -30,3 +30,8 @@ var ErrEntraUnavailable = errors.New("auth: Microsoft Entra token is unavailable
 type EntraTokenSource interface {
 	Token(context.Context, *ExternalAPIKey) ([]byte, error)
 }
+
+func (s *Service) WithEntraTokenSource(src EntraTokenSource) *Service {
+	s.entraTokens = src
+	return s
+}

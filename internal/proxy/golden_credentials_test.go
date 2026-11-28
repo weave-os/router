@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -200,6 +202,10 @@ func withBYOK(keys ...*auth.ExternalAPIKey) func(context.Context) context.Contex
 func goldenCodexCredentialCtx(ctx context.Context) context.Context {
 	ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, goldenCodexToken)
 	return context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, goldenCodexAccount)
+}
+
+func goldenUpstreamGatewayCtx(ctx context.Context) context.Context {
+	return requestcontext.WithUpstreamGateway(ctx, requestcontext.UpstreamGatewaySession{}, http.Header{})
 }
 
 func goldenUnkeyedCtx(ctx context.Context) context.Context {
@@ -403,4 +409,28 @@ func goldenCredentialScenarios() []goldenScenario {
 
 func goldenSubscriptionOnlyCtx(ctx context.Context) context.Context {
 	return billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
+}
+
+func goldenUpstreamGatewayCredentialScenarios() []goldenScenario {
+	ok := anthropicOK(false, "ok")
+	cases := []credentialCase{
+		{name: "upstream_gateway_mode_serves_on_gateway_key", supplies: []string{goldenBYOKAnthropic}, decisions: []router.Decision{goldenAnthropicDecision}, upstreams: anthropicUp(ok),
+			ctx: chainCtx(goldenUpstreamGatewayCtx, withBYOK(&auth.ExternalAPIKey{ID: "golden-ext-gateway", Provider: providers.ProviderAnthropic,
+				Plaintext: []byte(goldenBYOKAnthropic), BaseURL: "https://gateway.example.test", ForwardedClientHeaders: []string{"traceparent"}, BaggageHeader: "baggage"})),
+			headers: map[string]string{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01", "baggage": "on-behalf-of=user@example.test"}},
+		{name: "upstream_gateway_mode_streams_without_router_surfaces", stream: true, supplies: []string{goldenBYOKAnthropic}, decisions: []router.Decision{goldenAnthropicDecision},
+			upstreams: anthropicUp(anthropicOK(true, "ok")),
+			ctx: chainCtx(goldenUpstreamGatewayCtx, withBYOK(&auth.ExternalAPIKey{ID: "golden-ext-gateway", Provider: providers.ProviderAnthropic,
+				Plaintext: []byte(goldenBYOKAnthropic), BaseURL: "https://gateway.example.test", ForwardedClientHeaders: []string{"traceparent"}, BaggageHeader: "baggage"})),
+			headers: map[string]string{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01", "X-Weave-User-Email": "user@example.test"}},
+		{name: "upstream_gateway_routing_model_never_dispatched", supplies: []string{goldenBYOKAnthropic},
+			decisions: []router.Decision{decision(providers.ProviderAnthropic, string(router.ModelAutomatic))}, upstreams: anthropicUp(ok),
+			ctx: chainCtx(goldenUpstreamGatewayCtx, withBYOK(&auth.ExternalAPIKey{ID: "golden-ext-gateway", Provider: providers.ProviderAnthropic,
+				Plaintext: []byte(goldenBYOKAnthropic), BaseURL: "https://gateway.example.test"}))},
+	}
+	out := make([]goldenScenario, 0, len(cases))
+	for _, c := range cases {
+		out = append(out, c.scenario())
+	}
+	return out
 }

@@ -5,6 +5,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
 )
 
 func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*requestcontext.Credentials {
@@ -17,7 +18,7 @@ func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*requestcontext
 			APIKey:       key.Plaintext,
 			Source:       requestcontext.SourceBYOK,
 			BaseURL:      key.BaseURL,
-			ModelAliases: key.ModelAliases,
+			ModelAliases: wireModelAliases(key.ModelAliases),
 
 			IdentityHeader:         key.IdentityHeader,
 			IdentityHeaderFormat:   key.IdentityHeaderFormat,
@@ -34,4 +35,17 @@ func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*requestcontext
 		return nil
 	}
 	return m
+}
+
+func wireModelAliases(aliases map[string]string) map[string]string {
+	if aliases == nil {
+		return nil
+	}
+	out := make(map[string]string, len(aliases))
+	for model, alias := range aliases {
+		if !router.IsRoutingModel(alias) {
+			out[model] = alias
+		}
+	}
+	return out
 }

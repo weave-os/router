@@ -48,6 +48,9 @@ func TestSetServingReleaseHeaders(t *testing.T) {
 		"blind experiment hides the headers despite opt in": {
 			ctx: context.WithValue(managedServingCtx(true), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}),
 		},
+		"upstream gateway hides the headers despite opt in": {
+			ctx: requestcontext.WithUpstreamGateway(managedServingCtx(true), requestcontext.UpstreamGatewaySession{}, http.Header{}),
+		},
 		"unmanaged request has no release to name": {
 			ctx: context.WithValue(context.Background(), requestcontext.InstallationServingReleaseHeadersContextKey{}, true),
 		},
@@ -60,6 +63,12 @@ func TestSetServingReleaseHeaders(t *testing.T) {
 			assert.Equal(t, tc.wantPolicy, h.Get(requestcontext.HeaderServingPolicySHA))
 		})
 	}
+}
+
+func TestUpstreamGatewayModeHidesTerminalSurfaces(t *testing.T) {
+	ctx := requestcontext.WithUpstreamGateway(context.Background(), requestcontext.UpstreamGatewaySession{}, http.Header{})
+	assert.True(t, TerminalSurfacesHidden(ctx))
+	assert.False(t, TerminalSurfacesHidden(context.Background()))
 }
 
 func TestBlindExperimentWriterStripsServingReleaseHeaders(t *testing.T) {

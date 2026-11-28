@@ -81,6 +81,8 @@ type Service struct {
 
 	entraTokens EntraTokenSource
 
+	upstreamGateway upstreamGatewayVerifier
+
 	flagOverridesDisabled bool
 
 	delegatedSpendCapsEnabled bool
@@ -154,11 +156,6 @@ func (s *Service) WithEncryptor(e Encryptor) *Service {
 
 func (s *Service) WithWIFTokenSource(src WIFTokenSource) *Service {
 	s.wifTokens = src
-	return s
-}
-
-func (s *Service) WithEntraTokenSource(src EntraTokenSource) *Service {
-	s.entraTokens = src
 	return s
 }
 

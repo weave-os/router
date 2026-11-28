@@ -65,6 +65,10 @@ func ForwardedHeaderSnapshotFrom(ctx context.Context) http.Header {
 }
 
 func ApplyForwardedClientHeaders(ctx context.Context, upstream *http.Request, inbound http.Header) {
+	_, gateway := UpstreamGatewayFrom(ctx)
+	if gateway {
+		upstream.Header.Set(UpstreamGatewayHopHeader, "1")
+	}
 	creds := CredentialsFromContext(ctx)
 	if creds == nil {
 		return
@@ -76,6 +80,9 @@ func ApplyForwardedClientHeaders(ctx context.Context, upstream *http.Request, in
 		if v := forwardedValue(ctx, inbound, name); v != "" {
 			upstream.Header.Set(name, v)
 		}
+	}
+	if gateway {
+		return
 	}
 	if !safeCredentialHeaderDestination(creds, creds.BaggageHeader) || headerFieldExists(upstream.Header, creds.BaggageHeader) {
 		return

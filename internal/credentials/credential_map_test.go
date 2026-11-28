@@ -66,3 +66,20 @@ func TestBuildCredentialsMap_CarriesModelAliases(t *testing.T) {
 	assert.Equal(t, map[string]string{"claude-fable-5": "gw-fable"}, m["anthropic_gateway"].ModelAliases,
 		"aliases must ride on the credential, or the endpoint receives catalog names it doesn't publish")
 }
+
+func TestBuildCredentialsMap_DropsRoutingModelAliases(t *testing.T) {
+	keys := []*auth.ExternalAPIKey{{
+		Provider:  "anthropic",
+		Plaintext: []byte("sk-ant-byok"),
+		ModelAliases: map[string]string{
+			"claude-sonnet-4-5": "weave-auto",
+			"claude-haiku-4-5":  "weave-auto-efficient",
+			"claude-sonnet-4-6": "weave-auto-beta",
+			"claude-opus-4-1":   "gateway-opus",
+		},
+	}}
+	m := credentials.BuildCredentialsMap(keys)
+	require.Contains(t, m, "anthropic")
+	assert.Equal(t, map[string]string{"claude-opus-4-1": "gateway-opus"}, m["anthropic"].ModelAliases,
+		"a stored alias naming a routing model must never reach an upstream request")
+}

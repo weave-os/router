@@ -3,8 +3,10 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"testing"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -199,4 +201,16 @@ func TestDeriveSessionKeyForRequest_SubAgentsKeepSeparatePinsUnderOneSessionID(t
 		deriveSessionKeyForRequest(ctx, subAgent, "api-key"),
 		"sub-agent threads sharing a parent session id must not collapse onto one pin",
 	)
+}
+
+func TestClientSessionIDForRequest_UpstreamGatewayIgnoresBodySession(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(`{
+		"metadata": {"user_id": "{\"session_id\":\"body-session\"}"},
+		"messages": [{"role": "user", "content": "hi"}]
+	}`))
+	require.NoError(t, err)
+
+	ctx := requestcontext.WithUpstreamGateway(context.Background(), requestcontext.UpstreamGatewaySession{}, http.Header{})
+	ctx = requestcontext.WithClientIdentity(ctx, ClientIdentity{})
+	assert.Empty(t, clientSessionIDForRequest(ctx, env), "a gateway turn without a session header is served unpinned")
 }

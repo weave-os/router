@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -48,6 +49,18 @@ func TestCountTokens_RoutingModelNeverReachesUpstream(t *testing.T) {
 		require.NoError(t, countTokensService(provider).PassthroughToProvider(context.Background(), []byte(body), rec, countTokensRequest(t.Context())))
 		assertLocalEstimate(t, rec)
 	}
+}
+
+func TestCountTokens_UpstreamGatewayModeNeverReachesUpstream(t *testing.T) {
+	provider := &fakeProvider{passthroughResponse: func(context.Context, http.ResponseWriter) error {
+		t.Fatal("gateway-mode count_tokens reached upstream")
+		return nil
+	}}
+	ctx := requestcontext.WithUpstreamGateway(t.Context(), requestcontext.UpstreamGatewaySession{}, http.Header{})
+	body := `{"model":"claude-sonnet-4-6","metadata":{"user_id":"engineer@example.com"},"messages":[{"role":"user","content":"hello world"}]}`
+	rec := httptest.NewRecorder()
+	require.NoError(t, countTokensService(provider).PassthroughToProvider(ctx, []byte(body), rec, countTokensRequest(ctx)))
+	assertLocalEstimate(t, rec)
 }
 
 func TestCountTokens_UpstreamAnswerIsForwardedVerbatim(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 func PrepareHandoffHandler(svc MessagesProxy, authSvc *auth.Service, vocab ingress.ErrorVocabulary) gin.HandlerFunc {
@@ -55,6 +56,7 @@ func MessagesHandler(svc MessagesProxy, authSvc *auth.Service, vocab ingress.Err
 			"session_id", c.Request.Header.Get("X-Claude-Code-Session-Id"),
 		)
 
+		body = withoutUpstreamGatewayEndUser(c.Request.Context(), body)
 		ctx := stashClientIdentity(c.Request.Context(), c.Request.Header, body)
 		if _, agentShadow := requestcontext.AgentShadowEvalFromContext(ctx); !agentShadow {
 			ctx = auth.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c), requestcontext.CallerFrom(ctx))
@@ -97,6 +99,17 @@ func MessagesHandler(svc MessagesProxy, authSvc *auth.Service, vocab ingress.Err
 			return
 		}
 	}
+}
+
+func withoutUpstreamGatewayEndUser(ctx context.Context, body []byte) []byte {
+	if _, gateway := requestcontext.UpstreamGatewayFrom(ctx); !gateway || !gjson.GetBytes(body, "metadata.user_id").Exists() {
+		return body
+	}
+	stripped, err := sjson.DeleteBytes(body, "metadata.user_id")
+	if err != nil {
+		return body
+	}
+	return stripped
 }
 
 func stashClientIdentity(ctx context.Context, h http.Header, body []byte) context.Context {

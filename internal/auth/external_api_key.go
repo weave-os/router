@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"weave-os/router/internal/router"
 )
 
 type ExternalAPIKey struct {
@@ -292,6 +293,9 @@ func NormalizeModelAliases(raw map[string]string, allowed map[string]struct{}) (
 		}
 		if len(alias) > maxModelAliasLength {
 			return nil, fmt.Errorf("%w: alias for %q exceeds %d characters", ErrInvalidModelAlias, model, maxModelAliasLength)
+		}
+		if router.IsRoutingModel(alias) {
+			return nil, fmt.Errorf("%w: alias for %q names a routing model", ErrInvalidModelAlias, model)
 		}
 		if allowed != nil {
 			if _, ok := allowed[model]; !ok {

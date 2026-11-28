@@ -14,6 +14,9 @@ func TerminalSurfacesHidden(ctx context.Context) bool {
 	if _, active := auth.BlindExperimentFrom(ctx); active {
 		return true
 	}
+	if _, gateway := requestcontext.UpstreamGatewayFrom(ctx); gateway {
+		return true
+	}
 	hide, _ := ctx.Value(requestcontext.InstallationHideTerminalSurfacesContextKey{}).(bool)
 	return hide
 }

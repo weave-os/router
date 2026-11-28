@@ -108,6 +108,12 @@ func directConversationID(r *http.Request, body []byte) string {
 			surface = requestcontext.ConversationGemini
 		}
 	}
+	if upstreamGateway, ok := requestcontext.UpstreamGatewayFrom(r.Context()); ok {
+		if upstreamGateway.SessionID != "" {
+			return upstreamGateway.SessionID
+		}
+		return requestcontext.ConversationFingerprint(body, surface)
+	}
 	if id := requestcontext.CanonicalConversationID(r.Header, body, surface); id != "" {
 		return id
 	}

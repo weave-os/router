@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -193,4 +194,25 @@ func TestBlindExperimentWriterUnusableRequestedModelStillDropsWeaveCost(t *testi
 
 	assert.NotContains(t, rec.Body.String(), "weave_cost")
 	assert.Empty(t, rec.Header().Get("X-Router-Model"))
+}
+
+func TestUpstreamGatewayWriterHidesRouterSurfacesButKeepsServedModel(t *testing.T) {
+	ctx := requestcontext.WithUpstreamGateway(context.Background(), requestcontext.UpstreamGatewaySession{}, http.Header{})
+	rec := httptest.NewRecorder()
+	w, finish := WithBlindExperimentWriter(ctx, rec, []byte(`{"model":"weave-auto","messages":[]}`))
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("X-Router-Model", "claude-sonnet-4-6")
+	w.Header().Set("X-Router-Cost-Usd", "0.01")
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\",\"model\":\"claude-sonnet-4-6\",\"content\":[]}}\n\n" +
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2,\"weave_cost\":{\"usd\":0.01}}}\n\n"))
+	require.NoError(t, err)
+	finish()
+
+	out := rec.Body.String()
+	assert.Contains(t, out, `"model":"claude-sonnet-4-6"`)
+	assert.NotContains(t, out, "weave_cost")
+	assert.NotContains(t, out, "weave-auto")
+	assert.Empty(t, rec.Header().Get("X-Router-Model"))
+	assert.Empty(t, rec.Header().Get("X-Router-Cost-Usd"))
 }

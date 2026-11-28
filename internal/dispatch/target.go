@@ -15,6 +15,8 @@ import (
 
 var ErrTargetMismatch = errors.New("prepared request does not match plan target")
 
+var ErrRoutingModelOnWire = errors.New("routing model must not be sent to an upstream provider")
+
 func ValidatePreparedTarget(prep providers.PreparedRequest, target inference.Target) error {
 	model := gjson.GetBytes(prep.Body, "model")
 	if !model.Exists() {
@@ -26,6 +28,9 @@ func ValidatePreparedTarget(prep providers.PreparedRequest, target inference.Tar
 func ValidateWireModel(model string, target inference.Target) error {
 	if model == "" {
 		return fmt.Errorf("%w: empty wire model for target %s/%s", ErrTargetMismatch, target.Provider, target.CatalogID)
+	}
+	if router.IsRoutingModel(model) {
+		return fmt.Errorf("%w: %w: wire model %q for target %s/%s", ErrTargetMismatch, ErrRoutingModelOnWire, model, target.Provider, target.CatalogID)
 	}
 	if model == target.CatalogID || (target.UpstreamID != "" && model == target.UpstreamID) {
 		return nil

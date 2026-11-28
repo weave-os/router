@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -27,6 +28,9 @@ func GatedByFlag(base FullStore) FullStore {
 }
 
 func Enabled(ctx context.Context) bool {
+	if upstreamGateway, ok := requestcontext.UpstreamGatewayFrom(ctx); ok && upstreamGateway.SessionID == "" {
+		return false
+	}
 	return flags.BoolOr(ctx, flags.KeySessionPinEnabled, true)
 }
 
