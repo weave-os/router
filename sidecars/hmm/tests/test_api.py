@@ -529,10 +529,13 @@ def test_readiness_fails_closed_when_the_embedding_probe_fails(
         default=default, by_sha256={default.package_sha256: default}
     )
 
+    captured: list[object] = []
+
     class FakePackagePolicy:
         def __init__(self, artifacts: FrozenArtifacts, client) -> None:
             self.artifacts = artifacts
             self.runtime = self
+            captured.append(client)
 
         async def verify_embedding_config(self) -> None:
             raise api_module.EmbeddingError(
@@ -544,6 +547,9 @@ def test_readiness_fails_closed_when_the_embedding_probe_fails(
 
     with TestClient(app) as client:
         ready = client.get("/readyz")
+        assert (
+            captured and captured[0].is_closed
+        ), "a failed startup must close the embedding client before serving"
 
     assert ready.status_code == 503
     assert ready.json()["ready"] is False

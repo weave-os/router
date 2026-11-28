@@ -15,6 +15,7 @@ from .classifier_package.openai_compatible_embeddings import request_embeddings
 from .schemas import EmbeddingContract
 
 MAX_CACHE_ITEMS = 8192
+GOOGLE_EMBEDDING_TIMEOUT_SECONDS = 30.0
 
 
 class EmbeddingError(RuntimeError):

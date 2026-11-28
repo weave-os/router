@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import httpx
 import hashlib
 import math
 import os
@@ -13,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 import numpy as np
 
 from hmm_sidecar.classifier_package.manifest import is_classifier_package_manifest
@@ -194,6 +194,13 @@ class PackageClassifier:
         ):
             raise PackageError("raw-V5 stored-vector element lookback is not servable")
         profile = contract.resolved_profile()
+        if (
+            profile.config.provider is EmbeddingProvider.OPENAI_COMPATIBLE
+            and embedding_client is None
+        ):
+            raise PackageError(
+                "raw-V5 OpenAI-compatible embeddings require a shared HTTP client"
+            )
         self.profile = profile
         self.interaction_state = interaction_state
         self.classifier = ComplexityClassifier.load(

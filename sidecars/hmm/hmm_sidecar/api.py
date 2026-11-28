@@ -18,6 +18,7 @@ from .artifacts import ArtifactRegistry, FrozenArtifacts, resolve_artifact_regis
 from .embeddings import (
     Embedder,
     EmbeddingError,
+    GOOGLE_EMBEDDING_TIMEOUT_SECONDS,
     build_embedder,
     verify_embedding_contract,
 )
@@ -105,7 +106,7 @@ async def load_policies(
     similarity = None
     client = await resources.enter_async_context(
         httpx.AsyncClient(
-            timeout=30.0,
+            timeout=GOOGLE_EMBEDDING_TIMEOUT_SECONDS,
             http2=True,
             limits=httpx.Limits(max_connections=100, max_keepalive_connections=32),
         )
@@ -172,7 +173,10 @@ async def initialize(application: FastAPI, resources: AsyncExitStack) -> None:
             registry.default.package_sha256,
         )
     except Exception as exc:  # fail readiness while preserving liveness diagnostics
-        await resources.aclose()
+        try:
+            await resources.aclose()
+        except Exception:
+            log.exception("HMM sidecar failed to close embedding client after init")
         log.exception("HMM sidecar failed to initialize")
         application.state.artifacts = None
         application.state.registry = None
