@@ -858,6 +858,15 @@ grep -qxF node_modules "$unterminated_repo/.gitignore" \
   || fail "project install fused its rule onto an unterminated .gitignore line"
 grep -qxF .codex/config.toml "$unterminated_repo/.gitignore" \
   || fail "project install did not add its rule after an unterminated .gitignore line"
+# A read-only .gitignore that already has every rule is left alone.
+printf '%s' "$(cat "$unterminated_repo/.gitignore")" >"$unterminated_repo/.gitignore.new"
+mv "$unterminated_repo/.gitignore.new" "$unterminated_repo/.gitignore"
+chmod 444 "$unterminated_repo/.gitignore"
+( cd "$unterminated_repo" && HOME="$proj_home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+    bash "$installer" --codex --scope project --quiet \
+      --base-url https://router.weaveos.com >/dev/null 2>&1 ) \
+  || fail "project install failed on a complete read-only .gitignore"
+chmod 644 "$unterminated_repo/.gitignore"
 
 # Whatever the installer generated in .codex must actually be covered by those
 # rules -- an entry list that drifts from the files written is the failure mode.

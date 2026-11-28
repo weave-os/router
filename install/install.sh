@@ -731,11 +731,14 @@ resolve_user_email() {
 #   5. Compare decoded paths. The command value is a TOML basic string and the
 #      writer escapes it, so a raw comparison misses any path with a quote or
 #      backslash.
-# A .gitignore whose last line has no newline would fuse it with the next
+# A .gitignore whose last line has no newline would fuse it with the
 # appended entry, breaking both rules.
-end_gitignore_line() {
-  [ -s "$1" ] && [ -n "$(tail -c 1 "$1")" ] && printf '\n' >>"$1"
-  return 0
+append_gitignore_entry() { # append_gitignore_entry <gitignore> <entry>
+  if [ -s "$1" ] && [ -n "$(tail -c 1 "$1")" ]; then
+    printf '\n%s\n' "$2" >>"$1"
+  else
+    printf '%s\n' "$2" >>"$1"
+  fi
 }
 
 # warn_if_symlink reports a symlinked path and returns non-zero so the caller
@@ -6822,7 +6825,6 @@ if [ "$target" = "codex" ]; then
   if [ "$scope" = "project" ] && [ -z "$install_dir" ] && [ -n "${git_root:-}" ]; then
     gitignore="$git_root/.gitignore"
     refuse_if_symlink "$gitignore"
-    end_gitignore_line "$gitignore"
     for entry in \
       ".codex/config.toml" \
       ".codex/weave-status.sh" \
@@ -6831,7 +6833,7 @@ if [ "$target" = "codex" ]; then
       ".codex/.weave-auto-hidden"
     do
       if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
-        printf '%s\n' "$entry" >>"$gitignore"
+        append_gitignore_entry "$gitignore" "$entry"
       fi
     done
     ok "Updated $gitignore (ignored Codex router config and status helper)"
@@ -7180,13 +7182,12 @@ if [ "$target" = "opencode" ]; then
   if [ "$scope" = "project" ] && [ -z "$install_dir" ] && [ -n "${git_root:-}" ]; then
     gitignore="$git_root/.gitignore"
     refuse_if_symlink "$gitignore"
-    end_gitignore_line "$gitignore"
     for entry in \
       "opencode.json" \
       ".weave-parked.json"
     do
       if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
-        printf '%s\n' "$entry" >>"$gitignore"
+        append_gitignore_entry "$gitignore" "$entry"
       fi
     done
     ok "Updated $gitignore (ignored opencode.json)"
@@ -7254,14 +7255,13 @@ if [ "$target" = "pi" ]; then
     # project dir (== git root when they're the same).
     gitignore="$(dirname "$pi_dir")/.gitignore"
     refuse_if_symlink "$gitignore"
-    end_gitignore_line "$gitignore"
     for entry in \
       ".pi/models.json" \
       ".pi/settings.json" \
       ".pi/.weave_router_key"
     do
       if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
-        printf '%s\n' "$entry" >>"$gitignore"
+        append_gitignore_entry "$gitignore" "$entry"
       fi
     done
     ok "Updated $gitignore (ignored repo-local .pi router config)"
@@ -8789,7 +8789,6 @@ if [ "$scope" = "project" ] && [ -z "$install_dir" ] && [ -n "${git_root:-}" ]; 
   # Same symlink containment as the .claude/ paths above: a hostile repo could
   # commit .gitignore as a symlink so the >> below writes outside the repo.
   refuse_if_symlink "$gitignore"
-  end_gitignore_line "$gitignore"
   # Keep the router statusline script (when installed) and per-teammate local
   # settings out of git. The local settings carry the router key header; each
   # teammate gets their own.
@@ -8802,7 +8801,7 @@ if [ "$scope" = "project" ] && [ -z "$install_dir" ] && [ -n "${git_root:-}" ]; 
   do
     [[ "$entry" == .claude/cc-statusline.sh* ]] && [ "$statusline_install" != "true" ] && continue
     if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
-      printf '%s\n' "$entry" >>"$gitignore"
+      append_gitignore_entry "$gitignore" "$entry"
     fi
   done
   ok "Updated $gitignore (ignored credentials + local helpers)"
