@@ -35,13 +35,7 @@ func serveUntilShutdown(processCtx context.Context, serverErr <-chan error, srv 
 
 func flushShutdownTelemetry(logger *slog.Logger, attemptSink *proxy.AsyncAttemptSink, emitter *otel.Emitter) {
 	var tail sync.WaitGroup
-	tail.Add(3)
-	go func() {
-		defer tail.Done()
-		sinkCtx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-		defer cancel()
-		closeAttemptSink(sinkCtx, logger, attemptSink)
-	}()
+	tail.Add(2)
 	go func() {
 		defer tail.Done()
 		emitterCtx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
@@ -52,8 +46,11 @@ func flushShutdownTelemetry(logger *slog.Logger, attemptSink *proxy.AsyncAttempt
 	}()
 	go func() {
 		defer tail.Done()
-		apmCtx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		sinkCtx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 		defer cancel()
+		closeAttemptSink(sinkCtx, logger, attemptSink)
+		apmCtx, apmCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		defer apmCancel()
 		apm.ShutdownWithContext(apmCtx)
 	}()
 	tail.Wait()

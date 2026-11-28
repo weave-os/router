@@ -22,3 +22,14 @@ func SafeGoContext(parent context.Context, log *slog.Logger, timeout time.Durati
 		fn(ctx)
 	}()
 }
+
+func Go(log *slog.Logger, name string, fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil && log != nil {
+				log.Error("Background goroutine panicked", "goroutine", name, "panic", r)
+			}
+		}()
+		fn()
+	}()
+}

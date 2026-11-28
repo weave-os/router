@@ -2,11 +2,13 @@ package proxy
 
 import (
 	"context"
-	"hash/fnv"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
-	"weave-os/router/internal/routingpolicy"
+	"time"
+
+	"go.opentelemetry.io/otel/trace"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -16,6 +18,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/gitcontext"
 	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
@@ -208,7 +211,7 @@ func NewAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Logger) 
 
 const (
 	DefaultAttemptQueueCapacity = 1024
-	attemptQueueShards          = 4
+	attemptDrainWorkers         = 4
 )
 
 type bufferedAttempt struct {
@@ -220,46 +223,58 @@ type bufferedAttempt struct {
 type AsyncAttemptSink struct {
 	inner     attemptSink
 	logger    *slog.Logger
-	shards    []chan bufferedAttempt
-	done      chan struct{}
-	closeOnce sync.Once
-	mu        sync.RWMutex
+	mu        sync.Mutex
+	cond      *sync.Cond
+	queues    map[string][]bufferedAttempt
+	active    map[string]bool
+	order     []string
+	cursor    int
+	pending   int
+	capacity  int
 	closed    bool
 	dropped   atomic.Uint64
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 var _ dispatch.AttemptSink = (*AsyncAttemptSink)(nil)
 
 func NewAsyncAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Logger, capacity int) *AsyncAttemptSink {
+	return newAsyncAttemptSink(store, logger, capacity, attemptDrainWorkers)
+}
+
+func newAsyncAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Logger, capacity, workers int) *AsyncAttemptSink {
 	if capacity <= 0 {
 		capacity = DefaultAttemptQueueCapacity
 	}
-	shardCapacity := capacity
+	if workers < 1 {
+		workers = 1
+	}
 	sink := &AsyncAttemptSink{
-		inner:  attemptSink{store: store, logger: logger},
-		logger: logger,
-		shards: make([]chan bufferedAttempt, attemptQueueShards),
-		done:   make(chan struct{}),
+		inner:    attemptSink{store: store, logger: logger},
+		logger:   logger,
+		queues:   make(map[string][]bufferedAttempt),
+		active:   make(map[string]bool),
+		capacity: capacity,
+		done:     make(chan struct{}),
 	}
-	for i := range sink.shards {
-		sink.shards[i] = make(chan bufferedAttempt, shardCapacity)
-	}
+	sink.cond = sync.NewCond(&sink.mu)
 	if store == nil {
 		close(sink.done)
 		return sink
 	}
-	var workers sync.WaitGroup
-	for _, shard := range sink.shards {
-		workers.Add(1)
-		go func(queue <-chan bufferedAttempt) {
-			defer workers.Done()
-			sink.drain(queue)
-		}(shard)
+	var running sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		running.Add(1)
+		observability.Go(logger, "attempt_sink_drain", func() {
+			defer running.Done()
+			sink.drain()
+		})
 	}
-	go func() {
-		workers.Wait()
+	observability.Go(logger, "attempt_sink_wait", func() {
+		running.Wait()
 		close(sink.done)
-	}()
+	})
 	return sink
 }
 
@@ -269,36 +284,177 @@ func (s *AsyncAttemptSink) RecordAttempt(ctx context.Context, event inference.At
 		return
 	}
 	attempt := bufferedAttempt{
-		ctx:            context.WithoutCancel(ctx),
+		ctx:            detachedAttemptContext(ctx),
 		installationID: installationID,
 		event:          event,
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
 	if s.closed {
+		s.mu.Unlock()
 		s.dropped.Add(1)
 		return
 	}
-	select {
-	case s.shards[attemptShard(installationID)] <- attempt:
-	default:
-		dropped := s.dropped.Add(1)
-		if dropped&(dropped-1) == 0 && s.logger != nil {
-			go s.logger.Warn("inference attempt queue full; dropping events", "dropped", dropped, "operation_id", event.OperationID)
+	queued := s.queues[installationID]
+	if s.pending >= s.capacity {
+		evictID := s.longestQueueExcept(installationID, len(queued))
+		if evictID == "" {
+			s.mu.Unlock()
+			s.recordDrop(event)
+			return
+		}
+		s.dropHeadLocked(evictID)
+		queued = s.queues[installationID]
+	}
+	if len(queued) == 0 {
+		s.order = append(s.order, installationID)
+	}
+	s.queues[installationID] = append(queued, attempt)
+	s.pending++
+	s.cond.Signal()
+	s.mu.Unlock()
+}
+
+func (s *AsyncAttemptSink) longestQueueExcept(incomingID string, incomingLen int) string {
+	bestID := ""
+	bestLen := incomingLen
+	for _, id := range s.order {
+		if id == incomingID {
+			continue
+		}
+		if n := len(s.queues[id]); n > bestLen {
+			bestLen = n
+			bestID = id
 		}
 	}
+	return bestID
 }
 
-func attemptShard(installationID string) int {
-	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(installationID))
-	return int(hash.Sum32() % attemptQueueShards)
-}
-
-func (s *AsyncAttemptSink) drain(queue <-chan bufferedAttempt) {
-	for attempt := range queue {
-		s.persist(attempt)
+func (s *AsyncAttemptSink) dropHeadLocked(installationID string) {
+	queued := s.queues[installationID]
+	if len(queued) == 0 {
+		return
 	}
+	evicted := queued[0]
+	queued[0] = bufferedAttempt{}
+	queued = queued[1:]
+	s.pending--
+	s.storeQueueLocked(installationID, queued)
+	s.recordDrop(evicted.event)
+}
+
+func (s *AsyncAttemptSink) storeQueueLocked(installationID string, queued []bufferedAttempt) {
+	if len(queued) == 0 {
+		delete(s.queues, installationID)
+		s.removeOrderLocked(installationID)
+		return
+	}
+	if cap(queued) > 32 && len(queued) <= cap(queued)/4 {
+		queued = append([]bufferedAttempt(nil), queued...)
+	}
+	s.queues[installationID] = queued
+}
+
+func (s *AsyncAttemptSink) removeOrderLocked(installationID string) {
+	for i, id := range s.order {
+		if id != installationID {
+			continue
+		}
+		s.order = append(s.order[:i], s.order[i+1:]...)
+		if i < s.cursor && s.cursor > 0 {
+			s.cursor--
+		} else if s.cursor >= len(s.order) {
+			s.cursor = 0
+		}
+		return
+	}
+}
+
+func (s *AsyncAttemptSink) recordDrop(event inference.AttemptEvent) {
+	dropped := s.dropped.Add(1)
+	if dropped&(dropped-1) == 0 && s.logger != nil {
+		observability.SafeGo(s.logger, 2*time.Second, "attempt_sink_drop_warn", func(context.Context) {
+			s.logger.Warn("inference attempt queue full; dropping events", "dropped", dropped, "operation_id", event.OperationID)
+		})
+	}
+}
+
+func detachedAttemptContext(ctx context.Context) context.Context {
+	detached := context.Background()
+	if spanContext := trace.SpanContextFromContext(ctx); spanContext.IsValid() {
+		detached = trace.ContextWithSpanContext(detached, spanContext)
+	}
+	if sessionID := observability.ClientSessionIDFromContext(ctx); sessionID != "" {
+		detached = observability.WithClientSessionID(detached, sessionID)
+	}
+	return detached
+}
+
+func (s *AsyncAttemptSink) drain() {
+	for {
+		attempt, ok := s.next()
+		if !ok {
+			return
+		}
+		s.persist(attempt)
+		s.finish(attempt.installationID)
+	}
+}
+
+func (s *AsyncAttemptSink) finish(installationID string) {
+	s.mu.Lock()
+	delete(s.active, installationID)
+	if s.closed && s.pending == 0 {
+		s.cond.Broadcast()
+	} else if s.pending > 0 {
+		s.cond.Signal()
+	}
+	s.mu.Unlock()
+}
+
+func (s *AsyncAttemptSink) next() (bufferedAttempt, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for {
+		if attempt, ok := s.popReadyLocked(); ok {
+			return attempt, true
+		}
+		if s.closed && s.pending == 0 {
+			return bufferedAttempt{}, false
+		}
+		s.cond.Wait()
+	}
+}
+
+func (s *AsyncAttemptSink) popReadyLocked() (bufferedAttempt, bool) {
+	checked := 0
+	for checked < len(s.order) {
+		if s.cursor >= len(s.order) {
+			s.cursor = 0
+		}
+		installationID := s.order[s.cursor]
+		queued := s.queues[installationID]
+		if len(queued) == 0 {
+			delete(s.queues, installationID)
+			s.removeOrderLocked(installationID)
+			continue
+		}
+		if s.active[installationID] {
+			s.cursor++
+			checked++
+			continue
+		}
+		attempt := queued[0]
+		queued[0] = bufferedAttempt{}
+		queued = queued[1:]
+		s.pending--
+		s.active[installationID] = true
+		if len(queued) > 0 {
+			s.cursor++
+		}
+		s.storeQueueLocked(installationID, queued)
+		return attempt, true
+	}
+	return bufferedAttempt{}, false
 }
 
 func (s *AsyncAttemptSink) persist(attempt bufferedAttempt) {
@@ -314,9 +470,7 @@ func (s *AsyncAttemptSink) Close(ctx context.Context) error {
 	s.closeOnce.Do(func() {
 		s.mu.Lock()
 		s.closed = true
-		for _, shard := range s.shards {
-			close(shard)
-		}
+		s.cond.Broadcast()
 		s.mu.Unlock()
 	})
 	select {
@@ -326,14 +480,11 @@ func (s *AsyncAttemptSink) Close(ctx context.Context) error {
 		}
 		return nil
 	case <-ctx.Done():
-		queued := 0
-		for _, shard := range s.shards {
-			queued += len(shard)
-		}
-		if s.logger != nil {
-			s.logger.Warn("inference attempt telemetry drain timed out", "queued", queued, "dropped", s.dropped.Load())
-		}
-		return ctx.Err()
+		s.mu.Lock()
+		queued := s.pending
+		inFlight := len(s.active)
+		s.mu.Unlock()
+		return fmt.Errorf("attempt sink drain timed out (queued=%d in_flight=%d dropped=%d): %w", queued, inFlight, s.dropped.Load(), ctx.Err())
 	}
 }
 
