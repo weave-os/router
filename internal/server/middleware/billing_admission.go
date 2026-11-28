@@ -8,11 +8,6 @@ import (
 
 const admissionStateKey = "router_billing_admission"
 
-type admissionResult struct {
-	billing.Admission
-	err error
-}
-
 func loadBillingAdmission(c *gin.Context, svc *billing.Service, orgID string) {
 	reader := svc.AdmissionReader()
 	if reader == nil {
@@ -29,44 +24,44 @@ func loadBillingAdmission(c *gin.Context, svc *billing.Service, orgID string) {
 		scope.TaskID = s.TaskID
 	}
 	state, err := reader.ReadAdmission(c.Request.Context(), scope)
-	c.Set(admissionStateKey, &admissionResult{state, err})
+	if err != nil {
+		return
+	}
+	c.Set(admissionStateKey, &state)
 }
 
-func admissionState(c *gin.Context) *admissionResult {
+func admissionState(c *gin.Context) *billing.Admission {
 	value, _ := c.Get(admissionStateKey)
-	state, _ := value.(*admissionResult)
+	state, _ := value.(*billing.Admission)
 	return state
 }
 
 func admissionBalance(c *gin.Context, svc *billing.Service, orgID string) (billing.CheckResult, error) {
 	if state := admissionState(c); state != nil {
-		if state.err == nil && !state.Balance.HasOverride && !state.BalanceFound {
+		if !state.Balance.HasOverride && !state.BalanceFound {
 			return billing.CheckResult{}, billing.ErrBalanceRowMissing
 		}
-		return state.Balance, state.err
+		return state.Balance, nil
 	}
 	return svc.CheckBalance(c.Request.Context(), orgID)
 }
 
 func admissionKey(c *gin.Context, svc *billing.Service, keyID string) (billing.APIKeySpendCapResult, error) {
 	if state := admissionState(c); state != nil {
-		return state.Key, state.err
+		return state.Key, nil
 	}
 	return svc.CheckAPIKeySpendCap(c.Request.Context(), keyID)
 }
 
 func admissionMonthly(c *gin.Context, svc *billing.Service, orgID string) (billing.MonthlySpendResult, error) {
 	if state := admissionState(c); state != nil {
-		return state.Monthly, state.err
+		return state.Monthly, nil
 	}
 	return svc.CheckOrgMonthlySpend(c.Request.Context(), orgID)
 }
 
 func admissionDelegated(c *gin.Context, svc *billing.Service, s *auth.DelegatedSession) (int64, int64, error) {
 	if state := admissionState(c); state != nil {
-		if state.err != nil {
-			return 0, 0, state.err
-		}
 		return state.SessionSpent, state.TaskSpent, state.DelegatedErr
 	}
 	return svc.CheckDelegatedSpend(c.Request.Context(), s.IssuerKeyID, s.SessionID, s.TaskID)

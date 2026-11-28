@@ -37,21 +37,34 @@ type admissionRow struct {
 	err                                                  error
 }
 
-func (r admissionRow) Scan(d ...any) error {
+func (r admissionRow) Scan(dest ...any) error {
 	if r.err != nil {
 		return r.err
 	}
+	if len(dest) != 10 {
+		return errors.New("unexpected number of admission scan destinations")
+	}
 	cap := int64(100)
-	*d[0].(*bool) = r.override
-	*d[1].(*bool) = !r.missing
-	*d[2].(*int64) = r.balance
-	*d[3].(*bool) = true
-	*d[4].(**int64) = &cap
-	*d[5].(*int64) = r.keySpent
-	*d[6].(*int64) = r.sessionSpent
-	*d[7].(*int64) = r.taskSpent
-	*d[8].(**int64) = &cap
-	*d[9].(*int64) = r.orgSpent
+	return errors.Join(
+		scanAdmissionValue(dest[0], r.override),
+		scanAdmissionValue(dest[1], !r.missing),
+		scanAdmissionValue(dest[2], r.balance),
+		scanAdmissionValue(dest[3], true),
+		scanAdmissionValue(dest[4], &cap),
+		scanAdmissionValue(dest[5], r.keySpent),
+		scanAdmissionValue(dest[6], r.sessionSpent),
+		scanAdmissionValue(dest[7], r.taskSpent),
+		scanAdmissionValue(dest[8], &cap),
+		scanAdmissionValue(dest[9], r.orgSpent),
+	)
+}
+
+func scanAdmissionValue[T any](dest any, value T) error {
+	target, ok := dest.(*T)
+	if !ok {
+		return errors.New("unexpected admission scan destination type")
+	}
+	*target = value
 	return nil
 }
 
@@ -79,10 +92,15 @@ func TestBillingAdmissionReadsOncePerRequest(t *testing.T) {
 func admissionEngine(db *admissionDB, delegated bool) *gin.Engine {
 	repo := postgres.NewBillingRepo(db)
 	svc := billing.NewService(repo).WithAdmissionReader(repo)
+	return admissionEngineWithService(svc, delegated, true)
+}
+
+func admissionEngineWithService(svc *billing.Service, delegated, creditsEnabled bool) *gin.Engine {
 	engine := gin.New()
 	funding := credentials.RequestHasCustomerFunding
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		withInstallation(c, "org_x")
+		middleware.InstallationFrom(c).WeaveCreditInferenceEnabled = creditsEnabled
 		const key = "00000000-0000-0000-0000-000000000002"
 		c.Set("router_api_key", &auth.APIKey{ID: key})
 		if delegated {
@@ -110,7 +128,6 @@ func TestBillingAdmissionGateOrder(t *testing.T) {
 		{"override still checks task before session", admissionRow{override: true, taskSpent: 100, sessionSpent: 100}, 402, `"scope":"task"`},
 		{"session before monthly", admissionRow{balance: 1, sessionSpent: 100, orgSpent: 100}, 402, `"scope":"session"`},
 		{"monthly", admissionRow{balance: 1, orgSpent: 100}, 402, "monthly"},
-		{"database failure", admissionRow{err: errors.New("read failed")}, 503, "billing"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db.row = tc.row
@@ -120,6 +137,31 @@ func TestBillingAdmissionGateOrder(t *testing.T) {
 			require.Equal(t, tc.status, w.Code, w.Body.String())
 			require.Contains(t, w.Body.String(), tc.contains)
 			require.Equal(t, 1, db.reads-before)
+		})
+	}
+}
+
+func TestBillingAdmissionBatchFailure(t *testing.T) {
+	readErr := errors.New("read failed")
+	for _, tc := range []struct {
+		name    string
+		repo    stubBillingRepo
+		credits bool
+		status  int
+	}{
+		{"disabled credits ignore balance failure", stubBillingRepo{balanceErr: readErr}, false, 204},
+		{"override skips failed monthly gate", stubBillingRepo{override: true, orgMonthErr: readErr}, true, 204},
+		{"applicable key failure refuses request", stubBillingRepo{override: true, spendErr: readErr}, true, 503},
+		{"applicable balance failure refuses request", stubBillingRepo{balanceErr: readErr}, true, 503},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := &admissionDB{row: admissionRow{err: readErr}}
+			svc := billing.NewService(&tc.repo).WithAdmissionReader(postgres.NewBillingRepo(db))
+			engine := admissionEngineWithService(svc, false, tc.credits)
+			w := httptest.NewRecorder()
+			engine.ServeHTTP(w, httptest.NewRequest("GET", "/v1/messages", nil))
+			require.Equal(t, tc.status, w.Code, w.Body.String())
+			require.Equal(t, 1, db.reads)
 		})
 	}
 }
