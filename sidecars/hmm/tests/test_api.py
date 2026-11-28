@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+from contextlib import AsyncExitStack
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -430,7 +431,7 @@ def _contract(**overrides: object) -> EmbeddingContract:
     return EmbeddingContract(**fields)  # type: ignore[arg-type]
 
 
-def test_boot_probes_once_per_distinct_embedding_contract(
+async def test_boot_probes_once_per_distinct_embedding_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     shared = _contract()
@@ -448,7 +449,10 @@ def test_boot_probes_once_per_distinct_embedding_contract(
     built: list[EmbeddingContract] = []
     probed: list[EmbeddingContract] = []
 
-    def fake_build(contract: EmbeddingContract) -> object:
+    clients = []
+
+    def fake_build(contract: EmbeddingContract, client) -> object:
+        clients.append(client)
         built.append(contract)
         return object()
 
@@ -468,7 +472,10 @@ def test_boot_probes_once_per_distinct_embedding_contract(
     monkeypatch.setattr(api_module, "verify_embedding_contract", fake_verify)
     monkeypatch.setattr(api_module, "FrozenPolicy", FakePolicy)
 
-    policies, similarity = asyncio.run(api_module.load_policies(registry))
+    async with AsyncExitStack() as resources:
+        policies, similarity = await api_module.load_policies(registry, resources)
+        assert clients[0] is clients[1] and not clients[0].is_closed
+    assert clients[0].is_closed
 
     assert set(policies) == set(
         registry.by_sha256
@@ -488,7 +495,7 @@ def _package_artifacts(sha: str) -> FrozenArtifacts:
     )
 
 
-def test_boot_fails_when_a_package_cannot_embed(
+async def test_boot_fails_when_a_package_cannot_embed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     default = _package_artifacts("a" * 64)
@@ -498,7 +505,7 @@ def test_boot_fails_when_a_package_cannot_embed(
     probed: list[str] = []
 
     class FakePackagePolicy:
-        def __init__(self, artifacts: FrozenArtifacts) -> None:
+        def __init__(self, artifacts: FrozenArtifacts, client) -> None:
             self.artifacts = artifacts
             self.runtime = self
 
@@ -508,8 +515,9 @@ def test_boot_fails_when_a_package_cannot_embed(
 
     monkeypatch.setattr(api_module, "PackagePolicy", FakePackagePolicy)
 
-    with pytest.raises(api_module.EmbeddingError, match="embedding probe failed"):
-        asyncio.run(api_module.load_policies(registry))
+    async with AsyncExitStack() as resources:
+        with pytest.raises(api_module.EmbeddingError, match="embedding probe failed"):
+            await api_module.load_policies(registry, resources)
     assert probed == [default.package_sha256]
 
 
@@ -522,7 +530,7 @@ def test_readiness_fails_closed_when_the_embedding_probe_fails(
     )
 
     class FakePackagePolicy:
-        def __init__(self, artifacts: FrozenArtifacts) -> None:
+        def __init__(self, artifacts: FrozenArtifacts, client) -> None:
             self.artifacts = artifacts
             self.runtime = self
 

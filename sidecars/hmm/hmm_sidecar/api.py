@@ -6,9 +6,10 @@ import logging
 import os
 import re
 import sys
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any
 
+import httpx
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
@@ -92,6 +93,7 @@ def _probe_key(artifacts: FrozenArtifacts) -> tuple[object, ...]:
 
 async def load_policies(
     registry: ArtifactRegistry,
+    resources: AsyncExitStack,
 ) -> tuple[dict[str, FrozenPolicy | PackagePolicy], float | None]:
     """Build one policy per registry package, probing the embedding endpoint
     once per distinct embedding contract (packages sharing a contract share the
@@ -101,16 +103,23 @@ async def load_policies(
     probed: dict[tuple[object, ...], tuple[Embedder, float]] = {}
     package_probes = 0
     similarity = None
+    client = await resources.enter_async_context(
+        httpx.AsyncClient(
+            timeout=30.0,
+            http2=True,
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=32),
+        )
+    )
     for package_sha256, artifacts in registry.by_sha256.items():
         if artifacts.package_manifest is not None:
-            package_policy = PackagePolicy(artifacts)
+            package_policy = PackagePolicy(artifacts, client)
             await package_policy.runtime.verify_embedding_config()
             policies[package_sha256] = package_policy
             package_probes += 1
             continue
         key = _probe_key(artifacts)
         if key not in probed:
-            embedder = build_embedder(artifacts.manifest.embedding_contract)
+            embedder = build_embedder(artifacts.manifest.embedding_contract, client)
             probe_similarity = await verify_embedding_contract(
                 embedder,
                 artifacts.manifest.embedding_contract,
@@ -133,10 +142,16 @@ async def load_policies(
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    async with AsyncExitStack() as resources:
+        await initialize(application, resources)
+        yield
+
+
+async def initialize(application: FastAPI, resources: AsyncExitStack) -> None:
     configure_logging()
     try:
         registry = resolve_artifact_registry()
-        policies, similarity = await load_policies(registry)
+        policies, similarity = await load_policies(registry, resources)
         application.state.artifacts = registry.default
         application.state.registry = registry
         application.state.policy = policies[registry.default.package_sha256]
@@ -157,6 +172,7 @@ async def lifespan(application: FastAPI):
             registry.default.package_sha256,
         )
     except Exception as exc:  # fail readiness while preserving liveness diagnostics
+        await resources.aclose()
         log.exception("HMM sidecar failed to initialize")
         application.state.artifacts = None
         application.state.registry = None
@@ -167,7 +183,6 @@ async def lifespan(application: FastAPI):
         local_classifier_resolver.resolver = None
         application.state.classifier_release_id = None
         application.state.classifier_selection_id = None
-    yield
 
 
 app = FastAPI(title="WorkWeave frozen HMM sidecar", lifespan=lifespan)

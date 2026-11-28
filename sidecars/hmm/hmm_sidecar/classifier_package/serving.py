@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import httpx
 import hashlib
 import math
 import os
@@ -171,6 +172,8 @@ class PackageClassifier:
         root: Path,
         manifest: dict[str, Any],
         options: ServingOptions = ServingOptions(),
+        *,
+        embedding_client: httpx.AsyncClient | None = None,
     ) -> None:
         if not is_classifier_package_manifest(manifest):
             raise PackageError("package is not a configured raw-V5 package")
@@ -217,6 +220,7 @@ class PackageClassifier:
                 functools.partial(
                     openai_compatible_embeddings.embed_texts_uncached,
                     expected_dim=profile.embedding_dim,
+                    client=embedding_client,
                 )
                 if profile.config.provider is EmbeddingProvider.OPENAI_COMPATIBLE
                 else None

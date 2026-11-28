@@ -12,6 +12,7 @@ import asyncio
 import math
 import os
 import random
+from contextlib import nullcontext
 from typing import Any
 
 import httpx
@@ -51,6 +52,7 @@ async def request_embeddings(
     api_key: str,
     model: str,
     texts: list[str],
+    timeout: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
 ) -> list[list[float]]:
     headers = {"content-type": "application/json"}
     if api_key:
@@ -58,6 +60,7 @@ async def request_embeddings(
     response = await client.post(
         f"{base_url}/embeddings",
         headers=headers,
+        timeout=timeout,
         json={"model": model, "input": texts},
     )
     if response.is_error:
@@ -109,12 +112,18 @@ async def _request_with_retries(
     model: str,
     texts: list[str],
     max_retries: int,
+    timeout: float,
 ) -> list[list[float]]:
     attempt = 0
     while True:
         try:
             return await request_embeddings(
-                client, base_url=base_url, api_key=api_key, model=model, texts=texts
+                client,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                texts=texts,
+                timeout=timeout,
             )
         except Exception as exc:
             attempt += 1
@@ -137,18 +146,20 @@ async def embed_texts_uncached(
     vertex_request_timeout: float | None = None,
     return_info: bool = False,
     expected_dim: int | None = None,
+    client: httpx.AsyncClient | None = None,
     **_unused_provider_options: Any,
 ) -> dict[str, EmbeddingVector] | tuple[dict[str, EmbeddingVector], EmbeddingRunInfo]:
     base_url, api_key = embedding_endpoint()
     unique_texts = list(dict.fromkeys(texts))
     vectors: dict[str, EmbeddingVector] = {}
-    async with httpx.AsyncClient(
-        timeout=vertex_request_timeout or DEFAULT_REQUEST_TIMEOUT_SECONDS
-    ) as client:
+    async with (
+        nullcontext(client) if client is not None else httpx.AsyncClient()
+    ) as session:
         for start in range(0, len(unique_texts), REQUEST_BATCH_SIZE):
             chunk = unique_texts[start : start + REQUEST_BATCH_SIZE]
             results = await _request_with_retries(
-                client,
+                session,
+                timeout=vertex_request_timeout or DEFAULT_REQUEST_TIMEOUT_SECONDS,
                 base_url=base_url,
                 api_key=api_key,
                 model=model,
