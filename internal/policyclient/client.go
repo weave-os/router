@@ -112,14 +112,7 @@ func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Opt
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
-	if client == nil {
-		client = &http.Client{
-			Timeout: timeout,
-			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		}
-	}
+	client = withSidecarTransport(client, timeout)
 	client = observability.WrapHTTPClient(client)
 	sidecar := &Client{
 		baseURL:        strings.TrimRight(baseURL, "/"),

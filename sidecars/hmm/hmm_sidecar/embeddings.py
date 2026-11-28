@@ -15,6 +15,7 @@ from .classifier_package.openai_compatible_embeddings import request_embeddings
 from .schemas import EmbeddingContract
 
 MAX_CACHE_ITEMS = 8192
+GOOGLE_EMBEDDING_TIMEOUT_SECONDS = 30.0
 
 
 class EmbeddingError(RuntimeError):
@@ -31,7 +32,8 @@ def _google_model_name(model: str) -> str:
 
 
 class GoogleEmbedder:
-    def __init__(self, contract: EmbeddingContract) -> None:
+    def __init__(self, contract: EmbeddingContract, client: httpx.AsyncClient) -> None:
+        self.client = client
         self.contract = contract
         self.api_key = (
             os.environ.get("GOOGLE_API_KEY", "").strip()
@@ -57,17 +59,14 @@ class GoogleEmbedder:
                 request["taskType"] = self.contract.task_type
             requests.append(request)
         url = f"{self.base_url}/models/{model}:batchEmbedContents"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                url,
-                params={"key": self.api_key},
-                json={"requests": requests},
+        response = await self.client.post(
+            url, params={"key": self.api_key}, json={"requests": requests}
+        )
+        if response.is_error:
+            raise EmbeddingError(
+                f"Google embedding request failed with status {response.status_code}"
             )
-            if response.is_error:
-                raise EmbeddingError(
-                    f"Google embedding request failed with status {response.status_code}"
-                )
-            payload = response.json()
+        payload = response.json()
         embeddings = payload.get("embeddings") if isinstance(payload, dict) else None
         if not isinstance(embeddings, list):
             raise EmbeddingError("Google embedding response lacks embeddings")
@@ -78,7 +77,8 @@ class GoogleEmbedder:
 
 
 class OpenAICompatibleEmbedder:
-    def __init__(self, contract: EmbeddingContract) -> None:
+    def __init__(self, contract: EmbeddingContract, client: httpx.AsyncClient) -> None:
+        self.client = client
         self.contract = contract
         self.base_url = os.environ.get("HMM_EMBEDDING_BASE_URL", "").rstrip("/")
         if not self.base_url:
@@ -88,24 +88,23 @@ class OpenAICompatibleEmbedder:
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                return await request_embeddings(
-                    client,
-                    base_url=self.base_url,
-                    api_key=self.api_key,
-                    model=self.model,
-                    texts=texts,
-                )
+            return await request_embeddings(
+                self.client,
+                base_url=self.base_url,
+                api_key=self.api_key,
+                model=self.model,
+                texts=texts,
+            )
         except gemini_embeddings.EmbeddingError as error:
             raise EmbeddingError(str(error)) from error
 
 
-def build_embedder(contract: EmbeddingContract) -> Embedder:
+def build_embedder(contract: EmbeddingContract, client: httpx.AsyncClient) -> Embedder:
     provider = os.environ.get("HMM_EMBEDDING_PROVIDER", "google").strip().lower()
     if provider == "google":
-        return GoogleEmbedder(contract)
+        return GoogleEmbedder(contract, client)
     if provider == "openai-compatible":
-        return OpenAICompatibleEmbedder(contract)
+        return OpenAICompatibleEmbedder(contract, client)
     raise EmbeddingError(
         "HMM_EMBEDDING_PROVIDER must be 'google' or 'openai-compatible'"
     )

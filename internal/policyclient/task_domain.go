@@ -31,7 +31,7 @@ func NewTaskDomainClassifier(endpoint, bearer, releaseSHA256 string, client *htt
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") || len(bearer) < 32 || strings.ContainsAny(bearer, "\r\n") || !taskdomain.ValidDigest(releaseSHA256) {
 		return nil, errors.New("invalid task classifier endpoint, authentication or release")
 	}
-	transport := http.DefaultTransport
+	transport := sidecarTransport
 	if client != nil && client.Transport != nil {
 		transport = client.Transport
 	}

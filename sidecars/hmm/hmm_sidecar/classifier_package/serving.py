@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 import numpy as np
 
 from hmm_sidecar.classifier_package.manifest import is_classifier_package_manifest
@@ -171,6 +172,8 @@ class PackageClassifier:
         root: Path,
         manifest: dict[str, Any],
         options: ServingOptions = ServingOptions(),
+        *,
+        embedding_client: httpx.AsyncClient | None = None,
     ) -> None:
         if not is_classifier_package_manifest(manifest):
             raise PackageError("package is not a configured raw-V5 package")
@@ -191,6 +194,13 @@ class PackageClassifier:
         ):
             raise PackageError("raw-V5 stored-vector element lookback is not servable")
         profile = contract.resolved_profile()
+        if (
+            profile.config.provider is EmbeddingProvider.OPENAI_COMPATIBLE
+            and embedding_client is None
+        ):
+            raise PackageError(
+                "raw-V5 OpenAI-compatible embeddings require a shared HTTP client"
+            )
         self.profile = profile
         self.interaction_state = interaction_state
         self.classifier = ComplexityClassifier.load(
@@ -217,6 +227,7 @@ class PackageClassifier:
                 functools.partial(
                     openai_compatible_embeddings.embed_texts_uncached,
                     expected_dim=profile.embedding_dim,
+                    client=embedding_client,
                 )
                 if profile.config.provider is EmbeddingProvider.OPENAI_COMPATIBLE
                 else None

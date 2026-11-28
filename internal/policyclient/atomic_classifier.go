@@ -31,7 +31,7 @@ func NewAtomicClassifier(endpoint, bearer, release, releaseSHA256 string, client
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") || len(bearer) < 32 || strings.ContainsAny(bearer, "\r\n") || release == "" || len(releaseSHA256) != 64 {
 		return nil, fmt.Errorf("invalid atomic classifier endpoint, authentication or release")
 	}
-	transport := http.DefaultTransport
+	transport := sidecarTransport
 	if client != nil && client.Transport != nil {
 		transport = client.Transport
 	}

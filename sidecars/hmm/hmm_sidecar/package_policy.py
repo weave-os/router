@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
+import httpx
+
 from . import SCHEMA_VERSION
 from .artifacts import FrozenArtifacts
 from .embeddings import EmbedStats
@@ -14,11 +16,13 @@ from .schemas import ClassificationResult
 class PackagePolicy:
     """Serves a configured raw-V5 classifier package on the v4 wire contract."""
 
-    def __init__(self, artifacts: FrozenArtifacts) -> None:
+    def __init__(self, artifacts: FrozenArtifacts, client: httpx.AsyncClient) -> None:
         if artifacts.package_manifest is None:
             raise ValueError("PackagePolicy requires a raw-V5 classifier package")
         self.artifacts = artifacts
-        self.runtime = PackageClassifier(artifacts.root, artifacts.package_manifest)
+        self.runtime = PackageClassifier(
+            artifacts.root, artifacts.package_manifest, embedding_client=client
+        )
         self.classifier = self.runtime.classifier
 
     async def classify_with_timings(

@@ -5,7 +5,7 @@ import asyncio
 import numpy as np
 import pytest
 import respx
-from httpx import Response
+from httpx import AsyncClient, Response
 
 import hmm_sidecar.embeddings as embedding_module
 from hmm_sidecar.embeddings import (
@@ -85,7 +85,8 @@ async def test_google_provider_uses_the_artifact_model_and_dimensions(
         "gemini-embedding-2:batchEmbedContents?key=test-key"
     ).mock(return_value=Response(200, json={"embeddings": [{"values": [1, 2, 3]}]}))
 
-    vectors = await GoogleEmbedder(contract()).embed(["hello"])
+    async with AsyncClient() as client:
+        vectors = await GoogleEmbedder(contract(), client).embed(["hello"])
 
     assert vectors == [[1, 2, 3]]
     assert request.called
@@ -112,7 +113,8 @@ async def test_openai_compatible_provider_restores_response_order(
         )
     )
 
-    vectors = await OpenAICompatibleEmbedder(contract()).embed(["a", "b"])
+    async with AsyncClient() as client:
+        vectors = await OpenAICompatibleEmbedder(contract(), client).embed(["a", "b"])
 
     assert vectors == [[1, 2, 3], [4, 5, 6]]
 
@@ -124,8 +126,9 @@ async def test_openai_compatible_provider_failure_raises_the_frozen_embedding_er
     monkeypatch.setenv("HMM_EMBEDDING_BASE_URL", "https://embed.example/v1")
     respx.post("https://embed.example/v1/embeddings").mock(return_value=Response(503))
 
-    with pytest.raises(EmbeddingError, match="status 503"):
-        await OpenAICompatibleEmbedder(contract()).embed(["a"])
+    async with AsyncClient() as client:
+        with pytest.raises(EmbeddingError, match="status 503"):
+            await OpenAICompatibleEmbedder(contract(), client).embed(["a"])
 
 
 async def test_cache_returns_hits_that_are_evicted_during_a_concurrent_fetch(

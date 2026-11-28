@@ -179,7 +179,7 @@ func NewBearer(baseURL, token string, client *http.Client, timeout time.Duration
 	}
 	base := authenticated.Transport
 	if base == nil {
-		base = http.DefaultTransport
+		base = sidecarTransport
 	}
 	authenticated.Transport = bearerTransport{base: base, token: token}
 	authenticated.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -188,7 +188,8 @@ func NewBearer(baseURL, token string, client *http.Client, timeout time.Duration
 
 func newGoogleIDTokenHTTPClient(idTokenCredentials *auth.Credentials, timeout time.Duration) (*http.Client, error) {
 	client := &http.Client{
-		Timeout: timeout,
+		Transport: sidecarTransport,
+		Timeout:   timeout,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},

@@ -15,7 +15,7 @@ dependencies = [
     # xgboost-cpu and receive the platform-native standard wheel.
     "xgboost-cpu==3.4.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "xgboost==3.4.1; sys_platform != 'linux' or platform_machine != 'x86_64'",
-    "httpx>=0.28.0,<0.29",
+    "httpx[http2]>=0.28.0,<0.29",
     # Raw-V5 packages pickle a scikit-learn PCA projector; keep the version the
     # package was fitted with so the projection is bit-identical.
     "scikit-learn==1.9.0",
