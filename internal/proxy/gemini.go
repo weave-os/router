@@ -234,7 +234,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if winnerIdx >= 0 && winnerIdx < len(bindings) {
 		finalProvider = bindings[winnerIdx].Provider
 	}
-	spans.FinishInferenceSpan(inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
+	spans.FinishInferenceSpan(ctx, inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
 	ctx = spans.RestoreParentSpan(ctx, inferenceParentCtx)
 	decision.Provider = finalProvider
 	if actBindingPricing, ok := servedPricing(finalProvider, decision.Model, false); ok {

@@ -249,7 +249,7 @@ func (t *messagesTurnDispatch) dispatchAttempts(ctx, fundingCtx context.Context)
 	}
 	attempt, attemptBuildErr := buildAttempt(t.decision, t.opts, t.marker, fundingCtx)
 	if attemptBuildErr != nil && !translate.IsIntrinsicallyIncompatible(attemptBuildErr) {
-		spans.FinishInferenceSpan(t.inferenceSpan, t.decision, t.decision.Provider, -1, attemptBuildErr)
+		spans.FinishInferenceSpan(ctx, t.inferenceSpan, t.decision, t.decision.Provider, -1, attemptBuildErr)
 		return ctx, attemptBuildErr
 	}
 
@@ -321,7 +321,7 @@ func (t *messagesTurnDispatch) settle(ctx context.Context) context.Context {
 	}
 
 	t.proxyMs = t.s.clock.Now().Sub(t.proxyStart).Milliseconds()
-	spans.FinishInferenceSpan(t.inferenceSpan, t.decision, t.finalProvider, t.winnerIdx, t.proxyErr)
+	spans.FinishInferenceSpan(ctx, t.inferenceSpan, t.decision, t.finalProvider, t.winnerIdx, t.proxyErr)
 	ctx = spans.RestoreParentSpan(ctx, t.inferenceParentCtx)
 	return ctx
 }

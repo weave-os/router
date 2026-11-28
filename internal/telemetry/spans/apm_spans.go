@@ -31,12 +31,13 @@ func StartRoutingSpan(ctx context.Context, strategy router.Strategy, req router.
 }
 
 func FinishRoutingSpan(span trace.Span, decision router.Decision, err error) {
-	span.SetAttributes(
+	attrs := []attribute.KeyValue{
 		attribute.String("decision.model", decision.Model),
 		attribute.String("decision.provider", decision.Provider),
 		attribute.String("decision.reason", decision.Reason),
-	)
-	finishFlowSpan(span, err)
+	}
+	span.SetAttributes(attrs...)
+	finishFlowSpan(span, err, attrs)
 }
 
 func StartInferenceSpan(ctx context.Context, decision router.Decision, clientSessionID string) (context.Context, trace.Span) {
@@ -51,23 +52,28 @@ func StartInferenceSpan(ctx context.Context, decision router.Decision, clientSes
 	)
 }
 
-func FinishInferenceSpan(span trace.Span, decision router.Decision, provider string, attempt int, err error) {
-	span.SetAttributes(
+func FinishInferenceSpan(ctx context.Context, span trace.Span, decision router.Decision, provider string, attempt int, err error) {
+	attrs := []attribute.KeyValue{
 		attribute.String("served.model", decision.Model),
 		attribute.String("served.provider", provider),
-	)
+	}
 	if attempt >= 0 {
-		span.SetAttributes(attribute.Int("upstream.binding_index", attempt))
+		attrs = append(attrs, attribute.Int("upstream.binding_index", attempt))
 	}
 	if status := providers.UpstreamStatus(err); status != 0 {
-		span.SetAttributes(attribute.Int("upstream.status_code", status))
+		attrs = append(attrs, attribute.Int("upstream.status_code", status))
 	}
-	finishFlowSpan(span, err)
+	span.SetAttributes(attrs...)
+	eventAttrs := attrs
+	if clientSessionID := observability.ClientSessionIDFromContext(ctx); clientSessionID != "" {
+		eventAttrs = append(eventAttrs, attribute.String("client.session_id", clientSessionID))
+	}
+	finishFlowSpan(span, err, eventAttrs)
 }
 
-func finishFlowSpan(span trace.Span, err error) {
+func finishFlowSpan(span trace.Span, err error, eventAttrs []attribute.KeyValue) {
 	if err != nil {
-		span.RecordError(err)
+		span.RecordError(err, trace.WithAttributes(eventAttrs...))
 		span.SetStatus(codes.Error, err.Error())
 	} else {
 		span.SetStatus(codes.Ok, "")
