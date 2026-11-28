@@ -32,7 +32,7 @@ func WithAPIKeySpendCap(svc *billing.Service, funding credentials.CustomerFundin
 
 		subscriptionExempt := funding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ByokFeeOwed(c.Request.Context()))
 
-		result, err := svc.CheckAPIKeySpendCap(c.Request.Context(), apiKey.ID)
+		result, err := admissionKey(c, svc, apiKey.ID)
 		if err != nil {
 			log.Error("API key spend-cap check failed; refusing request", "err", err, "api_key_id", apiKey.ID)
 			abortBillingUnavailable(c)

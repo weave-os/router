@@ -214,7 +214,7 @@ func main() {
 
 	if billingSvc != nil {
 		billingSvc.WithInternalTestPrepaid(servingpostgres.NewInternalTestBook(pool))
-		billingSvc.WithDelegatedSpend(postgres.NewBillingRepo(pool))
+		billingSvc.WithAdmissionReader(postgres.NewBillingRepo(pool))
 	}
 	byokOnly := deploymentMode == server.DeploymentModeManaged && billingSvc == nil
 

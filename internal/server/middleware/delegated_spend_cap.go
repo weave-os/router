@@ -32,7 +32,7 @@ func WithDelegatedSpendCap(svc *billing.Service, funding credentials.CustomerFun
 			return
 		}
 		log := observability.FromGin(c).With("api_key_id", session.IssuerKeyID, "delegated_session_id", session.SessionID, "delegated_task_id", session.TaskID)
-		sessionSpent, taskSpent, err := svc.CheckDelegatedSpend(ctx, session.IssuerKeyID, session.SessionID, session.TaskID)
+		sessionSpent, taskSpent, err := admissionDelegated(c, svc, session)
 		if err != nil {
 			log.Error("Delegated spend-cap check failed; refusing request", "err", err)
 			abortBillingUnavailable(c)
