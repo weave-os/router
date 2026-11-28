@@ -420,3 +420,34 @@ func TestCyberRefusalGate_HoldsFailureAfterMetadata(t *testing.T) {
 	assert.Empty(t, gate.releaseEvent)
 	assert.Empty(t, rec.Body.String())
 }
+
+const responsesKeepaliveFrame = "event: keepalive\n" +
+	`data: {"type":"keepalive","sequence_number":2}` + "\n\n"
+
+func TestCyberRefusalGate_HoldsFailureAfterKeepalive(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, false).holdPreOutputFailure()
+
+	_, err := gate.Write([]byte(responsesCreatedFrame + responsesMetadataFrame + responsesKeepaliveFrame + responsesOverloadFailedFrame))
+	require.NoError(t, err)
+	require.NoError(t, gate.Finalize())
+
+	assert.True(t, gate.failureWithheld)
+	assert.Empty(t, gate.releaseEvent)
+	assert.Empty(t, rec.Body.String())
+}
+
+func TestCyberRefusalGate_HoldsKeepaliveUntilOutput(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, false).holdPreOutputFailure()
+
+	_, err := gate.Write([]byte(responsesCreatedFrame + responsesKeepaliveFrame))
+	require.NoError(t, err)
+	assert.Empty(t, rec.Body.String())
+
+	_, err = gate.Write([]byte(responsesMessageItemFrame))
+	require.NoError(t, err)
+
+	assert.Equal(t, "response.output_item.added", gate.releaseEvent)
+	assert.Equal(t, responsesCreatedFrame+responsesKeepaliveFrame+responsesMessageItemFrame, rec.Body.String())
+}

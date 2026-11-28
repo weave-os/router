@@ -29,6 +29,7 @@ var responsesPreambleEventTypes = map[string]struct{}{
 	"response.queued":      {},
 	"response.in_progress": {},
 	"response.metadata":    {},
+	"keepalive":            {},
 }
 
 var responsesPreOutputFailureEventTypes = map[string]struct{}{
