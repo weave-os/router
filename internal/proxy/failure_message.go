@@ -98,6 +98,9 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	if errors.Is(a.Err, credentials.ErrSubscriptionPoolExhausted) && (status == http.StatusUnauthorized || status == http.StatusForbidden) {
 		return failureWording{"rejected the subscription login", "subscription login rejected"}
 	}
+	if errors.Is(a.Err, credentials.ErrSubscriptionPoolExhausted) && credentials.AnthropicSubscriptionExtraUsageSpent(a.Err) {
+		return failureWording{"hit the Claude extra usage limit", "Claude extra usage limit reached"}
+	}
 	if errors.Is(a.Err, credentials.ErrSubscriptionPoolExhausted) {
 		return failureWording{"had no subscription capacity", "subscription capacity exhausted"}
 	}

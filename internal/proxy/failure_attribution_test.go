@@ -198,6 +198,12 @@ func TestRouterOwnedFailureWording(t *testing.T) {
 		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(turnrecord.TurnErrorOther), FailureOwner: string(turnrecord.FailureOwnerRouter)}}
 	assert.Equal(t, "↳ switched: OpenAI rejected the subscription login (router issue)\n\n", rescueDetailLine(rejected))
 
+	extraUsageSpent := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic},
+		Err: errors.Join(credentials.ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusBadRequest,
+			Body: []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"You're out of extra usage. Ask your workspace admin to add more so you can keep going."}}`)}),
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(turnrecord.TurnErrorOther), FailureOwner: string(turnrecord.FailureOwnerRouter)}}
+	assert.Equal(t, "hit the Claude extra usage limit", failureWordingFor(extraUsageSpent).badge)
+	assert.Equal(t, "Router error: Anthropic Claude extra usage limit reached.", terminalMessageFor(extraUsageSpent))
 }
 
 func TestMalformedCustomToolArgumentsAreProviderOwned(t *testing.T) {
