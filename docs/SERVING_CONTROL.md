@@ -417,6 +417,7 @@ operation do not require this new endpoint.
 | Evidence, build, and lane attestation verification at apply | The only integrity check on externally produced audit payloads |
 | Live destination validation (worker `/internal/serving/validate`, classifier `/internal/serving/attestation`) | Registry bytes cannot prove a revision is live |
 | Authoritative `ReadServingState` on every admission | The control-plane read must stay live; no stale fallback |
+| `ReadServingState` re-reads when an apply replaces the state generation it just saw (up to 3 reads) | The state bucket is unversioned; a replaced generation is a live-state race, not a missing object, so it never falls back to the legacy path |
 | Registry containment of every `ObjectRef` | Refs may not address objects outside the registry root |
 | `previous_selection_set` binding + `withdraw_activations` chain | Proposals must name the exact incumbent; emergency pin withdrawal depends on the chain |
 

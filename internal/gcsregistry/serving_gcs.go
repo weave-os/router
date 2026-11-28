@@ -116,14 +116,27 @@ func (r *Registry) ReadServingState(ctx context.Context, target policyregistry.S
 	return snapshot, nil
 }
 
+const servingStateReadsAcrossReplacement = 3
+
 func (r *Registry) readServingStateObject(ctx context.Context, name string, target policyregistry.ServingTarget) (policyregistry.ServingStateSnapshot, error) {
-	attrs, err := r.bucket.Object(name).Attrs(ctx)
-	if err != nil {
-		return policyregistry.ServingStateSnapshot{}, classifyStorageError("read serving control-state attributes", err)
-	}
-	payload, err := r.readObject(ctx, name, attrs.Generation)
-	if err != nil {
-		return policyregistry.ServingStateSnapshot{}, err
+	var attrs *storage.ObjectAttrs
+	var payload []byte
+	for attempt := 1; ; attempt++ {
+		var err error
+		attrs, err = r.bucket.Object(name).Attrs(ctx)
+		if err != nil {
+			return policyregistry.ServingStateSnapshot{}, classifyStorageError("read serving control-state attributes", err)
+		}
+		payload, err = r.readObject(ctx, name, attrs.Generation)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, policyregistry.ErrNotFound) {
+			return policyregistry.ServingStateSnapshot{}, err
+		}
+		if attempt == servingStateReadsAcrossReplacement {
+			return policyregistry.ServingStateSnapshot{}, fmt.Errorf("serving control state %s kept changing during %d reads; last generation %d", name, attempt, attrs.Generation)
+		}
 	}
 	var state policyregistry.ServingControlState
 	if err := policyregistry.StrictDecode(payload, &state); err != nil {
