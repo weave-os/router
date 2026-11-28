@@ -141,6 +141,7 @@ sync_weave_auto_model() {
   local hide="$1" config marker tmp
   [ "$hide" = "true" ] || [ "$hide" = "false" ] || return 0
   config="$(codex_config_path)"
+  [ ! -L "$config" ] || return 0
   marker="$(dirname "$config")/.weave-auto-hidden"
   if [ "$hide" = "true" ]; then
     awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { found = 1 } END { exit(found ? 0 : 1) }' "$config" || return 0

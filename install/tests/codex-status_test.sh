@@ -697,6 +697,15 @@ sleep 1
 [ "$(top_model)" = 'model = "gpt-5.6-terra"' ] || { echo "ended experiment overrode the user's pick: $(top_model)" >&2; exit 1; }
 [ ! -e "$auto_home/.codex/.weave-auto-hidden" ] || { echo "ended experiment kept its marker" >&2; exit 1; }
 
+# A linked config (dotfiles) is left alone rather than replaced by a copy.
+link_home="$work/home-auto-link"
+mkdir -p "$link_home/.codex" "$work/dotfiles"
+printf '%s\n' 'model_provider = "weave"' 'model = "weave-auto"' >"$work/dotfiles/config.toml"
+ln -s "$work/dotfiles/config.toml" "$link_home/.codex/config.toml"
+HOME="$link_home" "$helper" --sync-weave-auto true >/dev/null
+[ -L "$link_home/.codex/config.toml" ] || { echo "hiding Weave Auto replaced a linked Codex config" >&2; exit 1; }
+grep -qx 'model = "weave-auto"' "$work/dotfiles/config.toml" || { echo "hiding Weave Auto rewrote a linked config's target" >&2; exit 1; }
+
 # install.sh embeds this helper as a heredoc so the standalone `curl | sh`
 # install has no sibling asset to copy. Nothing keeps the two copies in sync,
 # so an edit to one silently ships the other stale — which is exactly how the
