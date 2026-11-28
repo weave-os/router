@@ -27,6 +27,7 @@ type recordedCorrelation struct {
 	sessionID string
 	traceID   trace.TraceID
 	extraVal  string
+	canceled  bool
 }
 
 type recordingAttemptStore struct {
@@ -68,6 +69,7 @@ func (s *recordingAttemptStore) InsertInferenceAttempt(ctx context.Context, p te
 		sessionID: observability.ClientSessionIDFromContext(ctx),
 		traceID:   trace.SpanContextFromContext(ctx).TraceID(),
 		extraVal:  extraVal,
+		canceled:  ctx.Err() != nil,
 	})
 	s.got = append(s.got, p)
 	return nil
@@ -132,8 +134,8 @@ func TestAsyncAttemptSinkDoesNotBlockRecordAttempt(t *testing.T) {
 	require.Equal(t, attemptSinkInstallationID, rows[0].InstallationID)
 }
 
-func TestAsyncAttemptSinkPreservesRequestContextValues(t *testing.T) {
-	store := &recordingAttemptStore{}
+func TestAsyncAttemptSinkKeepsOnlyCorrelationContext(t *testing.T) {
+	store := newBlockingAttemptStore()
 	sink := proxy.NewAsyncAttemptSink(store, nil, 8)
 
 	traceID := trace.TraceID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
@@ -149,6 +151,7 @@ func TestAsyncAttemptSinkPreservesRequestContextValues(t *testing.T) {
 
 	sink.RecordAttempt(reqCtx, inference.AttemptEvent{OperationID: "op"})
 	cancel()
+	store.release()
 	require.NoError(t, sink.Close(context.Background()))
 
 	rows := store.rows()
@@ -157,6 +160,7 @@ func TestAsyncAttemptSinkPreservesRequestContextValues(t *testing.T) {
 		sessionID: "session-123",
 		traceID:   traceID,
 		extraVal:  "",
+		canceled:  false,
 	}}, store.seenCorrelations())
 }
 
@@ -215,12 +219,13 @@ func TestAsyncAttemptSinkIsolatesInstallationsUnderBurst(t *testing.T) {
 
 	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationID), inference.AttemptEvent{OperationID: "inst1-in-flight"})
 	waitForEntered(t, store.entered, attemptSinkInstallationID)
+	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationIDTwo), inference.AttemptEvent{OperationID: "inst2-in-flight"})
+	waitForEntered(t, store.entered, attemptSinkInstallationIDTwo)
 	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationID), inference.AttemptEvent{OperationID: "inst1-q1"})
 	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationID), inference.AttemptEvent{OperationID: "inst1-q2"})
 	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationID), inference.AttemptEvent{OperationID: "inst1-dropped"})
 
-	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationIDTwo), inference.AttemptEvent{OperationID: "inst2-kept"})
-	waitForEntered(t, store.entered, attemptSinkInstallationIDTwo)
+	sink.RecordAttempt(attemptSinkContextFor(attemptSinkInstallationIDTwo), inference.AttemptEvent{OperationID: "inst2-dropped"})
 
 	store.release()
 	require.NoError(t, sink.Close(context.Background()))
@@ -229,8 +234,7 @@ func TestAsyncAttemptSinkIsolatesInstallationsUnderBurst(t *testing.T) {
 	for _, row := range store.rows() {
 		opIDs = append(opIDs, row.Event.OperationID)
 	}
-	require.Contains(t, opIDs, "inst2-kept")
-	require.Len(t, opIDs, 3)
+	require.ElementsMatch(t, []string{"inst1-in-flight", "inst2-in-flight", "inst1-q1", "inst1-q2"}, opIDs)
 }
 
 func waitForEntered(t *testing.T, ch <-chan string, want string) {

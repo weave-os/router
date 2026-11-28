@@ -23,7 +23,7 @@ func SafeGoContext(parent context.Context, log *slog.Logger, timeout time.Durati
 	}()
 }
 
-func Go(log *slog.Logger, name string, fn func()) {
+func StartLifecycleWorker(log *slog.Logger, name string, fn func()) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil && log != nil {

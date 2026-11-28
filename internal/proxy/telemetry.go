@@ -266,12 +266,12 @@ func newAsyncAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Log
 	var running sync.WaitGroup
 	for i := 0; i < workers; i++ {
 		running.Add(1)
-		observability.Go(logger, "attempt_sink_drain", func() {
+		observability.StartLifecycleWorker(logger, "attempt_sink_drain", func() {
 			defer running.Done()
 			sink.drain()
 		})
 	}
-	observability.Go(logger, "attempt_sink_wait", func() {
+	observability.StartLifecycleWorker(logger, "attempt_sink_wait", func() {
 		running.Wait()
 		close(sink.done)
 	})
@@ -294,17 +294,12 @@ func (s *AsyncAttemptSink) RecordAttempt(ctx context.Context, event inference.At
 		s.dropped.Add(1)
 		return
 	}
-	queued := s.queues[installationID]
 	if s.pending >= s.capacity {
-		evictID := s.longestQueueExcept(installationID, len(queued))
-		if evictID == "" {
-			s.mu.Unlock()
-			s.recordDrop(event)
-			return
-		}
-		s.dropHeadLocked(evictID)
-		queued = s.queues[installationID]
+		s.mu.Unlock()
+		s.recordDrop(event)
+		return
 	}
+	queued := s.queues[installationID]
 	if len(queued) == 0 {
 		s.order = append(s.order, installationID)
 	}
@@ -312,34 +307,6 @@ func (s *AsyncAttemptSink) RecordAttempt(ctx context.Context, event inference.At
 	s.pending++
 	s.cond.Signal()
 	s.mu.Unlock()
-}
-
-func (s *AsyncAttemptSink) longestQueueExcept(incomingID string, incomingLen int) string {
-	bestID := ""
-	bestLen := incomingLen
-	for _, id := range s.order {
-		if id == incomingID {
-			continue
-		}
-		if n := len(s.queues[id]); n > bestLen {
-			bestLen = n
-			bestID = id
-		}
-	}
-	return bestID
-}
-
-func (s *AsyncAttemptSink) dropHeadLocked(installationID string) {
-	queued := s.queues[installationID]
-	if len(queued) == 0 {
-		return
-	}
-	evicted := queued[0]
-	queued[0] = bufferedAttempt{}
-	queued = queued[1:]
-	s.pending--
-	s.storeQueueLocked(installationID, queued)
-	s.recordDrop(evicted.event)
 }
 
 func (s *AsyncAttemptSink) storeQueueLocked(installationID string, queued []bufferedAttempt) {
