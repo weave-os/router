@@ -602,12 +602,12 @@ func buildAnthropicImageBlock(urlStr string) string {
 }
 
 func writeAnthropicMaxTokens(jw *jsonWriter, body []byte, targetModel string, capabilities router.ModelSpec) {
-	if r := gjson.GetBytes(body, "max_tokens"); r.Exists() {
+	if r := gjson.GetBytes(body, "max_tokens"); r.Type == gjson.Number {
 		jw.Key("max_tokens")
 		jw.Raw(r.Raw)
 		return
 	}
-	if r := gjson.GetBytes(body, "max_completion_tokens"); r.Exists() {
+	if r := gjson.GetBytes(body, "max_completion_tokens"); r.Type == gjson.Number {
 		jw.Key("max_tokens")
 		jw.Raw(r.Raw)
 		return
