@@ -1012,6 +1012,7 @@ func (s *Service) fireMarkUsed(ctx context.Context, apiKey *APIKey, installation
 		return
 	}
 	observability.SafeGoContext(ctx, log, 2*time.Second, "fireMarkUsed", func(ctx context.Context) {
+		defer s.keyUsageMarks.releaseOnPanic(apiKey.ID, claim)
 		firstUse, err := s.apiKeys.MarkUsed(ctx, apiKey.ID)
 		if err != nil {
 			s.keyUsageMarks.release(apiKey.ID, claim)

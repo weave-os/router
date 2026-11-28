@@ -42,6 +42,13 @@ func (m *usageMarks) release(id string, claim *time.Time) {
 	}
 }
 
+func (m *usageMarks) releaseOnPanic(id string, claim *time.Time) {
+	if p := recover(); p != nil {
+		m.release(id, claim)
+		panic(p)
+	}
+}
+
 func (s *Service) fireMarkFirstRequestServed(ctx context.Context, installationID string, installation *Installation) {
 	if installation != nil && installation.FirstRequestServedAt != nil {
 		return
@@ -52,6 +59,7 @@ func (s *Service) fireMarkFirstRequestServed(ctx context.Context, installationID
 	}
 	log := observability.Get().With("installation_id", installationID)
 	observability.SafeGoContext(ctx, log, 2*time.Second, "fireMarkFirstRequestServed", func(ctx context.Context) {
+		defer s.installationUsageMarks.releaseOnPanic(installationID, claim)
 		if err := s.installations.MarkFirstRequestServed(ctx, installationID); err != nil {
 			s.installationUsageMarks.release(installationID, claim)
 			log.Warn("Failed to mark installation first request served", "err", err)

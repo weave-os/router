@@ -683,6 +683,10 @@ func TestService_VerifyAPIKey_RecoversFromMarkUsedPanic(t *testing.T) {
 			strings.Contains(buf.String(), "fireMarkUsed")
 	}, 500*time.Millisecond, 10*time.Millisecond,
 		"the async fireMarkUsed goroutine must recover and log the panic")
+	apiKeys.markUsedPanic = false
+	_, _, _, _, err := svc.VerifyAPIKey(context.Background(), rawToken)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return len(apiKeys.markUsedSnapshot()) == 1 }, time.Second, time.Millisecond)
 }
 
 func makeServiceWithCacheAndCounter(t *testing.T, cache auth.APIKeyCache, rows ...fakeKeyRow) (*auth.Service, *repoCallCounter) {
