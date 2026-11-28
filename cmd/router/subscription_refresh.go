@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/config"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	anthropicProvider "weave-os/router/internal/providers/anthropic"
 	openaiProvider "weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/subscriptions"
 )
@@ -95,24 +96,35 @@ func runSubscriptionKeepWarm(ctx context.Context, runtime *subscriptions.Runtime
 	}
 }
 
-type codexQuotaProber struct{ client *openaiProvider.Client }
-
-func (p codexQuotaProber) ProbeQuota(ctx context.Context, _ subscriptions.Provider, accessToken, accountID string) (subscriptions.QuotaProbe, error) {
-	err := p.client.ProbeCodexQuota(ctx, accessToken, accountID)
-	if err == nil {
-		return subscriptions.QuotaProbe{Available: true}, nil
-	}
-	if resetAt, exhausted := credentials.CodexQuotaExhaustion(err); exhausted {
-		return subscriptions.QuotaProbe{ResetAt: resetAt}, nil
-	}
-	return subscriptions.QuotaProbe{}, err
+type providerQuotaProber struct {
+	codex  *openaiProvider.Client
+	claude *anthropicProvider.Client
 }
 
-func subscriptionQuotaProber(client providers.Client) subscriptions.QuotaProber {
-	if openaiClient, ok := client.(*openaiProvider.Client); ok {
-		return codexQuotaProber{client: openaiClient}
+func (p providerQuotaProber) ProbeQuota(ctx context.Context, provider subscriptions.Provider, accessToken, accountID string) (subscriptions.QuotaProbe, error) {
+	switch {
+	case provider == subscriptions.ProviderCodex && p.codex != nil:
+		err := p.codex.ProbeCodexQuota(ctx, accessToken, accountID)
+		if err == nil {
+			return subscriptions.QuotaProbe{Available: true}, nil
+		}
+		if resetAt, exhausted := credentials.CodexQuotaExhaustion(err); exhausted {
+			return subscriptions.QuotaProbe{ResetAt: resetAt}, nil
+		}
+		return subscriptions.QuotaProbe{}, err
+	case provider == subscriptions.ProviderClaude && p.claude != nil && p.claude.SupportsSubscriptions():
+		quota, err := p.claude.SubscriptionQuota(ctx, []byte(accessToken))
+		return subscriptions.QuotaProbe{Available: quota.Available, ResetAt: quota.ResetAt}, err
+	default:
+		return subscriptions.QuotaProbe{}, fmt.Errorf("no quota check for %s subscriptions", provider)
 	}
-	return nil
+}
+
+func subscriptionQuotaProber(codex, claude providers.Client) subscriptions.QuotaProber {
+	prober := providerQuotaProber{}
+	prober.codex, _ = codex.(*openaiProvider.Client)
+	prober.claude, _ = claude.(*anthropicProvider.Client)
+	return prober
 }
 
 func buildSubscriptionRuntime(enabled bool, authSvc *auth.Service, accounts auth.SubscriptionAccountRepository, prober subscriptions.QuotaProber, logger *slog.Logger) (*subscriptions.Runtime, admin.SubscriptionLoginFlow) {

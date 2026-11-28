@@ -188,15 +188,15 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue
 		}
-		if observed && snapshot.OverageInUse && !allowClaudeOverage {
+		if observed && snapshot.ObservedSince(lease.QuotaReactivatedAt).OverageInUse && !allowClaudeOverage {
 			diagnostics.skip(lease, subscriptionSkipPaidOverage)
 			lease.Release()
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue
 		}
-		if observed && snapshot.ExhaustedAsOf(s.clock.Now()) && !allowClaudeOverage && poolProvider != subscriptions.ProviderCodex {
+		if sinceReactivation := snapshot.ObservedSince(lease.QuotaReactivatedAt); observed && sinceReactivation.ExhaustedAsOf(s.clock.Now()) && !allowClaudeOverage && poolProvider != subscriptions.ProviderCodex {
 			diagnostics.skip(lease, subscriptionSkipQuotaExhausted)
-			resetAt := linkedSubscriptionResetAt(snapshot, s.clock.Now())
+			resetAt := linkedSubscriptionResetAt(sinceReactivation, s.clock.Now())
 			credentials.RecordManagedQuotaProof(ctx, lease.AccountID, resetAt)
 			if err := exhaustManagedSubscription(ctx, s.credentials.ManagedSubscriptions, owner, poolProvider, lease.AccountID, resetAt); err != nil {
 				observability.FromContext(ctx).Error("Failed to persist exhausted subscription account", "provider", poolProvider, "account_id", lease.AccountID, "err", err)

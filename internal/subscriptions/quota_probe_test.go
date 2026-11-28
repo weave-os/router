@@ -45,6 +45,26 @@ func TestManualRefreshReactivatesSeatWhenProviderQuotaWasReset(t *testing.T) {
 	lease.Release()
 }
 
+func TestManualRefreshReactivatesClaudeSeatWhenProviderQuotaWasReset(t *testing.T) {
+	f := newProactiveRefreshFixture(t, false, false)
+	f.store.accounts[0].Provider = auth.SubscriptionProviderClaude
+	exhaustSeatUntil(f, f.started.Add(3*simulatedDay))
+	f.runtime.WithQuotaProber(quotaProberFunc(func(_ context.Context, provider subscriptions.Provider, accessToken, _ string) (subscriptions.QuotaProbe, error) {
+		require.Equal(t, subscriptions.ProviderClaude, provider)
+		require.NotEmpty(t, accessToken)
+		return subscriptions.QuotaProbe{Available: true}, nil
+	}))
+	result, err := f.runtime.RefreshAccount(context.Background(), testOwner, "synthetic-seat")
+	require.NoError(t, err)
+	require.True(t, result.QuotaReactivated)
+	require.Equal(t, auth.SubscriptionAccountStateActive, f.store.accounts[0].State)
+	require.Nil(t, f.store.accounts[0].CooldownUntil)
+	lease, present, err := f.runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "synthetic-session")
+	require.NoError(t, err)
+	require.True(t, present)
+	lease.Release()
+}
+
 func TestManualRefreshKeepsSeatExhaustedWhenQuotaCannotBeConfirmed(t *testing.T) {
 	for name, probe := range map[string]quotaProberFunc{
 		"still_exhausted": func(context.Context, subscriptions.Provider, string, string) (subscriptions.QuotaProbe, error) {

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCodexSpentObservationYieldsToLaterReactivation(t *testing.T) {
+func TestSpentObservationYieldsToLaterReactivation(t *testing.T) {
 	observed := time.Now()
 	observer := usage.NewObserver([]byte("synthetic-salt"), time.Hour, func() time.Time { return observed })
 	observer.Record(observer.Key([]byte("subscription-account:synthetic-codex")), usage.Snapshot{Primary: usage.Window{UsedPercent: 1.0, WindowMinutes: 300}})
@@ -24,7 +24,18 @@ func TestCodexSpentObservationYieldsToLaterReactivation(t *testing.T) {
 
 	claude := seat
 	claude.Provider = auth.SubscriptionProviderClaude
-	assert.True(t, credentials.IncludedQuotaObservedSpent(observer, claude, now), "only Codex has a live quota check to fall back on")
+	assert.False(t, credentials.IncludedQuotaObservedSpent(observer, claude, now), "a reactivated Claude seat yields too")
+
+	clock := now
+	carried := usage.NewObserver([]byte("synthetic-salt"), time.Hour, func() time.Time { return clock })
+	carriedKey := carried.Key([]byte("subscription-account:synthetic-codex"))
+	carried.Record(carriedKey, usage.Snapshot{Primary: usage.Window{UsedPercent: 1.0, WindowMinutes: 300}})
+	clock = now.Add(2 * time.Second)
+	carried.Record(carriedKey, usage.Snapshot{Secondary: usage.Window{UsedPercent: 0.1, WindowMinutes: 10080}})
+	claude.QuotaReactivatedAt = now.Add(-time.Second)
+	assert.True(t, credentials.IncludedQuotaObservedSpent(carried, claude, clock), "a spent window observed after the reactivation still counts")
+	claude.QuotaReactivatedAt = now.Add(time.Second)
+	assert.False(t, credentials.IncludedQuotaObservedSpent(carried, claude, clock), "a spent window carried into a later snapshot keeps its own observation time")
 
 	exhausted := seat
 	exhausted.State = auth.SubscriptionAccountStateExhausted

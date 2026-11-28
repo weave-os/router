@@ -46,14 +46,15 @@ type AccountStore interface {
 }
 
 type Lease struct {
-	AccountID       string
-	OwnerID         string
-	Tier            auth.SubscriptionTier
-	AccessToken     string
-	ProviderAccount string
-	State           auth.SubscriptionAccountState
-	CooldownUntil   time.Time
-	release         func()
+	AccountID          string
+	OwnerID            string
+	Tier               auth.SubscriptionTier
+	AccessToken        string
+	ProviderAccount    string
+	State              auth.SubscriptionAccountState
+	CooldownUntil      time.Time
+	QuotaReactivatedAt time.Time
+	release            func()
 }
 
 func (l Lease) AllowsPlanAttempt(plan providers.SubscriptionPlan, allowEnterpriseOverage bool, now time.Time) bool {
@@ -187,7 +188,7 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 			r.affinity.Add(affinityKey, leased.ID)
 		}
 		return Lease{AccountID: leased.ID, OwnerID: candidate.SubscriberID, Tier: candidate.Tier, AccessToken: leased.AccessToken,
-			ProviderAccount: leased.AccountID, State: leased.State, CooldownUntil: leased.CooldownTil, release: release}, true, nil
+			ProviderAccount: leased.AccountID, State: leased.State, CooldownUntil: leased.CooldownTil, QuotaReactivatedAt: candidate.QuotaReactivatedAt, release: release}, true, nil
 	}
 	if present {
 		return Lease{}, true, ErrNoAvailableAccount

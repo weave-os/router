@@ -163,6 +163,72 @@ func TestLeaseManagedSubscriptionSkipsObservedExhaustedAccount(t *testing.T) {
 	lease.Release()
 }
 
+func TestLeaseManagedSubscriptionAdmitsAccountReactivatedAfterObservation(t *testing.T) {
+	observedAt := time.Unix(1_000_000, 0)
+	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{
+		leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: exhaustedSubToken, QuotaReactivatedAt: observedAt.Add(time.Second)}},
+	}}
+	svc := newServiceWithProviders(t, nil).
+		WithManagedSubscriptions(leaser).
+		WithUsageObserver(observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()))
+	svc.clock = func() time.Time { return observedAt.Add(time.Minute) }
+
+	_, lease, managed, err := svc.leaseManagedSubscription(
+		managedSubscriptionTestContext(), providers.ProviderAnthropic, "claude-opus-4-8",
+	)
+
+	require.NoError(t, err)
+	require.True(t, managed)
+	require.Equal(t, "opaque-a", lease.AccountID)
+	require.Empty(t, leaser.exhaustedIDs, "a spent observation from before the reactivation must not restore the old exhaustion")
+	lease.Release()
+}
+
+func TestLeaseManagedSubscriptionIgnoresSpentWindowCarriedPastReactivation(t *testing.T) {
+	observedAt := time.Unix(1_000_000, 0)
+	clock := observedAt
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return clock })
+	key := observer.Key([]byte(exhaustedSubToken))
+	observer.Record(key, exhaustedSnapshot())
+	clock = observedAt.Add(2 * time.Second)
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: 0.1, WindowMinutes: 300}})
+	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{
+		leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: exhaustedSubToken, QuotaReactivatedAt: observedAt.Add(time.Second)}},
+	}}
+	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser).WithUsageObserver(observer)
+	svc.clock = func() time.Time { return observedAt.Add(time.Minute) }
+
+	_, lease, managed, err := svc.leaseManagedSubscription(
+		managedSubscriptionTestContext(), providers.ProviderAnthropic, "claude-opus-4-8",
+	)
+
+	require.NoError(t, err)
+	require.True(t, managed)
+	require.Equal(t, "opaque-a", lease.AccountID)
+	require.Empty(t, leaser.exhaustedIDs, "a weekly window carried forward from before the reactivation must not restore the old exhaustion")
+	lease.Release()
+}
+
+func TestLeaseManagedSubscriptionAdmitsReactivatedAccountWithOverageObservedBefore(t *testing.T) {
+	observedAt := time.Unix(1_000_000, 0)
+	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{
+		leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "overage-token", QuotaReactivatedAt: observedAt.Add(time.Second)}},
+	}}
+	svc := newServiceWithProviders(t, nil).
+		WithManagedSubscriptions(leaser).
+		WithUsageObserver(observerWithSnapshot("overage-token", usage.Snapshot{OverageInUse: true}))
+	svc.clock = func() time.Time { return observedAt.Add(time.Minute) }
+
+	_, lease, managed, err := svc.leaseManagedSubscription(
+		managedSubscriptionTestContext(), providers.ProviderAnthropic, "claude-opus-4-8",
+	)
+
+	require.NoError(t, err)
+	require.True(t, managed, "paid overage observed before the reactivation must not skip the account")
+	require.Equal(t, "opaque-a", lease.AccountID)
+	lease.Release()
+}
+
 func TestLeaseManagedSubscriptionSkipsBillableOverageAccount(t *testing.T) {
 	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{
 		leases: []subscriptions.Lease{

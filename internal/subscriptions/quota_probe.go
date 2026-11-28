@@ -28,7 +28,7 @@ func (r *Runtime) WithQuotaProber(prober QuotaProber) *Runtime {
 
 func (r *Runtime) reactivateRestoredQuota(ctx context.Context, owner auth.SubscriptionOwner, account Account, credentials auth.SubscriptionCredentials) bool {
 	store, ok := r.store.(QuotaReactivationStore)
-	if !ok || r.quotaProber == nil || account.Provider != ProviderCodex || len(credentials.AccessToken) == 0 ||
+	if !ok || r.quotaProber == nil || len(credentials.AccessToken) == 0 ||
 		credentials.State != auth.SubscriptionAccountStateExhausted || credentials.CooldownUntil == nil || !credentials.CooldownUntil.After(r.clock()) {
 		return false
 	}
