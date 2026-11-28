@@ -3136,7 +3136,7 @@ claude_passthrough_installed() {
 # leaves it out for them, with a marker the statusline uses to bring the row
 # (and a Weave Auto pick) back once the experiment ends.
 hide_claude_weave_auto_for_experiment() {
-  local target="$1" api_key="$2" marker current tmp user_model models_user_email="${user_email:-}"
+  local target="$1" api_key="$2" marker current tmp user_model models_user_email="$user_email"
   jq -e 'any(.modelPicker.options[]?; .model == "weave-auto" or .model == "weave-auto[1m]")' "$target" >/dev/null 2>&1 || return 0
   models_api GET "/v1/display-settings" || return 0
   [ "$(printf '%s' "$models_http_body" | jq -r '.hide_weave_auto // false' 2>/dev/null)" = "true" ] || return 0
@@ -5799,7 +5799,7 @@ sync_weave_auto_model() {
   local hide="$1" config marker tmp
   [ "$hide" = "true" ] || [ "$hide" = "false" ] || return 0
   config="$(codex_config_path)"
-  [ ! -L "$config" ] || return 0
+  [ -n "$config" ] && [ ! -L "$config" ] || return 0
   marker="$(dirname "$config")/.weave-auto-hidden"
   if [ "$hide" = "true" ]; then
     awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { found = 1 } END { exit(found ? 0 : 1) }' "$config" || return 0
@@ -6781,7 +6781,7 @@ CODEX_TOGGLE_EOF
 # Auto, but an install that skipped them (existing hooks, no jq) never runs
 # them, so the install applies the same display setting once itself.
 sync_codex_weave_auto_for_experiment() {
-  local hide="false" models_user_email="${user_email:-}"
+  local hide="false" models_user_email="$user_email"
   weave_owns_codex_helper "$codex_status_file" '<!-- weave-router managed codex status -->' rewrite || return 0
   models_api GET "/v1/display-settings" || return 0
   printf '%s' "$models_http_body" | grep -Eq '"hide_weave_auto"[[:space:]]*:' || return 0
@@ -6819,7 +6819,8 @@ if [ "$target" = "codex" ]; then
       ".codex/config.toml" \
       ".codex/weave-status.sh" \
       ".codex/weave-directive.sh" \
-      ".codex/.weave-router-disabled"
+      ".codex/.weave-router-disabled" \
+      ".codex/.weave-auto-hidden"
     do
       if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
         printf '%s\n' "$entry" >>"$gitignore"
@@ -8784,6 +8785,7 @@ if [ "$scope" = "project" ] && [ -z "$install_dir" ] && [ -n "${git_root:-}" ]; 
   for entry in \
     ".claude/settings.local.json" \
     ".claude/.credentials.json" \
+    ".claude/.weave-auto-hidden-*" \
     ".claude/cc-statusline.sh" \
     ".claude/cc-statusline.sh.weave-router"
   do
