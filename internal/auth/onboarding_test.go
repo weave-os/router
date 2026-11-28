@@ -71,7 +71,7 @@ func TestVerifyAPIKeyReportsFirstUseOnceIncludingCacheHits(t *testing.T) {
 		_, _, _, _, err = svc.VerifyAPIKey(context.Background(), "rk_first")
 		require.NoError(t, err)
 	}
-	require.Eventually(t, func() bool { return len(keys.markUsedSnapshot()) == 4 }, time.Second, time.Millisecond)
+	require.Never(t, func() bool { return len(keys.markUsedSnapshot()) != 1 }, 50*time.Millisecond, time.Millisecond)
 	require.Never(t, func() bool { return len(recorder.harnessEvents()) != 1 }, 50*time.Millisecond, time.Millisecond)
 	require.Equal(t, want, recorder.harnessEvents())
 }

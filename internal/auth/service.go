@@ -74,6 +74,8 @@ type Service struct {
 	notifier                   InstallationChangeNotifier
 	now                        Clock
 	externalKeyMarks           externalKeyMarks
+	keyUsageMarks              usageMarks
+	installationUsageMarks     usageMarks
 	encryptor                  Encryptor
 	keypairTokens              *KeypairTokenCache
 	anthropicFederationTokens  AnthropicFederationTokenSource
@@ -764,7 +766,7 @@ func (s *Service) verifyAPIKey(ctx context.Context, rawToken string, includeUpst
 				return nil, nil, nil, nil, ErrWrongKeyScope
 			}
 			s.fireMarkUsed(ctx, cached.APIKey, cached.Installation)
-			s.fireMarkFirstRequestServed(ctx, cached.APIKey.InstallationID)
+			s.fireMarkFirstRequestServed(ctx, cached.APIKey.InstallationID, cached.Installation)
 			if !includeUpstreamKeys {
 				return cached.Installation, cached.APIKey, nil, cached.ClusterModelLists, nil
 			}
@@ -809,7 +811,7 @@ func (s *Service) verifyAPIKey(ctx context.Context, rawToken string, includeUpst
 		s.cache.Set(keyHash, CachedKey{APIKey: apiKey, Installation: installation, ExternalKeys: externalKeys, ClusterModelLists: clusterModelLists})
 	}
 	s.fireMarkUsed(ctx, apiKey, installation)
-	s.fireMarkFirstRequestServed(ctx, apiKey.InstallationID)
+	s.fireMarkFirstRequestServed(ctx, apiKey.InstallationID, installation)
 	return installation, apiKey, s.resolveUpstreamSecrets(ctx, externalKeys), clusterModelLists, nil
 }
 
@@ -1005,9 +1007,14 @@ func (s *Service) fireMarkUsed(ctx context.Context, apiKey *APIKey, installation
 		return
 	}
 	log := observability.Get().With("api_key_id", apiKey.ID)
+	claim := s.keyUsageMarks.claimKey(apiKey, s.now())
+	if claim == nil {
+		return
+	}
 	observability.SafeGoContext(ctx, log, 2*time.Second, "fireMarkUsed", func(ctx context.Context) {
 		firstUse, err := s.apiKeys.MarkUsed(ctx, apiKey.ID)
 		if err != nil {
+			s.keyUsageMarks.release(apiKey.ID, claim)
 			log.Warn("Failed to mark router api key used", "err", err)
 			return
 		}
@@ -1019,15 +1026,6 @@ func (s *Service) fireMarkUsed(ctx context.Context, apiKey *APIKey, installation
 				Harness:                apiKey.Harness,
 				OccurredAt:             s.now(),
 			})
-		}
-	})
-}
-
-func (s *Service) fireMarkFirstRequestServed(ctx context.Context, installationID string) {
-	log := observability.Get().With("installation_id", installationID)
-	observability.SafeGoContext(ctx, log, 2*time.Second, "fireMarkFirstRequestServed", func(ctx context.Context) {
-		if err := s.installations.MarkFirstRequestServed(ctx, installationID); err != nil {
-			log.Warn("Failed to mark installation first request served", "err", err)
 		}
 	})
 }
