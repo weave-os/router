@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"weave-os/router/internal/observability/apm"
@@ -29,17 +30,33 @@ func serveUntilShutdown(processCtx context.Context, serverErr <-chan error, srv 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
 	drainServer(shutdownCtx, srv, logger, waitForKeepWarm)
-	sinkCtx, sinkCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer sinkCancel()
-	closeAttemptSink(sinkCtx, logger, attemptSink)
-	emitterCtx, emitterCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer emitterCancel()
-	if err := emitter.Shutdown(emitterCtx); err != nil {
-		logger.Warn("OTel emitter shutdown incomplete", "err", err)
-	}
-	apmCtx, apmCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer apmCancel()
-	apm.ShutdownWithContext(apmCtx)
+	flushShutdownTelemetry(logger, attemptSink, emitter)
+}
+
+func flushShutdownTelemetry(logger *slog.Logger, attemptSink *proxy.AsyncAttemptSink, emitter *otel.Emitter) {
+	var tail sync.WaitGroup
+	tail.Add(3)
+	go func() {
+		defer tail.Done()
+		sinkCtx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		defer cancel()
+		closeAttemptSink(sinkCtx, logger, attemptSink)
+	}()
+	go func() {
+		defer tail.Done()
+		emitterCtx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		defer cancel()
+		if err := emitter.Shutdown(emitterCtx); err != nil {
+			logger.Warn("OTel emitter shutdown incomplete", "err", err)
+		}
+	}()
+	go func() {
+		defer tail.Done()
+		apmCtx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		defer cancel()
+		apm.ShutdownWithContext(apmCtx)
+	}()
+	tail.Wait()
 }
 
 func closeAttemptSink(ctx context.Context, logger *slog.Logger, sink *proxy.AsyncAttemptSink) {

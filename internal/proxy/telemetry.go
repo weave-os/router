@@ -208,7 +208,7 @@ func NewAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Logger) 
 
 const (
 	DefaultAttemptQueueCapacity = 1024
-	attemptQueueShards          = 8
+	attemptQueueShards          = 4
 )
 
 type bufferedAttempt struct {
@@ -234,10 +234,7 @@ func NewAsyncAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Log
 	if capacity <= 0 {
 		capacity = DefaultAttemptQueueCapacity
 	}
-	shardCapacity := capacity / attemptQueueShards
-	if shardCapacity < 1 {
-		shardCapacity = 1
-	}
+	shardCapacity := capacity
 	sink := &AsyncAttemptSink{
 		inner:  attemptSink{store: store, logger: logger},
 		logger: logger,
@@ -329,6 +326,13 @@ func (s *AsyncAttemptSink) Close(ctx context.Context) error {
 		}
 		return nil
 	case <-ctx.Done():
+		queued := 0
+		for _, shard := range s.shards {
+			queued += len(shard)
+		}
+		if s.logger != nil {
+			s.logger.Warn("inference attempt telemetry drain timed out", "queued", queued, "dropped", s.dropped.Load())
+		}
 		return ctx.Err()
 	}
 }

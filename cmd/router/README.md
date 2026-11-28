@@ -56,10 +56,16 @@ into `auth.Service` and `proxy.Service`. Operator-facing variables are listed in
   during shutdown.
 - **HTTP server.** No server-wide `ReadTimeout`/`WriteTimeout` (they would cut
   streams); non-streaming routes carry per-route timeouts.
+- **Attempt telemetry.** Inference attempt rows go through a bounded async sink
+  sharded by installation (4 shards, one worker each) so a slow insert cannot
+  stall failover. Each shard buffers the full queue capacity; a full shard drops
+  and logs at power-of-two drop counts, and installations sharing a shard share
+  its capacity. The worker count stays below the 6-connection Postgres pool so
+  request-path queries keep capacity.
 - **Shutdown budget.** Cloud Run allows 10 s between SIGTERM and SIGKILL: server
-  shutdown 6 s, attempt-sink flush 0.5 s, emitter flush 1.5 s and APM flush
-  1.5 s leave ~0.5 s of slack. A `ListenAndServe` failure flushes APM itself
-  because it bypasses that path.
+  shutdown 6 s, then the attempt-sink, emitter and APM flushes run concurrently
+  with 1.5 s each, leaving ~2.5 s of slack. A `ListenAndServe` failure flushes
+  APM itself because it bypasses that path.
 - **Flag registry.** Boot publishes the compiled-in flag registry with the
   defaults this process resolved, best effort; nothing on the request path reads
   it.
