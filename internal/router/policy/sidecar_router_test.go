@@ -1,14 +1,18 @@
 package policy_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -799,4 +803,24 @@ func TestSidecarRouterServesOnlyResolvedGatewayBindings(t *testing.T) {
 			assert.Equal(t, tc.wantProvider, decision.Provider)
 		})
 	}
+}
+
+func TestSidecarRouter_EmptyCandidateSetLogsWarnWithExclusions(t *testing.T) {
+	// Callers recover from an empty pool (the included subscription lane falls
+	// through to the paid lane) or answer it as a 4xx, so it is not a router error.
+	model := "xiaomi/mimo-v2.6-pro"
+	adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyHMM}, &recordingPolicy{},
+		policy.NewResolver(set(model), set(providers.ProviderDeepInfra), catalogRosterID, policy.ManagedProviderPolicy()))
+	var logs bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
+
+	_, err := adapter.Route(ctx, router.Request{EnabledProviders: set(providers.ProviderDeepInfra), ImageCount: 17})
+	require.ErrorIs(t, err, policy.ErrNoRoutableModels)
+
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &entry))
+	assert.Equal(t, "Policy router resolved no eligible candidate", entry["msg"])
+	assert.Equal(t, "WARN", entry["level"])
+	assert.EqualValues(t, 0, entry["candidate_count"])
+	assert.Equal(t, model, entry["excluded_"+string(policy.ExclusionImageLimit)])
 }

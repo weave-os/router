@@ -393,7 +393,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	}
 	resolved := r.resolver.Resolve(req)
 	if len(resolved.Candidates) == 0 {
-		observability.FromContext(ctx).Error("Policy router resolved no eligible candidate",
+		observability.FromContext(ctx).Warn("Policy router resolved no eligible candidate",
 			append([]any{"strategy", strategy}, candidateLogFields(resolved)...)...)
 		return router.Decision{}, fmt.Errorf("%s: no eligible candidate: %w", strategy, emptyCandidateError(resolved.Diagnostics))
 	}
