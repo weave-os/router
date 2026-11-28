@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -35,6 +36,13 @@ func (s *Service) CodexModelCatalog(ctx context.Context, headers http.Header, cl
 	catalog, err := fetcher.FetchCodexModelCatalog(ctx, clientVersion)
 	if err != nil {
 		return nil, err
+	}
+	return codexCatalogForCaller(ctx, catalog)
+}
+
+func codexCatalogForCaller(ctx context.Context, catalog []byte) ([]byte, error) {
+	if _, subject := auth.BlindExperimentFrom(ctx); subject {
+		return catalog, nil
 	}
 	return addCodexRoutingModels(catalog, internalBetaSession(ctx))
 }

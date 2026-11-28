@@ -303,3 +303,47 @@ func TestDisplaySettingsNamesTheReleaseOnlyForAnOptedInVisibleCaller(t *testing.
 		})
 	}
 }
+
+func TestDisplaySettingsHidesWeaveAutoOnlyFromBlindExperimentSubjects(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name              string
+		installation      auth.Installation
+		state             *auth.BlindExperimentState
+		userID            string
+		experimentEnabled bool
+		want              bool
+	}{
+		{name: "installation hides terminal surfaces only", installation: auth.Installation{ID: "inst-1", HideTerminalSurfaces: true}},
+		{name: "passthrough arm subject", installation: auth.Installation{ID: "inst-1"}, state: &auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough}, want: true},
+		{name: "router_on arm subject", installation: auth.Installation{ID: "inst-1"}, state: &auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}, want: true},
+		{name: "inactive experiment", installation: auth.Installation{ID: "inst-1"}, state: &auth.BlindExperimentState{Arm: auth.BlindExperimentArmRouterOn}},
+		{name: "unidentified caller, experiment enabled", installation: auth.Installation{ID: "inst-1"}, experimentEnabled: true, want: true},
+		{name: "identified non-subject, experiment enabled", installation: auth.Installation{ID: "inst-1"}, userID: "user-1", experimentEnabled: true},
+	} {
+		engine := gin.New()
+		engine.GET("/v1/display-settings", func(c *gin.Context) {
+			c.Set("router_installation", &tc.installation)
+		}, admin.DisplaySettingsHandler(&fakeAccountLister{}, func(c *gin.Context) context.Context {
+			ctx := c.Request.Context()
+			if tc.state != nil {
+				ctx = context.WithValue(ctx, auth.BlindExperimentContextKey{}, *tc.state)
+			}
+			if tc.userID != "" {
+				ctx = context.WithValue(ctx, auth.UserIDContextKey{}, tc.userID)
+			}
+			return ctx
+		}, fakeExperimentChecker{enabled: tc.experimentEnabled}, nil))
+
+		rec := httptest.NewRecorder()
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
+
+		require.Equal(t, http.StatusOK, rec.Code, tc.name)
+		var body struct {
+			HideWeaveAuto *bool `json:"hide_weave_auto"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body), tc.name)
+		require.NotNil(t, body.HideWeaveAuto, tc.name)
+		require.Equal(t, tc.want, *body.HideWeaveAuto, tc.name)
+	}
+}

@@ -18,6 +18,7 @@ import (
 
 type displaySettingsResponse struct {
 	HideTerminalSurfaces bool                        `json:"hide_terminal_surfaces"`
+	HideWeaveAuto        bool                        `json:"hide_weave_auto"`
 	DisconnectedPlans    []auth.SubscriptionProvider `json:"disconnected_plans"`
 	OwnSeats             []ownSeatResponse           `json:"own_seats"`
 }
@@ -53,26 +54,29 @@ func DisplaySettingsHandler(accounts SubscriptionAccountLister, resolveCaller Ca
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
 			return
 		}
-		hide := installation.HideTerminalSurfaces
 		callerCtx := c.Request.Context()
 		if resolveCaller != nil {
 			callerCtx = resolveCaller(c)
 		}
-		if !hide && resolveCaller != nil {
-			_, hide = auth.BlindExperimentFrom(callerCtx)
-			if !hide && auth.UserIDFrom(callerCtx) == "" && experiments != nil {
-				hide = experiments.InstallationBlindExperimentEnabled(callerCtx, installation.ID)
-			}
-		}
+		subject := resolveCaller != nil && blindExperimentSubject(callerCtx, installation.ID, experiments)
+		hide := installation.HideTerminalSurfaces || subject
 		if !hide && !installationExperimentBlindsRelease(callerCtx, installation.ID, experiments) {
 			ingress.SetServingReleaseHeaders(callerCtx, c.Writer.Header())
 		}
 		c.JSON(http.StatusOK, displaySettingsResponse{
 			HideTerminalSurfaces: hide,
+			HideWeaveAuto:        subject,
 			DisconnectedPlans:    disconnectedPlans(c, accounts),
 			OwnSeats:             ownSeats(callerCtx, seats),
 		})
 	}
+}
+
+func blindExperimentSubject(callerCtx context.Context, installationID string, experiments InstallationExperimentChecker) bool {
+	if _, active := auth.BlindExperimentFrom(callerCtx); active {
+		return true
+	}
+	return auth.UserIDFrom(callerCtx) == "" && experiments != nil && experiments.InstallationBlindExperimentEnabled(callerCtx, installationID)
 }
 
 func installationExperimentBlindsRelease(ctx context.Context, installationID string, experiments InstallationExperimentChecker) bool {

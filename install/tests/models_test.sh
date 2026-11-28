@@ -496,7 +496,7 @@ export REQUEST_LOG="$work/update-explicit.log" KEY_LOG="$work/update-explicit.ke
 run_update_project "$update_explicit/repo" --base-url http://127.0.0.1:8080
 check "explicit update endpoint is allowed" "$rc" "0"
 check "explicit update endpoint is called" "$(grep -c '^GET /health ' "$REQUEST_LOG")" "1"
-check "explicit update sends the local key" "$(grep -c 'X-Weave-Router-Key: rk_teammate' "$KEY_LOG")" "1"
+check "explicit update sends the local key" "$(grep 'X-Weave-Router-Key:' "$KEY_LOG" | sort -u)" "X-Weave-Router-Key: rk_teammate"
 
 update_marked="$work/update-marked"
 seed_project_split "$update_marked" "http://127.0.0.1:8080" trusted
@@ -505,7 +505,7 @@ export REQUEST_LOG="$work/update-marked.log" KEY_LOG="$work/update-marked.key"
 run_update_project "$update_marked/repo"
 check "marked self-hosted update is allowed" "$rc" "0"
 check "marked self-hosted update endpoint is called" "$(grep -c '^GET /health ' "$REQUEST_LOG")" "1"
-check "marked self-hosted update sends the local key" "$(grep -c 'X-Weave-Router-Key: rk_teammate' "$KEY_LOG")" "1"
+check "marked self-hosted update sends the local key" "$(grep 'X-Weave-Router-Key:' "$KEY_LOG" | sort -u)" "X-Weave-Router-Key: rk_teammate"
 
 # An explicit --base-url is the user vouching out-of-band, so it overrides the
 # committed value rather than being refused.

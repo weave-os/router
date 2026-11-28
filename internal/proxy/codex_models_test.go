@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
@@ -105,4 +106,25 @@ func TestCodexSelectionCatalog_ChatGPTLoginGetsAccountCatalog(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"gpt-account-only", proxy.CodexAutomaticModel}, []string{gjson.GetBytes(catalog, "models.0.slug").String(), gjson.GetBytes(catalog, "models.1.slug").String()})
 	assert.Len(t, gjson.GetBytes(catalog, "models").Array(), 2)
+}
+
+func TestCodexSelectionCatalog_HidesRoutingChoicesFromBlindExperimentSubjects(t *testing.T) {
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+	visible, err := svc.CodexSelectionCatalog(context.Background(), make(http.Header), "0.155.1")
+	require.NoError(t, err)
+	slugs := func(catalog []byte) []string {
+		var out []string
+		for _, model := range gjson.GetBytes(catalog, "models").Array() {
+			out = append(out, model.Get("slug").String())
+		}
+		return out
+	}
+	require.Contains(t, slugs(visible), proxy.CodexAutomaticModel)
+	for _, arm := range []auth.BlindExperimentArm{auth.BlindExperimentArmPassthrough, auth.BlindExperimentArmRouterOn} {
+		ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: arm})
+		hidden, err := svc.CodexSelectionCatalog(ctx, make(http.Header), "0.155.1")
+		require.NoError(t, err)
+		assert.NotContains(t, slugs(hidden), proxy.CodexAutomaticModel, "arm %s", arm)
+		assert.Len(t, slugs(hidden), len(slugs(visible))-1, "arm %s keeps every named model", arm)
+	}
 }

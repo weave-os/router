@@ -121,6 +121,7 @@ explicitly to its managed Codex config.
 | `<repo>/.gitignore`                 | ✅ commit  | Adds the four `.claude/` paths below to the ignore list.       |
 | `<repo>/.claude/cc-statusline.sh`   | ❌ ignored | Status line script — runs on every CC session.                 |
 | `<repo>/.claude/settings.local.json`| ❌ ignored | Stores your local `ANTHROPIC_CUSTOM_HEADERS` router-key header and any other per-teammate overrides. |
+| `<repo>/.claude/.weave-auto-hidden-*` | ❌ ignored | Local marker that restores Weave Auto after a blind experiment ends. |
 | `<repo>/.claude/.credentials.json`  | ❌ ignored | CC's per-user credentials cache.                               |
 
 The installer also adds a **Weave Auto** row to Claude Code's `/model` picker
@@ -198,6 +199,7 @@ The status helper is installed with mode `0700`, stores only the session's reque
 | `<repo>/.codex/config.toml`      | ❌ ignored | Per-teammate config (holds the router key). Each teammate runs the installer for their own key. |
 | `<repo>/.codex/weave-status.sh`  | ❌ ignored | Per-teammate Codex lifecycle helper used by the managed status hooks. |
 | `<repo>/.codex/.weave-router-disabled` | ❌ ignored | Local off-state marker used by the helper. |
+| `<repo>/.codex/.weave-auto-hidden` | ❌ ignored | Local marker that restores Weave Auto after a blind experiment ends. |
 | `<repo>/.gitignore`              | ✅ commit  | Adds the Codex config, status helper, and off-state marker to the ignore list. |
 
 Run Codex from the repo with `CODEX_HOME=<repo>/.codex codex` so it picks

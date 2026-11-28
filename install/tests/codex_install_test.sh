@@ -839,11 +839,34 @@ for entry in \
   ".codex/config.toml" \
   ".codex/weave-status.sh" \
   ".codex/weave-directive.sh" \
-  ".codex/.weave-router-disabled"
+  ".codex/.weave-router-disabled" \
+  ".codex/.weave-auto-hidden"
 do
   grep -qxF "$entry" "$proj_repo/.gitignore" \
     || fail "project install did not gitignore $entry"
 done
+
+# A .gitignore whose last line has no newline keeps that rule intact.
+unterminated_repo="$work/proj-repo-unterminated"
+mkdir -p "$unterminated_repo"
+git -C "$unterminated_repo" init -q .
+printf 'node_modules' >"$unterminated_repo/.gitignore"
+( cd "$unterminated_repo" && HOME="$proj_home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+    bash "$installer" --codex --scope project --quiet \
+      --base-url https://router.weaveos.com >/dev/null 2>&1 )
+grep -qxF node_modules "$unterminated_repo/.gitignore" \
+  || fail "project install fused its rule onto an unterminated .gitignore line"
+grep -qxF .codex/config.toml "$unterminated_repo/.gitignore" \
+  || fail "project install did not add its rule after an unterminated .gitignore line"
+# A read-only .gitignore that already has every rule is left alone.
+printf '%s' "$(cat "$unterminated_repo/.gitignore")" >"$unterminated_repo/.gitignore.new"
+mv "$unterminated_repo/.gitignore.new" "$unterminated_repo/.gitignore"
+chmod 444 "$unterminated_repo/.gitignore"
+( cd "$unterminated_repo" && HOME="$proj_home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+    bash "$installer" --codex --scope project --quiet \
+      --base-url https://router.weaveos.com >/dev/null 2>&1 ) \
+  || fail "project install failed on a complete read-only .gitignore"
+chmod 644 "$unterminated_repo/.gitignore"
 
 # Whatever the installer generated in .codex must actually be covered by those
 # rules -- an entry list that drifts from the files written is the failure mode.
@@ -974,6 +997,50 @@ fi
 if [ -f "$config" ] && grep -Fq 'base_url = "http://127.0.0.1:41984/v1"' "$config"; then
   fail "failed classifier probe modified the Codex provider"
 fi
+
+# A blind experiment subject whose install skipped the Weave hooks still loses
+# the Weave Auto default at install time, and gets it back after the
+# experiment ends.
+cat >"$fake_bin/curl" <<'SHIM'
+#!/usr/bin/env bash
+out="" url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift ;;
+    -w|-X|-H|--header|--max-time|--data-binary|-K) shift ;;
+    -*) ;;
+    *) url="$1" ;;
+  esac
+  shift
+done
+case "$url" in
+  */v1/display-settings) [ -n "${WEAVE_TEST_DISPLAY_SETTINGS:-}" ] || exit 22 ;;
+  *) exit 22 ;;
+esac
+printf '%s' "$WEAVE_TEST_DISPLAY_SETTINGS" >"$out"
+printf '200'
+SHIM
+chmod +x "$fake_bin/curl"
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex"
+printf '%s\n' '[hooks]' 'SessionStart = []' >"$config"
+WEAVE_TEST_DISPLAY_SETTINGS='{"hide_weave_auto": true}' run_hosted_install
+if grep -q 'weave-router managed codex status' "$config" || grep -Fq 'weave-status.sh' "$config"; then
+  fail "the install registered Weave hooks over existing hooks"
+fi
+if grep -qx 'model = "weave-auto"' "$config"; then
+  fail "a blind experiment subject kept the Weave Auto default after install"
+fi
+grep -qx 'model_provider = "weave"' "$config" \
+  || fail "hiding Weave Auto removed the Weave provider"
+WEAVE_TEST_DISPLAY_SETTINGS='{"hide_weave_auto": false}' run_hosted_install
+grep -qx 'model = "weave-auto"' "$config" \
+  || fail "Weave Auto did not come back after the experiment ended"
+sed 's/^model = "weave-auto"$/model = "gpt-6-sol"/' "$config" >"$work/named.toml" && mv "$work/named.toml" "$config"
+WEAVE_TEST_DISPLAY_SETTINGS='{"hide_weave_auto": true}' run_hosted_install
+grep -qx 'model = "gpt-6-sol"' "$config" \
+  || fail "a subject's named model did not survive the install"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 22' >"$fake_bin/curl"
 
 # ---------- another installer's marked region is never split ----------
 #
