@@ -1116,8 +1116,31 @@ $(weave_owned_codex_helpers)
 EOF
     strip_weave_codex_hooks "$tmp" ${owned_helpers[@]+"${owned_helpers[@]}"}
     local first_section
-    first_section="$(awk '/^[[:space:]]*\[/ { print NR; exit }' "$tmp")"
-    if [ -n "$first_section" ]; then
+    # The Weave Codex telemetry plugin opens its marked region with a begin
+    # marker above its first table and deletes everything between its markers
+    # when it reinstalls. When that table is the first header, splice above
+    # the marker so the managed block stays outside the region. Keys
+    # between the marker and its table move out with it: left below the
+    # block they would become members of its last table. Comments stay.
+    local first_section telemetry_begin_line
+    read -r first_section telemetry_begin_line <<EOF
+$(awk '
+      /^[[:space:]]*\[/ { print NR, telemetry_begin_line + 0; exit }
+      index($0, "# --- BEGIN WEAVE TELEMETRY") == 1 { telemetry_begin_line = NR }
+    ' "$tmp")
+EOF
+    if [ "${telemetry_begin_line:-0}" -gt 0 ]; then
+      {
+        if [ "$telemetry_begin_line" -gt 1 ]; then
+          head -n "$((telemetry_begin_line - 1))" "$tmp"
+        fi
+        awk -v begin="$telemetry_begin_line" -v table_line="$first_section" \
+          'NR > begin && NR < table_line && !/^[[:space:]]*(#.*)?$/' "$tmp"
+        printf "%s\n" "$codex_insertion"
+        awk -v begin="$telemetry_begin_line" -v table_line="$first_section" \
+          'NR == begin || NR >= table_line || (NR > begin && /^[[:space:]]*(#.*)?$/)' "$tmp"
+      } >"$config_file"
+    elif [ -n "$first_section" ]; then
       # BSD `head -n 0` (macOS default) errors with "illegal line count"
       # and trips `set -euo pipefail`, leaving an empty config. Skip the
       # head call entirely when the file starts with a section header.
