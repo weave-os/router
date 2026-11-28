@@ -43,7 +43,7 @@ func WithOrgMonthlySpendCap(svc *billing.Service, funding credentials.CustomerFu
 
 		subscriptionExempt := funding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ByokFeeOwed(c.Request.Context()))
 
-		result, err := svc.CheckOrgMonthlySpend(c.Request.Context(), orgID)
+		result, err := admissionMonthly(c, svc, orgID)
 		if err != nil {
 			log.Error("Org monthly spend cap check failed; refusing request", "err", err, "organization_id", orgID)
 			abortBillingUnavailable(c)

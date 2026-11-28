@@ -53,13 +53,14 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64, funding cred
 		}
 
 		orgID := installation.ExternalID
+		loadBillingAdmission(c, svc, orgID)
 		if admittedWithoutCredits(c, svc, installation) {
 			return
 		}
 
 		subscriptionExempt := funding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ByokFeeOwed(c.Request.Context()))
 
-		result, err := svc.CheckBalance(c.Request.Context(), orgID)
+		result, err := admissionBalance(c, svc, orgID)
 		if err != nil {
 			if errors.Is(err, billing.ErrBalanceRowMissing) {
 				kind, refused := tripSubscriptionLane(c, svc, subscriptionlane.BalanceGate, subscriptionExempt)
@@ -126,7 +127,7 @@ func admittedWithoutCredits(c *gin.Context, svc *billing.Service, installation *
 		return false
 	}
 	ctx := billing.WithWeaveCreditsDenied(c.Request.Context())
-	if result, err := svc.CheckBalance(ctx, installation.ExternalID); err == nil && result.HasOverride {
+	if result, err := admissionBalance(c, svc, installation.ExternalID); err == nil && result.HasOverride {
 		ctx = context.WithValue(ctx, billing.HasOverrideContextKey, true)
 	}
 	c.Request = c.Request.WithContext(ctx)

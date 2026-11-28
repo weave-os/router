@@ -48,6 +48,7 @@ type Service struct {
 	allowances     SubscriberAllowanceSettler
 	prepaid        *PrepaidBooks
 	delegatedSpend DelegatedSpendReader
+	admission      AdmissionReader
 }
 
 func NewService(repo Repo) *Service {
