@@ -218,7 +218,7 @@ func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, inclu
 		session.SessionCapMicros, session.TaskCapMicros = claims.Caps.SessionUSDMicros, claims.Caps.TaskUSDMicros
 	}
 	s.fireMarkUsed(ctx, issuer.APIKey, issuer.Installation)
-	s.fireMarkFirstRequestServed(ctx, issuer.APIKey.InstallationID)
+	s.fireMarkFirstRequestServed(ctx, issuer.APIKey.InstallationID, issuer.Installation)
 	if !includeUpstreamKeys {
 		return issuer.Installation, issuer.APIKey, nil, issuer.ClusterModelLists, session, nil
 	}

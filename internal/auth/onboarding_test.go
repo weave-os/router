@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -43,6 +44,30 @@ func (r *onboardingRecorder) harnessEvents() []auth.APIKeyFirstUsedEvent {
 	return append([]auth.APIKeyFirstUsedEvent(nil), r.harnesses...)
 }
 
+type panickingOnboardingObserver struct{ onboardingRecorder }
+
+func (r *panickingOnboardingObserver) APIKeyFirstUsed(event auth.APIKeyFirstUsedEvent) {
+	r.onboardingRecorder.APIKeyFirstUsed(event)
+	panic("first-use observer failed")
+}
+
+func TestOnboardingPanicPreservesSuccessfulUsageMark(t *testing.T) {
+	const token = "rk_observer_panic"
+	key := &auth.APIKey{ID: "key", InstallationID: "installation", KeyHash: auth.HashAPIKeySHA256(token), Scope: auth.ScopeRouting}
+	svc, keys := makeService(t, fakeKeyRow{apiKey: key, installation: &auth.Installation{ID: key.InstallationID}})
+	observer := &panickingOnboardingObserver{}
+	svc.WithOnboardingObserver(observer)
+	synctest.Test(t, func(t *testing.T) {
+		for range 2 {
+			_, _, _, _, err := svc.VerifyAPIKey(context.Background(), token)
+			require.NoError(t, err)
+			synctest.Wait()
+		}
+		require.Len(t, observer.harnessEvents(), 1)
+		require.Equal(t, []string{key.ID}, keys.markUsedSnapshot())
+	})
+}
+
 func TestVerifyAPIKeyReportsFirstUseOnceIncludingCacheHits(t *testing.T) {
 	installation := &auth.Installation{ID: "installation", ExternalID: "org-test"}
 	first := &auth.APIKey{
@@ -71,7 +96,7 @@ func TestVerifyAPIKeyReportsFirstUseOnceIncludingCacheHits(t *testing.T) {
 		_, _, _, _, err = svc.VerifyAPIKey(context.Background(), "rk_first")
 		require.NoError(t, err)
 	}
-	require.Eventually(t, func() bool { return len(keys.markUsedSnapshot()) == 4 }, time.Second, time.Millisecond)
+	require.Never(t, func() bool { return len(keys.markUsedSnapshot()) != 1 }, 50*time.Millisecond, time.Millisecond)
 	require.Never(t, func() bool { return len(recorder.harnessEvents()) != 1 }, 50*time.Millisecond, time.Millisecond)
 	require.Equal(t, want, recorder.harnessEvents())
 }
